@@ -7,7 +7,9 @@ import (
 	"sort"
 
 	"github.com/alecthomas/kong"
+	"github.com/richardwooding/file-search-on/internal/celexpr"
 	contentpkg "github.com/richardwooding/file-search-on/internal/content"
+	"github.com/richardwooding/file-search-on/internal/mcpserver"
 	"github.com/richardwooding/file-search-on/internal/search"
 )
 
@@ -19,7 +21,14 @@ var (
 
 var CLI struct {
 	Search  SearchCmd        `cmd:"" help:"Search for files matching a CEL expression." default:"withargs"`
+	MCP     MCPCmd           `cmd:"" name:"mcp" help:"Run as a Model Context Protocol server over stdio."`
 	Version kong.VersionFlag `short:"V" help:"Print version and exit."`
+}
+
+type MCPCmd struct{}
+
+func (m *MCPCmd) Run() error {
+	return mcpserver.Run(context.Background(), version)
 }
 
 type SearchCmd struct {
@@ -68,41 +77,27 @@ func (s *SearchCmd) Run() error {
 }
 
 func printHelp() {
+	schema := celexpr.Schema()
+
 	fmt.Println("Supported CEL attributes:")
-	fmt.Println("  name         (string)  - filename")
-	fmt.Println("  path         (string)  - full path")
-	fmt.Println("  dir          (string)  - parent directory")
-	fmt.Println("  size         (int)     - file size in bytes")
-	fmt.Println("  ext          (string)  - file extension (e.g. '.md')")
-	fmt.Println("  content_type (string)  - detected content type")
-	fmt.Println("  is_markdown  (bool)    - true if markdown file")
-	fmt.Println("  is_json      (bool)    - true if JSON file")
-	fmt.Println("  is_xml       (bool)    - true if XML file")
-	fmt.Println("  is_html      (bool)    - true if HTML file")
-	fmt.Println("  is_pdf       (bool)    - true if PDF file")
-	fmt.Println("  is_image     (bool)    - true if image file")
+	printAttrs(schema.Common, 12, 9)
 	fmt.Println()
 	fmt.Println("Type-specific attributes:")
-	fmt.Println("  title              (string)    - title (front-matter, markdown h1, HTML title, PDF title)")
-	fmt.Println("  word_count         (int)       - word count (markdown body, excluding front-matter)")
-	fmt.Println("  page_count         (int)       - page count (PDF)")
-	fmt.Println("  author             (string)    - author (markdown front-matter, PDF)")
-	fmt.Println("  root_element       (string)    - root element name (XML)")
-	fmt.Println("  json_kind          (string)    - 'object' or 'array' (JSON)")
-	fmt.Println("  img_width          (int)       - image width in pixels")
-	fmt.Println("  img_height         (int)       - image height in pixels")
+	printAttrs(schema.TypeSpecific, 18, 11)
 	fmt.Println()
 	fmt.Println("Markdown front-matter attributes (YAML ---, TOML +++, JSON {}):")
-	fmt.Println("  frontmatter        (map)       - full parsed front-matter, e.g. frontmatter.category")
-	fmt.Println("  frontmatter_format (string)    - 'yaml', 'toml', 'json', or '' if none")
-	fmt.Println("  tags               (list<str>) - front-matter tags (single string is wrapped)")
-	fmt.Println("  categories         (list<str>) - front-matter categories")
-	fmt.Println("  draft              (bool)      - front-matter draft flag")
-	fmt.Println("  date               (timestamp) - front-matter date")
+	printAttrs(schema.Frontmatter, 18, 11)
 	fmt.Println()
 	fmt.Println("Registered content types:")
 	for _, ct := range contentpkg.DefaultRegistry().Types() {
 		fmt.Printf("  %-20s %v\n", ct.Name(), ct.Extensions())
+	}
+}
+
+func printAttrs(attrs []celexpr.AttributeDoc, nameWidth, typeWidth int) {
+	for _, a := range attrs {
+		typeField := "(" + a.Type + ")"
+		fmt.Printf("  %-*s %-*s - %s\n", nameWidth, a.Name, typeWidth, typeField, a.Description)
 	}
 }
 
