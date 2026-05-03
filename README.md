@@ -22,6 +22,12 @@ brew install richardwooding/tap/file-search-on
 
 The cask is published from this repo on every tagged release to [`richardwooding/homebrew-tap`](https://github.com/richardwooding/homebrew-tap).
 
+> **macOS Gatekeeper:** the binary isn't yet signed with an Apple Developer ID, so macOS may block it on first run. The cask's post-install hook strips the quarantine xattr automatically. If macOS still blocks it, run:
+>
+> ```sh
+> sudo xattr -dr com.apple.quarantine $(brew --prefix)/bin/file-search-on
+> ```
+
 ### Container (Docker / Podman)
 
 OCI images are published to GitHub Container Registry on every tag, with `linux/amd64` and `linux/arm64` manifests:
