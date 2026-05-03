@@ -1,0 +1,44 @@
+package content
+
+// REPLACE: package import this type needs (e.g. "encoding/csv", "io", "os") and remove unused imports.
+import (
+	"os"
+)
+
+func init() {
+	Register(&<typename>Type{})
+}
+
+type <typename>Type struct{}
+
+// Name returns the stable identifier surfaced as the `content_type` CEL attribute.
+// For image families, MUST start with "image/" (e.g. "image/avif").
+func (t *<typename>Type) Name() string { return "<name>" }
+
+// Extensions returns lowercase, leading-dot extensions matched against filepath.Ext(path).
+func (t *<typename>Type) Extensions() []string {
+	return []string{"<.ext>"}
+}
+
+// MagicBytes returns prefixes matched against the first 512 bytes of the file.
+// Return nil (NOT an empty slice) if the type is detected by extension only.
+func (t *<typename>Type) MagicBytes() [][]byte {
+	return nil
+}
+
+// Attributes is called per matching file during the walk. Keep it cheap —
+// decode only what you need to extract the attributes you'll surface to CEL.
+// Return Attributes{} (never nil) if there are no type-specific attributes.
+//
+// REPLACE: open the file, do the minimum work needed, return the keys. If you
+// add any keys, also follow the extend-cel-schema skill so cel-go sees them.
+func (t *<typename>Type) Attributes(path string) (Attributes, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+
+	// REPLACE: read/parse the file and populate the map below.
+	return Attributes{}, nil
+}
