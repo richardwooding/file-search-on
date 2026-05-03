@@ -16,6 +16,11 @@ type Result struct {
 	Path        string
 	ContentType string
 	Size        int64
+	// Attrs is set when Options.IncludeAttributes is true. Nil otherwise.
+	// Carries the full FileAttributes that the CEL evaluator already built
+	// for this file, so callers can render verbose / JSON / template output
+	// without re-statting or re-parsing.
+	Attrs *celexpr.FileAttributes
 }
 
 // Options configures the search
@@ -28,6 +33,10 @@ type Options struct {
 	// (see content.DefaultMaxLineBytes). Process-global; concurrent Walk
 	// calls with different caps will race.
 	MaxLineBytes int
+	// IncludeAttributes, when true, populates Result.Attrs with the full
+	// FileAttributes the CEL evaluator built. Off by default so the cheap
+	// path-and-size case does not pay the pointer-keeping cost.
+	IncludeAttributes bool
 }
 
 // Walk walks the directory and returns matching files
@@ -58,12 +67,16 @@ func Walk(ctx context.Context, opts Options, registry *content.Registry) ([]Resu
 				if err != nil || !match {
 					continue
 				}
-				mu.Lock()
-				results = append(results, Result{
+				r := Result{
 					Path:        path,
 					ContentType: attrs.ContentType,
 					Size:        attrs.Size,
-				})
+				}
+				if opts.IncludeAttributes {
+					r.Attrs = attrs
+				}
+				mu.Lock()
+				results = append(results, r)
 				mu.Unlock()
 			}
 		})

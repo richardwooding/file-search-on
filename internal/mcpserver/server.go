@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -21,11 +22,124 @@ type SearchInput struct {
 	MaxLineBytes int    `json:"max_line_bytes,omitempty" jsonschema:"Per-line scanner buffer cap for text/CSV/HTML (bytes). 0 uses the 1 MiB default; raise for very long log lines."`
 }
 
-// SearchMatch is one match returned by the `search` tool.
+// SearchMatch is one match returned by the `search` tool. Beyond path /
+// content_type / size, every CEL-visible attribute is included when the
+// matched content type emits it; absent fields are omitted from the JSON
+// payload so simple consumers see a compact shape.
 type SearchMatch struct {
 	Path        string `json:"path"`
 	ContentType string `json:"content_type"`
 	Size        int64  `json:"size"`
+
+	Title    string `json:"title,omitempty"`
+	Author   string `json:"author,omitempty"`
+	Language string `json:"language,omitempty"`
+
+	WordCount   int64 `json:"word_count,omitempty"`
+	LineCount   int64 `json:"line_count,omitempty"`
+	PageCount   int64 `json:"page_count,omitempty"`
+	ColumnCount int64 `json:"column_count,omitempty"`
+
+	CSVColumns  []string `json:"csv_columns,omitempty"`
+	RootElement string   `json:"root_element,omitempty"`
+	JSONKind    string   `json:"json_kind,omitempty"`
+
+	ImgWidth  int64 `json:"img_width,omitempty"`
+	ImgHeight int64 `json:"img_height,omitempty"`
+
+	FrontmatterFormat string         `json:"frontmatter_format,omitempty"`
+	Frontmatter       map[string]any `json:"frontmatter,omitempty"`
+	Tags              []string       `json:"tags,omitempty"`
+	Categories        []string       `json:"categories,omitempty"`
+	Draft             bool           `json:"draft,omitempty"`
+	Date              string         `json:"date,omitempty"` // RFC3339 when set
+
+	IsMarkdown bool `json:"is_markdown,omitempty"`
+	IsJSON     bool `json:"is_json,omitempty"`
+	IsXML      bool `json:"is_xml,omitempty"`
+	IsHTML     bool `json:"is_html,omitempty"`
+	IsPDF      bool `json:"is_pdf,omitempty"`
+	IsImage    bool `json:"is_image,omitempty"`
+	IsText     bool `json:"is_text,omitempty"`
+	IsCSV      bool `json:"is_csv,omitempty"`
+	IsEPUB     bool `json:"is_epub,omitempty"`
+	IsOffice   bool `json:"is_office,omitempty"`
+}
+
+// matchFrom projects a search.Result (with Attrs populated) into a
+// SearchMatch wire object.
+func matchFrom(r search.Result) SearchMatch {
+	m := SearchMatch{
+		Path:        r.Path,
+		ContentType: r.ContentType,
+		Size:        r.Size,
+	}
+	if r.Attrs == nil {
+		return m
+	}
+	a := r.Attrs
+	m.IsMarkdown, m.IsJSON, m.IsXML, m.IsHTML = a.IsMarkdown, a.IsJSON, a.IsXML, a.IsHTML
+	m.IsPDF, m.IsImage = a.IsPDF, a.IsImage
+	m.IsText, m.IsCSV, m.IsEPUB, m.IsOffice = a.IsText, a.IsCSV, a.IsEPUB, a.IsOffice
+
+	if a.Extra == nil {
+		return m
+	}
+	if v, ok := a.Extra["title"].(string); ok {
+		m.Title = v
+	}
+	if v, ok := a.Extra["author"].(string); ok {
+		m.Author = v
+	}
+	if v, ok := a.Extra["language"].(string); ok {
+		m.Language = v
+	}
+	if v, ok := a.Extra["word_count"].(int64); ok {
+		m.WordCount = v
+	}
+	if v, ok := a.Extra["line_count"].(int64); ok {
+		m.LineCount = v
+	}
+	if v, ok := a.Extra["page_count"].(int64); ok {
+		m.PageCount = v
+	}
+	if v, ok := a.Extra["column_count"].(int64); ok {
+		m.ColumnCount = v
+	}
+	if v, ok := a.Extra["csv_columns"].([]string); ok {
+		m.CSVColumns = v
+	}
+	if v, ok := a.Extra["root_element"].(string); ok {
+		m.RootElement = v
+	}
+	if v, ok := a.Extra["kind"].(string); ok {
+		m.JSONKind = v
+	}
+	if v, ok := a.Extra["width"].(int64); ok {
+		m.ImgWidth = v
+	}
+	if v, ok := a.Extra["height"].(int64); ok {
+		m.ImgHeight = v
+	}
+	if v, ok := a.Extra["frontmatter_format"].(string); ok {
+		m.FrontmatterFormat = v
+	}
+	if v, ok := a.Extra["frontmatter"].(map[string]any); ok && len(v) > 0 {
+		m.Frontmatter = v
+	}
+	if v, ok := a.Extra["tags"].([]string); ok && len(v) > 0 {
+		m.Tags = v
+	}
+	if v, ok := a.Extra["categories"].([]string); ok && len(v) > 0 {
+		m.Categories = v
+	}
+	if v, ok := a.Extra["draft"].(bool); ok {
+		m.Draft = v
+	}
+	if v, ok := a.Extra["date"].(time.Time); ok && !v.IsZero() {
+		m.Date = v.Format(time.RFC3339)
+	}
+	return m
 }
 
 // SearchOutput is the structured output of the `search` tool.
@@ -86,10 +200,11 @@ func searchHandler(ctx context.Context, _ *mcp.CallToolRequest, in SearchInput) 
 	}
 
 	results, err := search.Walk(ctx, search.Options{
-		Root:         dir,
-		Expr:         expr,
-		Workers:      in.Workers,
-		MaxLineBytes: in.MaxLineBytes,
+		Root:              dir,
+		Expr:              expr,
+		Workers:           in.Workers,
+		MaxLineBytes:      in.MaxLineBytes,
+		IncludeAttributes: true,
 	}, content.DefaultRegistry())
 	if err != nil {
 		return nil, SearchOutput{}, fmt.Errorf("walk: %w", err)
@@ -99,7 +214,7 @@ func searchHandler(ctx context.Context, _ *mcp.CallToolRequest, in SearchInput) 
 
 	matches := make([]SearchMatch, len(results))
 	for i, r := range results {
-		matches[i] = SearchMatch{Path: r.Path, ContentType: r.ContentType, Size: r.Size}
+		matches[i] = matchFrom(r)
 	}
 
 	return nil, SearchOutput{Matches: matches, Count: len(matches)}, nil

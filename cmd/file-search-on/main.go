@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"text/template"
 
 	"github.com/alecthomas/kong"
 	"github.com/richardwooding/file-search-on/internal/celexpr"
@@ -37,6 +38,8 @@ type SearchCmd struct {
 	Workers      int    `short:"w" help:"Number of parallel workers." default:"0"`
 	List         bool   `short:"l" help:"List supported attributes and content types."`
 	MaxLineBytes int    `short:"L" name:"max-line-bytes" help:"Per-line scanner cap for text/CSV/HTML (bytes). 0 uses the 1 MiB default." default:"0"`
+	Output       string `short:"o" name:"output" enum:"bare,default,verbose,json" default:"default" help:"Output format: bare | default | verbose | json."`
+	Format       string `name:"format" help:"Custom Go text/template applied per match (e.g. '{{.Path}}\\t{{.Title}}'). When set, takes precedence over -o."`
 }
 
 func (s *SearchCmd) Run() error {
@@ -49,12 +52,26 @@ func (s *SearchCmd) Run() error {
 		s.Expr = "true"
 	}
 
+	// --format implies attribute access; same for verbose/json presets.
+	includeAttrs := s.Format != "" || s.Output == "verbose" || s.Output == "json"
+
+	// Parse the template up front so a bad template fails before we walk.
+	var tmpl *template.Template
+	if s.Format != "" {
+		var err error
+		tmpl, err = parseFormatTemplate(s.Format)
+		if err != nil {
+			return fmt.Errorf("parse --format template: %w", err)
+		}
+	}
+
 	ctx := context.Background()
 	opts := search.Options{
-		Root:         s.Dir,
-		Expr:         s.Expr,
-		Workers:      s.Workers,
-		MaxLineBytes: s.MaxLineBytes,
+		Root:              s.Dir,
+		Expr:              s.Expr,
+		Workers:           s.Workers,
+		MaxLineBytes:      s.MaxLineBytes,
+		IncludeAttributes: includeAttrs,
 	}
 
 	results, err := search.Walk(ctx, opts, contentpkg.DefaultRegistry())
@@ -66,15 +83,24 @@ func (s *SearchCmd) Run() error {
 		return results[i].Path < results[j].Path
 	})
 
-	for _, r := range results {
-		ct := r.ContentType
-		if ct == "" {
-			ct = "unknown"
+	switch {
+	case tmpl != nil:
+		if err := printTemplate(os.Stdout, results, tmpl); err != nil {
+			return err
 		}
-		fmt.Printf("%s\t[%s]\t%d bytes\n", r.Path, ct, r.Size)
+	case s.Output == "bare":
+		printBare(os.Stdout, results)
+	case s.Output == "verbose":
+		printVerbose(os.Stdout, results)
+		fmt.Fprintf(os.Stderr, "\n%d file(s) found\n", len(results))
+	case s.Output == "json":
+		if err := printJSON(os.Stdout, results); err != nil {
+			return err
+		}
+	default: // "" or "default"
+		printDefault(os.Stdout, results)
+		fmt.Fprintf(os.Stderr, "\n%d file(s) found\n", len(results))
 	}
-
-	fmt.Fprintf(os.Stderr, "\n%d file(s) found\n", len(results))
 	return nil
 }
 
