@@ -48,7 +48,7 @@ func decodeImageConfig(path string) (int, int, error) {
 	if err != nil {
 		return 0, 0, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	cfg, _, err := image.DecodeConfig(f)
 	if err != nil {
 		return 0, 0, err

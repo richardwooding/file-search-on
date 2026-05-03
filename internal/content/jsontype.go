@@ -27,7 +27,7 @@ func (j *jsonType) Attributes(path string) (Attributes, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	decoder := json.NewDecoder(f)
 	tok, err := decoder.Token()
@@ -36,9 +36,10 @@ func (j *jsonType) Attributes(path string) (Attributes, error) {
 	}
 	kind := "unknown"
 	if d, ok := tok.(json.Delim); ok {
-		if d == '{' {
+		switch d {
+		case '{':
 			kind = "object"
-		} else if d == '[' {
+		case '[':
 			kind = "array"
 		}
 	}

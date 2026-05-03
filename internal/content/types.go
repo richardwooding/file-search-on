@@ -3,7 +3,7 @@ package content
 import "sync"
 
 // Attributes is a map of attribute name to value for CEL evaluation
-type Attributes map[string]interface{}
+type Attributes map[string]any
 
 // ContentType represents a detectable file content type
 type ContentType interface {

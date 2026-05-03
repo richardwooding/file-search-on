@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `file-search-on` is a Go CLI that recursively searches a directory and matches files against a [CEL](https://github.com/google/cel-spec) expression evaluated over file metadata and content-type-specific attributes (e.g. `is_pdf && page_count > 10`, `is_markdown && word_count > 500`).
 
-Module: `github.com/richardwooding/file-search-on`. Toolchain: Go 1.25.
+Module: `github.com/richardwooding/file-search-on`. Toolchain: Go 1.26.2.
 
 ## Commands
 
@@ -17,8 +17,22 @@ go test ./...                                   # run all tests
 go test -race -coverprofile=coverage.out ./...  # what CI runs
 go test ./internal/celexpr -run TestEvaluator   # run a single test (regex match)
 go vet ./...
+go fix -diff ./...                              # preview Go 1.26 modernizers (see below)
+go fix ./...                                    # apply them
 golangci-lint run                               # CI uses `latest` version
 ```
+
+### `go fix` (Go 1.26+ modernizers)
+
+Go 1.26 reintroduced `go fix` as a code-modernization tool — it rewrites code to use newer language and stdlib features (e.g. `slices.Contains`, `any`, `min`/`max`, `range` over an integer, `sync.WaitGroup.Go`). See [the announcement](https://go.dev/blog/gofix) for the full set of fixers.
+
+CI runs `go fix ./... && git diff --exit-code` after the build step, so any unapplied modernizer will fail the pipeline. Workflow:
+
+1. Make sure the working tree is clean (`go fix` edits should be a separate commit from feature work).
+2. Run `go fix -diff ./...` to preview, or `go fix ./...` to apply. Re-run until idempotent — applying one fix can unlock another.
+3. `go test ./...` afterwards; semantic conflicts may need a manual touch-up.
+
+Use `go tool fix help` to list fixers and `go tool fix help <name>` for details on a specific one.
 
 Run the CLI:
 

@@ -23,7 +23,7 @@ func (m *markdownType) Attributes(path string) (Attributes, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var title string
 	var wordCount int

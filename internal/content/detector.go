@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -16,17 +17,15 @@ func (r *Registry) Detect(path string) ContentType {
 
 	ext := strings.ToLower(filepath.Ext(path))
 	for _, ct := range types {
-		for _, e := range ct.Extensions() {
-			if e == ext {
-				return ct
-			}
+		if slices.Contains(ct.Extensions(), ext) {
+			return ct
 		}
 	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	buf := make([]byte, 512)
 	n, _ := f.Read(buf)
 	buf = buf[:n]
