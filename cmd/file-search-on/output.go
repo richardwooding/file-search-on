@@ -64,6 +64,15 @@ type Record struct {
 	IsCSV      bool `json:"is_csv,omitempty"`
 	IsEPUB     bool `json:"is_epub,omitempty"`
 	IsOffice   bool `json:"is_office,omitempty"`
+	IsAudio    bool `json:"is_audio,omitempty"`
+
+	Artist      string `json:"artist,omitempty"`
+	Album       string `json:"album,omitempty"`
+	AlbumArtist string `json:"album_artist,omitempty"`
+	Composer    string `json:"composer,omitempty"`
+	Year        int64  `json:"year,omitempty"`
+	Track       int64  `json:"track,omitempty"`
+	Genre       string `json:"genre,omitempty"`
 }
 
 // recordFrom projects a search.Result into the wire shape. Falls back to
@@ -91,6 +100,7 @@ func recordFrom(r search.Result) Record {
 	rec.IsCSV = a.IsCSV
 	rec.IsEPUB = a.IsEPUB
 	rec.IsOffice = a.IsOffice
+	rec.IsAudio = a.IsAudio
 
 	if a.Extra == nil {
 		return rec
@@ -163,6 +173,27 @@ func recordFrom(r search.Result) Record {
 	}
 	if v, ok := a.Extra["exposure_time"].(float64); ok {
 		rec.ExposureTime = v
+	}
+	if v, ok := a.Extra["artist"].(string); ok {
+		rec.Artist = v
+	}
+	if v, ok := a.Extra["album"].(string); ok {
+		rec.Album = v
+	}
+	if v, ok := a.Extra["album_artist"].(string); ok {
+		rec.AlbumArtist = v
+	}
+	if v, ok := a.Extra["composer"].(string); ok {
+		rec.Composer = v
+	}
+	if v, ok := a.Extra["year"].(int64); ok {
+		rec.Year = v
+	}
+	if v, ok := a.Extra["track"].(int64); ok {
+		rec.Track = v
+	}
+	if v, ok := a.Extra["genre"].(string); ok {
+		rec.Genre = v
 	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
 		rec.FrontmatterFormat = v
