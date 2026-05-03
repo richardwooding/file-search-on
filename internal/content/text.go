@@ -2,6 +2,7 @@ package content
 
 import (
 	"bufio"
+	"context"
 	"os"
 	"strings"
 )
@@ -16,7 +17,10 @@ func (t *textType) Name() string         { return "text" }
 func (t *textType) Extensions() []string { return []string{".txt", ".text", ".log"} }
 func (t *textType) MagicBytes() [][]byte { return nil }
 
-func (t *textType) Attributes(path string) (Attributes, error) {
+func (t *textType) Attributes(ctx context.Context, path string) (Attributes, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -28,6 +32,9 @@ func (t *textType) Attributes(path string) (Attributes, error) {
 
 	var lineCount, wordCount int64
 	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		lineCount++
 		wordCount += int64(len(strings.Fields(scanner.Text())))
 	}

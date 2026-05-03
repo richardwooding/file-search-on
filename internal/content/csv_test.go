@@ -44,7 +44,7 @@ func TestCSVAttributes(t *testing.T) {
 			if ct == nil || ct.Name() != "csv" {
 				t.Fatalf("Detect: got %v, want csv", ct)
 			}
-			attrs, err := ct.Attributes(path)
+			attrs, err := ct.Attributes(t.Context(), path)
 			if err != nil {
 				t.Fatalf("Attributes: %v", err)
 			}
@@ -69,7 +69,7 @@ func TestCSVEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 	ct := content.DefaultRegistry().Detect(path)
-	attrs, err := ct.Attributes(path)
+	attrs, err := ct.Attributes(t.Context(), path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}

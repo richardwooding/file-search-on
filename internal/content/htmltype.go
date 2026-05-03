@@ -2,6 +2,7 @@ package content
 
 import (
 	"bufio"
+	"context"
 	"os"
 	"regexp"
 	"strings"
@@ -28,7 +29,10 @@ var (
 	htmlLangRe = regexp.MustCompile(`(?i)<html[^>]*\blang\s*=\s*["']?([A-Za-z][\w-]*)`)
 )
 
-func (h *htmlType) Attributes(path string) (Attributes, error) {
+func (h *htmlType) Attributes(ctx context.Context, path string) (Attributes, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -39,6 +43,9 @@ func (h *htmlType) Attributes(path string) (Attributes, error) {
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 64*1024), MaxLineBytes())
 	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		sb.WriteString(scanner.Text())
 		sb.WriteString("\n")
 	}

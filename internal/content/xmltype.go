@@ -1,6 +1,7 @@
 package content
 
 import (
+	"context"
 	"encoding/xml"
 	"os"
 )
@@ -21,7 +22,10 @@ func (x *xmlType) MagicBytes() [][]byte {
 	}
 }
 
-func (x *xmlType) Attributes(path string) (Attributes, error) {
+func (x *xmlType) Attributes(ctx context.Context, path string) (Attributes, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -31,6 +35,9 @@ func (x *xmlType) Attributes(path string) (Attributes, error) {
 	decoder := xml.NewDecoder(f)
 	var rootElement string
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		tok, err := decoder.Token()
 		if err != nil {
 			break

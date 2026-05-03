@@ -23,7 +23,7 @@ func markdownAttrs(t *testing.T, path string) content.Attributes {
 	t.Helper()
 	for _, ct := range content.DefaultRegistry().Types() {
 		if ct.Name() == "markdown" {
-			attrs, err := ct.Attributes(path)
+			attrs, err := ct.Attributes(t.Context(), path)
 			if err != nil {
 				t.Fatal(err)
 			}

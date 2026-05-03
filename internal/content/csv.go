@@ -2,6 +2,7 @@ package content
 
 import (
 	"bufio"
+	"context"
 	"encoding/csv"
 	"os"
 	"path/filepath"
@@ -18,7 +19,10 @@ func (c *csvType) Name() string         { return "csv" }
 func (c *csvType) Extensions() []string { return []string{".csv", ".tsv"} }
 func (c *csvType) MagicBytes() [][]byte { return nil }
 
-func (c *csvType) Attributes(path string) (Attributes, error) {
+func (c *csvType) Attributes(ctx context.Context, path string) (Attributes, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err

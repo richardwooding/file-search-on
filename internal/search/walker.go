@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"path/filepath"
 	"runtime"
@@ -58,26 +59,37 @@ func Walk(ctx context.Context, opts Options, registry *content.Registry) ([]Resu
 
 	for i := 0; i < opts.Workers; i++ {
 		wg.Go(func() {
-			for path := range paths {
-				attrs, err := celexpr.BuildAttributes(path, registry)
-				if err != nil {
-					continue
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case path, ok := <-paths:
+					if !ok {
+						return
+					}
+					attrs, err := celexpr.BuildAttributes(ctx, path, registry)
+					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+						return
+					}
+					if err != nil {
+						continue
+					}
+					match, err := evaluator.Evaluate(attrs)
+					if err != nil || !match {
+						continue
+					}
+					r := Result{
+						Path:        path,
+						ContentType: attrs.ContentType,
+						Size:        attrs.Size,
+					}
+					if opts.IncludeAttributes {
+						r.Attrs = attrs
+					}
+					mu.Lock()
+					results = append(results, r)
+					mu.Unlock()
 				}
-				match, err := evaluator.Evaluate(attrs)
-				if err != nil || !match {
-					continue
-				}
-				r := Result{
-					Path:        path,
-					ContentType: attrs.ContentType,
-					Size:        attrs.Size,
-				}
-				if opts.IncludeAttributes {
-					r.Attrs = attrs
-				}
-				mu.Lock()
-				results = append(results, r)
-				mu.Unlock()
 			}
 		})
 	}

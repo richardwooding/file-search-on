@@ -1,6 +1,7 @@
 package celexpr
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -185,8 +186,13 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 	return out == types.True, nil
 }
 
-// BuildAttributes builds file attributes for a given path
-func BuildAttributes(path string, registry *content.Registry) (*FileAttributes, error) {
+// BuildAttributes builds file attributes for a given path. ctx is checked
+// at entry and threaded into ContentType.Attributes so per-file work can be
+// cancelled mid-scan.
+func BuildAttributes(ctx context.Context, path string, registry *content.Registry) (*FileAttributes, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, err
@@ -226,7 +232,10 @@ func BuildAttributes(path string, registry *content.Registry) (*FileAttributes, 
 		case strings.HasPrefix(contentTypeName, "office/"):
 			isOffice = true
 		}
-		extra, _ = ct.Attributes(path)
+		extra, err = ct.Attributes(ctx, path)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &FileAttributes{

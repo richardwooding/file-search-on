@@ -1,6 +1,7 @@
 package content
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 )
@@ -22,7 +23,10 @@ func (j *jsonType) MagicBytes() [][]byte {
 	}
 }
 
-func (j *jsonType) Attributes(path string) (Attributes, error) {
+func (j *jsonType) Attributes(ctx context.Context, path string) (Attributes, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err

@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"sort"
+	"syscall"
 	"text/template"
 
 	"github.com/alecthomas/kong"
@@ -32,9 +34,7 @@ type MCPCmd struct {
 	Path      string `name:"path" default:"/" help:"URL path prefix the handler is mounted at. Ignored for stdio."`
 }
 
-func (m *MCPCmd) Run() error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+func (m *MCPCmd) Run(ctx context.Context) error {
 	switch m.Transport {
 	case "http":
 		return mcpserver.RunHTTP(ctx, version, m.Addr, m.Path)
@@ -56,7 +56,7 @@ type SearchCmd struct {
 	Format       string `name:"format" help:"Custom Go text/template applied per match (e.g. '{{.Path}}\\t{{.Title}}'). When set, takes precedence over -o."`
 }
 
-func (s *SearchCmd) Run() error {
+func (s *SearchCmd) Run(ctx context.Context) error {
 	if s.List {
 		printHelp()
 		return nil
@@ -79,7 +79,6 @@ func (s *SearchCmd) Run() error {
 		}
 	}
 
-	ctx := context.Background()
 	opts := search.Options{
 		Root:              s.Dir,
 		Expr:              s.Expr,
@@ -144,13 +143,21 @@ func printAttrs(attrs []celexpr.AttributeDoc, nameWidth, typeWidth int) {
 }
 
 func main() {
-	ctx := kong.Parse(&CLI,
+	// Bridge OS signals into a cancellable ctx so subcommands shut down
+	// cleanly: HTTP server gets graceful Shutdown, walker workers exit,
+	// etc. Stop the relay on return so a second Ctrl-C falls through to
+	// the default runtime handler and abruptly kills the process.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	kctx := kong.Parse(&CLI,
 		kong.Name("file-search-on"),
 		kong.Description("Content-type aware file search with CEL attribute filtering."),
 		kong.UsageOnError(),
 		kong.Vars{"version": fmt.Sprintf("file-search-on %s (commit %s, built %s)", version, commit, date)},
+		kong.BindTo(ctx, (*context.Context)(nil)),
 	)
-	if err := ctx.Run(); err != nil {
+	if err := kctx.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}

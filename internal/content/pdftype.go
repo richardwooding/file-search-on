@@ -1,6 +1,8 @@
 package content
 
 import (
+	"context"
+
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 )
 
@@ -18,7 +20,11 @@ func (p *pdfType) MagicBytes() [][]byte {
 	}
 }
 
-func (p *pdfType) Attributes(path string) (Attributes, error) {
+func (p *pdfType) Attributes(ctx context.Context, path string) (Attributes, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	// pdfcpu has no ctx variant; this call is uncancellable mid-flight.
 	pageCount, err := api.PageCountFile(path)
 	if err != nil {
 		pageCount = 0
