@@ -14,6 +14,31 @@
 
 ## Install
 
+### Homebrew (macOS / Linux)
+
+```sh
+brew install richardwooding/tap/file-search-on
+```
+
+The cask is published from this repo on every tagged release to [`richardwooding/homebrew-tap`](https://github.com/richardwooding/homebrew-tap).
+
+### Container (Docker / Podman)
+
+OCI images are published to GitHub Container Registry on every tag, with `linux/amd64` and `linux/arm64` manifests:
+
+```sh
+docker run --rm -v "$PWD:/work" ghcr.io/richardwooding/file-search-on:latest \
+  'is_markdown && draft' -d /work
+```
+
+Pin to a specific version with `:vX.Y.Z`. The base image is [`cgr.dev/chainguard/static`](https://images.chainguard.dev/directory/image/static), so the container has the binary and nothing else (no shell).
+
+### Pre-built binaries
+
+Pre-built archives for Linux, macOS, and Windows on `amd64` and `arm64` are attached to every [GitHub Release](https://github.com/richardwooding/file-search-on/releases), along with a `checksums.txt` you should verify.
+
+### From source
+
 Requires Go 1.26.2 or newer.
 
 ```sh

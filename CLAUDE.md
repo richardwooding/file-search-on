@@ -55,6 +55,39 @@ Three internal packages compose the pipeline. Read them together — they are ti
 
 The CLI (`cmd/file-search-on/main.go`) uses `kong` for argument parsing. The single `search` subcommand is the default. After `Walk` returns, results are sorted by path and printed as `<path>\t[<content-type>]\t<size> bytes`. The match count goes to stderr.
 
+### Releases
+
+Releases are tag-driven. Pushing a tag matching `v*` to `origin` triggers `.github/workflows/release.yml`, which runs **GoReleaser v2** (pinned `~> v2`, currently v2.15.4) and produces three artifacts in one shot:
+
+1. **GitHub Release** with archives for `linux`/`darwin`/`windows` × `amd64`/`arm64` (six total — `.tar.gz` for unix, `.zip` for windows) plus `checksums.txt`. Binaries are stamped with `version`/`commit`/`date` via `-ldflags -X`; `./file-search-on --version` reads them back.
+2. **OCI image** at `ghcr.io/richardwooding/file-search-on:<version>` (and `:latest` for non-prerelease tags), built by `ko` from the same `builds:` block. Linux only — `amd64` + `arm64` manifests. Base image is `cgr.dev/chainguard/static` (no shell). Image labels follow OCI annotation conventions.
+3. **Homebrew cask** committed to [`richardwooding/homebrew-tap`](https://github.com/richardwooding/homebrew-tap) at `Casks/file-search-on.rb`. Install path is `brew install richardwooding/tap/file-search-on`.
+
+Notes for future agents:
+
+- The config uses **`homebrew_casks`**, not `brews`. `brews` was deprecated in GoReleaser v2.10; we deliberately picked the modern key. The cask form handles macOS-intel/macOS-arm/Linux-intel/Linux-arm splits via Homebrew's `on_macos`/`on_linux` DSL — works fine for CLI binaries even though casks were originally for GUI apps.
+- ko publishes via [`go-containerregistry`](https://github.com/google/go-containerregistry); no Docker daemon is required on the runner. The workflow logs into `ghcr.io` with the workflow's auto-issued `GITHUB_TOKEN` (so `permissions: packages: write` is mandatory in the workflow).
+- Pushing the cask to a *different* repo (`richardwooding/homebrew-tap`) requires a Personal Access Token with content write on that tap, exposed as the repo secret `HOMEBREW_TAP_GITHUB_TOKEN`. The default `GITHUB_TOKEN` is scoped to the source repo only.
+- The first-ever release also needs the `ghcr.io/richardwooding/file-search-on` package's visibility flipped to public manually in GitHub package settings — otherwise `docker pull` requires auth.
+
+#### Local dry-run
+
+```sh
+goreleaser check                                          # validate the YAML
+goreleaser release --snapshot --clean --skip=publish      # builds dist/, no push
+```
+
+The snapshot run will *try* to load OCI images into the local Docker daemon and fail if there isn't one — that's expected on a dev machine and irrelevant for CI. Add `--skip=ko` to bypass it. `dist/` is gitignored.
+
+#### Cutting a release
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Then watch the **Release** workflow in GitHub Actions. To roll back a botched release: delete the tag (`git push origin :refs/tags/vX.Y.Z`), delete the GitHub Release in the UI, untag the ghcr.io image, revert the homebrew-tap commit. Cheaper to cut `vX.Y.Z+1` if the change is non-destructive.
+
 ### Markdown front-matter (primary feature)
 
 `internal/content/frontmatter.go` is the parser. `splitFrontmatter(data []byte) (*Frontmatter, []byte)` is the only entry point — it returns the parsed metadata (or `nil` if absent) and the body bytes that the rest of `markdown.go` should treat as the document.
