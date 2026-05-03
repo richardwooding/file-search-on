@@ -224,22 +224,32 @@ Run `file-search-on --list` to see the full, up-to-date list along with the regi
 
 ## MCP server mode
 
-The same binary can run as a [Model Context Protocol](https://modelcontextprotocol.io) server, exposing the search to any MCP-compatible client (Claude Desktop, IDE plugins, agents). Stdio transport, no flags:
+The same binary can run as a [Model Context Protocol](https://modelcontextprotocol.io) server, exposing the search to any MCP-compatible client (Claude Desktop, IDE plugins, agents). Three transports:
 
 ```sh
-file-search-on mcp
+file-search-on mcp                                       # stdio (default; for desktop clients)
+file-search-on mcp --transport http --addr :8080         # Streamable HTTP (MCP 2025-03-26)
+file-search-on mcp --transport sse  --addr :8080         # HTTP+SSE (DEPRECATED — MCP 2024-11-05)
 ```
+
+| Transport | Spec version | When to use |
+| --- | --- | --- |
+| `stdio` | all | Desktop clients (Claude Desktop, IDE plugins) — the agent spawns the binary as a subprocess. |
+| `http` | 2025-03-26 | Network-accessible servers, multi-client, or Docker deployments. |
+| `sse` | 2024-11-05 | Legacy clients only. The HTTP+SSE transport was deprecated in the 2025-03-26 spec; new deployments should pick `http`. |
+
+For HTTP and SSE, `--addr` (default `:8080`) is the bind address and `--path` (default `/`) is the URL prefix.
 
 Two tools are exposed:
 
 | Tool | Input | Output |
 | --- | --- | --- |
-| `search` | `expr`, `dir`, `workers` | `matches[]` (path, content_type, size) and `count` |
+| `search` | `expr`, `dir`, `workers`, `max_line_bytes` | `matches[]` (full attribute set per match) and `count` |
 | `list_attributes` | none | `schema` (common, type_specific, frontmatter) and `content_types[]` |
 
 Empty `expr` matches everything; empty `dir` defaults to `.`. `workers` falls back to `runtime.NumCPU()`.
 
-Example Claude Desktop entry in `claude_desktop_config.json`:
+Example Claude Desktop entry in `claude_desktop_config.json` (stdio):
 
 ```json
 {
@@ -251,6 +261,8 @@ Example Claude Desktop entry in `claude_desktop_config.json`:
   }
 }
 ```
+
+For HTTP-based clients, point at `http://<host>:<port>/` after starting the server with `--transport http`.
 
 Built on [`github.com/modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk).
 

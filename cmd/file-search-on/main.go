@@ -22,14 +22,28 @@ var (
 
 var CLI struct {
 	Search  SearchCmd        `cmd:"" help:"Search for files matching a CEL expression." default:"withargs"`
-	MCP     MCPCmd           `cmd:"" name:"mcp" help:"Run as a Model Context Protocol server over stdio."`
+	MCP     MCPCmd           `cmd:"" name:"mcp" help:"Run as a Model Context Protocol server (stdio, http, or sse)."`
 	Version kong.VersionFlag `short:"V" help:"Print version and exit."`
 }
 
-type MCPCmd struct{}
+type MCPCmd struct {
+	Transport string `name:"transport" enum:"stdio,http,sse" default:"stdio" help:"Transport: stdio (default; for desktop clients), http (Streamable HTTP, MCP 2025-03-26), or sse (DEPRECATED — HTTP+SSE, MCP 2024-11-05)."`
+	Addr      string `name:"addr" default:":8080" help:"host:port to bind for http or sse transports. Ignored for stdio."`
+	Path      string `name:"path" default:"/" help:"URL path prefix the handler is mounted at. Ignored for stdio."`
+}
 
 func (m *MCPCmd) Run() error {
-	return mcpserver.Run(context.Background(), version)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	switch m.Transport {
+	case "http":
+		return mcpserver.RunHTTP(ctx, version, m.Addr, m.Path)
+	case "sse":
+		fmt.Fprintln(os.Stderr, "warning: --transport sse is DEPRECATED (MCP 2024-11-05); prefer --transport http for new clients.")
+		return mcpserver.RunSSE(ctx, version, m.Addr, m.Path)
+	default:
+		return mcpserver.Run(ctx, version)
+	}
 }
 
 type SearchCmd struct {
