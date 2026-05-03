@@ -9,8 +9,13 @@ import (
 
 // Detect detects the content type of a file using extension first, then magic bytes
 func (r *Registry) Detect(path string) ContentType {
+	r.mu.RLock()
+	types := make([]ContentType, len(r.types))
+	copy(types, r.types)
+	r.mu.RUnlock()
+
 	ext := strings.ToLower(filepath.Ext(path))
-	for _, ct := range r.types {
+	for _, ct := range types {
 		for _, e := range ct.Extensions() {
 			if e == ext {
 				return ct
@@ -25,7 +30,7 @@ func (r *Registry) Detect(path string) ContentType {
 	buf := make([]byte, 512)
 	n, _ := f.Read(buf)
 	buf = buf[:n]
-	for _, ct := range r.types {
+	for _, ct := range types {
 		for _, magic := range ct.MagicBytes() {
 			if bytes.HasPrefix(buf, magic) {
 				return ct

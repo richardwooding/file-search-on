@@ -1,5 +1,7 @@
 package content
 
+import "sync"
+
 // Attributes is a map of attribute name to value for CEL evaluation
 type Attributes map[string]interface{}
 
@@ -17,6 +19,7 @@ type ContentType interface {
 
 // Registry holds all registered content types
 type Registry struct {
+	mu    sync.RWMutex
 	types []ContentType
 }
 
@@ -24,6 +27,8 @@ var defaultRegistry = &Registry{}
 
 // Register adds a content type to the default registry
 func Register(ct ContentType) {
+	defaultRegistry.mu.Lock()
+	defer defaultRegistry.mu.Unlock()
 	defaultRegistry.types = append(defaultRegistry.types, ct)
 }
 
@@ -34,5 +39,9 @@ func DefaultRegistry() *Registry {
 
 // Types returns all registered content types
 func (r *Registry) Types() []ContentType {
-	return r.types
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	result := make([]ContentType, len(r.types))
+	copy(result, r.types)
+	return result
 }
