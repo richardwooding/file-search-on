@@ -205,6 +205,14 @@ file-search-on 'is_audio && genre == "Jazz" && year > 2000' -d ~/Music
 file-search-on 'is_audio && album == "OK Computer"' -d ~/Music --format '{{.Track}}\t{{.Title}}'
 ```
 
+Find audio by duration, bitrate, or sample rate (hi-res):
+
+```sh
+file-search-on 'is_audio && duration > 600' -d ~/Music                  # tracks > 10 minutes
+file-search-on 'is_audio && bitrate >= 320' -d ~/Music                  # high-bitrate MP3 / lossless
+file-search-on 'is_audio && sample_rate >= 96000' -d ~/Music            # hi-res audio
+```
+
 Combine paths and types — find HTML files inside a `build/` directory:
 
 ```sh
@@ -248,6 +256,10 @@ Type-specific attributes (zero-valued when not applicable):
 | `focal_length`, `f_stop`, `exposure_time` | double | EXIF focal length (mm), F-number, exposure (s) |
 | `artist`, `album`, `album_artist`, `composer`, `genre` | string | Audio tags (ID3v1/v2 for MP3, MP4 atoms for M4A, Vorbis comments for FLAC/OGG) |
 | `year`, `track` | int | Audio release year and track number |
+| `duration` | double | Audio length in seconds (FLAC STREAMINFO / MP3 Xing / OGG granule / MP4 mvhd) |
+| `bitrate` | int | Audio average bitrate in kbps (file_size × 8 / duration / 1000) |
+| `sample_rate` | int | Audio sample rate in Hz |
+| `channels` | int | Audio channel count |
 | `frontmatter` | `map<string, dyn>` | Full Markdown front-matter map |
 | `frontmatter_format` | string | `"yaml"`, `"toml"`, `"json"`, or `""` |
 | `tags`, `categories` | `list<string>` | Markdown front-matter |

@@ -69,6 +69,10 @@ func Schema() SchemaDoc {
 			{"year", "int", "audio release year"},
 			{"track", "int", "audio track number"},
 			{"genre", "string", "audio genre tag"},
+			{"duration", "double", "audio duration in seconds (FLAC STREAMINFO / MP3 Xing / OGG granule / MP4 mvhd)"},
+			{"bitrate", "int", "audio average bitrate in kbps (computed file_size * 8 / duration / 1000)"},
+			{"sample_rate", "int", "audio sample rate in Hz"},
+			{"channels", "int", "audio channel count (1 = mono, 2 = stereo, etc.)"},
 		},
 		Frontmatter: []AttributeDoc{
 			{"frontmatter", "map", "full parsed front-matter, e.g. frontmatter.category"},

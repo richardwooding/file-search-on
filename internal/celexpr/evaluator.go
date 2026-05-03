@@ -92,6 +92,10 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("year", cel.IntType),
 		cel.Variable("track", cel.IntType),
 		cel.Variable("genre", cel.StringType),
+		cel.Variable("duration", cel.DoubleType),
+		cel.Variable("bitrate", cel.IntType),
+		cel.Variable("sample_rate", cel.IntType),
+		cel.Variable("channels", cel.IntType),
 		cel.Variable("frontmatter", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("frontmatter_format", cel.StringType),
 		cel.Variable("tags", cel.ListType(cel.StringType)),
@@ -166,6 +170,10 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 		"year":               int64(0),
 		"track":              int64(0),
 		"genre":              "",
+		"duration":           float64(0),
+		"bitrate":            int64(0),
+		"sample_rate":        int64(0),
+		"channels":           int64(0),
 		"frontmatter":        map[string]any{},
 		"frontmatter_format": "",
 		"tags":               []string{},
@@ -237,6 +245,14 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 				activation["track"] = v
 			case "genre":
 				activation["genre"] = v
+			case "duration":
+				activation["duration"] = v
+			case "bitrate":
+				activation["bitrate"] = v
+			case "sample_rate":
+				activation["sample_rate"] = v
+			case "channels":
+				activation["channels"] = v
 			case "frontmatter":
 				activation["frontmatter"] = v
 			case "frontmatter_format":

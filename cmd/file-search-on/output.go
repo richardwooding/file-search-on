@@ -73,6 +73,11 @@ type Record struct {
 	Year        int64  `json:"year,omitempty"`
 	Track       int64  `json:"track,omitempty"`
 	Genre       string `json:"genre,omitempty"`
+
+	Duration   float64 `json:"duration,omitempty"`
+	Bitrate    int64   `json:"bitrate,omitempty"`
+	SampleRate int64   `json:"sample_rate,omitempty"`
+	Channels   int64   `json:"channels,omitempty"`
 }
 
 // recordFrom projects a search.Result into the wire shape. Falls back to
@@ -194,6 +199,18 @@ func recordFrom(r search.Result) Record {
 	}
 	if v, ok := a.Extra["genre"].(string); ok {
 		rec.Genre = v
+	}
+	if v, ok := a.Extra["duration"].(float64); ok {
+		rec.Duration = v
+	}
+	if v, ok := a.Extra["bitrate"].(int64); ok {
+		rec.Bitrate = v
+	}
+	if v, ok := a.Extra["sample_rate"].(int64); ok {
+		rec.SampleRate = v
+	}
+	if v, ok := a.Extra["channels"].(int64); ok {
+		rec.Channels = v
 	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
 		rec.FrontmatterFormat = v

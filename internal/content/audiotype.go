@@ -2,6 +2,8 @@ package content
 
 import (
 	"context"
+	"errors"
+	"io"
 	"os"
 
 	"github.com/dhowden/tag"
@@ -41,37 +43,70 @@ func (a *audioType) Attributes(ctx context.Context, path string) (Attributes, er
 	}
 	defer func() { _ = f.Close() }()
 
-	m, err := tag.ReadFrom(f)
-	if err != nil {
-		// File is detected as audio but has no tags / bad container header.
-		// Return what we have so far (the empty map) — the file still flows
-		// through the search; users just can't filter on tag fields.
-		return attrs, nil
+	if m, err := tag.ReadFrom(f); err == nil {
+		if v := m.Title(); v != "" {
+			attrs["title"] = v
+		}
+		if v := m.Artist(); v != "" {
+			attrs["artist"] = v
+		}
+		if v := m.Album(); v != "" {
+			attrs["album"] = v
+		}
+		if v := m.AlbumArtist(); v != "" {
+			attrs["album_artist"] = v
+		}
+		if v := m.Composer(); v != "" {
+			attrs["composer"] = v
+		}
+		if v := m.Genre(); v != "" {
+			attrs["genre"] = v
+		}
+		if y := m.Year(); y > 0 {
+			attrs["year"] = int64(y)
+		}
+		if t, _ := m.Track(); t > 0 {
+			attrs["track"] = int64(t)
+		}
 	}
+	// Tag-read failure isn't fatal — playback metadata still flows through
+	// the per-format parsers below.
 
-	if v := m.Title(); v != "" {
-		attrs["title"] = v
-	}
-	if v := m.Artist(); v != "" {
-		attrs["artist"] = v
-	}
-	if v := m.Album(); v != "" {
-		attrs["album"] = v
-	}
-	if v := m.AlbumArtist(); v != "" {
-		attrs["album_artist"] = v
-	}
-	if v := m.Composer(); v != "" {
-		attrs["composer"] = v
-	}
-	if v := m.Genre(); v != "" {
-		attrs["genre"] = v
-	}
-	if y := m.Year(); y > 0 {
-		attrs["year"] = int64(y)
-	}
-	if t, _ := m.Track(); t > 0 {
-		attrs["track"] = int64(t)
+	// Playback metadata via per-format binary parsing. Each parser is bounded
+	// (header + at most a 64 KiB tail for OGG); they don't take ctx because
+	// the entry-point check at the top covers cancellation between files.
+	fileSize, err := f.Seek(0, io.SeekEnd)
+	if err == nil {
+		_, _ = f.Seek(0, io.SeekStart)
+		if info, err := readAudioInfo(a.name, f, fileSize); err == nil {
+			if info.Duration > 0 {
+				attrs["duration"] = info.Duration
+				if br := int64(float64(fileSize) * 8 / info.Duration / 1000); br > 0 {
+					attrs["bitrate"] = br
+				}
+			}
+			if info.SampleRate > 0 {
+				attrs["sample_rate"] = info.SampleRate
+			}
+			if info.Channels > 0 {
+				attrs["channels"] = info.Channels
+			}
+		}
 	}
 	return attrs, nil
+}
+
+// readAudioInfo dispatches to the format-specific parser by content-type name.
+func readAudioInfo(name string, r io.ReadSeeker, fileSize int64) (audioInfo, error) {
+	switch name {
+	case "audio/flac":
+		return readFLACInfo(r)
+	case "audio/mpeg":
+		return readMP3Info(r, fileSize)
+	case "audio/ogg":
+		return readOGGInfo(r, fileSize)
+	case "audio/mp4":
+		return readMP4Info(r, fileSize)
+	}
+	return audioInfo{}, errors.New("unsupported audio format")
 }

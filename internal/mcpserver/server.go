@@ -85,6 +85,11 @@ type SearchMatch struct {
 	Year        int64  `json:"year,omitempty"`
 	Track       int64  `json:"track,omitempty"`
 	Genre       string `json:"genre,omitempty"`
+
+	Duration   float64 `json:"duration,omitempty"`
+	Bitrate    int64   `json:"bitrate,omitempty"`
+	SampleRate int64   `json:"sample_rate,omitempty"`
+	Channels   int64   `json:"channels,omitempty"`
 }
 
 // matchFrom projects a search.Result (with Attrs populated) into a
@@ -196,6 +201,18 @@ func matchFrom(r search.Result) SearchMatch {
 	}
 	if v, ok := a.Extra["genre"].(string); ok {
 		m.Genre = v
+	}
+	if v, ok := a.Extra["duration"].(float64); ok {
+		m.Duration = v
+	}
+	if v, ok := a.Extra["bitrate"].(int64); ok {
+		m.Bitrate = v
+	}
+	if v, ok := a.Extra["sample_rate"].(int64); ok {
+		m.SampleRate = v
+	}
+	if v, ok := a.Extra["channels"].(int64); ok {
+		m.Channels = v
 	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
 		m.FrontmatterFormat = v
