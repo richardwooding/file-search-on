@@ -30,6 +30,7 @@ type FileAttributes struct {
 	IsText      bool
 	IsCSV       bool
 	IsEPUB      bool
+	IsOffice    bool
 	Extra       content.Attributes
 }
 
@@ -57,6 +58,7 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("is_text", cel.BoolType),
 		cel.Variable("is_csv", cel.BoolType),
 		cel.Variable("is_epub", cel.BoolType),
+		cel.Variable("is_office", cel.BoolType),
 		cel.Variable("title", cel.StringType),
 		cel.Variable("word_count", cel.IntType),
 		cel.Variable("line_count", cel.IntType),
@@ -111,6 +113,7 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 		"is_text":            attrs.IsText,
 		"is_csv":             attrs.IsCSV,
 		"is_epub":            attrs.IsEPUB,
+		"is_office":          attrs.IsOffice,
 		"title":              "",
 		"word_count":         int64(0),
 		"line_count":         int64(0),
@@ -196,7 +199,7 @@ func BuildAttributes(path string, registry *content.Registry) (*FileAttributes, 
 	ct := registry.Detect(path)
 	contentTypeName := ""
 	isMarkdown, isJSON, isXML, isHTML, isPDF, isImage := false, false, false, false, false, false
-	isText, isCSV, isEPUB := false, false, false
+	isText, isCSV, isEPUB, isOffice := false, false, false, false
 
 	var extra content.Attributes
 	if ct != nil {
@@ -220,6 +223,8 @@ func BuildAttributes(path string, registry *content.Registry) (*FileAttributes, 
 			isEPUB = true
 		case strings.HasPrefix(contentTypeName, "image/"):
 			isImage = true
+		case strings.HasPrefix(contentTypeName, "office/"):
+			isOffice = true
 		}
 		extra, _ = ct.Attributes(path)
 	}
@@ -241,6 +246,7 @@ func BuildAttributes(path string, registry *content.Registry) (*FileAttributes, 
 		IsText:      isText,
 		IsCSV:       isCSV,
 		IsEPUB:      isEPUB,
+		IsOffice:    isOffice,
 		Extra:       extra,
 	}, nil
 }

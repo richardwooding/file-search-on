@@ -112,6 +112,7 @@ When you change the promoted-variable set:
 1. Create a new file in `internal/content/` implementing the `ContentType` interface and call `Register(&yourType{})` from `init()`.
 2. If it introduces new attributes, declare matching `cel.Variable(...)` entries in `celexpr.New` **and** wire them in both the activation defaults map and the `attrs.Extra` switch in `Evaluate` (`internal/celexpr/evaluator.go`). Forgetting either side will produce CEL "no such attribute" errors at runtime. Add an `AttributeDoc` to the right slice in `celexpr.Schema()` so the new attribute shows up in `--list` and the MCP `list_attributes` tool.
 3. If it's an image-family type, also extend the `strings.HasPrefix(contentTypeName, "image/")` branch logic in `BuildAttributes`. The registered-types listing in `--list` is generated from `content.DefaultRegistry().Types()`, so the new type appears there automatically.
+4. For office documents, register the type with name `office/<format>` (e.g. `office/docx`); the `strings.HasPrefix(contentTypeName, "office/")` branch in `BuildAttributes` will set `is_office = true` automatically. DOCX/XLSX/PPTX use `docProps/core.xml` (Dublin Core); ODT uses `meta.xml`. Both go through the shared `readZipDublinCore` helper in `internal/content/dublincore.go`.
 
 ### MCP server
 
