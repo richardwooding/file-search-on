@@ -61,6 +61,7 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("word_count", cel.IntType),
 		cel.Variable("line_count", cel.IntType),
 		cel.Variable("column_count", cel.IntType),
+		cel.Variable("csv_columns", cel.ListType(cel.StringType)),
 		cel.Variable("language", cel.StringType),
 		cel.Variable("page_count", cel.IntType),
 		cel.Variable("author", cel.StringType),
@@ -114,6 +115,7 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 		"word_count":         int64(0),
 		"line_count":         int64(0),
 		"column_count":       int64(0),
+		"csv_columns":        []string{},
 		"language":           "",
 		"page_count":         int64(0),
 		"author":             "",
@@ -140,6 +142,8 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 				activation["line_count"] = v
 			case "column_count":
 				activation["column_count"] = v
+			case "csv_columns":
+				activation["csv_columns"] = v
 			case "language":
 				activation["language"] = v
 			case "page_count":

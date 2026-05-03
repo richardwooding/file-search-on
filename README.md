@@ -192,6 +192,7 @@ Type-specific attributes (zero-valued when not applicable):
 | `word_count` | int | Markdown body (front-matter excluded), plain text |
 | `line_count` | int | Plain text |
 | `column_count` | int | CSV/TSV header row |
+| `csv_columns` | `list<string>` | CSV/TSV header field names |
 | `page_count` | int | PDF |
 | `author` | string | Markdown front-matter, PDF, EPUB `<dc:creator>` |
 | `language` | string | EPUB `<dc:language>` |
