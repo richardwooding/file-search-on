@@ -41,6 +41,7 @@ func Schema() SchemaDoc {
 			{"word_count", "int", "word count (markdown body, plain text)"},
 			{"line_count", "int", "line count (plain text)"},
 			{"column_count", "int", "column count from header line (CSV/TSV)"},
+			{"csv_columns", "list<str>", "header field names from the first CSV/TSV line"},
 			{"page_count", "int", "page count (PDF)"},
 			{"author", "string", "author (markdown front-matter, PDF, EPUB)"},
 			{"language", "string", "language code (EPUB)"},
