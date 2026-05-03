@@ -59,6 +59,12 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("json_kind", cel.StringType),
 		cel.Variable("img_width", cel.IntType),
 		cel.Variable("img_height", cel.IntType),
+		cel.Variable("frontmatter", cel.MapType(cel.StringType, cel.DynType)),
+		cel.Variable("frontmatter_format", cel.StringType),
+		cel.Variable("tags", cel.ListType(cel.StringType)),
+		cel.Variable("categories", cel.ListType(cel.StringType)),
+		cel.Variable("draft", cel.BoolType),
+		cel.Variable("date", cel.TimestampType),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating CEL environment: %w", err)
@@ -80,26 +86,32 @@ func New(expr string) (*Evaluator, error) {
 // Evaluate evaluates the expression against the given file attributes
 func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 	activation := map[string]any{
-		"name":         attrs.Name,
-		"path":         attrs.Path,
-		"dir":          attrs.Dir,
-		"size":         attrs.Size,
-		"ext":          attrs.Ext,
-		"content_type": attrs.ContentType,
-		"is_markdown":  attrs.IsMarkdown,
-		"is_json":      attrs.IsJSON,
-		"is_xml":       attrs.IsXML,
-		"is_html":      attrs.IsHTML,
-		"is_pdf":       attrs.IsPDF,
-		"is_image":     attrs.IsImage,
-		"title":        "",
-		"word_count":   int64(0),
-		"page_count":   int64(0),
-		"author":       "",
-		"root_element": "",
-		"json_kind":    "",
-		"img_width":    int64(0),
-		"img_height":   int64(0),
+		"name":               attrs.Name,
+		"path":               attrs.Path,
+		"dir":                attrs.Dir,
+		"size":               attrs.Size,
+		"ext":                attrs.Ext,
+		"content_type":       attrs.ContentType,
+		"is_markdown":        attrs.IsMarkdown,
+		"is_json":            attrs.IsJSON,
+		"is_xml":             attrs.IsXML,
+		"is_html":            attrs.IsHTML,
+		"is_pdf":             attrs.IsPDF,
+		"is_image":           attrs.IsImage,
+		"title":              "",
+		"word_count":         int64(0),
+		"page_count":         int64(0),
+		"author":             "",
+		"root_element":       "",
+		"json_kind":          "",
+		"img_width":          int64(0),
+		"img_height":         int64(0),
+		"frontmatter":        map[string]any{},
+		"frontmatter_format": "",
+		"tags":               []string{},
+		"categories":         []string{},
+		"draft":              false,
+		"date":               time.Time{},
 	}
 
 	if attrs.Extra != nil {
@@ -121,6 +133,18 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 				activation["img_width"] = v
 			case "height":
 				activation["img_height"] = v
+			case "frontmatter":
+				activation["frontmatter"] = v
+			case "frontmatter_format":
+				activation["frontmatter_format"] = v
+			case "tags":
+				activation["tags"] = v
+			case "categories":
+				activation["categories"] = v
+			case "draft":
+				activation["draft"] = v
+			case "date":
+				activation["date"] = v
 			}
 		}
 	}

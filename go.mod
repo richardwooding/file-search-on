@@ -6,6 +6,8 @@ require (
 	github.com/alecthomas/kong v1.15.0
 	github.com/google/cel-go v0.28.0
 	github.com/pdfcpu/pdfcpu v0.12.0
+	github.com/pelletier/go-toml/v2 v2.3.1
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
