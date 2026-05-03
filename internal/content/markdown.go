@@ -64,6 +64,9 @@ func (m *markdownType) Attributes(path string) (Attributes, error) {
 		if v, ok := stringValue(fm.Data["author"]); ok {
 			attrs["author"] = v
 		}
+		if v, ok := stringValue(fm.Data["language"]); ok {
+			attrs["language"] = v
+		}
 		if tags, ok := stringListValue(fm.Data["tags"]); ok {
 			attrs["tags"] = tags
 		}

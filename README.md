@@ -195,7 +195,7 @@ Type-specific attributes (zero-valued when not applicable):
 | `csv_columns` | `list<string>` | CSV/TSV header field names |
 | `page_count` | int | PDF |
 | `author` | string | Markdown front-matter, PDF, EPUB `<dc:creator>` |
-| `language` | string | EPUB `<dc:language>` |
+| `language` | string | EPUB `<dc:language>`; HTML `<html lang="...">`; markdown front-matter `language` |
 | `root_element` | string | XML |
 | `json_kind` | string | `"object"` or `"array"` |
 | `img_width`, `img_height` | int | Image dimensions in pixels |

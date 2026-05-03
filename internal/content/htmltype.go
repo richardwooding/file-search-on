@@ -23,7 +23,10 @@ func (h *htmlType) MagicBytes() [][]byte {
 	}
 }
 
-var titleRe = regexp.MustCompile(`(?i)<title[^>]*>(.*?)</title>`)
+var (
+	titleRe    = regexp.MustCompile(`(?i)<title[^>]*>(.*?)</title>`)
+	htmlLangRe = regexp.MustCompile(`(?i)<html[^>]*\blang\s*=\s*["']?([A-Za-z][\w-]*)`)
+)
 
 func (h *htmlType) Attributes(path string) (Attributes, error) {
 	f, err := os.Open(path)
@@ -46,7 +49,11 @@ func (h *htmlType) Attributes(path string) (Attributes, error) {
 		title = strings.TrimSpace(m[1])
 	}
 
-	return Attributes{
+	attrs := Attributes{
 		"title": title,
-	}, nil
+	}
+	if m := htmlLangRe.FindStringSubmatch(content); len(m) > 1 {
+		attrs["language"] = m[1]
+	}
+	return attrs, nil
 }

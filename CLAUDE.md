@@ -96,7 +96,7 @@ Then watch the **Release** workflow in GitHub Actions. To roll back a botched re
 
 Detection is purely by the leading bytes: `---\n` ⇒ YAML, `+++\n` ⇒ TOML, `{` at byte 0 ⇒ JSON. There is intentionally no magic-byte fallback — if the first bytes don't match, `frontmatter_format` is `""` and every promoted variable holds its zero value. Malformed input degrades silently (returns nil + the original bytes) so a broken front-matter block doesn't make a file vanish from results.
 
-Six keys are promoted to first-class CEL variables in `markdown.go`'s `Attributes`: `title`, `author`, `tags`, `categories`, `draft`, `date`. Anything else is reachable through `frontmatter.<key>`. Title precedence is *front-matter > H1*. `tags` and `categories` accept either a list or a bare string (which is wrapped) — that coercion lives in `stringListValue`. `date` accepts native `time.Time` (TOML) or several string layouts (`timeValue`); add new layouts there, not at call sites.
+Seven keys are promoted to first-class CEL variables in `markdown.go`'s `Attributes`: `title`, `author`, `language`, `tags`, `categories`, `draft`, `date`. Anything else is reachable through `frontmatter.<key>`. Title precedence is *front-matter > H1*. `tags` and `categories` accept either a list or a bare string (which is wrapped) — that coercion lives in `stringListValue`. `date` accepts native `time.Time` (TOML) or several string layouts (`timeValue`); add new layouts there, not at call sites.
 
 Map values are normalised through `normalizeMap`/`normalizeValue` so cel-go sees `map[string]any` end-to-end. yaml.v3 already does this for the top-level map, but nested maps from generic `any` paths can sometimes be `map[any]any`; the normaliser covers that.
 
