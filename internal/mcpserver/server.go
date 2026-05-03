@@ -77,6 +77,7 @@ type SearchMatch struct {
 	IsEPUB     bool `json:"is_epub,omitempty"`
 	IsOffice   bool `json:"is_office,omitempty"`
 	IsAudio    bool `json:"is_audio,omitempty"`
+	IsVideo    bool `json:"is_video,omitempty"`
 
 	Artist      string `json:"artist,omitempty"`
 	Album       string `json:"album,omitempty"`
@@ -90,6 +91,12 @@ type SearchMatch struct {
 	Bitrate    int64   `json:"bitrate,omitempty"`
 	SampleRate int64   `json:"sample_rate,omitempty"`
 	Channels   int64   `json:"channels,omitempty"`
+
+	VideoCodec  string  `json:"video_codec,omitempty"`
+	AudioCodec  string  `json:"audio_codec,omitempty"`
+	VideoWidth  int64   `json:"video_width,omitempty"`
+	VideoHeight int64   `json:"video_height,omitempty"`
+	FrameRate   float64 `json:"frame_rate,omitempty"`
 }
 
 // matchFrom projects a search.Result (with Attrs populated) into a
@@ -108,6 +115,7 @@ func matchFrom(r search.Result) SearchMatch {
 	m.IsPDF, m.IsImage = a.IsPDF, a.IsImage
 	m.IsText, m.IsCSV, m.IsEPUB, m.IsOffice = a.IsText, a.IsCSV, a.IsEPUB, a.IsOffice
 	m.IsAudio = a.IsAudio
+	m.IsVideo = a.IsVideo
 
 	if a.Extra == nil {
 		return m
@@ -213,6 +221,21 @@ func matchFrom(r search.Result) SearchMatch {
 	}
 	if v, ok := a.Extra["channels"].(int64); ok {
 		m.Channels = v
+	}
+	if v, ok := a.Extra["video_codec"].(string); ok {
+		m.VideoCodec = v
+	}
+	if v, ok := a.Extra["audio_codec"].(string); ok {
+		m.AudioCodec = v
+	}
+	if v, ok := a.Extra["video_width"].(int64); ok {
+		m.VideoWidth = v
+	}
+	if v, ok := a.Extra["video_height"].(int64); ok {
+		m.VideoHeight = v
+	}
+	if v, ok := a.Extra["frame_rate"].(float64); ok {
+		m.FrameRate = v
 	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
 		m.FrontmatterFormat = v

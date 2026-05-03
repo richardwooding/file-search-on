@@ -37,6 +37,7 @@ func Schema() SchemaDoc {
 			{"is_epub", "bool", "true if EPUB book"},
 			{"is_office", "bool", "true if office document (DOCX, XLSX, PPTX, ODT — content_type starts with 'office/')"},
 			{"is_audio", "bool", "true if audio file (MP3, M4A, FLAC, OGG — content_type starts with 'audio/')"},
+			{"is_video", "bool", "true if video file (MP4, MOV, MKV, WebM, AVI — content_type starts with 'video/')"},
 		},
 		TypeSpecific: []AttributeDoc{
 			{"title", "string", "title (front-matter, markdown h1, HTML title, PDF title, EPUB, office, audio)"},
@@ -73,6 +74,11 @@ func Schema() SchemaDoc {
 			{"bitrate", "int", "audio average bitrate in kbps (computed file_size * 8 / duration / 1000)"},
 			{"sample_rate", "int", "audio sample rate in Hz"},
 			{"channels", "int", "audio channel count (1 = mono, 2 = stereo, etc.)"},
+			{"video_codec", "string", "video codec (h264, h265, av1, vp9, vp8, mpeg4, etc.)"},
+			{"audio_codec", "string", "audio codec for the audio track in a video container (aac, mp3, opus, vorbis, etc.)"},
+			{"video_width", "int", "video frame width in pixels"},
+			{"video_height", "int", "video frame height in pixels"},
+			{"frame_rate", "double", "video frame rate in fps"},
 		},
 		Frontmatter: []AttributeDoc{
 			{"frontmatter", "map", "full parsed front-matter, e.g. frontmatter.category"},
