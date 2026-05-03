@@ -26,7 +26,7 @@ func (x *xmlType) Attributes(path string) (Attributes, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	decoder := xml.NewDecoder(f)
 	var rootElement string

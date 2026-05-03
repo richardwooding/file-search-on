@@ -79,7 +79,7 @@ func New(expr string) (*Evaluator, error) {
 
 // Evaluate evaluates the expression against the given file attributes
 func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
-	activation := map[string]interface{}{
+	activation := map[string]any{
 		"name":         attrs.Name,
 		"path":         attrs.Path,
 		"dir":          attrs.Dir,

@@ -42,9 +42,7 @@ func Walk(ctx context.Context, opts Options, registry *content.Registry) ([]Resu
 	var wg sync.WaitGroup
 
 	for i := 0; i < opts.Workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for path := range paths {
 				attrs, err := celexpr.BuildAttributes(path, registry)
 				if err != nil {
@@ -62,7 +60,7 @@ func Walk(ctx context.Context, opts Options, registry *content.Registry) ([]Resu
 				})
 				mu.Unlock()
 			}
-		}()
+		})
 	}
 
 	walkErr := filepath.WalkDir(opts.Root, func(path string, d fs.DirEntry, err error) error {

@@ -13,7 +13,7 @@
 
 ## Install
 
-Requires Go 1.25 or newer.
+Requires Go 1.26.2 or newer.
 
 ```sh
 go install github.com/richardwooding/file-search-on/cmd/file-search-on@latest
@@ -109,10 +109,23 @@ Run `file-search-on --list` to see the full, up-to-date list along with the regi
 go build ./...                                  # build everything
 go test -race -coverprofile=coverage.out ./...  # run the test suite
 go vet ./...
+go fix ./...                                    # apply Go 1.26 modernizers — see below
 golangci-lint run
 ```
 
 The codebase has three internal packages: `internal/content` (the pluggable type registry), `internal/celexpr` (the CEL evaluator and attribute builder), and `internal/search` (the parallel walker). See [CLAUDE.md](./CLAUDE.md) for an architecture overview and a step-by-step guide to adding a new content type.
+
+### Keeping the code modern with `go fix`
+
+Go 1.26 reintroduced [`go fix`](https://go.dev/blog/gofix) as a code-modernization tool that rewrites your sources to use newer language and standard-library features (`slices.Contains`, `any`, `min`/`max`, `range` over integers, `sync.WaitGroup.Go`, and more).
+
+```sh
+go fix -diff ./...   # preview the changes
+go fix ./...         # apply them
+go tool fix help     # list every available fixer
+```
+
+CI runs `go fix ./... && git diff --exit-code` after every build, so the project stays idiomatic for whichever Go release the toolchain is pinned to. After bumping the Go version, run `go fix ./...` from a clean working tree and commit the result on its own.
 
 ## License
 

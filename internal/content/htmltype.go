@@ -30,7 +30,7 @@ func (h *htmlType) Attributes(path string) (Attributes, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var sb strings.Builder
 	scanner := bufio.NewScanner(f)
