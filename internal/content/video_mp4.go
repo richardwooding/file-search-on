@@ -1,0 +1,316 @@
+package content
+
+import (
+	"encoding/binary"
+	"errors"
+	"io"
+)
+
+// videoInfo is the shape returned by every video-format parser. Zero values
+// mean "unknown".
+type videoInfo struct {
+	Duration   float64 // seconds
+	Width      int64
+	Height     int64
+	VideoCodec string // "h264", "h265", ...
+	AudioCodec string // "aac", "mp3", ...
+	FrameRate  float64
+}
+
+// readMP4VideoInfo walks an MP4/MOV/M4V atom tree extracting playback +
+// video-track metadata. Reuses the box walkers in mp4_box.go.
+func readMP4VideoInfo(r io.ReadSeeker, fileSize int64) (videoInfo, error) {
+	if _, err := r.Seek(0, io.SeekStart); err != nil {
+		return videoInfo{}, err
+	}
+	var info videoInfo
+	if err := walkBoxes(r, 0, fileSize, []string{"moov"}, func(end int64) error {
+		return videoScanMOOV(r, end, &info)
+	}); err != nil {
+		return info, err
+	}
+	return info, nil
+}
+
+func videoScanMOOV(r io.ReadSeeker, end int64, info *videoInfo) error {
+	for {
+		pos, _ := r.Seek(0, io.SeekCurrent)
+		if pos >= end {
+			return nil
+		}
+		size, name, contentLen, err := readBoxHeader(r)
+		if err != nil {
+			return err
+		}
+		if size == 0 {
+			contentLen = end - pos - 8
+		}
+		next := pos + size
+		switch name {
+		case "mvhd":
+			if err := readVideoMVHD(r, contentLen, info); err != nil {
+				return err
+			}
+		case "trak":
+			trakContentStart, _ := r.Seek(0, io.SeekCurrent)
+			if err := videoScanTRAK(r, trakContentStart, next, info); err != nil {
+				return err
+			}
+		}
+		if _, err := r.Seek(next, io.SeekStart); err != nil {
+			return err
+		}
+	}
+}
+
+// videoScanTRAK does two passes through the trak's mdia box:
+//  1. Collect track type (hdlr) + track timescale (mdhd) + minf bounds.
+//  2. Walk minf/stbl for stsd (codec + width/height) and stts (frame rate).
+//
+// Two passes because hdlr and minf can appear in either order in the file,
+// and we need both pieces of info before we can correctly interpret stsd.
+func videoScanTRAK(r io.ReadSeeker, trakStart, trakEnd int64, info *videoInfo) error {
+	// Find mdia bounds inside trak.
+	var mdiaStart, mdiaEnd int64 = -1, -1
+	if err := walkBoxes(r, trakStart, trakEnd, []string{"mdia"}, func(end int64) error {
+		cur, _ := r.Seek(0, io.SeekCurrent)
+		mdiaStart = cur
+		mdiaEnd = end
+		return nil
+	}); err != nil {
+		return err
+	}
+	if mdiaStart < 0 {
+		return nil
+	}
+
+	// Pass 1: collect track type, timescale, minf bounds.
+	var trackType string
+	var timescale uint32
+	var minfStart, minfEnd int64 = -1, -1
+	if _, err := r.Seek(mdiaStart, io.SeekStart); err != nil {
+		return err
+	}
+	for {
+		pos, _ := r.Seek(0, io.SeekCurrent)
+		if pos >= mdiaEnd {
+			break
+		}
+		size, name, contentLen, err := readBoxHeader(r)
+		if err != nil {
+			return err
+		}
+		next := pos + size
+		switch name {
+		case "hdlr":
+			// 1 version + 3 flags + 4 pre_defined + 4 handler_type + ...
+			var head [12]byte
+			if _, err := io.ReadFull(r, head[:]); err != nil {
+				return err
+			}
+			trackType = string(head[8:12])
+		case "mdhd":
+			timescale = readMDHDTimescale(r, contentLen)
+		case "minf":
+			cur, _ := r.Seek(0, io.SeekCurrent)
+			minfStart = cur
+			minfEnd = next
+		}
+		if _, err := r.Seek(next, io.SeekStart); err != nil {
+			return err
+		}
+	}
+
+	if minfStart < 0 || trackType == "" {
+		return nil
+	}
+
+	// Pass 2: walk minf for stbl, then stbl children for stsd + stts.
+	return walkBoxes(r, minfStart, minfEnd, []string{"stbl"}, func(stblEnd int64) error {
+		stblStart, _ := r.Seek(0, io.SeekCurrent)
+		if _, err := r.Seek(stblStart, io.SeekStart); err != nil {
+			return err
+		}
+		for {
+			pos, _ := r.Seek(0, io.SeekCurrent)
+			if pos >= stblEnd {
+				return nil
+			}
+			size, name, _, err := readBoxHeader(r)
+			if err != nil {
+				return err
+			}
+			next := pos + size
+			switch name {
+			case "stsd":
+				if err := readVideoSTSD(r, next, trackType, info); err != nil {
+					return err
+				}
+			case "stts":
+				if trackType == "vide" && timescale > 0 {
+					readSTTS(r, next-pos-8, timescale, info)
+				}
+			}
+			if _, err := r.Seek(next, io.SeekStart); err != nil {
+				return err
+			}
+		}
+	})
+}
+
+// readVideoMVHD pulls duration_seconds from mvhd; same logic as audio MVHD
+// but writes to videoInfo.
+func readVideoMVHD(r io.ReadSeeker, contentLen int64, info *videoInfo) error {
+	if contentLen < 16 {
+		return errors.New("mvhd too short")
+	}
+	buf := make([]byte, contentLen)
+	if _, err := io.ReadFull(r, buf); err != nil {
+		return err
+	}
+	version := buf[0]
+	var timescale, duration uint64
+	if version == 1 {
+		if len(buf) < 32 {
+			return errors.New("mvhd v1 too short")
+		}
+		timescale = uint64(binary.BigEndian.Uint32(buf[20:24]))
+		duration = binary.BigEndian.Uint64(buf[24:32])
+	} else {
+		if len(buf) < 20 {
+			return errors.New("mvhd v0 too short")
+		}
+		timescale = uint64(binary.BigEndian.Uint32(buf[12:16]))
+		duration = uint64(binary.BigEndian.Uint32(buf[16:20]))
+	}
+	if timescale > 0 {
+		info.Duration = float64(duration) / float64(timescale)
+	}
+	return nil
+}
+
+// readMDHDTimescale reads the 4-byte timescale from a track-level media
+// header. Layout same shape as mvhd (version-conditional offsets).
+func readMDHDTimescale(r io.ReadSeeker, contentLen int64) uint32 {
+	if contentLen < 4 {
+		return 0
+	}
+	buf := make([]byte, contentLen)
+	if _, err := io.ReadFull(r, buf); err != nil {
+		return 0
+	}
+	version := buf[0]
+	if version == 1 {
+		if len(buf) < 24 {
+			return 0
+		}
+		return binary.BigEndian.Uint32(buf[20:24])
+	}
+	if len(buf) < 16 {
+		return 0
+	}
+	return binary.BigEndian.Uint32(buf[12:16])
+}
+
+// readVideoSTSD parses stsd. For video tracks we read VisualSampleEntry
+// fields (codec name, width, height). For audio tracks, we capture only
+// the codec name.
+func readVideoSTSD(r io.ReadSeeker, end int64, trackType string, info *videoInfo) error {
+	var preamble [8]byte
+	if _, err := io.ReadFull(r, preamble[:]); err != nil {
+		return err
+	}
+	for {
+		pos, _ := r.Seek(0, io.SeekCurrent)
+		if pos >= end {
+			return nil
+		}
+		size, name, _, err := readBoxHeader(r)
+		if err != nil {
+			return err
+		}
+		next := pos + size
+		switch trackType {
+		case "vide":
+			// VisualSampleEntry: 6 reserved + 2 ref_index + 16 reserved
+			// + 2 width + 2 height + ... (78 bytes total).
+			var body [78]byte
+			if _, err := io.ReadFull(r, body[:]); err != nil {
+				return err
+			}
+			info.VideoCodec = mp4VideoCodecName(name)
+			info.Width = int64(binary.BigEndian.Uint16(body[24:26]))
+			info.Height = int64(binary.BigEndian.Uint16(body[26:28]))
+			return nil
+		case "soun":
+			info.AudioCodec = mp4AudioCodecName(name)
+			return nil
+		}
+		if _, err := r.Seek(next, io.SeekStart); err != nil {
+			return err
+		}
+	}
+}
+
+// readSTTS computes frame_rate from the first stts entry. stts layout:
+// 1 version + 3 flags + 4 entry_count + N × (4 sample_count, 4 sample_delta).
+// frame_rate = timescale / sample_delta. For VFR there are multiple entries;
+// we use the first as an approximation.
+func readSTTS(r io.ReadSeeker, contentLen int64, timescale uint32, info *videoInfo) {
+	if contentLen < 16 {
+		return
+	}
+	buf := make([]byte, contentLen)
+	if _, err := io.ReadFull(r, buf); err != nil {
+		return
+	}
+	entryCount := binary.BigEndian.Uint32(buf[4:8])
+	if entryCount == 0 || len(buf) < 16 {
+		return
+	}
+	sampleDelta := binary.BigEndian.Uint32(buf[12:16])
+	if sampleDelta == 0 {
+		return
+	}
+	info.FrameRate = float64(timescale) / float64(sampleDelta)
+}
+
+// mp4VideoCodecName maps MP4 video sample-entry types to friendly names.
+func mp4VideoCodecName(name string) string {
+	switch name {
+	case "avc1", "avc3":
+		return "h264"
+	case "hvc1", "hev1":
+		return "h265"
+	case "av01":
+		return "av1"
+	case "vp08":
+		return "vp8"
+	case "vp09":
+		return "vp9"
+	case "mp4v":
+		return "mpeg4"
+	case "encv":
+		return "encrypted"
+	}
+	return name
+}
+
+// mp4AudioCodecName maps MP4 audio sample-entry types to friendly names.
+func mp4AudioCodecName(name string) string {
+	switch name {
+	case "mp4a":
+		return "aac"
+	case "alac":
+		return "alac"
+	case "Opus":
+		return "opus"
+	case "ac-3":
+		return "ac3"
+	case "ec-3":
+		return "eac3"
+	case "samr":
+		return "amr"
+	}
+	return name
+}

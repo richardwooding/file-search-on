@@ -213,6 +213,15 @@ file-search-on 'is_audio && bitrate >= 320' -d ~/Music                  # high-b
 file-search-on 'is_audio && sample_rate >= 96000' -d ~/Music            # hi-res audio
 ```
 
+Find video by codec, resolution, or duration:
+
+```sh
+file-search-on 'is_video && video_codec == "h265"' -d ~/Videos          # HEVC encodes
+file-search-on 'is_video && video_height >= 2160' -d ~/Videos           # 4K and above
+file-search-on 'is_video && duration > 1800' -d ~/Videos                # over 30 minutes
+file-search-on 'is_video && frame_rate > 30' -d ~/Videos                # high-frame-rate
+```
+
 Combine paths and types — find HTML files inside a `build/` directory:
 
 ```sh
@@ -231,7 +240,7 @@ Common attributes (always present):
 | `size` | int | File size in bytes |
 | `ext` | string | File extension, e.g. `.md` |
 | `content_type` | string | Detected content type |
-| `is_markdown`, `is_json`, `is_xml`, `is_html`, `is_pdf`, `is_image`, `is_text`, `is_csv`, `is_epub`, `is_office`, `is_audio` | bool | Type predicates (`is_office` covers DOCX/XLSX/PPTX/ODT; `is_audio` covers MP3/M4A/FLAC/OGG) |
+| `is_markdown`, `is_json`, `is_xml`, `is_html`, `is_pdf`, `is_image`, `is_text`, `is_csv`, `is_epub`, `is_office`, `is_audio`, `is_video` | bool | Type predicates (`is_office` covers DOCX/XLSX/PPTX/ODT; `is_audio` covers MP3/M4A/FLAC/OGG; `is_video` covers MP4/MOV/MKV/WebM/AVI) |
 
 Type-specific attributes (zero-valued when not applicable):
 
@@ -256,10 +265,13 @@ Type-specific attributes (zero-valued when not applicable):
 | `focal_length`, `f_stop`, `exposure_time` | double | EXIF focal length (mm), F-number, exposure (s) |
 | `artist`, `album`, `album_artist`, `composer`, `genre` | string | Audio tags (ID3v1/v2 for MP3, MP4 atoms for M4A, Vorbis comments for FLAC/OGG) |
 | `year`, `track` | int | Audio release year and track number |
-| `duration` | double | Audio length in seconds (FLAC STREAMINFO / MP3 Xing / OGG granule / MP4 mvhd) |
-| `bitrate` | int | Audio average bitrate in kbps (file_size × 8 / duration / 1000) |
+| `duration` | double | Audio or video length in seconds |
+| `bitrate` | int | Audio or video average bitrate in kbps (file_size × 8 / duration / 1000) |
 | `sample_rate` | int | Audio sample rate in Hz |
 | `channels` | int | Audio channel count |
+| `video_codec`, `audio_codec` | string | Codec names (h264, h265, av1, vp9, aac, opus, ...) |
+| `video_width`, `video_height` | int | Video frame dimensions in pixels |
+| `frame_rate` | double | Video frames per second |
 | `frontmatter` | `map<string, dyn>` | Full Markdown front-matter map |
 | `frontmatter_format` | string | `"yaml"`, `"toml"`, `"json"`, or `""` |
 | `tags`, `categories` | `list<string>` | Markdown front-matter |

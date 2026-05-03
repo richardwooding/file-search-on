@@ -33,6 +33,7 @@ type FileAttributes struct {
 	IsEPUB      bool
 	IsOffice    bool
 	IsAudio     bool
+	IsVideo     bool
 	Extra       content.Attributes
 }
 
@@ -62,6 +63,7 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("is_epub", cel.BoolType),
 		cel.Variable("is_office", cel.BoolType),
 		cel.Variable("is_audio", cel.BoolType),
+		cel.Variable("is_video", cel.BoolType),
 		cel.Variable("title", cel.StringType),
 		cel.Variable("word_count", cel.IntType),
 		cel.Variable("line_count", cel.IntType),
@@ -96,6 +98,11 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("bitrate", cel.IntType),
 		cel.Variable("sample_rate", cel.IntType),
 		cel.Variable("channels", cel.IntType),
+		cel.Variable("video_codec", cel.StringType),
+		cel.Variable("audio_codec", cel.StringType),
+		cel.Variable("video_width", cel.IntType),
+		cel.Variable("video_height", cel.IntType),
+		cel.Variable("frame_rate", cel.DoubleType),
 		cel.Variable("frontmatter", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("frontmatter_format", cel.StringType),
 		cel.Variable("tags", cel.ListType(cel.StringType)),
@@ -140,6 +147,7 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 		"is_epub":            attrs.IsEPUB,
 		"is_office":          attrs.IsOffice,
 		"is_audio":           attrs.IsAudio,
+		"is_video":           attrs.IsVideo,
 		"title":              "",
 		"word_count":         int64(0),
 		"line_count":         int64(0),
@@ -174,6 +182,11 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 		"bitrate":            int64(0),
 		"sample_rate":        int64(0),
 		"channels":           int64(0),
+		"video_codec":        "",
+		"audio_codec":        "",
+		"video_width":        int64(0),
+		"video_height":       int64(0),
+		"frame_rate":         float64(0),
 		"frontmatter":        map[string]any{},
 		"frontmatter_format": "",
 		"tags":               []string{},
@@ -253,6 +266,16 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 				activation["sample_rate"] = v
 			case "channels":
 				activation["channels"] = v
+			case "video_codec":
+				activation["video_codec"] = v
+			case "audio_codec":
+				activation["audio_codec"] = v
+			case "video_width":
+				activation["video_width"] = v
+			case "video_height":
+				activation["video_height"] = v
+			case "frame_rate":
+				activation["frame_rate"] = v
 			case "frontmatter":
 				activation["frontmatter"] = v
 			case "frontmatter_format":
@@ -296,7 +319,7 @@ func BuildAttributes(ctx context.Context, path string, registry *content.Registr
 	ct := registry.Detect(path)
 	contentTypeName := ""
 	isMarkdown, isJSON, isXML, isHTML, isPDF, isImage := false, false, false, false, false, false
-	isText, isCSV, isEPUB, isOffice, isAudio := false, false, false, false, false
+	isText, isCSV, isEPUB, isOffice, isAudio, isVideo := false, false, false, false, false, false
 
 	var extra content.Attributes
 	if ct != nil {
@@ -324,6 +347,8 @@ func BuildAttributes(ctx context.Context, path string, registry *content.Registr
 			isOffice = true
 		case strings.HasPrefix(contentTypeName, "audio/"):
 			isAudio = true
+		case strings.HasPrefix(contentTypeName, "video/"):
+			isVideo = true
 		}
 		extra, err = ct.Attributes(ctx, path)
 		if err != nil {
@@ -350,6 +375,7 @@ func BuildAttributes(ctx context.Context, path string, registry *content.Registr
 		IsEPUB:      isEPUB,
 		IsOffice:    isOffice,
 		IsAudio:     isAudio,
+		IsVideo:     isVideo,
 		Extra:       extra,
 	}, nil
 }

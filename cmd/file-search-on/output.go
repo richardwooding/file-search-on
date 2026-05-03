@@ -65,6 +65,7 @@ type Record struct {
 	IsEPUB     bool `json:"is_epub,omitempty"`
 	IsOffice   bool `json:"is_office,omitempty"`
 	IsAudio    bool `json:"is_audio,omitempty"`
+	IsVideo    bool `json:"is_video,omitempty"`
 
 	Artist      string `json:"artist,omitempty"`
 	Album       string `json:"album,omitempty"`
@@ -78,6 +79,12 @@ type Record struct {
 	Bitrate    int64   `json:"bitrate,omitempty"`
 	SampleRate int64   `json:"sample_rate,omitempty"`
 	Channels   int64   `json:"channels,omitempty"`
+
+	VideoCodec  string  `json:"video_codec,omitempty"`
+	AudioCodec  string  `json:"audio_codec,omitempty"`
+	VideoWidth  int64   `json:"video_width,omitempty"`
+	VideoHeight int64   `json:"video_height,omitempty"`
+	FrameRate   float64 `json:"frame_rate,omitempty"`
 }
 
 // recordFrom projects a search.Result into the wire shape. Falls back to
@@ -106,6 +113,7 @@ func recordFrom(r search.Result) Record {
 	rec.IsEPUB = a.IsEPUB
 	rec.IsOffice = a.IsOffice
 	rec.IsAudio = a.IsAudio
+	rec.IsVideo = a.IsVideo
 
 	if a.Extra == nil {
 		return rec
@@ -211,6 +219,21 @@ func recordFrom(r search.Result) Record {
 	}
 	if v, ok := a.Extra["channels"].(int64); ok {
 		rec.Channels = v
+	}
+	if v, ok := a.Extra["video_codec"].(string); ok {
+		rec.VideoCodec = v
+	}
+	if v, ok := a.Extra["audio_codec"].(string); ok {
+		rec.AudioCodec = v
+	}
+	if v, ok := a.Extra["video_width"].(int64); ok {
+		rec.VideoWidth = v
+	}
+	if v, ok := a.Extra["video_height"].(int64); ok {
+		rec.VideoHeight = v
+	}
+	if v, ok := a.Extra["frame_rate"].(float64); ok {
+		rec.FrameRate = v
 	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
 		rec.FrontmatterFormat = v
