@@ -167,6 +167,34 @@ tags: [oops
 	}
 }
 
+func TestFrontmatterLanguagePromoted(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"yaml.md", "---\ntitle: x\nlanguage: fr\n---\nbody\n"},
+		{"toml.md", "+++\ntitle = \"x\"\nlanguage = \"fr\"\n+++\nbody\n"},
+		{"json.md", "{\"title\": \"x\", \"language\": \"fr\"}\n\nbody\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeTemp(t, tc.name, tc.body)
+			attrs := markdownAttrs(t, path)
+			if got := attrs["language"]; got != "fr" {
+				t.Errorf("language = %v, want fr", got)
+			}
+		})
+	}
+}
+
+func TestFrontmatterLanguageAbsent(t *testing.T) {
+	path := writeTemp(t, "no-lang.md", "---\ntitle: x\n---\nbody\n")
+	attrs := markdownAttrs(t, path)
+	if v, ok := attrs["language"]; ok {
+		t.Errorf("language present when absent in front-matter: %v", v)
+	}
+}
+
 func TestSingleStringTagWrapsAsList(t *testing.T) {
 	path := writeTemp(t, "single.md", `---
 tags: solo
