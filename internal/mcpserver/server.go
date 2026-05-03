@@ -47,6 +47,18 @@ type SearchMatch struct {
 	ImgWidth  int64 `json:"img_width,omitempty"`
 	ImgHeight int64 `json:"img_height,omitempty"`
 
+	CameraMake   string  `json:"camera_make,omitempty"`
+	CameraModel  string  `json:"camera_model,omitempty"`
+	Lens         string  `json:"lens,omitempty"`
+	TakenAt      string  `json:"taken_at,omitempty"` // RFC3339 when set
+	Orientation  int64   `json:"orientation,omitempty"`
+	GPSLat       float64 `json:"gps_lat,omitempty"`
+	GPSLon       float64 `json:"gps_lon,omitempty"`
+	ISO          int64   `json:"iso,omitempty"`
+	FocalLength  float64 `json:"focal_length,omitempty"`
+	FStop        float64 `json:"f_stop,omitempty"`
+	ExposureTime float64 `json:"exposure_time,omitempty"`
+
 	FrontmatterFormat string         `json:"frontmatter_format,omitempty"`
 	Frontmatter       map[string]any `json:"frontmatter,omitempty"`
 	Tags              []string       `json:"tags,omitempty"`
@@ -120,6 +132,39 @@ func matchFrom(r search.Result) SearchMatch {
 	}
 	if v, ok := a.Extra["height"].(int64); ok {
 		m.ImgHeight = v
+	}
+	if v, ok := a.Extra["camera_make"].(string); ok {
+		m.CameraMake = v
+	}
+	if v, ok := a.Extra["camera_model"].(string); ok {
+		m.CameraModel = v
+	}
+	if v, ok := a.Extra["lens"].(string); ok {
+		m.Lens = v
+	}
+	if v, ok := a.Extra["taken_at"].(time.Time); ok && !v.IsZero() {
+		m.TakenAt = v.Format(time.RFC3339)
+	}
+	if v, ok := a.Extra["orientation"].(int64); ok {
+		m.Orientation = v
+	}
+	if v, ok := a.Extra["gps_lat"].(float64); ok {
+		m.GPSLat = v
+	}
+	if v, ok := a.Extra["gps_lon"].(float64); ok {
+		m.GPSLon = v
+	}
+	if v, ok := a.Extra["iso"].(int64); ok {
+		m.ISO = v
+	}
+	if v, ok := a.Extra["focal_length"].(float64); ok {
+		m.FocalLength = v
+	}
+	if v, ok := a.Extra["f_stop"].(float64); ok {
+		m.FStop = v
+	}
+	if v, ok := a.Extra["exposure_time"].(float64); ok {
+		m.ExposureTime = v
 	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
 		m.FrontmatterFormat = v

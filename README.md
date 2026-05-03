@@ -179,6 +179,24 @@ Find images wider than 1920 pixels:
 file-search-on 'is_image && img_width > 1920' -d ~/Pictures
 ```
 
+Find photos shot at high ISO on a specific camera:
+
+```sh
+file-search-on 'is_image && camera_make == "Canon" && iso > 1600' -d ~/Pictures
+```
+
+Find photos taken in a geographic bounding box (London-ish):
+
+```sh
+file-search-on 'is_image && gps_lat > 51.4 && gps_lat < 51.6 && gps_lon > -0.2 && gps_lon < 0.0' -d ~/Pictures
+```
+
+Find photos taken in a date range:
+
+```sh
+file-search-on 'is_image && taken_at > timestamp("2024-01-01T00:00:00Z") && taken_at < timestamp("2025-01-01T00:00:00Z")' -d ~/Pictures
+```
+
 Combine paths and types — find HTML files inside a `build/` directory:
 
 ```sh
@@ -214,6 +232,12 @@ Type-specific attributes (zero-valued when not applicable):
 | `root_element` | string | XML |
 | `json_kind` | string | `"object"` or `"array"` |
 | `img_width`, `img_height` | int | Image dimensions in pixels |
+| `camera_make`, `camera_model`, `lens` | string | EXIF camera/lens identification (JPEG/TIFF/HEIC/PNG) |
+| `taken_at` | timestamp | EXIF capture time (DateTimeOriginal → CreateDate → ModifyDate fallback) |
+| `orientation` | int | EXIF orientation tag (1-8) |
+| `gps_lat`, `gps_lon` | double | GPS coordinates in decimal degrees (north / east positive) |
+| `iso` | int | EXIF ISO sensitivity |
+| `focal_length`, `f_stop`, `exposure_time` | double | EXIF focal length (mm), F-number, exposure (s) |
 | `frontmatter` | `map<string, dyn>` | Full Markdown front-matter map |
 | `frontmatter_format` | string | `"yaml"`, `"toml"`, `"json"`, or `""` |
 | `tags`, `categories` | `list<string>` | Markdown front-matter |

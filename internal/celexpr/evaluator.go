@@ -72,6 +72,17 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("json_kind", cel.StringType),
 		cel.Variable("img_width", cel.IntType),
 		cel.Variable("img_height", cel.IntType),
+		cel.Variable("camera_make", cel.StringType),
+		cel.Variable("camera_model", cel.StringType),
+		cel.Variable("lens", cel.StringType),
+		cel.Variable("taken_at", cel.TimestampType),
+		cel.Variable("orientation", cel.IntType),
+		cel.Variable("gps_lat", cel.DoubleType),
+		cel.Variable("gps_lon", cel.DoubleType),
+		cel.Variable("iso", cel.IntType),
+		cel.Variable("focal_length", cel.DoubleType),
+		cel.Variable("f_stop", cel.DoubleType),
+		cel.Variable("exposure_time", cel.DoubleType),
 		cel.Variable("frontmatter", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("frontmatter_format", cel.StringType),
 		cel.Variable("tags", cel.ListType(cel.StringType)),
@@ -127,6 +138,17 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 		"json_kind":          "",
 		"img_width":          int64(0),
 		"img_height":         int64(0),
+		"camera_make":        "",
+		"camera_model":       "",
+		"lens":               "",
+		"taken_at":           time.Time{},
+		"orientation":        int64(0),
+		"gps_lat":            float64(0),
+		"gps_lon":            float64(0),
+		"iso":                int64(0),
+		"focal_length":       float64(0),
+		"f_stop":             float64(0),
+		"exposure_time":      float64(0),
 		"frontmatter":        map[string]any{},
 		"frontmatter_format": "",
 		"tags":               []string{},
@@ -162,6 +184,28 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 				activation["img_width"] = v
 			case "height":
 				activation["img_height"] = v
+			case "camera_make":
+				activation["camera_make"] = v
+			case "camera_model":
+				activation["camera_model"] = v
+			case "lens":
+				activation["lens"] = v
+			case "taken_at":
+				activation["taken_at"] = v
+			case "orientation":
+				activation["orientation"] = v
+			case "gps_lat":
+				activation["gps_lat"] = v
+			case "gps_lon":
+				activation["gps_lon"] = v
+			case "iso":
+				activation["iso"] = v
+			case "focal_length":
+				activation["focal_length"] = v
+			case "f_stop":
+				activation["f_stop"] = v
+			case "exposure_time":
+				activation["exposure_time"] = v
 			case "frontmatter":
 				activation["frontmatter"] = v
 			case "frontmatter_format":
