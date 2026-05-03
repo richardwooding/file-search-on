@@ -182,16 +182,19 @@ Common attributes (always present):
 | `size` | int | File size in bytes |
 | `ext` | string | File extension, e.g. `.md` |
 | `content_type` | string | Detected content type |
-| `is_markdown`, `is_json`, `is_xml`, `is_html`, `is_pdf`, `is_image` | bool | Type predicates |
+| `is_markdown`, `is_json`, `is_xml`, `is_html`, `is_pdf`, `is_image`, `is_text`, `is_csv`, `is_epub` | bool | Type predicates |
 
 Type-specific attributes (zero-valued when not applicable):
 
 | Attribute | Type | Source |
 | --- | --- | --- |
-| `title` | string | Markdown front-matter, then H1; HTML `<title>`; PDF metadata |
-| `word_count` | int | Markdown body (front-matter excluded) |
+| `title` | string | Markdown front-matter, then H1; HTML `<title>`; PDF metadata; EPUB `<dc:title>` |
+| `word_count` | int | Markdown body (front-matter excluded), plain text |
+| `line_count` | int | Plain text |
+| `column_count` | int | CSV/TSV header row |
 | `page_count` | int | PDF |
-| `author` | string | Markdown front-matter, PDF |
+| `author` | string | Markdown front-matter, PDF, EPUB `<dc:creator>` |
+| `language` | string | EPUB `<dc:language>` |
 | `root_element` | string | XML |
 | `json_kind` | string | `"object"` or `"array"` |
 | `img_width`, `img_height` | int | Image dimensions in pixels |

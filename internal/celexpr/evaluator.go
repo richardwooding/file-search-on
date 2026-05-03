@@ -27,6 +27,9 @@ type FileAttributes struct {
 	IsHTML      bool
 	IsPDF       bool
 	IsImage     bool
+	IsText      bool
+	IsCSV       bool
+	IsEPUB      bool
 	Extra       content.Attributes
 }
 
@@ -51,8 +54,14 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("is_html", cel.BoolType),
 		cel.Variable("is_pdf", cel.BoolType),
 		cel.Variable("is_image", cel.BoolType),
+		cel.Variable("is_text", cel.BoolType),
+		cel.Variable("is_csv", cel.BoolType),
+		cel.Variable("is_epub", cel.BoolType),
 		cel.Variable("title", cel.StringType),
 		cel.Variable("word_count", cel.IntType),
+		cel.Variable("line_count", cel.IntType),
+		cel.Variable("column_count", cel.IntType),
+		cel.Variable("language", cel.StringType),
 		cel.Variable("page_count", cel.IntType),
 		cel.Variable("author", cel.StringType),
 		cel.Variable("root_element", cel.StringType),
@@ -98,8 +107,14 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 		"is_html":            attrs.IsHTML,
 		"is_pdf":             attrs.IsPDF,
 		"is_image":           attrs.IsImage,
+		"is_text":            attrs.IsText,
+		"is_csv":             attrs.IsCSV,
+		"is_epub":            attrs.IsEPUB,
 		"title":              "",
 		"word_count":         int64(0),
+		"line_count":         int64(0),
+		"column_count":       int64(0),
+		"language":           "",
 		"page_count":         int64(0),
 		"author":             "",
 		"root_element":       "",
@@ -121,6 +136,12 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 				activation["title"] = v
 			case "word_count":
 				activation["word_count"] = v
+			case "line_count":
+				activation["line_count"] = v
+			case "column_count":
+				activation["column_count"] = v
+			case "language":
+				activation["language"] = v
 			case "page_count":
 				activation["page_count"] = v
 			case "author":
@@ -171,6 +192,7 @@ func BuildAttributes(path string, registry *content.Registry) (*FileAttributes, 
 	ct := registry.Detect(path)
 	contentTypeName := ""
 	isMarkdown, isJSON, isXML, isHTML, isPDF, isImage := false, false, false, false, false, false
+	isText, isCSV, isEPUB := false, false, false
 
 	var extra content.Attributes
 	if ct != nil {
@@ -186,6 +208,12 @@ func BuildAttributes(path string, registry *content.Registry) (*FileAttributes, 
 			isHTML = true
 		case contentTypeName == "pdf":
 			isPDF = true
+		case contentTypeName == "text":
+			isText = true
+		case contentTypeName == "csv":
+			isCSV = true
+		case contentTypeName == "epub":
+			isEPUB = true
 		case strings.HasPrefix(contentTypeName, "image/"):
 			isImage = true
 		}
@@ -206,6 +234,9 @@ func BuildAttributes(path string, registry *content.Registry) (*FileAttributes, 
 		IsHTML:      isHTML,
 		IsPDF:       isPDF,
 		IsImage:     isImage,
+		IsText:      isText,
+		IsCSV:       isCSV,
+		IsEPUB:      isEPUB,
 		Extra:       extra,
 	}, nil
 }
