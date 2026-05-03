@@ -34,5 +34,8 @@ go.work.sum
 # Claude Code per-user settings (skills under .claude/skills/ are shared)
 .claude/settings.local.json
 
+# Personal Claude skills kept out of the public repo
+.claude/skills/linkedin-article/
+
 # GoReleaser local snapshot output
 dist/
