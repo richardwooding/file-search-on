@@ -2,6 +2,8 @@ package content
 
 import (
 	"bufio"
+	"bytes"
+	"io"
 	"os"
 	"strings"
 )
@@ -25,9 +27,17 @@ func (m *markdownType) Attributes(path string) (Attributes, error) {
 	}
 	defer func() { _ = f.Close() }()
 
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return nil, err
+	}
+
+	fm, body := splitFrontmatter(data)
+
 	var title string
 	var wordCount int
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(bytes.NewReader(body))
+	scanner.Buffer(make([]byte, 1024*1024), 8*1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if title == "" && strings.HasPrefix(line, "# ") {
@@ -35,8 +45,39 @@ func (m *markdownType) Attributes(path string) (Attributes, error) {
 		}
 		wordCount += len(strings.Fields(line))
 	}
-	return Attributes{
-		"title":      title,
-		"word_count": int64(wordCount),
-	}, nil
+
+	attrs := Attributes{
+		"word_count":         int64(wordCount),
+		"frontmatter_format": "",
+		"frontmatter":        map[string]any{},
+		"tags":               []string{},
+		"categories":         []string{},
+		"draft":              false,
+	}
+
+	if fm != nil {
+		attrs["frontmatter_format"] = fm.Format
+		attrs["frontmatter"] = fm.Data
+		if v, ok := stringValue(fm.Data["title"]); ok && v != "" {
+			title = v
+		}
+		if v, ok := stringValue(fm.Data["author"]); ok {
+			attrs["author"] = v
+		}
+		if tags, ok := stringListValue(fm.Data["tags"]); ok {
+			attrs["tags"] = tags
+		}
+		if cats, ok := stringListValue(fm.Data["categories"]); ok {
+			attrs["categories"] = cats
+		}
+		if v, ok := fm.Data["draft"].(bool); ok {
+			attrs["draft"] = v
+		}
+		if t, ok := timeValue(fm.Data["date"]); ok {
+			attrs["date"] = t
+		}
+	}
+
+	attrs["title"] = title
+	return attrs, nil
 }

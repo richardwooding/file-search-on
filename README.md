@@ -6,6 +6,7 @@
 
 ## Features
 
+- **First-class Markdown front-matter search** — query YAML (`---`), TOML (`+++`), and JSON (`{ ... }`) front-matter directly. Common keys (`title`, `author`, `tags`, `categories`, `draft`, `date`) are promoted to top-level CEL variables, and a generic `frontmatter` map exposes every other key. See the [dedicated section](#markdown-front-matter-search) below.
 - **Pluggable content-type detection** — extension-first, with magic-byte fallback. Markdown, JSON, XML, HTML, PDF, and the common image formats (JPEG, PNG, GIF, WebP, SVG, TIFF, BMP) are supported out of the box.
 - **Rich, type-specific attributes** — page count and author for PDFs, title and word count for Markdown, root element for XML, dimensions for images, and more.
 - **CEL expressions** — the full Common Expression Language is available, so you can compose conditions naturally with `&&`, `||`, comparisons, string functions, and so on.
@@ -42,6 +43,69 @@ file-search-on --list
 | `-l`, `--list` | List supported attributes and registered content types. | |
 
 Each matching file is printed as `<path>\t[<content-type>]\t<size> bytes`. The match count is written to stderr so it doesn't pollute pipelines.
+
+## Markdown front-matter search
+
+Searching across the front-matter of large note collections, blogs, and documentation sites is a primary use case for this tool. Three formats are recognised, detected by the very first bytes of the file:
+
+| Format | Opening | Closing | Common in |
+| --- | --- | --- | --- |
+| YAML | `---` line | `---` line | Jekyll, Obsidian, Hugo, MkDocs |
+| TOML | `+++` line | `+++` line | Hugo, Zola |
+| JSON | `{` at byte 0 | matching `}` | Hugo, Eleventy |
+
+Parsing is lightweight: the front-matter block is read and decoded directly with [`gopkg.in/yaml.v3`](https://pkg.go.dev/gopkg.in/yaml.v3), [`pelletier/go-toml/v2`](https://pkg.go.dev/github.com/pelletier/go-toml/v2), or `encoding/json`. The Markdown body is not parsed beyond a single pass for `word_count` and an H1 title fallback, so this stays fast across thousands of files.
+
+Six commonly-used keys are promoted to first-class CEL variables; everything else is reachable through the generic `frontmatter` map.
+
+| CEL variable | Type | Notes |
+| --- | --- | --- |
+| `title` | string | Front-matter `title` overrides the H1 fallback. |
+| `author` | string | From front-matter. |
+| `tags` | `list<string>` | A bare string (`tags: solo`) is wrapped as a single-element list. |
+| `categories` | `list<string>` | Same coercion as `tags`. |
+| `draft` | bool | Defaults to `false` when missing. |
+| `date` | timestamp | Native TOML dates and common YAML/JSON string layouts (RFC3339, `YYYY-MM-DD`, etc.) are accepted. |
+| `frontmatter` | `map<string, dyn>` | Full parsed map. Reach any custom key with `frontmatter.your_key`. |
+| `frontmatter_format` | string | `"yaml"`, `"toml"`, `"json"`, or `""` if no front-matter was present. |
+
+### Front-matter examples
+
+Find drafts in your blog:
+
+```sh
+file-search-on 'is_markdown && draft' -d ./content
+```
+
+Find Markdown tagged `go` and not draft:
+
+```sh
+file-search-on 'is_markdown && "go" in tags && !draft' -d ./posts
+```
+
+Find published posts from 2024 onward:
+
+```sh
+file-search-on 'is_markdown && date >= timestamp("2024-01-01T00:00:00Z")'
+```
+
+Reach a custom front-matter key (e.g. `category: essay`):
+
+```sh
+file-search-on 'is_markdown && frontmatter.category == "essay"'
+```
+
+Find files in a specific front-matter format:
+
+```sh
+file-search-on 'is_markdown && frontmatter_format == "toml"'
+```
+
+Combine front-matter with structural attributes — long, tagged, non-draft posts:
+
+```sh
+file-search-on 'is_markdown && word_count > 1000 && "longread" in tags && !draft'
+```
 
 ## Examples
 
@@ -93,13 +157,18 @@ Type-specific attributes (zero-valued when not applicable):
 
 | Attribute | Type | Source |
 | --- | --- | --- |
-| `title` | string | Markdown H1, HTML `<title>`, or PDF metadata |
-| `word_count` | int | Markdown |
+| `title` | string | Markdown front-matter, then H1; HTML `<title>`; PDF metadata |
+| `word_count` | int | Markdown body (front-matter excluded) |
 | `page_count` | int | PDF |
-| `author` | string | PDF |
+| `author` | string | Markdown front-matter, PDF |
 | `root_element` | string | XML |
 | `json_kind` | string | `"object"` or `"array"` |
 | `img_width`, `img_height` | int | Image dimensions in pixels |
+| `frontmatter` | `map<string, dyn>` | Full Markdown front-matter map |
+| `frontmatter_format` | string | `"yaml"`, `"toml"`, `"json"`, or `""` |
+| `tags`, `categories` | `list<string>` | Markdown front-matter |
+| `draft` | bool | Markdown front-matter |
+| `date` | timestamp | Markdown front-matter |
 
 Run `file-search-on --list` to see the full, up-to-date list along with the registered content types.
 

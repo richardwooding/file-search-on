@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `file-search-on` is a Go CLI that recursively searches a directory and matches files against a [CEL](https://github.com/google/cel-spec) expression evaluated over file metadata and content-type-specific attributes (e.g. `is_pdf && page_count > 10`, `is_markdown && word_count > 500`).
 
+**Markdown front-matter search is a primary feature**, not a side concern — see the dedicated section below before changing anything in `internal/content/markdown.go` or `internal/content/frontmatter.go`.
+
 Module: `github.com/richardwooding/file-search-on`. Toolchain: Go 1.26.2.
 
 ## Commands
@@ -52,6 +54,23 @@ Three internal packages compose the pipeline. Read them together — they are ti
 - **`internal/search`** — `Walk` is the orchestrator. It compiles the CEL expression once, then fans out: a `filepath.WalkDir` producer feeds paths into a buffered channel; N workers (`Workers`, default `NumCPU`) pull paths, call `BuildAttributes` + `Evaluate`, and append matches under a single `sync.Mutex`. Directory traversal errors are swallowed (returning `nil` from the WalkDir func). `ctx` cancellation is checked only at the producer.
 
 The CLI (`cmd/file-search-on/main.go`) uses `kong` for argument parsing. The single `search` subcommand is the default. After `Walk` returns, results are sorted by path and printed as `<path>\t[<content-type>]\t<size> bytes`. The match count goes to stderr.
+
+### Markdown front-matter (primary feature)
+
+`internal/content/frontmatter.go` is the parser. `splitFrontmatter(data []byte) (*Frontmatter, []byte)` is the only entry point — it returns the parsed metadata (or `nil` if absent) and the body bytes that the rest of `markdown.go` should treat as the document.
+
+Detection is purely by the leading bytes: `---\n` ⇒ YAML, `+++\n` ⇒ TOML, `{` at byte 0 ⇒ JSON. There is intentionally no magic-byte fallback — if the first bytes don't match, `frontmatter_format` is `""` and every promoted variable holds its zero value. Malformed input degrades silently (returns nil + the original bytes) so a broken front-matter block doesn't make a file vanish from results.
+
+Six keys are promoted to first-class CEL variables in `markdown.go`'s `Attributes`: `title`, `author`, `tags`, `categories`, `draft`, `date`. Anything else is reachable through `frontmatter.<key>`. Title precedence is *front-matter > H1*. `tags` and `categories` accept either a list or a bare string (which is wrapped) — that coercion lives in `stringListValue`. `date` accepts native `time.Time` (TOML) or several string layouts (`timeValue`); add new layouts there, not at call sites.
+
+Map values are normalised through `normalizeMap`/`normalizeValue` so cel-go sees `map[string]any` end-to-end. yaml.v3 already does this for the top-level map, but nested maps from generic `any` paths can sometimes be `map[any]any`; the normaliser covers that.
+
+When you change the promoted-variable set:
+
+1. Update `markdown.go` `Attributes` to populate the new key in the returned map (with a zero-value fallback in the same default block — never leave a key undeclared).
+2. Add a matching `cel.Variable(...)` in `celexpr.New` **and** a default in the activation map and a case in the `attrs.Extra` switch in `celexpr.Evaluate`. All three must move together; cel-go errors on undeclared variables at runtime.
+3. Update `cmd/file-search-on/main.go:printHelp` and the README front-matter table.
+4. Add a test in `internal/content/frontmatter_test.go` that exercises the new promotion across at least one of the three formats.
 
 ### Adding a new content type
 
