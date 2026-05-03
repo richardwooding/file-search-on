@@ -1,0 +1,46 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project
+
+`file-search-on` is a Go CLI that recursively searches a directory and matches files against a [CEL](https://github.com/google/cel-spec) expression evaluated over file metadata and content-type-specific attributes (e.g. `is_pdf && page_count > 10`, `is_markdown && word_count > 500`).
+
+Module: `github.com/richardwooding/file-search-on`. Toolchain: Go 1.25.
+
+## Commands
+
+```sh
+go build ./...                                  # build all packages
+go build -o file-search-on ./cmd/file-search-on # build the CLI binary
+go test ./...                                   # run all tests
+go test -race -coverprofile=coverage.out ./...  # what CI runs
+go test ./internal/celexpr -run TestEvaluator   # run a single test (regex match)
+go vet ./...
+golangci-lint run                               # CI uses `latest` version
+```
+
+Run the CLI:
+
+```sh
+./file-search-on 'is_markdown && word_count > 100' -d ./docs
+./file-search-on --list   # list supported attributes & registered content types
+```
+
+If `Expr` is empty it defaults to `"true"` (matches all files). Worker count defaults to `runtime.NumCPU()` when `-w` is 0 or unset.
+
+## Architecture
+
+Three internal packages compose the pipeline. Read them together — they are tightly coupled by the `FileAttributes` shape:
+
+- **`internal/content`** — pluggable content-type detection. Each type (markdown, json, xml, html, pdf, image variants) implements the `ContentType` interface (`Name`, `Extensions`, `MagicBytes`, `Attributes(path)`) and self-registers via `init()` calling `content.Register(...)` on a package-global `defaultRegistry`. `Registry.Detect(path)` tries extension match first, then falls back to magic-byte sniffing on the first 512 bytes. `Attributes(path)` is called *per matching file* during the walk and returns a `map[string]interface{}` of type-specific fields.
+- **`internal/celexpr`** — wraps `cel-go`. `New(expr)` declares a fixed schema of CEL variables (the union of common file attributes + every type-specific attribute any content type might emit) and compiles the program once. `BuildAttributes(path, registry)` runs `os.Stat`, calls `registry.Detect`, then calls the matched type's `Attributes`, and packs everything into `FileAttributes`. `Evaluate` flattens that into a CEL activation, supplying zero values for type-specific vars when the matched type didn't produce them — this is required because cel-go errors on undeclared/unbound variables.
+- **`internal/search`** — `Walk` is the orchestrator. It compiles the CEL expression once, then fans out: a `filepath.WalkDir` producer feeds paths into a buffered channel; N workers (`Workers`, default `NumCPU`) pull paths, call `BuildAttributes` + `Evaluate`, and append matches under a single `sync.Mutex`. Directory traversal errors are swallowed (returning `nil` from the WalkDir func). `ctx` cancellation is checked only at the producer.
+
+The CLI (`cmd/file-search-on/main.go`) uses `kong` for argument parsing. The single `search` subcommand is the default. After `Walk` returns, results are sorted by path and printed as `<path>\t[<content-type>]\t<size> bytes`. The match count goes to stderr.
+
+### Adding a new content type
+
+1. Create a new file in `internal/content/` implementing the `ContentType` interface and call `Register(&yourType{})` from `init()`.
+2. If it introduces new attributes, declare matching `cel.Variable(...)` entries in `celexpr.New` **and** wire them in both the activation defaults map and the `attrs.Extra` switch in `Evaluate` (`internal/celexpr/evaluator.go`). Forgetting either side will produce CEL "no such attribute" errors at runtime.
+3. If it's an image-family type, also extend the `strings.HasPrefix(contentTypeName, "image/")` branch logic in `BuildAttributes` and add it to the `--list` output in `cmd/file-search-on/main.go:printHelp`.
