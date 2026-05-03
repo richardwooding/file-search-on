@@ -41,19 +41,21 @@ Run the CLI:
 ```sh
 ./file-search-on 'is_markdown && word_count > 100' -d ./docs
 ./file-search-on --list   # list supported attributes & registered content types
+./file-search-on mcp      # serve MCP over stdio (see "MCP server" below)
 ```
 
 If `Expr` is empty it defaults to `"true"` (matches all files). Worker count defaults to `runtime.NumCPU()` when `-w` is 0 or unset.
 
 ## Architecture
 
-Three internal packages compose the pipeline. Read them together — they are tightly coupled by the `FileAttributes` shape:
+Four internal packages compose the pipeline. The first three are tightly coupled by the `FileAttributes` shape:
 
 - **`internal/content`** — pluggable content-type detection. Each type (markdown, json, xml, html, pdf, image variants) implements the `ContentType` interface (`Name`, `Extensions`, `MagicBytes`, `Attributes(path)`) and self-registers via `init()` calling `content.Register(...)` on a package-global `defaultRegistry`. `Registry.Detect(path)` tries extension match first, then falls back to magic-byte sniffing on the first 512 bytes. `Attributes(path)` is called *per matching file* during the walk and returns a `map[string]interface{}` of type-specific fields.
-- **`internal/celexpr`** — wraps `cel-go`. `New(expr)` declares a fixed schema of CEL variables (the union of common file attributes + every type-specific attribute any content type might emit) and compiles the program once. `BuildAttributes(path, registry)` runs `os.Stat`, calls `registry.Detect`, then calls the matched type's `Attributes`, and packs everything into `FileAttributes`. `Evaluate` flattens that into a CEL activation, supplying zero values for type-specific vars when the matched type didn't produce them — this is required because cel-go errors on undeclared/unbound variables.
+- **`internal/celexpr`** — wraps `cel-go`. `New(expr)` declares a fixed schema of CEL variables (the union of common file attributes + every type-specific attribute any content type might emit) and compiles the program once. `BuildAttributes(path, registry)` runs `os.Stat`, calls `registry.Detect`, then calls the matched type's `Attributes`, and packs everything into `FileAttributes`. `Evaluate` flattens that into a CEL activation, supplying zero values for type-specific vars when the matched type didn't produce them — this is required because cel-go errors on undeclared/unbound variables. `Schema()` (in `schema.go`) returns the structured docs that drive both `--list` and the MCP `list_attributes` tool — the only place attribute documentation is hard-coded.
 - **`internal/search`** — `Walk` is the orchestrator. It compiles the CEL expression once, then fans out: a `filepath.WalkDir` producer feeds paths into a buffered channel; N workers (`Workers`, default `NumCPU`) pull paths, call `BuildAttributes` + `Evaluate`, and append matches under a single `sync.Mutex`. Directory traversal errors are swallowed (returning `nil` from the WalkDir func). `ctx` cancellation is checked only at the producer.
+- **`internal/mcpserver`** — exposes the same search via the [official MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk). `New(version)` builds an `*mcp.Server` with two tools (`search` thinly wraps `search.Walk`; `list_attributes` returns `celexpr.Schema()` plus the registered content types). `Run(ctx, version)` is the stdio entry point used by the `mcp` subcommand.
 
-The CLI (`cmd/file-search-on/main.go`) uses `kong` for argument parsing. The single `search` subcommand is the default. After `Walk` returns, results are sorted by path and printed as `<path>\t[<content-type>]\t<size> bytes`. The match count goes to stderr.
+The CLI (`cmd/file-search-on/main.go`) uses `kong` for argument parsing. Two subcommands: `search` (default `withargs`) and `mcp`. After `Walk` returns, search results are sorted by path and printed as `<path>\t[<content-type>]\t<size> bytes`; the match count goes to stderr.
 
 ### Releases
 
@@ -102,11 +104,26 @@ When you change the promoted-variable set:
 
 1. Update `markdown.go` `Attributes` to populate the new key in the returned map (with a zero-value fallback in the same default block — never leave a key undeclared).
 2. Add a matching `cel.Variable(...)` in `celexpr.New` **and** a default in the activation map and a case in the `attrs.Extra` switch in `celexpr.Evaluate`. All three must move together; cel-go errors on undeclared variables at runtime.
-3. Update `cmd/file-search-on/main.go:printHelp` and the README front-matter table.
+3. Add an entry to `celexpr.Schema()` in `internal/celexpr/schema.go` (this drives both `--list` output and the MCP `list_attributes` tool — `printHelp` is now data-driven and needs no edits) and update the README front-matter table.
 4. Add a test in `internal/content/frontmatter_test.go` that exercises the new promotion across at least one of the three formats.
 
 ### Adding a new content type
 
 1. Create a new file in `internal/content/` implementing the `ContentType` interface and call `Register(&yourType{})` from `init()`.
-2. If it introduces new attributes, declare matching `cel.Variable(...)` entries in `celexpr.New` **and** wire them in both the activation defaults map and the `attrs.Extra` switch in `Evaluate` (`internal/celexpr/evaluator.go`). Forgetting either side will produce CEL "no such attribute" errors at runtime.
-3. If it's an image-family type, also extend the `strings.HasPrefix(contentTypeName, "image/")` branch logic in `BuildAttributes` and add it to the `--list` output in `cmd/file-search-on/main.go:printHelp`.
+2. If it introduces new attributes, declare matching `cel.Variable(...)` entries in `celexpr.New` **and** wire them in both the activation defaults map and the `attrs.Extra` switch in `Evaluate` (`internal/celexpr/evaluator.go`). Forgetting either side will produce CEL "no such attribute" errors at runtime. Add an `AttributeDoc` to the right slice in `celexpr.Schema()` so the new attribute shows up in `--list` and the MCP `list_attributes` tool.
+3. If it's an image-family type, also extend the `strings.HasPrefix(contentTypeName, "image/")` branch logic in `BuildAttributes`. The registered-types listing in `--list` is generated from `content.DefaultRegistry().Types()`, so the new type appears there automatically.
+
+### MCP server
+
+`internal/mcpserver` is a thin adapter over the existing `search.Walk` and `celexpr.Schema()`. The `mcp` subcommand starts a stdio JSON-RPC server using the official Go SDK; nothing else in the binary changes when MCP mode is active.
+
+Tool input/output structs (e.g. `SearchInput`, `SearchOutput`) live next to the handlers in `server.go`. JSON schemas are generated automatically from `json` and `jsonschema` struct tags by the SDK — don't hand-write the schema.
+
+To add a new tool:
+
+1. Define request/response structs with `json` + `jsonschema` tags.
+2. Write a handler with signature `func(ctx, *mcp.CallToolRequest, In) (*mcp.CallToolResult, Out, error)`.
+3. Call `mcp.AddTool(s, &mcp.Tool{...}, handler)` inside `New(...)`.
+4. Add a test in `server_test.go` using `mcp.NewInMemoryTransports()` — that's how the existing tests drive the server in-process without a subprocess.
+
+When changing the search surface, prefer adding inputs to the existing `search` tool over forking a new tool, so MCP clients see one entry point that mirrors the CLI.

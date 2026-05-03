@@ -203,6 +203,38 @@ Type-specific attributes (zero-valued when not applicable):
 
 Run `file-search-on --list` to see the full, up-to-date list along with the registered content types.
 
+## MCP server mode
+
+The same binary can run as a [Model Context Protocol](https://modelcontextprotocol.io) server, exposing the search to any MCP-compatible client (Claude Desktop, IDE plugins, agents). Stdio transport, no flags:
+
+```sh
+file-search-on mcp
+```
+
+Two tools are exposed:
+
+| Tool | Input | Output |
+| --- | --- | --- |
+| `search` | `expr`, `dir`, `workers` | `matches[]` (path, content_type, size) and `count` |
+| `list_attributes` | none | `schema` (common, type_specific, frontmatter) and `content_types[]` |
+
+Empty `expr` matches everything; empty `dir` defaults to `.`. `workers` falls back to `runtime.NumCPU()`.
+
+Example Claude Desktop entry in `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "file-search-on": {
+      "command": "file-search-on",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Built on [`github.com/modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk).
+
 ## Development
 
 ```sh
