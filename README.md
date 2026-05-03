@@ -2,15 +2,43 @@
 
 **Content-type aware file search with CEL-powered attribute filtering.**
 
-`file-search-on` walks a directory tree and returns files matching a [CEL](https://github.com/google/cel-spec) expression evaluated over each file's metadata and content-type-specific attributes. Instead of grepping by name, you can ask things like *"all PDFs with more than 10 pages"* or *"all Markdown files over 500 words whose title starts with 'Draft'"*.
+`file-search-on` walks a directory tree and returns files matching a [CEL](https://github.com/google/cel-spec) expression evaluated over each file's metadata and content-type-specific attributes. Instead of grepping by name, ask things like:
+
+```sh
+file-search-on 'is_pdf && page_count > 10 && author == "Jane Doe"'
+file-search-on 'is_image && gps_lat > 51.4 && gps_lat < 51.6'        # photos near home
+file-search-on 'is_audio && artist == "Radiohead" && year < 2000'
+file-search-on 'is_video && video_height >= 2160 && video_codec == "h265"'
+file-search-on 'is_office && language == "fr"'
+file-search-on 'is_markdown && "longread" in tags && word_count > 1000'
+```
+
+Across **24 file formats** organised into eight content-type families (documents, data, images, audio, video, office, ebooks, plain text), with format-specific metadata extraction.
 
 ## Features
 
-- **First-class Markdown front-matter search** — query YAML (`---`), TOML (`+++`), and JSON (`{ ... }`) front-matter directly. Common keys (`title`, `author`, `tags`, `categories`, `draft`, `date`) are promoted to top-level CEL variables, and a generic `frontmatter` map exposes every other key. See the [dedicated section](#markdown-front-matter-search) below.
-- **Pluggable content-type detection** — extension-first, with magic-byte fallback. Markdown, JSON, XML, HTML, PDF, and the common image formats (JPEG, PNG, GIF, WebP, SVG, TIFF, BMP) are supported out of the box.
-- **Rich, type-specific attributes** — page count and author for PDFs, title and word count for Markdown, root element for XML, dimensions for images, and more.
-- **CEL expressions** — the full Common Expression Language is available, so you can compose conditions naturally with `&&`, `||`, comparisons, string functions, and so on.
-- **Parallel walking** — files are evaluated across a configurable worker pool (defaults to the number of CPU cores).
+- **Pluggable content-type detection** — extension-first with magic-byte fallback. New formats are a single registration call.
+- **Eight content-type families**, each with its own metadata extractors:
+
+  | Family | Formats | Bundle of attributes |
+  | --- | --- | --- |
+  | **Documents** | PDF, EPUB | title, author, language, page_count |
+  | **Markup** | Markdown, HTML, XML | title, word_count, frontmatter, language, root_element |
+  | **Data** | JSON, CSV, TSV | json_kind, column_count, csv_columns |
+  | **Plain text** | TXT, log, … | line_count, word_count |
+  | **Images** | JPEG, PNG, GIF, WebP, TIFF, BMP, SVG, HEIC | dimensions + EXIF: camera, lens, GPS, ISO, focal_length, taken_at |
+  | **Audio** | MP3, M4A, FLAC, OGG | tags (artist, album, genre, year, …) + duration, bitrate, sample_rate, channels |
+  | **Video** | MP4, MOV, MKV, WebM, AVI | duration, bitrate, video_codec, audio_codec, video_width/height, frame_rate |
+  | **Office** | DOCX, XLSX, PPTX, ODT | title, author, language (Dublin Core) |
+
+  Type predicates (`is_pdf`, `is_image`, `is_audio`, `is_video`, `is_office`, `is_epub`, …) light up automatically from the registered content type. See [examples/](./examples/) for recipes by family.
+
+- **First-class Markdown front-matter** — YAML (`---`), TOML (`+++`), and JSON (`{ ... }`) are recognised by leading bytes. Common keys (`title`, `author`, `language`, `tags`, `categories`, `draft`, `date`) become top-level CEL variables; everything else lives in a generic `frontmatter` map. See [examples/markdown.md](./examples/markdown.md).
+- **CEL expressions** — the full Common Expression Language: comparisons, `&&`/`||`, string functions, list membership, timestamp arithmetic. Composes naturally with structural attributes.
+- **Multiple output formats** — `bare` (paths only), `default`, `verbose` (multi-line), `json` (NDJSON), or a Go `text/template` via `--format`.
+- **MCP server mode** — same binary doubles as a [Model Context Protocol](https://modelcontextprotocol.io) server (stdio, HTTP, or SSE). LLM agents can invoke `search` and `list_attributes` tools directly.
+- **Pure Go, no CGO** — cross-compiles cleanly to all six release targets. No image/audio/video decoder dependencies.
+- **Parallel walking** — files are evaluated across a worker pool (defaults to `NumCPU`).
 
 ## Install
 
@@ -22,7 +50,7 @@ brew install richardwooding/tap/file-search-on
 
 The cask is published from this repo on every tagged release to [`richardwooding/homebrew-tap`](https://github.com/richardwooding/homebrew-tap).
 
-> **macOS Gatekeeper:** the binary isn't yet signed with an Apple Developer ID, so macOS may block it on first run. The cask's post-install hook strips the quarantine xattr automatically. If macOS still blocks it, run:
+> **macOS Gatekeeper:** the binary isn't yet signed with an Apple Developer ID, so macOS may block it on first run. The cask's post-install hook strips the quarantine xattr automatically. If macOS still blocks it:
 >
 > ```sh
 > sudo xattr -dr com.apple.quarantine $(brew --prefix)/bin/file-search-on
@@ -88,138 +116,44 @@ file-search-on 'is_markdown' -d ./docs -o json       # NDJSON, one object per li
 file-search-on 'is_markdown' -d ./docs --format '{{.Path}}\t{{.Title}}\t{{.WordCount}}'
 ```
 
-`-o bare` and `-o json` and `--format` suppress the `<N> file(s) found` summary on stderr (the count is implicit in the line count). `--format` uses Go [`text/template`](https://pkg.go.dev/text/template); the data context is a flat record — `{{.Path}}`, `{{.Title}}`, `{{.WordCount}}`, `{{.Frontmatter}}`, all the `Is*` booleans, etc. Backslash escapes (`\t`, `\n`) are expanded before parsing.
+`-o bare`, `-o json`, and `--format` suppress the `<N> file(s) found` summary on stderr (the count is implicit in the line count). `--format` uses Go [`text/template`](https://pkg.go.dev/text/template); the data context is a flat record — `{{.Path}}`, `{{.Title}}`, `{{.WordCount}}`, `{{.Frontmatter}}`, all the `Is*` booleans, etc. Backslash escapes (`\t`, `\n`) are expanded before parsing.
 
-## Markdown front-matter search
+## Recipes
 
-Searching across the front-matter of large note collections, blogs, and documentation sites is a primary use case for this tool. Three formats are recognised, detected by the very first bytes of the file:
+Focused recipe collections live under [`examples/`](./examples/):
 
-| Format | Opening | Closing | Common in |
-| --- | --- | --- | --- |
-| YAML | `---` line | `---` line | Jekyll, Obsidian, Hugo, MkDocs |
-| TOML | `+++` line | `+++` line | Hugo, Zola |
-| JSON | `{` at byte 0 | matching `}` | Hugo, Eleventy |
+| Recipe file | What's in it |
+| --- | --- |
+| [`examples/markdown.md`](./examples/markdown.md) | Front-matter (YAML / TOML / JSON), draft flags, tag membership, custom keys |
+| [`examples/images.md`](./examples/images.md) | EXIF camera/lens, GPS bounding boxes, ISO / aperture / focal length, taken-at ranges |
+| [`examples/audio.md`](./examples/audio.md) | Artist / album / genre / year, bitrate, sample rate, hi-res filtering |
+| [`examples/video.md`](./examples/video.md) | Codec, resolution, frame rate, duration, MKV vs MP4 |
+| [`examples/office.md`](./examples/office.md) | DOCX / XLSX / PPTX / ODT — title, author, language |
+| [`examples/epub.md`](./examples/epub.md) | EPUB books — title, author, language; XMP fallback |
+| [`examples/data.md`](./examples/data.md) | JSON arrays vs objects, CSV column membership, XML root elements |
+| [`examples/text.md`](./examples/text.md) | Plain text / log files — line count, word count, big-line caps |
+| [`examples/cookbook.md`](./examples/cookbook.md) | Cross-cutting recipes — dedupe, mixed media filters, pipeline integration |
 
-Parsing is lightweight: the front-matter block is read and decoded directly with [`gopkg.in/yaml.v3`](https://pkg.go.dev/gopkg.in/yaml.v3), [`pelletier/go-toml/v2`](https://pkg.go.dev/github.com/pelletier/go-toml/v2), or `encoding/json`. The Markdown body is not parsed beyond a single pass for `word_count` and an H1 title fallback, so this stays fast across thousands of files.
-
-Six commonly-used keys are promoted to first-class CEL variables; everything else is reachable through the generic `frontmatter` map.
-
-| CEL variable | Type | Notes |
-| --- | --- | --- |
-| `title` | string | Front-matter `title` overrides the H1 fallback. |
-| `author` | string | From front-matter. |
-| `tags` | `list<string>` | A bare string (`tags: solo`) is wrapped as a single-element list. |
-| `categories` | `list<string>` | Same coercion as `tags`. |
-| `draft` | bool | Defaults to `false` when missing. |
-| `date` | timestamp | Native TOML dates and common YAML/JSON string layouts (RFC3339, `YYYY-MM-DD`, etc.) are accepted. |
-| `frontmatter` | `map<string, dyn>` | Full parsed map. Reach any custom key with `frontmatter.your_key`. |
-| `frontmatter_format` | string | `"yaml"`, `"toml"`, `"json"`, or `""` if no front-matter was present. |
-
-### Front-matter examples
-
-Find drafts in your blog:
+A handful of representative one-liners:
 
 ```sh
-file-search-on 'is_markdown && draft' -d ./content
-```
-
-Find Markdown tagged `go` and not draft:
-
-```sh
-file-search-on 'is_markdown && "go" in tags && !draft' -d ./posts
-```
-
-Find published posts from 2024 onward:
-
-```sh
-file-search-on 'is_markdown && date >= timestamp("2024-01-01T00:00:00Z")'
-```
-
-Reach a custom front-matter key (e.g. `category: essay`):
-
-```sh
-file-search-on 'is_markdown && frontmatter.category == "essay"'
-```
-
-Find files in a specific front-matter format:
-
-```sh
-file-search-on 'is_markdown && frontmatter_format == "toml"'
-```
-
-Combine front-matter with structural attributes — long, tagged, non-draft posts:
-
-```sh
-file-search-on 'is_markdown && word_count > 1000 && "longread" in tags && !draft'
-```
-
-## Examples
-
-Find all Markdown files larger than 500 words:
-
-```sh
+# All Markdown files larger than 500 words
 file-search-on 'is_markdown && word_count > 500' -d ./docs
-```
 
-Find PDFs with more than 10 pages, written by a specific author:
+# 4K HEVC videos longer than 30 minutes
+file-search-on 'is_video && video_height >= 2160 && video_codec == "h265" && duration > 1800' -d ~/Videos
 
-```sh
-file-search-on 'is_pdf && page_count > 10 && author == "Jane Doe"'
-```
+# Photos taken in 2024 with a Sony camera at high ISO
+file-search-on 'is_image && camera_make == "SONY" && iso > 1600 && taken_at > timestamp("2024-01-01T00:00:00Z")' -d ~/Pictures
 
-Find all JSON files whose top-level value is an array:
+# CSVs with a "revenue" column
+file-search-on 'is_csv && csv_columns.exists(c, c == "revenue")' -d ./reports
 
-```sh
-file-search-on 'is_json && json_kind == "array"'
-```
+# French-language office documents
+file-search-on 'is_office && language == "fr"' -d ~/Documents
 
-Find images wider than 1920 pixels:
-
-```sh
-file-search-on 'is_image && img_width > 1920' -d ~/Pictures
-```
-
-Find photos shot at high ISO on a specific camera:
-
-```sh
-file-search-on 'is_image && camera_make == "Canon" && iso > 1600' -d ~/Pictures
-```
-
-Find photos taken in a geographic bounding box (London-ish):
-
-```sh
-file-search-on 'is_image && gps_lat > 51.4 && gps_lat < 51.6 && gps_lon > -0.2 && gps_lon < 0.0' -d ~/Pictures
-```
-
-Find photos taken in a date range:
-
-```sh
-file-search-on 'is_image && taken_at > timestamp("2024-01-01T00:00:00Z") && taken_at < timestamp("2025-01-01T00:00:00Z")' -d ~/Pictures
-```
-
-Find audio files by artist, album, or genre:
-
-```sh
-file-search-on 'is_audio && artist == "Radiohead"' -d ~/Music
-file-search-on 'is_audio && genre == "Jazz" && year > 2000' -d ~/Music
-file-search-on 'is_audio && album == "OK Computer"' -d ~/Music --format '{{.Track}}\t{{.Title}}'
-```
-
-Find audio by duration, bitrate, or sample rate (hi-res):
-
-```sh
-file-search-on 'is_audio && duration > 600' -d ~/Music                  # tracks > 10 minutes
-file-search-on 'is_audio && bitrate >= 320' -d ~/Music                  # high-bitrate MP3 / lossless
-file-search-on 'is_audio && sample_rate >= 96000' -d ~/Music            # hi-res audio
-```
-
-Find video by codec, resolution, or duration:
-
-```sh
-file-search-on 'is_video && video_codec == "h265"' -d ~/Videos          # HEVC encodes
-file-search-on 'is_video && video_height >= 2160' -d ~/Videos           # 4K and above
-file-search-on 'is_video && duration > 1800' -d ~/Videos                # over 30 minutes
-file-search-on 'is_video && frame_rate > 30' -d ~/Videos                # high-frame-rate
+# Audio tracks ≥ 96 kHz (hi-res)
+file-search-on 'is_audio && sample_rate >= 96000' -d ~/Music
 ```
 
 Combine paths and types — find HTML files inside a `build/` directory:
@@ -230,55 +164,79 @@ file-search-on 'is_html && dir.contains("build")'
 
 ## Available attributes
 
-Common attributes (always present):
+Run `file-search-on --list` for the canonical, up-to-date listing. The summary tables below are organised by attribute family.
+
+### Common (always present)
 
 | Attribute | Type | Description |
 | --- | --- | --- |
-| `name` | string | Filename |
-| `path` | string | Full path |
-| `dir` | string | Parent directory |
+| `name`, `path`, `dir` | string | Path components |
 | `size` | int | File size in bytes |
-| `ext` | string | File extension, e.g. `.md` |
+| `ext` | string | File extension (e.g. `.md`) |
 | `content_type` | string | Detected content type |
-| `is_markdown`, `is_json`, `is_xml`, `is_html`, `is_pdf`, `is_image`, `is_text`, `is_csv`, `is_epub`, `is_office`, `is_audio`, `is_video` | bool | Type predicates (`is_office` covers DOCX/XLSX/PPTX/ODT; `is_audio` covers MP3/M4A/FLAC/OGG; `is_video` covers MP4/MOV/MKV/WebM/AVI) |
+| `is_markdown`, `is_json`, `is_xml`, `is_html`, `is_pdf`, `is_image`, `is_text`, `is_csv`, `is_epub`, `is_office`, `is_audio`, `is_video` | bool | Type predicates |
 
-Type-specific attributes (zero-valued when not applicable):
+### Document / markup
 
 | Attribute | Type | Source |
 | --- | --- | --- |
-| `title` | string | Markdown front-matter, then H1; HTML `<title>`; PDF `/Info` dict; EPUB `<dc:title>`; DOCX/XLSX/PPTX/ODT `<dc:title>` |
-| `word_count` | int | Markdown body (front-matter excluded), plain text |
+| `title` | string | Markdown front-matter / H1; HTML `<title>`; PDF `/Info`; EPUB `<dc:title>`; office `<dc:title>`; audio tags |
+| `author` | string | Markdown front-matter, PDF `/Info`, EPUB / office `<dc:creator>` |
+| `language` | string | EPUB / office `<dc:language>`; HTML `<html lang>`; markdown front-matter; PDF `/Lang` (XMP fallback) |
+| `word_count` | int | Markdown body, plain text |
 | `line_count` | int | Plain text |
-| `column_count` | int | CSV/TSV header row |
-| `csv_columns` | `list<string>` | CSV/TSV header field names |
 | `page_count` | int | PDF |
-| `author` | string | Markdown front-matter, PDF `/Info`, EPUB `<dc:creator>`; DOCX/XLSX/PPTX/ODT `<dc:creator>` |
-| `language` | string | EPUB `<dc:language>`; HTML `<html lang="...">`; markdown front-matter `language`; PDF `/Lang` (or XMP `<dc:language>` fallback); DOCX/XLSX/PPTX/ODT `<dc:language>` |
-| `root_element` | string | XML |
-| `json_kind` | string | `"object"` or `"array"` |
-| `img_width`, `img_height` | int | Image dimensions in pixels |
-| `camera_make`, `camera_model`, `lens` | string | EXIF camera/lens identification (JPEG/TIFF/HEIC/PNG) |
-| `taken_at` | timestamp | EXIF capture time (DateTimeOriginal → CreateDate → ModifyDate fallback) |
-| `orientation` | int | EXIF orientation tag (1-8) |
-| `gps_lat`, `gps_lon` | double | GPS coordinates in decimal degrees (north / east positive) |
-| `iso` | int | EXIF ISO sensitivity |
-| `focal_length`, `f_stop`, `exposure_time` | double | EXIF focal length (mm), F-number, exposure (s) |
-| `artist`, `album`, `album_artist`, `composer`, `genre` | string | Audio tags (ID3v1/v2 for MP3, MP4 atoms for M4A, Vorbis comments for FLAC/OGG) |
-| `year`, `track` | int | Audio release year and track number |
-| `duration` | double | Audio or video length in seconds |
-| `bitrate` | int | Audio or video average bitrate in kbps (file_size × 8 / duration / 1000) |
-| `sample_rate` | int | Audio sample rate in Hz |
-| `channels` | int | Audio channel count |
-| `video_codec`, `audio_codec` | string | Codec names (h264, h265, av1, vp9, aac, opus, ...) |
-| `video_width`, `video_height` | int | Video frame dimensions in pixels |
-| `frame_rate` | double | Video frames per second |
-| `frontmatter` | `map<string, dyn>` | Full Markdown front-matter map |
-| `frontmatter_format` | string | `"yaml"`, `"toml"`, `"json"`, or `""` |
-| `tags`, `categories` | `list<string>` | Markdown front-matter |
-| `draft` | bool | Markdown front-matter |
-| `date` | timestamp | Markdown front-matter |
 
-Run `file-search-on --list` to see the full, up-to-date list along with the registered content types.
+### Data / structural
+
+| Attribute | Type | Source |
+| --- | --- | --- |
+| `column_count`, `csv_columns` | int / `list<string>` | CSV/TSV header row |
+| `json_kind` | string | JSON top-level: `"object"` or `"array"` |
+| `root_element` | string | XML |
+
+### Markdown front-matter (promoted)
+
+| Attribute | Type | Notes |
+| --- | --- | --- |
+| `tags`, `categories` | `list<string>` | Bare strings are wrapped to single-element lists |
+| `draft` | bool | Defaults to `false` when missing |
+| `date` | timestamp | Native TOML dates + RFC3339 / `YYYY-MM-DD` strings |
+| `frontmatter` | `map<string, dyn>` | Full parsed map — reach any custom key with `frontmatter.foo` |
+| `frontmatter_format` | string | `"yaml"`, `"toml"`, `"json"`, or `""` |
+
+### Images (EXIF)
+
+| Attribute | Type | Source |
+| --- | --- | --- |
+| `img_width`, `img_height` | int | Pixel dimensions |
+| `camera_make`, `camera_model`, `lens` | string | EXIF |
+| `taken_at` | timestamp | EXIF DateTimeOriginal → CreateDate → ModifyDate fallback |
+| `orientation` | int | EXIF orientation (1-8) |
+| `gps_lat`, `gps_lon` | double | Decimal degrees, north / east positive |
+| `iso` | int | EXIF ISO |
+| `focal_length`, `f_stop`, `exposure_time` | double | mm, F-number, seconds |
+
+### Audio
+
+| Attribute | Type | Source |
+| --- | --- | --- |
+| `artist`, `album`, `album_artist`, `composer`, `genre` | string | Audio tags (ID3v1/v2, MP4 atoms, Vorbis comments) |
+| `year`, `track` | int | Release year, track number |
+| `duration` | double | Seconds |
+| `bitrate` | int | kbps (file_size × 8 / duration / 1000) |
+| `sample_rate` | int | Hz |
+| `channels` | int | 1 = mono, 2 = stereo, … |
+
+### Video
+
+| Attribute | Type | Source |
+| --- | --- | --- |
+| `video_codec`, `audio_codec` | string | h264, h265, av1, vp9, aac, opus, ... |
+| `video_width`, `video_height` | int | Frame pixels |
+| `frame_rate` | double | fps |
+| `duration` | double | Seconds (shared with audio) |
+| `bitrate` | int | Kbps (shared with audio) |
 
 ## MCP server mode
 
