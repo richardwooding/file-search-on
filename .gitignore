@@ -30,3 +30,6 @@ go.work.sum
 # Editor/IDE
 .idea/
 .vscode/
+
+# Claude Code per-user settings (skills under .claude/skills/ are shared)
+.claude/settings.local.json
