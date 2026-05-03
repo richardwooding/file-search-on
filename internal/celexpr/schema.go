@@ -45,7 +45,7 @@ func Schema() SchemaDoc {
 			{"csv_columns", "list<str>", "header field names from the first CSV/TSV line"},
 			{"page_count", "int", "page count (PDF)"},
 			{"author", "string", "author (markdown front-matter, PDF, EPUB, office)"},
-			{"language", "string", "language code (EPUB, HTML <html lang>, markdown front-matter, office)"},
+			{"language", "string", "language code (EPUB, HTML <html lang>, markdown front-matter, PDF /Lang or XMP, office)"},
 			{"root_element", "string", "root element name (XML)"},
 			{"json_kind", "string", "'object' or 'array' (JSON)"},
 			{"img_width", "int", "image width in pixels"},

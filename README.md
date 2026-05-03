@@ -203,14 +203,14 @@ Type-specific attributes (zero-valued when not applicable):
 
 | Attribute | Type | Source |
 | --- | --- | --- |
-| `title` | string | Markdown front-matter, then H1; HTML `<title>`; PDF metadata; EPUB `<dc:title>`; DOCX/XLSX/PPTX/ODT `<dc:title>` |
+| `title` | string | Markdown front-matter, then H1; HTML `<title>`; PDF `/Info` dict; EPUB `<dc:title>`; DOCX/XLSX/PPTX/ODT `<dc:title>` |
 | `word_count` | int | Markdown body (front-matter excluded), plain text |
 | `line_count` | int | Plain text |
 | `column_count` | int | CSV/TSV header row |
 | `csv_columns` | `list<string>` | CSV/TSV header field names |
 | `page_count` | int | PDF |
-| `author` | string | Markdown front-matter, PDF, EPUB `<dc:creator>`; DOCX/XLSX/PPTX/ODT `<dc:creator>` |
-| `language` | string | EPUB `<dc:language>`; HTML `<html lang="...">`; markdown front-matter `language`; DOCX/XLSX/PPTX/ODT `<dc:language>` |
+| `author` | string | Markdown front-matter, PDF `/Info`, EPUB `<dc:creator>`; DOCX/XLSX/PPTX/ODT `<dc:creator>` |
+| `language` | string | EPUB `<dc:language>`; HTML `<html lang="...">`; markdown front-matter `language`; PDF `/Lang` (or XMP `<dc:language>` fallback); DOCX/XLSX/PPTX/ODT `<dc:language>` |
 | `root_element` | string | XML |
 | `json_kind` | string | `"object"` or `"array"` |
 | `img_width`, `img_height` | int | Image dimensions in pixels |
