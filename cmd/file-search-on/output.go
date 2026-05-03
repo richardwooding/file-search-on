@@ -35,6 +35,18 @@ type Record struct {
 	ImgWidth  int64 `json:"img_width,omitempty"`
 	ImgHeight int64 `json:"img_height,omitempty"`
 
+	CameraMake   string  `json:"camera_make,omitempty"`
+	CameraModel  string  `json:"camera_model,omitempty"`
+	Lens         string  `json:"lens,omitempty"`
+	TakenAt      string  `json:"taken_at,omitempty"` // RFC3339 when set
+	Orientation  int64   `json:"orientation,omitempty"`
+	GPSLat       float64 `json:"gps_lat,omitempty"`
+	GPSLon       float64 `json:"gps_lon,omitempty"`
+	ISO          int64   `json:"iso,omitempty"`
+	FocalLength  float64 `json:"focal_length,omitempty"`
+	FStop        float64 `json:"f_stop,omitempty"`
+	ExposureTime float64 `json:"exposure_time,omitempty"`
+
 	FrontmatterFormat string         `json:"frontmatter_format,omitempty"`
 	Frontmatter       map[string]any `json:"frontmatter,omitempty"`
 	Tags              []string       `json:"tags,omitempty"`
@@ -118,6 +130,39 @@ func recordFrom(r search.Result) Record {
 	}
 	if v, ok := a.Extra["height"].(int64); ok {
 		rec.ImgHeight = v
+	}
+	if v, ok := a.Extra["camera_make"].(string); ok {
+		rec.CameraMake = v
+	}
+	if v, ok := a.Extra["camera_model"].(string); ok {
+		rec.CameraModel = v
+	}
+	if v, ok := a.Extra["lens"].(string); ok {
+		rec.Lens = v
+	}
+	if v, ok := a.Extra["taken_at"].(time.Time); ok && !v.IsZero() {
+		rec.TakenAt = v.Format(time.RFC3339)
+	}
+	if v, ok := a.Extra["orientation"].(int64); ok {
+		rec.Orientation = v
+	}
+	if v, ok := a.Extra["gps_lat"].(float64); ok {
+		rec.GPSLat = v
+	}
+	if v, ok := a.Extra["gps_lon"].(float64); ok {
+		rec.GPSLon = v
+	}
+	if v, ok := a.Extra["iso"].(int64); ok {
+		rec.ISO = v
+	}
+	if v, ok := a.Extra["focal_length"].(float64); ok {
+		rec.FocalLength = v
+	}
+	if v, ok := a.Extra["f_stop"].(float64); ok {
+		rec.FStop = v
+	}
+	if v, ok := a.Extra["exposure_time"].(float64); ok {
+		rec.ExposureTime = v
 	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
 		rec.FrontmatterFormat = v
