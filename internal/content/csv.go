@@ -31,7 +31,7 @@ func (c *csvType) Attributes(path string) (Attributes, error) {
 	}
 
 	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 64*1024), MaxLineBytes())
 
 	var firstLine string
 	for scanner.Scan() {

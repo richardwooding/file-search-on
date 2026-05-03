@@ -32,10 +32,11 @@ func (m *MCPCmd) Run() error {
 }
 
 type SearchCmd struct {
-	Expr    string `arg:"" help:"CEL expression to match files (e.g. 'is_json && size > 1024')." optional:""`
-	Dir     string `short:"d" help:"Directory to search in." default:"."`
-	Workers int    `short:"w" help:"Number of parallel workers." default:"0"`
-	List    bool   `short:"l" help:"List supported attributes and content types."`
+	Expr         string `arg:"" help:"CEL expression to match files (e.g. 'is_json && size > 1024')." optional:""`
+	Dir          string `short:"d" help:"Directory to search in." default:"."`
+	Workers      int    `short:"w" help:"Number of parallel workers." default:"0"`
+	List         bool   `short:"l" help:"List supported attributes and content types."`
+	MaxLineBytes int    `short:"L" name:"max-line-bytes" help:"Per-line scanner cap for text/CSV/HTML (bytes). 0 uses the 1 MiB default." default:"0"`
 }
 
 func (s *SearchCmd) Run() error {
@@ -50,9 +51,10 @@ func (s *SearchCmd) Run() error {
 
 	ctx := context.Background()
 	opts := search.Options{
-		Root:    s.Dir,
-		Expr:    s.Expr,
-		Workers: s.Workers,
+		Root:         s.Dir,
+		Expr:         s.Expr,
+		Workers:      s.Workers,
+		MaxLineBytes: s.MaxLineBytes,
 	}
 
 	results, err := search.Walk(ctx, opts, contentpkg.DefaultRegistry())

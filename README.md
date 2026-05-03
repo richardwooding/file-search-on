@@ -72,6 +72,7 @@ file-search-on --list
 | `-d`, `--dir` | Directory to search. | `.` |
 | `-w`, `--workers` | Number of parallel workers. | number of CPU cores |
 | `-l`, `--list` | List supported attributes and registered content types. | |
+| `-L`, `--max-line-bytes` | Per-line scanner cap for text/CSV/HTML in bytes. Raise for very long log lines. | 1 MiB |
 
 Each matching file is printed as `<path>\t[<content-type>]\t<size> bytes`. The match count is written to stderr so it doesn't pollute pipelines.
 
