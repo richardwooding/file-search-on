@@ -24,7 +24,7 @@ func (t *textType) Attributes(path string) (Attributes, error) {
 	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 64*1024), MaxLineBytes())
 
 	var lineCount, wordCount int64
 	for scanner.Scan() {

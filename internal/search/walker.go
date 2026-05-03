@@ -23,6 +23,11 @@ type Options struct {
 	Root    string
 	Expr    string
 	Workers int
+	// MaxLineBytes overrides the per-line scanner buffer cap honoured by the
+	// text, csv, and html content types. Zero means use the package default
+	// (see content.DefaultMaxLineBytes). Process-global; concurrent Walk
+	// calls with different caps will race.
+	MaxLineBytes int
 }
 
 // Walk walks the directory and returns matching files
@@ -30,6 +35,7 @@ func Walk(ctx context.Context, opts Options, registry *content.Registry) ([]Resu
 	if opts.Workers <= 0 {
 		opts.Workers = runtime.NumCPU()
 	}
+	content.SetMaxLineBytes(opts.MaxLineBytes)
 
 	evaluator, err := celexpr.New(opts.Expr)
 	if err != nil {

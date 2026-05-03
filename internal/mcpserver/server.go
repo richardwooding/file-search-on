@@ -15,9 +15,10 @@ import (
 
 // SearchInput is the JSON-schema input for the `search` tool.
 type SearchInput struct {
-	Expr    string `json:"expr,omitempty" jsonschema:"CEL expression matched against file attributes (e.g. 'is_pdf && page_count > 10'). Empty means match all."`
-	Dir     string `json:"dir,omitempty" jsonschema:"Directory to search in. Defaults to '.'."`
-	Workers int    `json:"workers,omitempty" jsonschema:"Number of parallel workers. Defaults to runtime.NumCPU()."`
+	Expr         string `json:"expr,omitempty" jsonschema:"CEL expression matched against file attributes (e.g. 'is_pdf && page_count > 10'). Empty means match all."`
+	Dir          string `json:"dir,omitempty" jsonschema:"Directory to search in. Defaults to '.'."`
+	Workers      int    `json:"workers,omitempty" jsonschema:"Number of parallel workers. Defaults to runtime.NumCPU()."`
+	MaxLineBytes int    `json:"max_line_bytes,omitempty" jsonschema:"Per-line scanner buffer cap for text/CSV/HTML (bytes). 0 uses the 1 MiB default; raise for very long log lines."`
 }
 
 // SearchMatch is one match returned by the `search` tool.
@@ -85,9 +86,10 @@ func searchHandler(ctx context.Context, _ *mcp.CallToolRequest, in SearchInput) 
 	}
 
 	results, err := search.Walk(ctx, search.Options{
-		Root:    dir,
-		Expr:    expr,
-		Workers: in.Workers,
+		Root:         dir,
+		Expr:         expr,
+		Workers:      in.Workers,
+		MaxLineBytes: in.MaxLineBytes,
 	}, content.DefaultRegistry())
 	if err != nil {
 		return nil, SearchOutput{}, fmt.Errorf("walk: %w", err)
