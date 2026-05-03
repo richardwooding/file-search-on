@@ -1,6 +1,7 @@
 package content
 
 import (
+	"context"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
@@ -28,7 +29,10 @@ func (i *imageType) Name() string        { return i.name }
 func (i *imageType) Extensions() []string { return i.exts }
 func (i *imageType) MagicBytes() [][]byte { return i.magic }
 
-func (i *imageType) Attributes(path string) (Attributes, error) {
+func (i *imageType) Attributes(ctx context.Context, path string) (Attributes, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	attrs := Attributes{
 		"width":  int64(0),
 		"height": int64(0),

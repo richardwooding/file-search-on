@@ -2,6 +2,7 @@ package content
 
 import (
 	"archive/zip"
+	"context"
 	"encoding/xml"
 	"io"
 )
@@ -16,7 +17,10 @@ func (e *epubType) Name() string         { return "epub" }
 func (e *epubType) Extensions() []string { return []string{".epub"} }
 func (e *epubType) MagicBytes() [][]byte { return nil }
 
-func (e *epubType) Attributes(filePath string) (Attributes, error) {
+func (e *epubType) Attributes(ctx context.Context, filePath string) (Attributes, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	zr, err := zip.OpenReader(filePath)
 	if err != nil {
 		return nil, err
@@ -28,7 +32,7 @@ func (e *epubType) Attributes(filePath string) (Attributes, error) {
 		return Attributes{}, nil
 	}
 
-	title, author, lang := readZipDublinCore(&zr.Reader, opfPath)
+	title, author, lang := readZipDublinCore(ctx, &zr.Reader, opfPath)
 
 	attrs := Attributes{
 		"language": lang,

@@ -85,7 +85,7 @@ func TestOOXMLAttributes(t *testing.T) {
 			if ct == nil || ct.Name() != tc.want {
 				t.Fatalf("Detect: got %v, want %s", ct, tc.want)
 			}
-			attrs, err := ct.Attributes(path)
+			attrs, err := ct.Attributes(t.Context(), path)
 			if err != nil {
 				t.Fatalf("Attributes: %v", err)
 			}
@@ -112,7 +112,7 @@ func TestODTAttributes(t *testing.T) {
 		t.Fatalf("Detect: got %v, want office/odt", ct)
 	}
 
-	attrs, err := ct.Attributes(path)
+	attrs, err := ct.Attributes(t.Context(), path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestOfficeMissingMetadata(t *testing.T) {
 		"[Content_Types].xml": `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>`,
 	})
 	ct := content.DefaultRegistry().Detect(path)
-	attrs, err := ct.Attributes(path)
+	attrs, err := ct.Attributes(t.Context(), path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestOfficeNotAZip(t *testing.T) {
 		t.Fatal(err)
 	}
 	ct := content.DefaultRegistry().Detect(path)
-	if _, err := ct.Attributes(path); err == nil {
+	if _, err := ct.Attributes(t.Context(), path); err == nil {
 		t.Errorf("Attributes on broken zip: expected error, got nil")
 	}
 }

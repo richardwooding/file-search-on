@@ -2,6 +2,7 @@ package content
 
 import (
 	"archive/zip"
+	"context"
 	"encoding/xml"
 	"io"
 	"path"
@@ -13,9 +14,14 @@ import (
 // their first non-empty values. Used by EPUB OPF, OOXML `docProps/core.xml`,
 // and ODT `meta.xml` — three formats that all embed dc:* elements with the
 // same local names. Token-streaming so the whole document is never loaded.
-func readDublinCore(r io.Reader) (title, author, language string) {
+// ctx is checked between Tokens so a cancelled walker doesn't pay the full
+// XML parse on a pathological file.
+func readDublinCore(ctx context.Context, r io.Reader) (title, author, language string) {
 	dec := xml.NewDecoder(r)
 	for {
+		if ctx.Err() != nil {
+			return
+		}
 		tok, err := dec.Token()
 		if err != nil {
 			return
@@ -75,11 +81,11 @@ func openZipEntry(zr *zip.Reader, name string) (io.ReadCloser, error) {
 // readZipDublinCore opens a single zip entry and runs the Dublin Core scanner
 // against its contents. Returns zero values when the entry is missing or the
 // scan finds nothing.
-func readZipDublinCore(zr *zip.Reader, entry string) (title, author, language string) {
+func readZipDublinCore(ctx context.Context, zr *zip.Reader, entry string) (title, author, language string) {
 	rc, err := openZipEntry(zr, entry)
 	if err != nil {
 		return
 	}
 	defer func() { _ = rc.Close() }()
-	return readDublinCore(rc)
+	return readDublinCore(ctx, rc)
 }

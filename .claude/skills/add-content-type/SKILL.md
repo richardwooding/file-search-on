@@ -43,19 +43,19 @@ If `Attributes(path)` returns type-specific keys (e.g. `csv_columns`, `csv_rows`
 
 ```go
 type ContentType interface {
-    Name() string                                  // stable identifier; image family must use "image/<subtype>"
-    Extensions() []string                          // lowercase, with leading dot, e.g. []string{".csv"}
-    MagicBytes() [][]byte                          // each entry is a prefix to match against the first 512 bytes; nil if not used
-    Attributes(path string) (Attributes, error)    // called per matching file; return a map[string]any, never nil
+    Name() string                                                      // stable identifier; image family must use "image/<subtype>"
+    Extensions() []string                                              // lowercase, with leading dot, e.g. []string{".csv"}
+    MagicBytes() [][]byte                                              // each entry is a prefix to match against the first 512 bytes; nil if not used
+    Attributes(ctx context.Context, path string) (Attributes, error)   // called per matching file; return a map[string]any, never nil
 }
 ```
 
 Semantic notes:
 
-- **`Name()`** — used by `BuildAttributes` to set the `is_*` flag and the `content_type` CEL attribute. For an image family, the name MUST start with `image/` (e.g. `image/avif`); the `BuildAttributes` `image/*` prefix branch turns `is_image` on automatically.
+- **`Name()`** — used by `BuildAttributes` to set the `is_*` flag and the `content_type` CEL attribute. For an image family, the name MUST start with `image/` (e.g. `image/avif`); for the office family, MUST start with `office/`. The corresponding `strings.HasPrefix` branch in `BuildAttributes` turns `is_image` / `is_office` on automatically.
 - **`Extensions()`** — lowercase, dotted. The detector matches case-insensitively against `filepath.Ext(path)` lower-cased.
 - **`MagicBytes()`** — return `nil` (not `[][]byte{}`) if the type is detected by extension only. Each `[]byte` is a prefix; the detector matches if any prefix is a prefix of the first 512 bytes.
-- **`Attributes(path)`** — called *per matching file* during the walk. Avoid expensive parses without bounds (use `bufio.Scanner` with a buffer cap, decode just enough of the file to extract what you need). Return `Attributes{}` (empty) if no type-specific data; never return `nil`.
+- **`Attributes(ctx, path)`** — called *per matching file* during the walk. Honour ctx: check `ctx.Err()` at entry, and inside any unbounded scan/decode loop. Return `ctx.Err()` on cancellation so the walker can terminate cleanly. Avoid expensive parses without bounds (use `bufio.Scanner` with a buffer cap, decode just enough of the file to extract what you need). Return `Attributes{}` (empty) if no type-specific data; never return `nil`.
 
 ## Image-family addition
 

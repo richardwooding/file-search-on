@@ -58,7 +58,7 @@ func TestTextRespectsLineCap(t *testing.T) {
 
 	// 64 KiB cap: scanner can't fit the 200 KB line, returns no records.
 	content.SetMaxLineBytes(64 * 1024)
-	attrs, err := ct.Attributes(path)
+	attrs, err := ct.Attributes(t.Context(), path)
 	if err != nil {
 		t.Fatalf("Attributes (low cap): %v", err)
 	}
@@ -68,7 +68,7 @@ func TestTextRespectsLineCap(t *testing.T) {
 
 	// 1 MiB cap: line fits, count is 1.
 	content.SetMaxLineBytes(content.DefaultMaxLineBytes)
-	attrs, err = ct.Attributes(path)
+	attrs, err = ct.Attributes(t.Context(), path)
 	if err != nil {
 		t.Fatalf("Attributes (default cap): %v", err)
 	}

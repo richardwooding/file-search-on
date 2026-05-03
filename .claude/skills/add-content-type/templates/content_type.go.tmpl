@@ -2,6 +2,7 @@ package content
 
 // REPLACE: package import this type needs (e.g. "encoding/csv", "io", "os") and remove unused imports.
 import (
+	"context"
 	"os"
 )
 
@@ -13,6 +14,7 @@ type <typename>Type struct{}
 
 // Name returns the stable identifier surfaced as the `content_type` CEL attribute.
 // For image families, MUST start with "image/" (e.g. "image/avif").
+// For office families, MUST start with "office/" (e.g. "office/docx").
 func (t *<typename>Type) Name() string { return "<name>" }
 
 // Extensions returns lowercase, leading-dot extensions matched against filepath.Ext(path).
@@ -30,15 +32,24 @@ func (t *<typename>Type) MagicBytes() [][]byte {
 // decode only what you need to extract the attributes you'll surface to CEL.
 // Return Attributes{} (never nil) if there are no type-specific attributes.
 //
+// ctx must be honoured: check ctx.Err() at entry, and inside any unbounded
+// scan/decode loop. Return ctx.Err() on cancellation so the walker can
+// terminate cleanly instead of finishing this file then bailing.
+//
 // REPLACE: open the file, do the minimum work needed, return the keys. If you
 // add any keys, also follow the extend-cel-schema skill so cel-go sees them.
-func (t *<typename>Type) Attributes(path string) (Attributes, error) {
+func (t *<typename>Type) Attributes(ctx context.Context, path string) (Attributes, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
 
-	// REPLACE: read/parse the file and populate the map below.
+	// REPLACE: read/parse the file and populate the map below. If you scan in
+	// a loop, check ctx.Err() per iteration so a pathological file doesn't
+	// pin the worker after the user cancels.
 	return Attributes{}, nil
 }

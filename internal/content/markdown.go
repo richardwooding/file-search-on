@@ -3,6 +3,7 @@ package content
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"io"
 	"os"
 	"strings"
@@ -20,7 +21,10 @@ func (m *markdownType) Extensions() []string {
 }
 func (m *markdownType) MagicBytes() [][]byte { return nil }
 
-func (m *markdownType) Attributes(path string) (Attributes, error) {
+func (m *markdownType) Attributes(ctx context.Context, path string) (Attributes, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -39,6 +43,9 @@ func (m *markdownType) Attributes(path string) (Attributes, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(body))
 	scanner.Buffer(make([]byte, 1024*1024), 8*1024*1024)
 	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		line := scanner.Text()
 		if title == "" && strings.HasPrefix(line, "# ") {
 			title = strings.TrimPrefix(line, "# ")

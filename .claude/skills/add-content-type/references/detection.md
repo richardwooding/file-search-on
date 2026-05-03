@@ -32,20 +32,22 @@ Pragmatic recommendation: start with extension-only. Add magic bytes when you ha
 - **Prefix, not substring.** The detector checks `bytes.HasPrefix(read, magic)`. A magic of `"foo"` won't match a file that starts with `"\xef\xbb\xbffoo"` (BOM-prefixed). If you need BOM tolerance, register multiple magic entries: `[]byte("foo"), []byte("\xef\xbb\xbffoo")`.
 - **Avoid super-short or super-common prefixes.** `"{"` matches every JSON file but also every file that happens to start with `{`. JSON gets away with it because almost nothing else does. CSV has no usable magic — leave `MagicBytes` as `nil`.
 
-## What `Attributes(path)` should and should not do
+## What `Attributes(ctx, path)` should and should not do
 
-`Attributes(path)` is called *per matching file*. A search across 100k markdown files calls it 100k times. Performance and resource bounds matter.
+`Attributes` is called *per matching file*. A search across 100k markdown files calls it 100k times. Performance and resource bounds matter.
 
 **Do:**
 
 - Open the file at `path`, decode just enough to extract what you need, close it. Use `defer f.Close()`.
 - Use bounded buffers — `bufio.Scanner` with a sized buffer cap, `io.LimitReader` for streams that could be huge.
+- Honour `ctx`: check `ctx.Err()` at entry, and inside any unbounded scan/decode loop. Return `ctx.Err()` on cancellation. The walker treats `context.Canceled` / `context.DeadlineExceeded` as a signal to terminate the worker rather than skip-and-continue, so cancellation actually stops the search.
 - Return `Attributes{}` (empty map, not `nil`) if there's nothing type-specific to extract. The detector still records `content_type`; you don't need attributes to be useful.
 - Return `(nil, err)` on a real I/O error. The walker silently skips files whose `Attributes` returns an error — by design, since the search shouldn't crash on a single malformed file.
 
 **Don't:**
 
 - Read or parse the entire file when you only need the first chunk. JSON's content type only reads the first token to detect `object` vs `array` — copy that pattern.
+- Ignore ctx. A pathological 1 GB log file with `bufio.Scanner` will run to completion if the loop doesn't check ctx, even after the user has cancelled. Per-iteration `ctx.Err()` is a single atomic load — well below file-I/O noise.
 - Make additional file-system calls beyond reading `path`. The walker has already passed you a stat-able path; recomputing stat or scanning siblings is wasted work.
 - Cache anything in a package-level variable. The `Attributes` call is concurrent — content types are stateless by contract. If you need a cache, scope it inside the function with a `sync.Once`-protected init, but think hard about why first.
 - Panic. The walker doesn't recover; a panicking type takes down the whole search.

@@ -1,8 +1,11 @@
 package content_test
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/richardwooding/file-search-on/internal/content"
@@ -21,7 +24,7 @@ func TestTextAttributes(t *testing.T) {
 		t.Fatalf("Detect: got %v, want text", ct)
 	}
 
-	attrs, err := ct.Attributes(path)
+	attrs, err := ct.Attributes(t.Context(), path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}
@@ -47,6 +50,29 @@ func TestTextDetectionByExtension(t *testing.T) {
 	}
 }
 
+func TestTextRespectsCancellation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "huge.txt")
+	// Many short lines so the scanner loop iterates many times. The
+	// per-iteration ctx check should bail out promptly even on a large file.
+	body := strings.Repeat("one two three four five\n", 100_000)
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ct := content.DefaultRegistry().Detect(path)
+	if ct == nil || ct.Name() != "text" {
+		t.Fatalf("Detect: got %v, want text", ct)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // pre-cancel
+	_, err := ct.Attributes(ctx, path)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("Attributes(cancelled ctx): err = %v, want context.Canceled", err)
+	}
+}
+
 func TestTextEmpty(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "empty.txt")
@@ -54,7 +80,7 @@ func TestTextEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 	ct := content.DefaultRegistry().Detect(path)
-	attrs, err := ct.Attributes(path)
+	attrs, err := ct.Attributes(t.Context(), path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}

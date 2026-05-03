@@ -60,7 +60,7 @@ func TestEPUBAttributes(t *testing.T) {
 		t.Fatalf("Detect: got %v, want epub", ct)
 	}
 
-	attrs, err := ct.Attributes(path)
+	attrs, err := ct.Attributes(t.Context(), path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestEPUBNotAZip(t *testing.T) {
 	if ct == nil || ct.Name() != "epub" {
 		t.Fatalf("Detect: got %v, want epub", ct)
 	}
-	if _, err := ct.Attributes(path); err == nil {
+	if _, err := ct.Attributes(t.Context(), path); err == nil {
 		t.Errorf("Attributes on broken zip: expected error, got nil")
 	}
 }
