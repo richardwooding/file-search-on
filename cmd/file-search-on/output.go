@@ -1,0 +1,276 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"strings"
+	"text/template"
+	"time"
+
+	"github.com/richardwooding/file-search-on/internal/search"
+)
+
+// Record is the JSON-friendly projection of a single search match. It is the
+// shape rendered by `-o json` and the data context for `--format` templates.
+// All zero-valued optional fields are omitted from JSON output.
+type Record struct {
+	Path        string `json:"path"`
+	ContentType string `json:"content_type"`
+	Size        int64  `json:"size"`
+
+	Title    string `json:"title,omitempty"`
+	Author   string `json:"author,omitempty"`
+	Language string `json:"language,omitempty"`
+
+	WordCount   int64 `json:"word_count,omitempty"   yaml:"word_count,omitempty"`
+	LineCount   int64 `json:"line_count,omitempty"`
+	PageCount   int64 `json:"page_count,omitempty"`
+	ColumnCount int64 `json:"column_count,omitempty"`
+
+	CSVColumns  []string `json:"csv_columns,omitempty"`
+	RootElement string   `json:"root_element,omitempty"`
+	JSONKind    string   `json:"json_kind,omitempty"`
+
+	ImgWidth  int64 `json:"img_width,omitempty"`
+	ImgHeight int64 `json:"img_height,omitempty"`
+
+	FrontmatterFormat string         `json:"frontmatter_format,omitempty"`
+	Frontmatter       map[string]any `json:"frontmatter,omitempty"`
+	Tags              []string       `json:"tags,omitempty"`
+	Categories        []string       `json:"categories,omitempty"`
+	Draft             bool           `json:"draft,omitempty"`
+	Date              string         `json:"date,omitempty"`
+
+	IsMarkdown bool `json:"is_markdown,omitempty"`
+	IsJSON     bool `json:"is_json,omitempty"`
+	IsXML      bool `json:"is_xml,omitempty"`
+	IsHTML     bool `json:"is_html,omitempty"`
+	IsPDF      bool `json:"is_pdf,omitempty"`
+	IsImage    bool `json:"is_image,omitempty"`
+	IsText     bool `json:"is_text,omitempty"`
+	IsCSV      bool `json:"is_csv,omitempty"`
+	IsEPUB     bool `json:"is_epub,omitempty"`
+	IsOffice   bool `json:"is_office,omitempty"`
+}
+
+// recordFrom projects a search.Result into the wire shape. Falls back to
+// a path-only record when r.Attrs is nil.
+func recordFrom(r search.Result) Record {
+	rec := Record{
+		Path:        r.Path,
+		ContentType: r.ContentType,
+		Size:        r.Size,
+	}
+	if r.ContentType == "" {
+		rec.ContentType = "unknown"
+	}
+	if r.Attrs == nil {
+		return rec
+	}
+	a := r.Attrs
+	rec.IsMarkdown = a.IsMarkdown
+	rec.IsJSON = a.IsJSON
+	rec.IsXML = a.IsXML
+	rec.IsHTML = a.IsHTML
+	rec.IsPDF = a.IsPDF
+	rec.IsImage = a.IsImage
+	rec.IsText = a.IsText
+	rec.IsCSV = a.IsCSV
+	rec.IsEPUB = a.IsEPUB
+	rec.IsOffice = a.IsOffice
+
+	if a.Extra == nil {
+		return rec
+	}
+	if v, ok := a.Extra["title"].(string); ok {
+		rec.Title = v
+	}
+	if v, ok := a.Extra["author"].(string); ok {
+		rec.Author = v
+	}
+	if v, ok := a.Extra["language"].(string); ok {
+		rec.Language = v
+	}
+	if v, ok := a.Extra["word_count"].(int64); ok {
+		rec.WordCount = v
+	}
+	if v, ok := a.Extra["line_count"].(int64); ok {
+		rec.LineCount = v
+	}
+	if v, ok := a.Extra["page_count"].(int64); ok {
+		rec.PageCount = v
+	}
+	if v, ok := a.Extra["column_count"].(int64); ok {
+		rec.ColumnCount = v
+	}
+	if v, ok := a.Extra["csv_columns"].([]string); ok {
+		rec.CSVColumns = v
+	}
+	if v, ok := a.Extra["root_element"].(string); ok {
+		rec.RootElement = v
+	}
+	if v, ok := a.Extra["kind"].(string); ok {
+		rec.JSONKind = v
+	}
+	if v, ok := a.Extra["width"].(int64); ok {
+		rec.ImgWidth = v
+	}
+	if v, ok := a.Extra["height"].(int64); ok {
+		rec.ImgHeight = v
+	}
+	if v, ok := a.Extra["frontmatter_format"].(string); ok {
+		rec.FrontmatterFormat = v
+	}
+	if v, ok := a.Extra["frontmatter"].(map[string]any); ok && len(v) > 0 {
+		rec.Frontmatter = v
+	}
+	if v, ok := a.Extra["tags"].([]string); ok && len(v) > 0 {
+		rec.Tags = v
+	}
+	if v, ok := a.Extra["categories"].([]string); ok && len(v) > 0 {
+		rec.Categories = v
+	}
+	if v, ok := a.Extra["draft"].(bool); ok {
+		rec.Draft = v
+	}
+	if v, ok := a.Extra["date"].(time.Time); ok && !v.IsZero() {
+		rec.Date = v.Format(time.RFC3339)
+	}
+	return rec
+}
+
+// fp / fpn wrap fmt.Fprintf / Fprintln and discard the write error. Printers
+// always send to stdout (or a *bytes.Buffer in tests) where checking each
+// write is noise — failure surfaces at the next call, or via the test's own
+// assertions.
+func fp(w io.Writer, format string, args ...any) {
+	_, _ = fmt.Fprintf(w, format, args...)
+}
+
+func fpn(w io.Writer, args ...any) {
+	_, _ = fmt.Fprintln(w, args...)
+}
+
+// printBare writes one path per line.
+func printBare(w io.Writer, results []search.Result) {
+	for _, r := range results {
+		fpn(w, r.Path)
+	}
+}
+
+// printDefault writes the historical "<path>\t[<content-type>]\t<size> bytes" format.
+func printDefault(w io.Writer, results []search.Result) {
+	for _, r := range results {
+		ct := r.ContentType
+		if ct == "" {
+			ct = "unknown"
+		}
+		fp(w, "%s\t[%s]\t%d bytes\n", r.Path, ct, r.Size)
+	}
+}
+
+// printVerbose writes a multi-line indented record per match.
+func printVerbose(w io.Writer, results []search.Result) {
+	for i, r := range results {
+		if i > 0 {
+			fpn(w)
+		}
+		rec := recordFrom(r)
+		fpn(w, rec.Path)
+		fp(w, "  content_type   %s\n", rec.ContentType)
+		fp(w, "  size           %s bytes\n", commafy(rec.Size))
+		printIfStr(w, "title", rec.Title)
+		printIfStr(w, "author", rec.Author)
+		printIfStr(w, "language", rec.Language)
+		printIfInt(w, "word_count", rec.WordCount)
+		printIfInt(w, "line_count", rec.LineCount)
+		printIfInt(w, "page_count", rec.PageCount)
+		printIfInt(w, "column_count", rec.ColumnCount)
+		printIfInt(w, "img_width", rec.ImgWidth)
+		printIfInt(w, "img_height", rec.ImgHeight)
+		printIfStr(w, "root_element", rec.RootElement)
+		printIfStr(w, "json_kind", rec.JSONKind)
+		if rec.FrontmatterFormat != "" {
+			fp(w, "  %-13s %s (%d keys)\n", "frontmatter", rec.FrontmatterFormat, len(rec.Frontmatter))
+		}
+		if len(rec.Tags) > 0 {
+			fp(w, "  %-13s %s\n", "tags", strings.Join(rec.Tags, ", "))
+		}
+		if len(rec.Categories) > 0 {
+			fp(w, "  %-13s %s\n", "categories", strings.Join(rec.Categories, ", "))
+		}
+		if len(rec.CSVColumns) > 0 {
+			fp(w, "  %-13s %s\n", "csv_columns", strings.Join(rec.CSVColumns, ", "))
+		}
+		printIfStr(w, "date", rec.Date)
+	}
+}
+
+func printIfStr(w io.Writer, label, v string) {
+	if v != "" {
+		fp(w, "  %-13s %s\n", label, v)
+	}
+}
+
+func printIfInt(w io.Writer, label string, v int64) {
+	if v != 0 {
+		fp(w, "  %-13s %s\n", label, commafy(v))
+	}
+}
+
+// printJSON writes one JSON object per line (NDJSON / JSON Lines).
+func printJSON(w io.Writer, results []search.Result) error {
+	enc := json.NewEncoder(w)
+	for _, r := range results {
+		if err := enc.Encode(recordFrom(r)); err != nil {
+			return fmt.Errorf("json encode %s: %w", r.Path, err)
+		}
+	}
+	return nil
+}
+
+// printTemplate renders each match through a parsed text/template against a Record.
+func printTemplate(w io.Writer, results []search.Result, tmpl *template.Template) error {
+	for _, r := range results {
+		if err := tmpl.Execute(w, recordFrom(r)); err != nil {
+			return fmt.Errorf("template execute %s: %w", r.Path, err)
+		}
+		fpn(w)
+	}
+	return nil
+}
+
+// parseFormatTemplate parses a user-supplied template, translating `\t` and
+// `\n` escapes so shell users can write tab-separated formats from the CLI.
+func parseFormatTemplate(s string) (*template.Template, error) {
+	expanded := strings.NewReplacer(`\t`, "\t", `\n`, "\n", `\r`, "\r").Replace(s)
+	return template.New("format").Parse(expanded)
+}
+
+// commafy formats an int64 with thousands separators.
+func commafy(n int64) string {
+	if n < 0 {
+		return "-" + commafy(-n)
+	}
+	s := fmt.Sprintf("%d", n)
+	if len(s) <= 3 {
+		return s
+	}
+	var b strings.Builder
+	pre := len(s) % 3
+	if pre > 0 {
+		b.WriteString(s[:pre])
+		if len(s) > pre {
+			b.WriteByte(',')
+		}
+	}
+	for i := pre; i < len(s); i += 3 {
+		b.WriteString(s[i : i+3])
+		if i+3 < len(s) {
+			b.WriteByte(',')
+		}
+	}
+	return b.String()
+}
+

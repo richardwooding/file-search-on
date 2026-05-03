@@ -73,8 +73,22 @@ file-search-on --list
 | `-w`, `--workers` | Number of parallel workers. | number of CPU cores |
 | `-l`, `--list` | List supported attributes and registered content types. | |
 | `-L`, `--max-line-bytes` | Per-line scanner cap for text/CSV/HTML in bytes. Raise for very long log lines. | 1 MiB |
+| `-o`, `--output` | Output preset: `bare` (paths only), `default`, `verbose` (multi-line records), `json` (NDJSON). | `default` |
+| `--format` | Custom Go `text/template` per match (e.g. `'{{.Path}}\t{{.Title}}'`). Takes precedence over `-o`. | |
 
 Each matching file is printed as `<path>\t[<content-type>]\t<size> bytes`. The match count is written to stderr so it doesn't pollute pipelines.
+
+### Output presets
+
+```sh
+file-search-on 'is_markdown' -d ./docs -o bare       # one path per line; pipe-friendly
+file-search-on 'is_markdown' -d ./docs               # default (back-compat)
+file-search-on 'is_markdown' -d ./docs -o verbose    # multi-line, all attributes
+file-search-on 'is_markdown' -d ./docs -o json       # NDJSON, one object per line
+file-search-on 'is_markdown' -d ./docs --format '{{.Path}}\t{{.Title}}\t{{.WordCount}}'
+```
+
+`-o bare` and `-o json` and `--format` suppress the `<N> file(s) found` summary on stderr (the count is implicit in the line count). `--format` uses Go [`text/template`](https://pkg.go.dev/text/template); the data context is a flat record — `{{.Path}}`, `{{.Title}}`, `{{.WordCount}}`, `{{.Frontmatter}}`, all the `Is*` booleans, etc. Backslash escapes (`\t`, `\n`) are expanded before parsing.
 
 ## Markdown front-matter search
 

@@ -92,6 +92,47 @@ func TestSearchToolEmptyExprMatchesAll(t *testing.T) {
 	}
 }
 
+func TestSearchToolReturnsAttributes(t *testing.T) {
+	dir := t.TempDir()
+	body := "---\ntitle: Hello\nauthor: Jane\nlanguage: en\n---\n# h1\n\nbody body body\n"
+	mustWrite(t, filepath.Join(dir, "post.md"), body)
+
+	ctx, cs := newSession(t)
+
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "search",
+		Arguments: SearchInput{Expr: "is_markdown", Dir: dir},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+
+	var out SearchOutput
+	mustDecodeStructured(t, res, &out)
+	if out.Count != 1 {
+		t.Fatalf("expected 1 match, got %d", out.Count)
+	}
+	m := out.Matches[0]
+	if m.Title != "Hello" {
+		t.Errorf("title = %q, want Hello", m.Title)
+	}
+	if m.Author != "Jane" {
+		t.Errorf("author = %q, want Jane", m.Author)
+	}
+	if m.Language != "en" {
+		t.Errorf("language = %q, want en", m.Language)
+	}
+	if m.WordCount == 0 {
+		t.Errorf("word_count = 0, want non-zero")
+	}
+	if !m.IsMarkdown {
+		t.Errorf("is_markdown = false, want true")
+	}
+	if m.FrontmatterFormat != "yaml" {
+		t.Errorf("frontmatter_format = %q, want yaml", m.FrontmatterFormat)
+	}
+}
+
 func TestListAttributesTool(t *testing.T) {
 	ctx, cs := newSession(t)
 
