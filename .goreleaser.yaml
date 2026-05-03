@@ -1,0 +1,96 @@
+version: 2
+
+project_name: file-search-on
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: file-search-on
+    main: ./cmd/file-search-on
+    binary: file-search-on
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^test:"
+      - Merge pull request
+      - Merge branch
+  groups:
+    - title: Features
+      regexp: '^feat(\(.+\))?!?:'
+      order: 0
+    - title: Bug fixes
+      regexp: '^fix(\(.+\))?!?:'
+      order: 1
+    - title: Others
+      order: 999
+
+kos:
+  - id: file-search-on
+    build: file-search-on
+    repositories:
+      - ghcr.io/richardwooding/file-search-on
+    base_image: cgr.dev/chainguard/static
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    tags:
+      - "{{.Version}}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    sbom: spdx
+    bare: true
+    preserve_import_paths: false
+    labels:
+      org.opencontainers.image.source: "https://github.com/richardwooding/file-search-on"
+      org.opencontainers.image.licenses: "MIT"
+      org.opencontainers.image.description: "Content-type aware file search with CEL"
+      org.opencontainers.image.version: "{{.Version}}"
+      org.opencontainers.image.revision: "{{.Commit}}"
+
+homebrew_casks:
+  - name: file-search-on
+    binaries:
+      - file-search-on
+    repository:
+      owner: richardwooding
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    commit_msg_template: "Brew cask update for {{ .ProjectName }} {{ .Tag }}"
+    homepage: "https://github.com/richardwooding/file-search-on"
+    description: "Content-type aware file search with CEL attribute filtering"

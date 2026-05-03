@@ -11,8 +11,15 @@ import (
 	"github.com/richardwooding/file-search-on/internal/search"
 )
 
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 var CLI struct {
-	Search SearchCmd `cmd:"" help:"Search for files matching a CEL expression." default:"withargs"`
+	Search  SearchCmd        `cmd:"" help:"Search for files matching a CEL expression." default:"withargs"`
+	Version kong.VersionFlag `short:"V" help:"Print version and exit."`
 }
 
 type SearchCmd struct {
@@ -104,6 +111,7 @@ func main() {
 		kong.Name("file-search-on"),
 		kong.Description("Content-type aware file search with CEL attribute filtering."),
 		kong.UsageOnError(),
+		kong.Vars{"version": fmt.Sprintf("file-search-on %s (commit %s, built %s)", version, commit, date)},
 	)
 	if err := ctx.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
