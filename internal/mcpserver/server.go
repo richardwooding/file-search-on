@@ -76,6 +76,15 @@ type SearchMatch struct {
 	IsCSV      bool `json:"is_csv,omitempty"`
 	IsEPUB     bool `json:"is_epub,omitempty"`
 	IsOffice   bool `json:"is_office,omitempty"`
+	IsAudio    bool `json:"is_audio,omitempty"`
+
+	Artist      string `json:"artist,omitempty"`
+	Album       string `json:"album,omitempty"`
+	AlbumArtist string `json:"album_artist,omitempty"`
+	Composer    string `json:"composer,omitempty"`
+	Year        int64  `json:"year,omitempty"`
+	Track       int64  `json:"track,omitempty"`
+	Genre       string `json:"genre,omitempty"`
 }
 
 // matchFrom projects a search.Result (with Attrs populated) into a
@@ -93,6 +102,7 @@ func matchFrom(r search.Result) SearchMatch {
 	m.IsMarkdown, m.IsJSON, m.IsXML, m.IsHTML = a.IsMarkdown, a.IsJSON, a.IsXML, a.IsHTML
 	m.IsPDF, m.IsImage = a.IsPDF, a.IsImage
 	m.IsText, m.IsCSV, m.IsEPUB, m.IsOffice = a.IsText, a.IsCSV, a.IsEPUB, a.IsOffice
+	m.IsAudio = a.IsAudio
 
 	if a.Extra == nil {
 		return m
@@ -165,6 +175,27 @@ func matchFrom(r search.Result) SearchMatch {
 	}
 	if v, ok := a.Extra["exposure_time"].(float64); ok {
 		m.ExposureTime = v
+	}
+	if v, ok := a.Extra["artist"].(string); ok {
+		m.Artist = v
+	}
+	if v, ok := a.Extra["album"].(string); ok {
+		m.Album = v
+	}
+	if v, ok := a.Extra["album_artist"].(string); ok {
+		m.AlbumArtist = v
+	}
+	if v, ok := a.Extra["composer"].(string); ok {
+		m.Composer = v
+	}
+	if v, ok := a.Extra["year"].(int64); ok {
+		m.Year = v
+	}
+	if v, ok := a.Extra["track"].(int64); ok {
+		m.Track = v
+	}
+	if v, ok := a.Extra["genre"].(string); ok {
+		m.Genre = v
 	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
 		m.FrontmatterFormat = v

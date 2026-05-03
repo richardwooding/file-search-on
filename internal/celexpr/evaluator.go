@@ -32,6 +32,7 @@ type FileAttributes struct {
 	IsCSV       bool
 	IsEPUB      bool
 	IsOffice    bool
+	IsAudio     bool
 	Extra       content.Attributes
 }
 
@@ -60,6 +61,7 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("is_csv", cel.BoolType),
 		cel.Variable("is_epub", cel.BoolType),
 		cel.Variable("is_office", cel.BoolType),
+		cel.Variable("is_audio", cel.BoolType),
 		cel.Variable("title", cel.StringType),
 		cel.Variable("word_count", cel.IntType),
 		cel.Variable("line_count", cel.IntType),
@@ -83,6 +85,13 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("focal_length", cel.DoubleType),
 		cel.Variable("f_stop", cel.DoubleType),
 		cel.Variable("exposure_time", cel.DoubleType),
+		cel.Variable("artist", cel.StringType),
+		cel.Variable("album", cel.StringType),
+		cel.Variable("album_artist", cel.StringType),
+		cel.Variable("composer", cel.StringType),
+		cel.Variable("year", cel.IntType),
+		cel.Variable("track", cel.IntType),
+		cel.Variable("genre", cel.StringType),
 		cel.Variable("frontmatter", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("frontmatter_format", cel.StringType),
 		cel.Variable("tags", cel.ListType(cel.StringType)),
@@ -126,6 +135,7 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 		"is_csv":             attrs.IsCSV,
 		"is_epub":            attrs.IsEPUB,
 		"is_office":          attrs.IsOffice,
+		"is_audio":           attrs.IsAudio,
 		"title":              "",
 		"word_count":         int64(0),
 		"line_count":         int64(0),
@@ -149,6 +159,13 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 		"focal_length":       float64(0),
 		"f_stop":             float64(0),
 		"exposure_time":      float64(0),
+		"artist":             "",
+		"album":              "",
+		"album_artist":       "",
+		"composer":           "",
+		"year":               int64(0),
+		"track":              int64(0),
+		"genre":              "",
 		"frontmatter":        map[string]any{},
 		"frontmatter_format": "",
 		"tags":               []string{},
@@ -206,6 +223,20 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 				activation["f_stop"] = v
 			case "exposure_time":
 				activation["exposure_time"] = v
+			case "artist":
+				activation["artist"] = v
+			case "album":
+				activation["album"] = v
+			case "album_artist":
+				activation["album_artist"] = v
+			case "composer":
+				activation["composer"] = v
+			case "year":
+				activation["year"] = v
+			case "track":
+				activation["track"] = v
+			case "genre":
+				activation["genre"] = v
 			case "frontmatter":
 				activation["frontmatter"] = v
 			case "frontmatter_format":
@@ -249,7 +280,7 @@ func BuildAttributes(ctx context.Context, path string, registry *content.Registr
 	ct := registry.Detect(path)
 	contentTypeName := ""
 	isMarkdown, isJSON, isXML, isHTML, isPDF, isImage := false, false, false, false, false, false
-	isText, isCSV, isEPUB, isOffice := false, false, false, false
+	isText, isCSV, isEPUB, isOffice, isAudio := false, false, false, false, false
 
 	var extra content.Attributes
 	if ct != nil {
@@ -275,6 +306,8 @@ func BuildAttributes(ctx context.Context, path string, registry *content.Registr
 			isImage = true
 		case strings.HasPrefix(contentTypeName, "office/"):
 			isOffice = true
+		case strings.HasPrefix(contentTypeName, "audio/"):
+			isAudio = true
 		}
 		extra, err = ct.Attributes(ctx, path)
 		if err != nil {
@@ -300,6 +333,7 @@ func BuildAttributes(ctx context.Context, path string, registry *content.Registr
 		IsCSV:       isCSV,
 		IsEPUB:      isEPUB,
 		IsOffice:    isOffice,
+		IsAudio:     isAudio,
 		Extra:       extra,
 	}, nil
 }

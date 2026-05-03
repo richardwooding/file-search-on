@@ -197,6 +197,14 @@ Find photos taken in a date range:
 file-search-on 'is_image && taken_at > timestamp("2024-01-01T00:00:00Z") && taken_at < timestamp("2025-01-01T00:00:00Z")' -d ~/Pictures
 ```
 
+Find audio files by artist, album, or genre:
+
+```sh
+file-search-on 'is_audio && artist == "Radiohead"' -d ~/Music
+file-search-on 'is_audio && genre == "Jazz" && year > 2000' -d ~/Music
+file-search-on 'is_audio && album == "OK Computer"' -d ~/Music --format '{{.Track}}\t{{.Title}}'
+```
+
 Combine paths and types — find HTML files inside a `build/` directory:
 
 ```sh
@@ -215,7 +223,7 @@ Common attributes (always present):
 | `size` | int | File size in bytes |
 | `ext` | string | File extension, e.g. `.md` |
 | `content_type` | string | Detected content type |
-| `is_markdown`, `is_json`, `is_xml`, `is_html`, `is_pdf`, `is_image`, `is_text`, `is_csv`, `is_epub`, `is_office` | bool | Type predicates (`is_office` covers DOCX/XLSX/PPTX/ODT) |
+| `is_markdown`, `is_json`, `is_xml`, `is_html`, `is_pdf`, `is_image`, `is_text`, `is_csv`, `is_epub`, `is_office`, `is_audio` | bool | Type predicates (`is_office` covers DOCX/XLSX/PPTX/ODT; `is_audio` covers MP3/M4A/FLAC/OGG) |
 
 Type-specific attributes (zero-valued when not applicable):
 
@@ -238,6 +246,8 @@ Type-specific attributes (zero-valued when not applicable):
 | `gps_lat`, `gps_lon` | double | GPS coordinates in decimal degrees (north / east positive) |
 | `iso` | int | EXIF ISO sensitivity |
 | `focal_length`, `f_stop`, `exposure_time` | double | EXIF focal length (mm), F-number, exposure (s) |
+| `artist`, `album`, `album_artist`, `composer`, `genre` | string | Audio tags (ID3v1/v2 for MP3, MP4 atoms for M4A, Vorbis comments for FLAC/OGG) |
+| `year`, `track` | int | Audio release year and track number |
 | `frontmatter` | `map<string, dyn>` | Full Markdown front-matter map |
 | `frontmatter_format` | string | `"yaml"`, `"toml"`, `"json"`, or `""` |
 | `tags`, `categories` | `list<string>` | Markdown front-matter |
