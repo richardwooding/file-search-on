@@ -131,7 +131,7 @@ func Levenshtein(a, b string) int {
 			if ra[i-1] == rb[j-1] {
 				cost = 0
 			}
-			curr[j] = min3(
+			curr[j] = min(
 				curr[j-1]+1,    // insertion
 				prev[j]+1,      // deletion
 				prev[j-1]+cost, // substitution
@@ -140,14 +140,6 @@ func Levenshtein(a, b string) int {
 		prev, curr = curr, prev
 	}
 	return prev[len(rb)]
-}
-
-func min3(a, b, c int) int {
-	m := min(b, a)
-	if c < m {
-		m = c
-	}
-	return m
 }
 
 // Soundex returns the American Soundex code (NARA standard) for the
