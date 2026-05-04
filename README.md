@@ -11,6 +11,11 @@ file-search-on 'is_audio && artist == "Radiohead" && year < 2000'
 file-search-on 'is_video && video_height >= 2160 && video_codec == "h265"'
 file-search-on 'is_office && language == "fr"'
 file-search-on 'is_markdown && "longread" in tags && word_count > 1000'
+
+# Or match fuzzily — typos in the data are no longer fatal:
+file-search-on 'is_audio && levenshtein(artist, "Radiohead") <= 2'                # catches "Radiohad", "Radiohea"
+file-search-on 'is_image && soundex(camera_make) == soundex("Nikon")'             # phonetic match across capitalisation / spelling
+file-search-on 'is_markdown && ngram_similarity(title, "kubernetes", 2) > 0.6'    # substring-tolerant title match
 ```
 
 Across **24 file formats** organised into eight content-type families (documents, data, images, audio, video, office, ebooks, plain text), with format-specific metadata extraction.
@@ -35,6 +40,7 @@ Across **24 file formats** organised into eight content-type families (documents
 
 - **First-class Markdown front-matter** — YAML (`---`), TOML (`+++`), and JSON (`{ ... }`) are recognised by leading bytes. Common keys (`title`, `author`, `language`, `tags`, `categories`, `draft`, `date`) become top-level CEL variables; everything else lives in a generic `frontmatter` map. See [examples/markdown.md](./examples/markdown.md).
 - **CEL expressions** — the full Common Expression Language: comparisons, `&&`/`||`, string functions, list membership, timestamp arithmetic. Composes naturally with structural attributes.
+- **Fuzzy and phonetic matching out of the box** — built-in `levenshtein` (edit distance), `soundex` (NARA-standard phonetic codes), `ngrams` and `ngram_similarity` (Jaccard over character n-grams) let you write typo-tolerant and "sounds-like" queries against any string attribute. EXIF camera make in `Nikkon` instead of `Nikon`? Artist tag mistyped as `Radiohad`? Markdown front-matter author spelled `Smyth` versus `Smith`? Same query catches all of them. See the [`fuzzy-search.md`](./examples/fuzzy-search.md) recipe page for the full set.
 - **Multiple output formats** — `bare` (paths only), `default`, `verbose` (multi-line), `json` (NDJSON), or a Go `text/template` via `--format`.
 - **MCP server mode** — same binary doubles as a [Model Context Protocol](https://modelcontextprotocol.io) server (stdio, HTTP, or SSE). LLM agents can invoke `search` and `list_attributes` tools directly.
 - **Pure Go, no CGO** — cross-compiles cleanly to all six release targets. No image/audio/video decoder dependencies.
@@ -245,16 +251,65 @@ Run `file-search-on --list` for the canonical, up-to-date listing. The summary t
 | `duration` | double | Seconds (shared with audio) |
 | `bitrate` | int | Kbps (shared with audio) |
 
-### Built-in functions
+### Built-in functions — fuzzy and phonetic matching
 
-CEL expressions can call these fuzzy / phonetic helpers in addition to the standard CEL operators. Full recipes in [`examples/fuzzy-search.md`](./examples/fuzzy-search.md).
+Real-world metadata is messy. Tags get scraped, EXIF strings drift across capitalisations, names get transliterated half a dozen ways. Exact-equality queries (`artist == "Radiohead"`) miss `Radiohad`, `Radiohea`, and `RADIOHEAD`. The CEL environment registers four built-in functions to bridge that gap. They compose with everything else — boolean operators, type predicates, attribute access — and they're available everywhere a string attribute exists.
 
-| Function | Returns | Use it for |
+| Function | Returns | What it does |
 | --- | --- | --- |
-| `levenshtein(a, b)` | int | Edit distance (rune-aware, case-sensitive) — typo-tolerant equality |
-| `soundex(s)` | string | American Soundex (NARA standard) — phonetic name matching |
-| `ngrams(s, n)` | list&lt;string&gt; | Character n-grams — set composition with `.exists()` / `.size()` |
-| `ngram_similarity(a, b, n)` | double | Jaccard 0.0–1.0 over n-gram sets — substring-tolerant similarity |
+| `levenshtein(a, b)` | int | Edit distance — rune-aware, case-sensitive. Counts insertions, deletions, and substitutions. `café`/`cafe` is one edit, not three. |
+| `soundex(s)` | string | American Soundex (NARA standard) — 4-character phonetic code. Words that sound alike collide on the same code. Vowels reset same-code suppression but H/W are transparent (so `Ashcraft` and `Ashcroft` both encode to `A261`). |
+| `ngrams(s, n)` | list&lt;string&gt; | Character-level n-grams as a list — sliding window, length `n`. Compose with CEL list operators (`.exists()`, `.size()`, `in`) for set-membership checks. |
+| `ngram_similarity(a, b, n)` | double | Jaccard similarity over the deduplicated n-gram sets, ranging 0.0 (no overlap) to 1.0 (identical). The default ergonomic choice for substring-tolerant similarity. |
+
+**Typo-tolerant equality** — within 2 edits of the target, no canonicalisation pass needed:
+
+```sh
+file-search-on 'is_audio && levenshtein(artist, "Radiohead") <= 2' -d ~/Music
+file-search-on 'is_markdown && levenshtein(author, "Jane Doe") <= 1' -d ./posts
+file-search-on 'is_image && levenshtein(camera_make, "FUJIFILM") <= 2' -d ~/Photos
+```
+
+**Phonetic match** — collapses spelling variants to one query:
+
+```sh
+# Matches Smith / Smyth / Smithe / Smit — all encode to S530.
+file-search-on 'is_markdown && soundex(author) == soundex("Smith")'
+
+# EXIF camera-make match across capitalisation and minor typos.
+file-search-on 'is_image && soundex(camera_make) == soundex("Nikon")'
+
+# Audio-artist phonetic match — Johnson / Jonson / Jansen all collide on J525.
+file-search-on 'is_audio && soundex(artist) == soundex("Johnson")'
+```
+
+**Substring-tolerant similarity** — a single threshold catches paraphrases and mild reorderings:
+
+```sh
+# Titles with high n-gram overlap to "kubernetes" — survives "Kuburnates",
+# "Kubrnates", and other transliterations.
+file-search-on 'is_markdown && ngram_similarity(title, "kubernetes", 2) > 0.6'
+
+# Filename match that survives small reorderings.
+file-search-on 'ngram_similarity(name, "file-search-on", 3) > 0.5'
+
+# Set-membership over n-grams — files whose title contains the trigram "kub" anywhere.
+file-search-on 'is_markdown && "kub" in ngrams(title, 3)'
+```
+
+**They compose naturally** — fuzzy operators are ordinary CEL functions, so they slot into any expression alongside the structural attributes:
+
+```sh
+file-search-on '
+  is_image &&
+  soundex(camera_make) == soundex("Nikon") &&
+  iso < 800 &&
+  f_stop < 2.8 &&
+  taken_at > timestamp("2024-01-01T00:00:00Z")
+' -d ~/Photos
+```
+
+Pick `n` based on the length of your target string: `n=2` for short tokens (≤8 chars), `n=3` for typical words, `n=4+` for long phrases. Smaller `n` is more forgiving but matches more false positives. The full recipe collection lives at [`examples/fuzzy-search.md`](./examples/fuzzy-search.md), with cross-cutting recipes in [`examples/cookbook.md`](./examples/cookbook.md) and per-family hooks under [`examples/markdown.md`](./examples/markdown.md), [`examples/audio.md`](./examples/audio.md), and [`examples/images.md`](./examples/images.md).
 
 ## MCP server mode
 
