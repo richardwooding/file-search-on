@@ -138,6 +138,22 @@ When run as an MCP server (`file-search-on mcp`), the same expressions work. An 
 
 The MCP `search` tool returns the same attribute set as `-o json` — see [`list_attributes`](https://github.com/richardwooding/file-search-on#mcp-server-mode) for the schema.
 
+The `list_attributes` payload also includes the four built-in fuzzy functions (`levenshtein`, `soundex`, `ngrams`, `ngram_similarity`) with their signatures and examples — agents pick them up via the MCP handshake without prior knowledge.
+
+## Fuzzy / phonetic matching across families
+
+```sh
+# Cross-family phonetic search — any author / artist / camera-make matching a phonetic target.
+file-search-on '(is_markdown && soundex(author) == soundex("Schmidt")) ||
+                (is_audio && soundex(artist) == soundex("Schmidt")) ||
+                (is_image && soundex(camera_make) == soundex("Schmidt"))'
+
+# Tolerate typos in cross-cutting filename matches.
+file-search-on 'levenshtein(name, "kubernetes-deploy.yaml") <= 3'
+```
+
+See [`fuzzy-search.md`](./fuzzy-search.md) for the dedicated fuzzy / phonetic recipe collection.
+
 ## When file-search-on isn't the right tool
 
 - **Content search inside files** — use `ripgrep` (text), `rga` (multi-format), or `xsv` (CSV). `file-search-on` does metadata filtering; pipe its output into a content tool.

@@ -133,6 +133,7 @@ Focused recipe collections live under [`examples/`](./examples/):
 | [`examples/data.md`](./examples/data.md) | JSON arrays vs objects, CSV column membership, XML root elements |
 | [`examples/text.md`](./examples/text.md) | Plain text / log files — line count, word count, big-line caps |
 | [`examples/cookbook.md`](./examples/cookbook.md) | Cross-cutting recipes — dedupe, mixed media filters, pipeline integration |
+| [`examples/fuzzy-search.md`](./examples/fuzzy-search.md) | Fuzzy / phonetic / n-gram similarity matching — `levenshtein`, `soundex`, `ngrams`, `ngram_similarity` |
 
 A handful of representative one-liners:
 
@@ -154,6 +155,12 @@ file-search-on 'is_office && language == "fr"' -d ~/Documents
 
 # Audio tracks ≥ 96 kHz (hi-res)
 file-search-on 'is_audio && sample_rate >= 96000' -d ~/Music
+
+# Fuzzy: artist tag within 2 edits of "Radiohead" (catches typos)
+file-search-on 'is_audio && levenshtein(artist, "Radiohead") <= 2' -d ~/Music
+
+# Phonetic: any author whose name sounds like "Smith"
+file-search-on 'is_markdown && soundex(author) == soundex("Smith")' -d ./posts
 ```
 
 Combine paths and types — find HTML files inside a `build/` directory:
@@ -237,6 +244,17 @@ Run `file-search-on --list` for the canonical, up-to-date listing. The summary t
 | `frame_rate` | double | fps |
 | `duration` | double | Seconds (shared with audio) |
 | `bitrate` | int | Kbps (shared with audio) |
+
+### Built-in functions
+
+CEL expressions can call these fuzzy / phonetic helpers in addition to the standard CEL operators. Full recipes in [`examples/fuzzy-search.md`](./examples/fuzzy-search.md).
+
+| Function | Returns | Use it for |
+| --- | --- | --- |
+| `levenshtein(a, b)` | int | Edit distance (rune-aware, case-sensitive) — typo-tolerant equality |
+| `soundex(s)` | string | American Soundex (NARA standard) — phonetic name matching |
+| `ngrams(s, n)` | list&lt;string&gt; | Character n-grams — set composition with `.exists()` / `.size()` |
+| `ngram_similarity(a, b, n)` | double | Jaccard 0.0–1.0 over n-gram sets — substring-tolerant similarity |
 
 ## MCP server mode
 

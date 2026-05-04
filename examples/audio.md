@@ -126,3 +126,18 @@ file-search-on 'is_audio && artist == "Radiohead"' -o bare > radiohead.list
 # JSON for analytics — duration histogram
 file-search-on 'is_audio' -o json | jq '.duration | floor / 60 | floor' | sort -n | uniq -c
 ```
+
+## Fuzzy matching for messy tags
+
+```sh
+# Catch artist-name typos within 2 edits — useful when tags came from scrapers.
+file-search-on 'is_audio && levenshtein(artist, "Radiohead") <= 2'
+
+# Phonetic match — "Smith", "Smyth", "Smithe" all encode to S530.
+file-search-on 'is_audio && soundex(artist) == soundex("Smith")'
+
+# Albums similar to a target — Jaccard over n-gram sets.
+file-search-on 'is_audio && ngram_similarity(album, "OK Computer", 2) > 0.7'
+```
+
+See [`fuzzy-search.md`](./fuzzy-search.md) for the full set of fuzzy / phonetic recipes.

@@ -129,6 +129,9 @@ func printHelp() {
 	fmt.Println("Markdown front-matter attributes (YAML ---, TOML +++, JSON {}):")
 	printAttrs(schema.Frontmatter, 18, 11)
 	fmt.Println()
+	fmt.Println("Built-in functions:")
+	printFuncs(schema.Functions)
+	fmt.Println()
 	fmt.Println("Registered content types:")
 	for _, ct := range contentpkg.DefaultRegistry().Types() {
 		fmt.Printf("  %-20s %v\n", ct.Name(), ct.Extensions())
@@ -139,6 +142,15 @@ func printAttrs(attrs []celexpr.AttributeDoc, nameWidth, typeWidth int) {
 	for _, a := range attrs {
 		typeField := "(" + a.Type + ")"
 		fmt.Printf("  %-*s %-*s - %s\n", nameWidth, a.Name, typeWidth, typeField, a.Description)
+	}
+}
+
+func printFuncs(funcs []celexpr.FunctionDoc) {
+	for _, f := range funcs {
+		fmt.Printf("  %s\n      %s\n", f.Signature, f.Description)
+		if f.Example != "" {
+			fmt.Printf("      e.g. %s\n", f.Example)
+		}
 	}
 }
 

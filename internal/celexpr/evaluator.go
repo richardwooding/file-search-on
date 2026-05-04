@@ -45,7 +45,7 @@ type Evaluator struct {
 
 // New creates a new evaluator for the given CEL expression
 func New(expr string) (*Evaluator, error) {
-	env, err := cel.NewEnv(
+	opts := []cel.EnvOption{
 		cel.Variable("name", cel.StringType),
 		cel.Variable("path", cel.StringType),
 		cel.Variable("dir", cel.StringType),
@@ -109,7 +109,9 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("categories", cel.ListType(cel.StringType)),
 		cel.Variable("draft", cel.BoolType),
 		cel.Variable("date", cel.TimestampType),
-	)
+	}
+	opts = append(opts, fuzzyFunctions()...)
+	env, err := cel.NewEnv(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("creating CEL environment: %w", err)
 	}

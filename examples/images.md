@@ -122,3 +122,17 @@ file-search-on 'is_image && iso > 0' -o json | jq -s 'sort_by(-.iso) | .[].path'
 # Bare paths for xargs (e.g. copy a year's photos)
 file-search-on 'is_image && taken_at > timestamp("2024-01-01T00:00:00Z")' -o bare | xargs -I {} cp {} ~/photos-2024/
 ```
+
+## Fuzzy matching for camera / lens names
+
+EXIF strings vary across capitalisation and minor punctuation. Fuzzy operators normalise this without an explicit canonicalisation pass.
+
+```sh
+# Phonetic match catches "NIKON", "Nikon", "Nikkon" — all encode to the same Soundex code.
+file-search-on 'is_image && soundex(camera_make) == soundex("Nikon")'
+
+# Lens-model match within 3 edits — covers minor differences in formatting.
+file-search-on 'is_image && levenshtein(lens, "70-200mm f/2.8") <= 3'
+```
+
+See [`fuzzy-search.md`](./fuzzy-search.md) for the full set of fuzzy / phonetic recipes.
