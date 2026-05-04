@@ -13,6 +13,7 @@ CEL expression recipes by content family, plus cross-cutting cookbook patterns.
 | [`data.md`](./data.md) | JSON / CSV / TSV / XML — `csv_columns`, `json_kind`, `root_element` |
 | [`text.md`](./text.md) | Plain text and HTML — `line_count`, `word_count`, long-line caps |
 | [`cookbook.md`](./cookbook.md) | Cross-family queries, output-format pipelines, integration with find / jq / ffmpeg / rga |
+| [`fuzzy-search.md`](./fuzzy-search.md) | Fuzzy / phonetic / n-gram similarity matching with `levenshtein`, `soundex`, `ngrams`, `ngram_similarity` |
 
 Every recipe is a complete `file-search-on '<expr>'` invocation that you can paste and run. Most include a few variations and useful output-format snippets.
 

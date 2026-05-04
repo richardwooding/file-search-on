@@ -137,3 +137,15 @@ file-search-on 'is_markdown && !draft' --format '{{.Path}}\t{{.Title}}\t{{.WordC
 # Full JSON for jq pipelines
 file-search-on 'is_markdown' -o json | jq 'select(.frontmatter.weight > 50) | .path'
 ```
+
+## Fuzzy matching
+
+```sh
+# Authors whose front-matter spelling is within 2 edits of the target.
+file-search-on 'is_markdown && levenshtein(author, "Jane Doe") <= 2'
+
+# Titles with high n-gram overlap to a topic — survives misspellings.
+file-search-on 'is_markdown && ngram_similarity(title, "kubernetes", 2) > 0.6'
+```
+
+See [`fuzzy-search.md`](./fuzzy-search.md) for the full set of fuzzy / phonetic recipes.

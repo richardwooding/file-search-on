@@ -7,16 +7,28 @@ type AttributeDoc struct {
 	Description string `json:"description"`
 }
 
-// SchemaDoc groups the documented CEL attributes by category.
+// FunctionDoc describes a CEL-callable function registered on the
+// environment. Unlike attributes, functions have a signature (the formal
+// argument list and return type), so the schema needs a richer doc type.
+type FunctionDoc struct {
+	Name        string `json:"name"`
+	Signature   string `json:"signature"`
+	Description string `json:"description"`
+	Example     string `json:"example,omitempty"`
+}
+
+// SchemaDoc groups the documented CEL attributes by category, plus the
+// callable built-in functions registered on the environment.
 type SchemaDoc struct {
 	Common       []AttributeDoc `json:"common"`
 	TypeSpecific []AttributeDoc `json:"type_specific"`
 	Frontmatter  []AttributeDoc `json:"frontmatter"`
+	Functions    []FunctionDoc  `json:"functions"`
 }
 
 // Schema returns the structured documentation for every CEL attribute
-// the evaluator declares. Both the CLI's --list output and the MCP
-// list_attributes tool format their output from this.
+// and function the evaluator declares. Both the CLI's --list output and
+// the MCP list_attributes tool format their output from this.
 func Schema() SchemaDoc {
 	return SchemaDoc{
 		Common: []AttributeDoc{
@@ -87,6 +99,32 @@ func Schema() SchemaDoc {
 			{"categories", "list<str>", "front-matter categories"},
 			{"draft", "bool", "front-matter draft flag"},
 			{"date", "timestamp", "front-matter date"},
+		},
+		Functions: []FunctionDoc{
+			{
+				Name:        "levenshtein",
+				Signature:   "levenshtein(string, string) -> int",
+				Description: "Edit distance (rune-aware, case-sensitive). Counts insertions, deletions, and substitutions needed to turn the first string into the second.",
+				Example:     `is_audio && levenshtein(artist, "Radiohead") <= 2`,
+			},
+			{
+				Name:        "soundex",
+				Signature:   "soundex(string) -> string",
+				Description: "American Soundex phonetic code (4-character ASCII, e.g. 'Robert' -> 'R163'). Useful for matching name spellings that sound alike.",
+				Example:     `is_image && soundex(camera_make) == soundex("Nikon")`,
+			},
+			{
+				Name:        "ngrams",
+				Signature:   "ngrams(string, int) -> list<string>",
+				Description: "Character-level n-grams of the input (sliding window, length n). Empty list when n <= 0 or n exceeds the rune length of the string.",
+				Example:     `ngrams("kubernetes", 3).size() > 5`,
+			},
+			{
+				Name:        "ngram_similarity",
+				Signature:   "ngram_similarity(string, string, int) -> double",
+				Description: "Jaccard similarity over character n-gram sets, ranging 0.0 (no overlap) to 1.0 (identical sets). Both empty -> 1.0; only one empty -> 0.0.",
+				Example:     `is_markdown && ngram_similarity(title, "kubernetes", 2) > 0.6`,
+			},
 		},
 	}
 }

@@ -116,6 +116,19 @@ When you change the promoted-variable set:
 3. If it's an image-family type, also extend the `strings.HasPrefix(contentTypeName, "image/")` branch logic in `BuildAttributes`. The registered-types listing in `--list` is generated from `content.DefaultRegistry().Types()`, so the new type appears there automatically.
 4. For office documents, register the type with name `office/<format>` (e.g. `office/docx`); the `strings.HasPrefix(contentTypeName, "office/")` branch in `BuildAttributes` will set `is_office = true` automatically. DOCX/XLSX/PPTX use `docProps/core.xml` (Dublin Core); ODT uses `meta.xml`. Both go through the shared `readZipDublinCore` helper in `internal/content/dublincore.go`.
 
+### Adding a CEL function
+
+CEL functions (callable from inside expressions, distinct from variables) are wired in `internal/celexpr/functions.go`. The pattern:
+
+1. Implement the algorithm as an exported pure-Go function (e.g. `Levenshtein`, `Soundex`) — exported so it's directly unit-testable without going through the CEL environment.
+2. Write a `ref.Val` binding (`*Binding` functions in `functions.go`) that adapts `ref.Val` arguments into Go primitives via `.Value().(string)` / `.Value().(int64)`, dispatches to the algorithm, and wraps the result via `types.Int(...)`, `types.String(...)`, `types.Double(...)`, or `types.DefaultTypeAdapter.NativeToValue(...)` for slices/maps.
+3. Add a `cel.Function(name, cel.Overload(id, argTypes, returnType, cel.BinaryBinding|UnaryBinding|FunctionBinding(impl)))` entry to `fuzzyFunctions()` in the same file.
+4. Add a `FunctionDoc` entry to `celexpr.Schema()` in `internal/celexpr/schema.go`. This is the only place function docs live — both the CLI `--list` output (via `printFuncs` in `cmd/file-search-on/main.go`) and the MCP `list_attributes` tool surface them automatically.
+5. Optionally update the MCP `search` tool's `Description` in `internal/mcpserver/server.go` if the new function is significant enough to mention in the handshake.
+6. Add unit tests for the algorithm in `internal/celexpr/functions_test.go` and a CEL-level integration test in the same file's `TestEvaluateFuzzyFunctions` (table-driven).
+
+The four call sites — algorithm impl, binding, env declaration, schema doc — all live in `functions.go` + `schema.go`. cel-go binds at runtime, so missing any of them surfaces as a CEL "undeclared reference" error during expression compilation, not at Go-build time.
+
 ### MCP server
 
 `internal/mcpserver` is a thin adapter over the existing `search.Walk` and `celexpr.Schema()`. The `mcp` subcommand starts a stdio JSON-RPC server using the official Go SDK; nothing else in the binary changes when MCP mode is active.
