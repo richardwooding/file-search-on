@@ -458,7 +458,13 @@ func Run(ctx context.Context, version string) error {
 	return New(version).Run(ctx, &mcp.StdioTransport{})
 }
 
-func searchHandler(ctx context.Context, _ *mcp.CallToolRequest, in SearchInput) (*mcp.CallToolResult, SearchOutput, error) {
+// progressNotifyStride is the number of matches between two
+// notifications/progress messages. Smaller searches (< stride matches)
+// emit zero notifications and just land in one final response. Tunable
+// later via an Options field if a client needs finer granularity.
+const progressNotifyStride = 50
+
+func searchHandler(ctx context.Context, req *mcp.CallToolRequest, in SearchInput) (*mcp.CallToolResult, SearchOutput, error) {
 	expr := in.Expr
 	if expr == "" {
 		expr = "true"
@@ -468,23 +474,47 @@ func searchHandler(ctx context.Context, _ *mcp.CallToolRequest, in SearchInput) 
 		dir = "."
 	}
 
-	results, err := search.Walk(ctx, search.Options{
-		Root:              dir,
-		Expr:              expr,
-		Workers:           in.Workers,
-		MaxLineBytes:      in.MaxLineBytes,
-		IncludeAttributes: true,
-	}, content.DefaultRegistry())
-	if err != nil {
-		return nil, SearchOutput{}, fmt.Errorf("walk: %w", err)
+	out := make(chan search.Result, 64)
+	var walkErr error
+	done := make(chan struct{})
+	go func() {
+		walkErr = search.WalkStream(ctx, search.Options{
+			Root:              dir,
+			Expr:              expr,
+			Workers:           in.Workers,
+			MaxLineBytes:      in.MaxLineBytes,
+			IncludeAttributes: true,
+		}, content.DefaultRegistry(), out)
+		close(done)
+	}()
+
+	// Drain the channel as matches arrive. Emit a progress notification
+	// every `progressNotifyStride` matches when the client passed a
+	// progressToken — the SDK's NotifyProgress is a no-op for clients
+	// that didn't request progress.
+	token := req.Params.GetProgressToken()
+	var matches []SearchMatch
+	processed := int64(0)
+	for r := range out {
+		matches = append(matches, matchFrom(r))
+		processed++
+		if token != nil && processed%progressNotifyStride == 0 {
+			_ = req.Session.NotifyProgress(ctx, &mcp.ProgressNotificationParams{
+				ProgressToken: token,
+				Progress:      float64(processed),
+				Message:       fmt.Sprintf("%d matches so far", processed),
+			})
+		}
+	}
+	<-done
+
+	if walkErr != nil {
+		return nil, SearchOutput{}, fmt.Errorf("walk: %w", walkErr)
 	}
 
-	sort.Slice(results, func(i, j int) bool { return results[i].Path < results[j].Path })
-
-	matches := make([]SearchMatch, len(results))
-	for i, r := range results {
-		matches[i] = matchFrom(r)
-	}
+	// Final response is sorted by path — preserves the existing API
+	// contract regardless of walk order during the stream.
+	sort.Slice(matches, func(i, j int) bool { return matches[i].Path < matches[j].Path })
 
 	return nil, SearchOutput{Matches: matches, Count: len(matches)}, nil
 }

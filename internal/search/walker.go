@@ -45,8 +45,44 @@ type Options struct {
 	FS fs.FS
 }
 
-// Walk walks the directory and returns matching files
+// Walk walks the directory and returns every matching file. It is a
+// thin wrapper over WalkStream that drains the channel into a slice.
+// Use WalkStream directly when callers want to process matches as they
+// arrive (incremental output, MCP progress notifications, bounded
+// memory on huge result sets).
 func Walk(ctx context.Context, opts Options, registry *content.Registry) ([]Result, error) {
+	out := make(chan Result, 64)
+	var results []Result
+	var walkErr error
+	done := make(chan struct{})
+	go func() {
+		walkErr = WalkStream(ctx, opts, registry, out)
+		close(done)
+	}()
+	for r := range out {
+		results = append(results, r)
+	}
+	<-done
+	return results, walkErr
+}
+
+// WalkStream walks the directory and sends each matching file on out.
+// out is closed before WalkStream returns; consumers should range over
+// it. The error return reports walker setup failures (CEL compile,
+// root open) and any error fs.WalkDir surfaces (cancellation,
+// permission). Per-file scan failures are silently skipped — same
+// semantics as Walk.
+//
+// out should be buffered. An unbuffered channel works but couples
+// worker throughput to consumer speed; a buffer of opts.Workers or
+// larger keeps producer and consumer loosely coupled.
+//
+// Cancellation propagates to three sites: the producer (fs.WalkDir
+// callback), each worker's receive on the jobs channel, and the
+// per-file ContentType.Attributes calls inside BuildAttributes.
+func WalkStream(ctx context.Context, opts Options, registry *content.Registry, out chan<- Result) error {
+	defer close(out)
+
 	if opts.Workers <= 0 {
 		opts.Workers = runtime.NumCPU()
 	}
@@ -54,7 +90,7 @@ func Walk(ctx context.Context, opts Options, registry *content.Registry) ([]Resu
 
 	evaluator, err := celexpr.New(opts.Expr)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	fsys := opts.FS
@@ -66,13 +102,11 @@ func Walk(ctx context.Context, opts Options, registry *content.Registry) ([]Resu
 		fsys = os.DirFS(root)
 	}
 
-	var mu sync.Mutex
-	var results []Result
 	type job struct{ fsPath, displayPath string }
 	jobs := make(chan job, opts.Workers*2)
 	var wg sync.WaitGroup
 
-	for i := 0; i < opts.Workers; i++ {
+	for range opts.Workers {
 		wg.Go(func() {
 			for {
 				select {
@@ -101,9 +135,11 @@ func Walk(ctx context.Context, opts Options, registry *content.Registry) ([]Resu
 					if opts.IncludeAttributes {
 						r.Attrs = attrs
 					}
-					mu.Lock()
-					results = append(results, r)
-					mu.Unlock()
+					select {
+					case <-ctx.Done():
+						return
+					case out <- r:
+					}
 				}
 			}
 		})
@@ -133,5 +169,5 @@ func Walk(ctx context.Context, opts Options, registry *content.Registry) ([]Resu
 	close(jobs)
 	wg.Wait()
 
-	return results, walkErr
+	return walkErr
 }

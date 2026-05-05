@@ -3,8 +3,10 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -224,6 +226,114 @@ func TestListAttributesTool(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("expected is_markdown in Common attributes")
+	}
+}
+
+// TestSearchTool_ProgressNotifications verifies that when a client
+// passes a progressToken on a search call, the server emits at least
+// one progress notification mid-walk (stride is 50; we create 120
+// matches to guarantee at least 2 notifications fire).
+func TestSearchTool_ProgressNotifications(t *testing.T) {
+	dir := t.TempDir()
+	for i := range 120 {
+		mustWrite(t, filepath.Join(dir, fmt.Sprintf("doc-%03d.md", i)), "# h\n")
+	}
+
+	ctx := t.Context()
+	server := New("test")
+	t1, t2 := mcp.NewInMemoryTransports()
+
+	ss, err := server.Connect(ctx, t1, nil)
+	if err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+	t.Cleanup(func() { _ = ss.Close() })
+
+	var notified atomic.Int64
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0"}, &mcp.ClientOptions{
+		ProgressNotificationHandler: func(_ context.Context, req *mcp.ProgressNotificationClientRequest) {
+			if req.Params.ProgressToken == "search-progress-test" {
+				notified.Add(1)
+			}
+		},
+	})
+	cs, err := client.Connect(ctx, t2, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	t.Cleanup(func() { _ = cs.Close() })
+
+	params := &mcp.CallToolParams{
+		Name:      "search",
+		Arguments: SearchInput{Expr: "is_markdown", Dir: dir},
+	}
+	params.SetProgressToken("search-progress-test")
+
+	res, err := cs.CallTool(ctx, params)
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.GetError() != nil {
+		t.Fatalf("tool returned error: %v", res.GetError())
+	}
+
+	var out SearchOutput
+	mustDecodeStructured(t, res, &out)
+	if out.Count != 120 {
+		t.Fatalf("expected 120 matches, got %d", out.Count)
+	}
+	// 120 matches / 50 stride = 2 notifications minimum (at 50, 100).
+	if got := notified.Load(); got < 2 {
+		t.Errorf("expected >= 2 progress notifications, got %d", got)
+	}
+}
+
+// TestSearchTool_NoProgressTokenStaysSilent verifies that without a
+// progress token, the server emits no progress notifications even on
+// large result sets.
+func TestSearchTool_NoProgressTokenStaysSilent(t *testing.T) {
+	dir := t.TempDir()
+	for i := range 120 {
+		mustWrite(t, filepath.Join(dir, fmt.Sprintf("doc-%03d.md", i)), "# h\n")
+	}
+
+	ctx := t.Context()
+	server := New("test")
+	t1, t2 := mcp.NewInMemoryTransports()
+
+	ss, err := server.Connect(ctx, t1, nil)
+	if err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+	t.Cleanup(func() { _ = ss.Close() })
+
+	var notified atomic.Int64
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0"}, &mcp.ClientOptions{
+		ProgressNotificationHandler: func(_ context.Context, _ *mcp.ProgressNotificationClientRequest) {
+			notified.Add(1)
+		},
+	})
+	cs, err := client.Connect(ctx, t2, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	t.Cleanup(func() { _ = cs.Close() })
+
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "search",
+		Arguments: SearchInput{Expr: "is_markdown", Dir: dir},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+
+	var out SearchOutput
+	mustDecodeStructured(t, res, &out)
+	if out.Count != 120 {
+		t.Fatalf("expected 120 matches, got %d", out.Count)
+	}
+	if got := notified.Load(); got != 0 {
+		t.Errorf("expected 0 progress notifications without token, got %d", got)
 	}
 }
 
