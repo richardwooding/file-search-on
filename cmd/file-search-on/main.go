@@ -142,6 +142,53 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		IncludeAttributes: includeAttrs,
 	}
 
+	// Streaming-friendly modes (bare / json / template) print as matches
+	// arrive — first result lands on stdout immediately rather than
+	// waiting for the full walk. The buffered path stays for default and
+	// verbose because both emit a "N file(s) found" footer that needs the
+	// total count.
+	if tmpl != nil {
+		return streamSearch(ctx, opts, tmpl, "")
+	}
+	if s.Output == "bare" || s.Output == "json" {
+		return streamSearch(ctx, opts, nil, s.Output)
+	}
+	return bufferedSearch(ctx, opts, s.Output)
+}
+
+// streamSearch drives WalkStream and prints each match as it arrives.
+// Either tmpl is non-nil (custom --format template) OR mode is "bare"
+// or "json" — never both. No sort, no count footer.
+func streamSearch(ctx context.Context, opts search.Options, tmpl *template.Template, mode string) error {
+	out := make(chan search.Result, 64)
+	var walkErr error
+	done := make(chan struct{})
+	go func() {
+		walkErr = search.WalkStream(ctx, opts, contentpkg.DefaultRegistry(), out)
+		close(done)
+	}()
+
+	var printErr error
+	switch {
+	case tmpl != nil:
+		printErr = printTemplateStream(os.Stdout, out, tmpl)
+	case mode == "json":
+		printErr = printJSONStream(os.Stdout, out)
+	default: // "bare"
+		printBareStream(os.Stdout, out)
+	}
+	<-done
+
+	if walkErr != nil {
+		return fmt.Errorf("search failed: %w", walkErr)
+	}
+	return printErr
+}
+
+// bufferedSearch keeps the historical Walk + sort + print + footer flow
+// for default and verbose modes, both of which emit a "N file(s) found"
+// footer that requires the full result set.
+func bufferedSearch(ctx context.Context, opts search.Options, mode string) error {
 	results, err := search.Walk(ctx, opts, contentpkg.DefaultRegistry())
 	if err != nil {
 		return fmt.Errorf("search failed: %w", err)
@@ -151,24 +198,12 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		return results[i].Path < results[j].Path
 	})
 
-	switch {
-	case tmpl != nil:
-		if err := printTemplate(os.Stdout, results, tmpl); err != nil {
-			return err
-		}
-	case s.Output == "bare":
-		printBare(os.Stdout, results)
-	case s.Output == "verbose":
+	if mode == "verbose" {
 		printVerbose(os.Stdout, results)
-		fmt.Fprintf(os.Stderr, "\n%d file(s) found\n", len(results))
-	case s.Output == "json":
-		if err := printJSON(os.Stdout, results); err != nil {
-			return err
-		}
-	default: // "" or "default"
+	} else { // "" or "default"
 		printDefault(os.Stdout, results)
-		fmt.Fprintf(os.Stderr, "\n%d file(s) found\n", len(results))
 	}
+	fmt.Fprintf(os.Stderr, "\n%d file(s) found\n", len(results))
 	return nil
 }
 

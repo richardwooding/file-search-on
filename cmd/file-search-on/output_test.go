@@ -143,6 +143,61 @@ func TestPrintTemplate(t *testing.T) {
 	}
 }
 
+// fixtureChan funnels fixtureResults() into a closed channel for the
+// streaming-printer tests. Returns the channel ready to be ranged over.
+func fixtureChan() <-chan search.Result {
+	results := fixtureResults()
+	ch := make(chan search.Result, len(results))
+	for _, r := range results {
+		ch <- r
+	}
+	close(ch)
+	return ch
+}
+
+func TestPrintBareStream(t *testing.T) {
+	var buf bytes.Buffer
+	printBareStream(&buf, fixtureChan())
+	got := buf.String()
+	want := "docs/intro.md\ndata/sample.csv\n"
+	if got != want {
+		t.Errorf("printBareStream:\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestPrintJSONStream(t *testing.T) {
+	var buf bytes.Buffer
+	if err := printJSONStream(&buf, fixtureChan()); err != nil {
+		t.Fatalf("printJSONStream: %v", err)
+	}
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 NDJSON lines, got %d:\n%s", len(lines), buf.String())
+	}
+	var first Record
+	if err := json.Unmarshal([]byte(lines[0]), &first); err != nil {
+		t.Fatalf("decode line 0: %v\n%s", err, lines[0])
+	}
+	if first.Path != "docs/intro.md" || first.Title != "Introduction" {
+		t.Errorf("decoded streamed record 0: %+v", first)
+	}
+}
+
+func TestPrintTemplateStream(t *testing.T) {
+	tmpl, err := parseFormatTemplate(`{{.Path}}\t{{.Title}}`)
+	if err != nil {
+		t.Fatalf("parseFormatTemplate: %v", err)
+	}
+	var buf bytes.Buffer
+	if err := printTemplateStream(&buf, fixtureChan(), tmpl); err != nil {
+		t.Fatalf("printTemplateStream: %v", err)
+	}
+	got := buf.String()
+	if !strings.Contains(got, "docs/intro.md\tIntroduction\n") {
+		t.Errorf("template stream did not produce expected line: %q", got)
+	}
+}
+
 func TestRecordFromHandlesDate(t *testing.T) {
 	r := search.Result{
 		Path:        "post.md",

@@ -582,6 +582,39 @@ func printIfFloat(w io.Writer, label string, v float64) {
 	}
 }
 
+// printBareStream is the streaming counterpart of printBare. Reads
+// from ch until it closes, writing one path per line. Nondeterministic
+// order (walk order, mangled by the worker pool).
+func printBareStream(w io.Writer, ch <-chan search.Result) {
+	for r := range ch {
+		fpn(w, r.Path)
+	}
+}
+
+// printJSONStream is the streaming counterpart of printJSON. Writes
+// one NDJSON object per match as matches arrive.
+func printJSONStream(w io.Writer, ch <-chan search.Result) error {
+	enc := json.NewEncoder(w)
+	for r := range ch {
+		if err := enc.Encode(recordFrom(r)); err != nil {
+			return fmt.Errorf("json encode %s: %w", r.Path, err)
+		}
+	}
+	return nil
+}
+
+// printTemplateStream is the streaming counterpart of printTemplate.
+// Renders each match through the parsed template as it arrives.
+func printTemplateStream(w io.Writer, ch <-chan search.Result, tmpl *template.Template) error {
+	for r := range ch {
+		if err := tmpl.Execute(w, recordFrom(r)); err != nil {
+			return fmt.Errorf("template execute %s: %w", r.Path, err)
+		}
+		fpn(w)
+	}
+	return nil
+}
+
 // printJSON writes one JSON object per line (NDJSON / JSON Lines).
 func printJSON(w io.Writer, results []search.Result) error {
 	enc := json.NewEncoder(w)

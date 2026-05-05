@@ -51,6 +51,105 @@ func TestWalkRespectsCancellation(t *testing.T) {
 	}
 }
 
+func TestWalkStream_BasicMatchesWalk(t *testing.T) {
+	dir := t.TempDir()
+	for i := range 5 {
+		path := filepath.Join(dir, fmt.Sprintf("doc-%02d.md", i))
+		if err := os.WriteFile(path, []byte("# h\n\nbody\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	out := make(chan search.Result, 8)
+	var streamed []search.Result
+	done := make(chan struct{})
+	go func() {
+		for r := range out {
+			streamed = append(streamed, r)
+		}
+		close(done)
+	}()
+	err := search.WalkStream(context.Background(), search.Options{
+		Root:    dir,
+		Expr:    "is_markdown",
+		Workers: 2,
+	}, content.DefaultRegistry(), out)
+	if err != nil {
+		t.Fatalf("WalkStream: %v", err)
+	}
+	<-done
+
+	if len(streamed) != 5 {
+		t.Errorf("streamed %d results; want 5", len(streamed))
+	}
+	// Every streamed result is a markdown match. Order is unspecified.
+	for _, r := range streamed {
+		if r.ContentType != "markdown" {
+			t.Errorf("ContentType = %q; want markdown", r.ContentType)
+		}
+	}
+}
+
+func TestWalkStream_RespectsCancellation(t *testing.T) {
+	dir := t.TempDir()
+	for i := range 200 {
+		path := filepath.Join(dir, fmt.Sprintf("doc-%03d.md", i))
+		if err := os.WriteFile(path, []byte("# h\n\nbody\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	out := make(chan search.Result, 8)
+	// Drain the channel concurrently so out <- r doesn't deadlock when
+	// the consumer is slow under cancellation.
+	go func() {
+		for range out {
+		}
+	}()
+
+	start := time.Now()
+	err := search.WalkStream(ctx, search.Options{
+		Root:    dir,
+		Expr:    "is_markdown",
+		Workers: 1,
+	}, content.DefaultRegistry(), out)
+	elapsed := time.Since(start)
+
+	if err != nil && !errors.Is(err, context.Canceled) {
+		t.Errorf("WalkStream returned unexpected error: %v", err)
+	}
+	if elapsed > 2*time.Second {
+		t.Errorf("WalkStream did not return promptly under cancellation: took %v", elapsed)
+	}
+}
+
+func TestWalkStream_ClosesChannel(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "doc.md"), []byte("# h\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := make(chan search.Result, 4)
+	go func() {
+		_ = search.WalkStream(context.Background(), search.Options{
+			Root: dir, Expr: "is_markdown", Workers: 1,
+		}, content.DefaultRegistry(), out)
+	}()
+
+	// Range exits when the channel is closed; if WalkStream forgets to close
+	// it, this loop deadlocks and the test times out.
+	count := 0
+	for range out {
+		count++
+	}
+	if count == 0 {
+		t.Errorf("expected at least 1 result before channel close; got 0")
+	}
+}
+
 func TestWalkIncludeAttributes(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "doc.md"), []byte("# Title\n\nSome body words.\n"), 0o644); err != nil {
