@@ -106,6 +106,9 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("frame_rate", cel.DoubleType),
 		cel.Variable("rotation", cel.IntType),
 		cel.Variable("nominal_bitrate", cel.IntType),
+		cel.Variable("color_primaries", cel.StringType),
+		cel.Variable("color_transfer", cel.StringType),
+		cel.Variable("is_hdr", cel.BoolType),
 		cel.Variable("frontmatter", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("frontmatter_format", cel.StringType),
 		cel.Variable("tags", cel.ListType(cel.StringType)),
@@ -196,6 +199,9 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 		"frame_rate":         float64(0),
 		"rotation":           int64(0),
 		"nominal_bitrate":    int64(0),
+		"color_primaries":    "",
+		"color_transfer":     "",
+		"is_hdr":             false,
 		"frontmatter":        map[string]any{},
 		"frontmatter_format": "",
 		"tags":               []string{},
@@ -291,6 +297,12 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 				activation["rotation"] = v
 			case "nominal_bitrate":
 				activation["nominal_bitrate"] = v
+			case "color_primaries":
+				activation["color_primaries"] = v
+			case "color_transfer":
+				activation["color_transfer"] = v
+			case "is_hdr":
+				activation["is_hdr"] = v
 			case "frontmatter":
 				activation["frontmatter"] = v
 			case "frontmatter_format":

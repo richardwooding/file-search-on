@@ -85,6 +85,15 @@ func (v *videoType) Attributes(ctx context.Context, fsys fs.FS, path string) (At
 	if info.NominalBitrate > 0 {
 		attrs["nominal_bitrate"] = info.NominalBitrate
 	}
+	if info.ColourPrimaries != "" {
+		attrs["color_primaries"] = info.ColourPrimaries
+	}
+	if info.ColourTransfer != "" {
+		attrs["color_transfer"] = info.ColourTransfer
+	}
+	if info.IsHDR {
+		attrs["is_hdr"] = true
+	}
 	return attrs, nil
 }
 
