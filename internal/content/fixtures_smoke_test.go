@@ -238,6 +238,30 @@ func TestFixturesAttributeSpotChecks(t *testing.T) {
 				if h, _ := a["video_height"].(int64); h != 48 {
 					t.Errorf("video_height = %v; want 48", a["video_height"])
 				}
+				// Fixture has a 44.1 kHz mono AAC audio track — the
+				// MP4 video parser populates the standard sample_rate
+				// and channels attributes from the audio sample entry.
+				if sr, _ := a["sample_rate"].(int64); sr != 44100 {
+					t.Errorf("sample_rate = %v; want 44100", a["sample_rate"])
+				}
+				if ch, _ := a["channels"].(int64); ch != 1 {
+					t.Errorf("channels = %v; want 1", a["channels"])
+				}
+				if a["audio_codec"] != "aac" {
+					t.Errorf("audio_codec = %q; want aac", a["audio_codec"])
+				}
+			},
+		},
+		{
+			path: "sample.avi",
+			check: func(t *testing.T, a content.Attributes) {
+				// AVI fixture has 44.1 kHz mono audio in WAVEFORMATEX.
+				if sr, _ := a["sample_rate"].(int64); sr != 44100 {
+					t.Errorf("sample_rate = %v; want 44100", a["sample_rate"])
+				}
+				if ch, _ := a["channels"].(int64); ch != 1 {
+					t.Errorf("channels = %v; want 1", a["channels"])
+				}
 			},
 		},
 		{

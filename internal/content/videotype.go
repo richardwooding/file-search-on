@@ -70,6 +70,15 @@ func (v *videoType) Attributes(ctx context.Context, fsys fs.FS, path string) (At
 	if info.FrameRate > 0 {
 		attrs["frame_rate"] = info.FrameRate
 	}
+	// Audio-track sample rate / channels (first audio track wins). The
+	// existing CEL `sample_rate` and `channels` attributes are reused —
+	// no schema change.
+	if info.AudioSampleRate > 0 {
+		attrs["sample_rate"] = info.AudioSampleRate
+	}
+	if info.AudioChannels > 0 {
+		attrs["channels"] = info.AudioChannels
+	}
 	return attrs, nil
 }
 

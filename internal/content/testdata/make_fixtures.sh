@@ -63,18 +63,41 @@ ffmpeg -y -loglevel error -f lavfi -i 'anullsrc=r=44100:cl=mono' -t 1 \
 ffmpeg -y -loglevel error -f lavfi -i 'anullsrc=r=44100:cl=stereo' -t 1 \
   "${common_audio_meta[@]}" -c:a vorbis -strict -2 sample.ogg
 
-# ─── Video (1 s lavfi testsrc) ─────────────────────────────────────────────
+# ─── Video (1 s lavfi testsrc + 1 s sine audio) ────────────────────────────
 echo "→ video"
-ffmpeg -y -loglevel error -f lavfi -i 'testsrc=size=64x48:duration=1:rate=10' \
-  -c:v libx264 -preset ultrafast -pix_fmt yuv420p sample.mp4
-ffmpeg -y -loglevel error -f lavfi -i 'testsrc=size=64x48:duration=1:rate=10' \
-  -c:v libx264 -preset ultrafast -pix_fmt yuv420p -f mov sample.mov
-ffmpeg -y -loglevel error -f lavfi -i 'testsrc=size=64x48:duration=1:rate=10' \
-  -c:v libx264 -preset ultrafast -pix_fmt yuv420p -f matroska sample.mkv
-ffmpeg -y -loglevel error -f lavfi -i 'testsrc=size=64x48:duration=1:rate=10' \
-  -c:v libvpx-vp9 -b:v 50k -f webm sample.webm
-ffmpeg -y -loglevel error -f lavfi -i 'testsrc=size=64x48:duration=1:rate=10' \
-  -c:v mpeg4 -f avi sample.avi
+# 64x48 testsrc video + a 1-second 440 Hz sine audio track. The audio track
+# exercises sample_rate / channels / audio_codec extraction from the video
+# container parsers (MP4 stsd, MKV Audio element, AVI WAVEFORMATEX in strf).
+# MP4 / MOV: mono AAC; MKV: stereo Vorbis (its only encoder); WebM: stereo
+# Opus; AVI: mono MP3. All resampled to 44.1 kHz (48 kHz for WebM/Opus).
+ffmpeg -y -loglevel error \
+  -f lavfi -i 'testsrc=size=64x48:duration=1:rate=10' \
+  -f lavfi -i 'sine=frequency=440:duration=1' \
+  -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
+  -c:a aac -b:a 64k -ar 44100 \
+  sample.mp4
+ffmpeg -y -loglevel error \
+  -f lavfi -i 'testsrc=size=64x48:duration=1:rate=10' \
+  -f lavfi -i 'sine=frequency=440:duration=1' \
+  -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
+  -c:a aac -b:a 64k -ar 44100 \
+  -f mov sample.mov
+ffmpeg -y -loglevel error \
+  -f lavfi -i 'testsrc=size=64x48:duration=1:rate=10' \
+  -f lavfi -i 'sine=frequency=440:duration=1' \
+  -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
+  -c:a vorbis -strict -2 -ac 2 -ar 44100 \
+  -f matroska sample.mkv
+ffmpeg -y -loglevel error \
+  -f lavfi -i 'testsrc=size=64x48:duration=1:rate=10' \
+  -f lavfi -i 'sine=frequency=440:duration=1' \
+  -c:v libvpx-vp9 -b:v 50k -c:a libopus -ac 2 -ar 48000 \
+  -f webm sample.webm
+ffmpeg -y -loglevel error \
+  -f lavfi -i 'testsrc=size=64x48:duration=1:rate=10' \
+  -f lavfi -i 'sine=frequency=440:duration=1' \
+  -c:v mpeg4 -c:a libmp3lame -b:a 64k -ar 44100 \
+  -f avi sample.avi
 
 # ─── PDF (reportlab) ───────────────────────────────────────────────────────
 echo "→ pdf"
