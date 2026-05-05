@@ -125,6 +125,12 @@ func Schema() SchemaDoc {
 				Description: "Jaccard similarity over character n-gram sets, ranging 0.0 (no overlap) to 1.0 (identical sets). Both empty -> 1.0; only one empty -> 0.0.",
 				Example:     `is_markdown && ngram_similarity(title, "kubernetes", 2) > 0.6`,
 			},
+			{
+				Name:        "point_in_polygon",
+				Signature:   "point_in_polygon(double, double, list<double>) -> bool",
+				Description: "Test whether (lat, lon) lies inside an arbitrary polygon. The third argument is a flat list of alternating lat,lon pairs: [lat0, lon0, lat1, lon1, ...]. Polygon need not be explicitly closed; planar ray-casting (good for neighbourhoods / cities / small countries).",
+				Example:     `is_image && point_in_polygon(gps_lat, gps_lon, [-34.10, 18.30, -34.10, 18.50, -33.90, 18.50, -33.90, 18.30])`,
+			},
 		},
 	}
 }
