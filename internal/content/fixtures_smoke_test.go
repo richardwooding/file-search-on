@@ -233,6 +233,15 @@ func TestFixturesAttributeSpotChecks(t *testing.T) {
 				if bd, _ := a["bit_depth"].(int64); bd != 16 {
 					t.Errorf("bit_depth = %v; want 16 (AAC nominal)", a["bit_depth"])
 				}
+				// nominal_bitrate from esds is non-zero. The fixture is
+				// 1 second of silence encoded at -b:a 64k; ffmpeg writes
+				// maxBitrate=64000 (the encoder target) and a much lower
+				// avgBitrate (silence compresses to ~1.5 kbps). Our
+				// avg-first precedence picks avgBitrate, so the value
+				// is small but non-zero — that's the parser working.
+				if nb, _ := a["nominal_bitrate"].(int64); nb <= 0 {
+					t.Errorf("nominal_bitrate = %v; want > 0 (esds parse)", a["nominal_bitrate"])
+				}
 			},
 		},
 		{

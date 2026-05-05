@@ -250,7 +250,7 @@ Run `file-search-on --list` for the canonical, up-to-date listing. The summary t
 | `year`, `track` | int | Release year, track number |
 | `duration` | double | Seconds |
 | `bitrate` | int | kbps — computed average (`file_size × 8 / duration / 1000`) |
-| `nominal_bitrate` | int | kbps — codec/container-stored. MP3 first-frame bitrate; OGG `bitrate_nominal`; M4A esds [not yet, see #58] |
+| `nominal_bitrate` | int | kbps — codec/container-stored. MP3 first-frame bitrate; OGG `bitrate_nominal`; M4A esds (avgBitrate, maxBitrate fallback) |
 | `sample_rate` | int | Hz |
 | `channels` | int | 1 = mono, 2 = stereo, … |
 | `bit_depth` | int | Bits per sample. FLAC STREAMINFO + MP4 `stsd`; 0 for MP3 / OGG (not stored) |

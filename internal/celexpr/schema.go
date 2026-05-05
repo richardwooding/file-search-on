@@ -84,7 +84,7 @@ func Schema() SchemaDoc {
 			{"genre", "string", "audio genre tag"},
 			{"duration", "double", "audio duration in seconds (FLAC STREAMINFO / MP3 Xing / OGG granule / MP4 mvhd)"},
 			{"bitrate", "int", "average bitrate in kbps (computed file_size * 8 / duration / 1000) — applies to audio and video"},
-			{"nominal_bitrate", "int", "codec/container-stored bitrate in kbps, distinct from the computed average. Audio: MP3 first-frame bitrate, OGG Vorbis bitrate_nominal. Video: MP4 btrt avgBitrate, MKV/WebM TrackEntry Bitrate, AVI avih maxBytesPerSec. M4A esds and FLAC max_frame_size are not yet decoded — leave 0."},
+			{"nominal_bitrate", "int", "codec/container-stored bitrate in kbps, distinct from the computed average. Audio: MP3 first-frame bitrate, OGG Vorbis bitrate_nominal, M4A esds avgBitrate (with maxBitrate fallback). Video: MP4 btrt avgBitrate, MKV/WebM TrackEntry Bitrate, AVI avih maxBytesPerSec. FLAC max_frame_size is not surfaced — it doesn't translate cleanly to kbps without frame timing."},
 			{"color_primaries", "string", "video colour primaries — 'bt709' (HD), 'bt2020' (HDR / wide-gamut), 'p3' (DCI-P3 / Display P3), or '' if unspecified. Decoded from MP4 colr nclx or MKV Colour element."},
 			{"color_transfer", "string", "video transfer characteristics — 'bt709' (SDR), 'pq' (SMPTE ST 2084 — HDR10), 'hlg' (Hybrid Log-Gamma — broadcast HDR), or '' if unspecified."},
 			{"is_hdr", "bool", "true when transfer is PQ (HDR10 / HDR10+ / Dolby Vision base layer) or HLG. The canonical 'this video is HDR' signal."},

@@ -76,7 +76,7 @@ file-search-on 'is_audio && bitrate > 0 && nominal_bitrate > 0 &&
                  bitrate * 100 / nominal_bitrate > 120)'
 ```
 
-`nominal_bitrate` is populated for MP3 (first-frame index) and OGG Vorbis (`bitrate_nominal` in the identification header). FLAC and M4A leave it 0 — the FLAC max_frame_size doesn't translate cleanly without frame timing, and M4A `esds` parsing is tracked as a follow-up.
+`nominal_bitrate` is populated for MP3 (first-frame index), OGG Vorbis (`bitrate_nominal` in the identification header), and M4A (esds Elementary Stream Descriptor — `avgBitrate` preferred, `maxBitrate` fallback). FLAC leaves it 0 because `max_frame_size` doesn't translate cleanly to kbps without frame timing.
 
 ## Hi-res audio
 
