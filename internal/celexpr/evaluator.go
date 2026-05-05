@@ -36,6 +36,7 @@ type FileAttributes struct {
 	IsVideo     bool
 	IsArchive   bool
 	IsBinary    bool
+	IsEmail     bool
 	Extra       content.Attributes
 }
 
@@ -68,6 +69,7 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("is_video", cel.BoolType),
 		cel.Variable("is_archive", cel.BoolType),
 		cel.Variable("is_binary", cel.BoolType),
+		cel.Variable("is_email", cel.BoolType),
 		cel.Variable("title", cel.StringType),
 		cel.Variable("word_count", cel.IntType),
 		cel.Variable("line_count", cel.IntType),
@@ -128,6 +130,13 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("is_dynamically_linked", cel.BoolType),
 		cel.Variable("is_stripped", cel.BoolType),
 		cel.Variable("entry_point", cel.IntType),
+		cel.Variable("email_to", cel.ListType(cel.StringType)),
+		cel.Variable("email_cc", cel.ListType(cel.StringType)),
+		cel.Variable("email_message_id", cel.StringType),
+		cel.Variable("email_in_reply_to", cel.StringType),
+		cel.Variable("sent_at", cel.TimestampType),
+		cel.Variable("attachment_count", cel.IntType),
+		cel.Variable("email_count", cel.IntType),
 		cel.Variable("frontmatter", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("frontmatter_format", cel.StringType),
 		cel.Variable("tags", cel.ListType(cel.StringType)),
@@ -178,6 +187,7 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 		"is_video":           attrs.IsVideo,
 		"is_archive":         attrs.IsArchive,
 		"is_binary":          attrs.IsBinary,
+		"is_email":           attrs.IsEmail,
 		"title":              "",
 		"word_count":         int64(0),
 		"line_count":         int64(0),
@@ -238,6 +248,13 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 		"is_dynamically_linked": false,
 		"is_stripped":           false,
 		"entry_point":           int64(0),
+		"email_to":              []string{},
+		"email_cc":              []string{},
+		"email_message_id":      "",
+		"email_in_reply_to":     "",
+		"sent_at":               time.Time{},
+		"attachment_count":      int64(0),
+		"email_count":           int64(0),
 		"frontmatter":        map[string]any{},
 		"frontmatter_format": "",
 		"tags":               []string{},
@@ -369,6 +386,20 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 				activation["is_stripped"] = v
 			case "entry_point":
 				activation["entry_point"] = v
+			case "email_to":
+				activation["email_to"] = v
+			case "email_cc":
+				activation["email_cc"] = v
+			case "email_message_id":
+				activation["email_message_id"] = v
+			case "email_in_reply_to":
+				activation["email_in_reply_to"] = v
+			case "sent_at":
+				activation["sent_at"] = v
+			case "attachment_count":
+				activation["attachment_count"] = v
+			case "email_count":
+				activation["email_count"] = v
 			case "frontmatter":
 				activation["frontmatter"] = v
 			case "frontmatter_format":
@@ -418,7 +449,7 @@ func BuildAttributes(ctx context.Context, fsys fs.FS, fsPath, displayPath string
 	contentTypeName := ""
 	isMarkdown, isJSON, isXML, isHTML, isPDF, isImage := false, false, false, false, false, false
 	isText, isCSV, isEPUB, isOffice, isAudio, isVideo := false, false, false, false, false, false
-	var isArchive, isBinary bool
+	var isArchive, isBinary, isEmail bool
 
 	var extra content.Attributes
 	if ct != nil {
@@ -452,6 +483,8 @@ func BuildAttributes(ctx context.Context, fsys fs.FS, fsPath, displayPath string
 			isArchive = true
 		case strings.HasPrefix(contentTypeName, "binary/"):
 			isBinary = true
+		case strings.HasPrefix(contentTypeName, "email/"):
+			isEmail = true
 		}
 		extra, err = ct.Attributes(ctx, fsys, fsPath)
 		if err != nil {
@@ -480,6 +513,7 @@ func BuildAttributes(ctx context.Context, fsys fs.FS, fsPath, displayPath string
 		IsAudio:     isAudio,
 		IsArchive:   isArchive,
 		IsBinary:    isBinary,
+		IsEmail:     isEmail,
 		IsVideo:     isVideo,
 		Extra:       extra,
 	}, nil

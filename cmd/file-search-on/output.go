@@ -68,6 +68,7 @@ type Record struct {
 	IsVideo    bool `json:"is_video,omitempty"`
 	IsArchive  bool `json:"is_archive,omitempty"`
 	IsBinary   bool `json:"is_binary,omitempty"`
+	IsEmail    bool `json:"is_email,omitempty"`
 
 	Artist      string `json:"artist,omitempty"`
 	Album       string `json:"album,omitempty"`
@@ -113,6 +114,14 @@ type Record struct {
 	IsDynamicallyLinked bool     `json:"is_dynamically_linked,omitempty"`
 	IsStripped          bool     `json:"is_stripped,omitempty"`
 	EntryPoint          int64    `json:"entry_point,omitempty"`
+
+	EmailTo         []string `json:"email_to,omitempty"`
+	EmailCc         []string `json:"email_cc,omitempty"`
+	EmailMessageID  string   `json:"email_message_id,omitempty"`
+	EmailInReplyTo  string   `json:"email_in_reply_to,omitempty"`
+	SentAt          string   `json:"sent_at,omitempty"`
+	AttachmentCount int64    `json:"attachment_count,omitempty"`
+	EmailCount      int64    `json:"email_count,omitempty"`
 }
 
 // recordFrom projects a search.Result into the wire shape. Falls back to
@@ -144,6 +153,7 @@ func recordFrom(r search.Result) Record {
 	rec.IsVideo = a.IsVideo
 	rec.IsArchive = a.IsArchive
 	rec.IsBinary = a.IsBinary
+	rec.IsEmail = a.IsEmail
 
 	if a.Extra == nil {
 		return rec
@@ -328,6 +338,27 @@ func recordFrom(r search.Result) Record {
 	if v, ok := a.Extra["entry_point"].(int64); ok {
 		rec.EntryPoint = v
 	}
+	if v, ok := a.Extra["email_to"].([]string); ok && len(v) > 0 {
+		rec.EmailTo = v
+	}
+	if v, ok := a.Extra["email_cc"].([]string); ok && len(v) > 0 {
+		rec.EmailCc = v
+	}
+	if v, ok := a.Extra["email_message_id"].(string); ok {
+		rec.EmailMessageID = v
+	}
+	if v, ok := a.Extra["email_in_reply_to"].(string); ok {
+		rec.EmailInReplyTo = v
+	}
+	if v, ok := a.Extra["sent_at"].(time.Time); ok && !v.IsZero() {
+		rec.SentAt = v.Format(time.RFC3339)
+	}
+	if v, ok := a.Extra["attachment_count"].(int64); ok {
+		rec.AttachmentCount = v
+	}
+	if v, ok := a.Extra["email_count"].(int64); ok {
+		rec.EmailCount = v
+	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
 		rec.FrontmatterFormat = v
 	}
@@ -467,6 +498,19 @@ func printVerbose(w io.Writer, results []search.Result) {
 		if rec.HasRootDir {
 			fp(w, "  %-13s %v\n", "has_root_dir", true)
 		}
+
+		// Email metadata.
+		if len(rec.EmailTo) > 0 {
+			fp(w, "  %-13s %s\n", "to", strings.Join(rec.EmailTo, ", "))
+		}
+		if len(rec.EmailCc) > 0 {
+			fp(w, "  %-13s %s\n", "cc", strings.Join(rec.EmailCc, ", "))
+		}
+		printIfStr(w, "msg_id", rec.EmailMessageID)
+		printIfStr(w, "in_reply_to", rec.EmailInReplyTo)
+		printIfStr(w, "sent_at", rec.SentAt)
+		printIfInt(w, "attachments", rec.AttachmentCount)
+		printIfInt(w, "email_count", rec.EmailCount)
 
 		// Binary metadata.
 		if len(rec.Architectures) > 0 {

@@ -51,6 +51,8 @@ var expectedTypes = map[string]string{
 	"sample.elf":    "binary/elf",
 	"sample.macho":  "binary/mach-o",
 	"sample.exe":    "binary/pe",
+	"sample.eml":    "email/rfc822",
+	"sample.mbox":   "email/mbox",
 }
 
 // TestFixturesDetect walks the embedded fixture bank and asserts every
@@ -455,6 +457,46 @@ func TestFixturesAttributeSpotChecks(t *testing.T) {
 			check: func(t *testing.T, a content.Attributes) {
 				if s, _ := a["is_stripped"].(bool); !s {
 					t.Errorf("is_stripped = false; want true (built with -ldflags='-s -w')")
+				}
+			},
+		},
+		{
+			// Multipart .eml fixture with one attachment. Subject reuses
+			// `title`, From reuses `author` (display name preferred when
+			// present).
+			path: "sample.eml",
+			check: func(t *testing.T, a content.Attributes) {
+				if a["title"] != "Sample Email Fixture" {
+					t.Errorf("title = %q; want Sample Email Fixture", a["title"])
+				}
+				if a["author"] != "Alice Tester" {
+					t.Errorf("author = %q; want Alice Tester", a["author"])
+				}
+				to, _ := a["email_to"].([]string)
+				if len(to) != 2 {
+					t.Errorf("email_to = %v; want 2 entries", to)
+				}
+				if ac, _ := a["attachment_count"].(int64); ac != 1 {
+					t.Errorf("attachment_count = %v; want 1", a["attachment_count"])
+				}
+				if a["email_message_id"] != "fixture-001@example.com" {
+					t.Errorf("email_message_id = %q; want angles stripped", a["email_message_id"])
+				}
+			},
+		},
+		{
+			// 3-message mbox fixture. First message's attributes leak
+			// through; email_count carries the archive shape.
+			path: "sample.mbox",
+			check: func(t *testing.T, a content.Attributes) {
+				if c, _ := a["email_count"].(int64); c != 3 {
+					t.Errorf("email_count = %v; want 3", a["email_count"])
+				}
+				if a["title"] != "Sample MBOX First Message" {
+					t.Errorf("title = %q; want first-message subject", a["title"])
+				}
+				if a["author"] != "Alice Tester" {
+					t.Errorf("author = %q; want Alice Tester (first-message From)", a["author"])
 				}
 			},
 		},
