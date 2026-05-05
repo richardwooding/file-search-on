@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
-	"os"
+	"io/fs"
 )
 
 func init() {
@@ -28,27 +28,23 @@ func (v *videoType) MagicBytes() [][]byte { return v.magic }
 // Attributes dispatches to a per-format binary parser. Each parser is
 // header- + tail-bounded (sub-millisecond on real files); ctx is honoured
 // at entry to skip work when a walk is already cancelled.
-func (v *videoType) Attributes(ctx context.Context, path string) (Attributes, error) {
+func (v *videoType) Attributes(ctx context.Context, fsys fs.FS, path string) (Attributes, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	attrs := Attributes{}
 
-	f, err := os.Open(path)
+	rs, fileSize, closer, err := openReadSeeker(fsys, path)
 	if err != nil {
 		return attrs, nil
 	}
-	defer func() { _ = f.Close() }()
+	defer func() { _ = closer() }()
 
-	fileSize, err := f.Seek(0, io.SeekEnd)
-	if err != nil {
-		return attrs, nil
-	}
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
+	if _, err := rs.Seek(0, io.SeekStart); err != nil {
 		return attrs, nil
 	}
 
-	info, err := readVideoInfo(v.name, f, fileSize)
+	info, err := readVideoInfo(v.name, rs, fileSize)
 	if err != nil {
 		return attrs, nil
 	}

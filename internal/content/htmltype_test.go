@@ -12,7 +12,7 @@ func htmlAttrs(t *testing.T, path string) content.Attributes {
 	t.Helper()
 	for _, ct := range content.DefaultRegistry().Types() {
 		if ct.Name() == "html" {
-			attrs, err := ct.Attributes(t.Context(), path)
+			attrs, err := attributesAt(t.Context(), ct, path)
 			if err != nil {
 				t.Fatal(err)
 			}

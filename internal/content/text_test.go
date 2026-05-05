@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/richardwooding/file-search-on/internal/content"
 )
 
 func TestTextAttributes(t *testing.T) {
@@ -19,12 +18,12 @@ func TestTextAttributes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ct := content.DefaultRegistry().Detect(path)
+	ct := detectAt(path)
 	if ct == nil || ct.Name() != "text" {
 		t.Fatalf("Detect: got %v, want text", ct)
 	}
 
-	attrs, err := ct.Attributes(t.Context(), path)
+	attrs, err := attributesAt(t.Context(), ct, path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}
@@ -43,7 +42,7 @@ func TestTextDetectionByExtension(t *testing.T) {
 		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		ct := content.DefaultRegistry().Detect(path)
+		ct := detectAt(path)
 		if ct == nil || ct.Name() != "text" {
 			t.Errorf("Detect(%s): got %v, want text", ext, ct)
 		}
@@ -60,14 +59,14 @@ func TestTextRespectsCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ct := content.DefaultRegistry().Detect(path)
+	ct := detectAt(path)
 	if ct == nil || ct.Name() != "text" {
 		t.Fatalf("Detect: got %v, want text", ct)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // pre-cancel
-	_, err := ct.Attributes(ctx, path)
+	_, err := attributesAt(ctx, ct, path)
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("Attributes(cancelled ctx): err = %v, want context.Canceled", err)
 	}
@@ -79,8 +78,8 @@ func TestTextEmpty(t *testing.T) {
 	if err := os.WriteFile(path, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ct := content.DefaultRegistry().Detect(path)
-	attrs, err := ct.Attributes(t.Context(), path)
+	ct := detectAt(path)
+	attrs, err := attributesAt(t.Context(), ct, path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}

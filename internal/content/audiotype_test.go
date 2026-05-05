@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/richardwooding/file-search-on/internal/content"
 )
 
 // id3v2Frame is one text frame: 4-byte ID, 4-byte big-endian size, 2-byte
@@ -66,11 +65,11 @@ func TestAudioMP3Tags(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ct := content.DefaultRegistry().Detect(path)
+	ct := detectAt(path)
 	if ct == nil || ct.Name() != "audio/mpeg" {
 		t.Fatalf("Detect: got %v, want audio/mpeg", ct)
 	}
-	attrs, err := ct.Attributes(t.Context(), path)
+	attrs, err := attributesAt(t.Context(), ct, path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}
@@ -102,11 +101,11 @@ func TestAudioMP3NoTags(t *testing.T) {
 	if err := os.WriteFile(path, []byte("garbage data"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ct := content.DefaultRegistry().Detect(path)
+	ct := detectAt(path)
 	if ct == nil || ct.Name() != "audio/mpeg" {
 		t.Fatalf("Detect: got %v, want audio/mpeg", ct)
 	}
-	attrs, err := ct.Attributes(t.Context(), path)
+	attrs, err := attributesAt(t.Context(), ct, path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}
@@ -138,7 +137,7 @@ func TestAudioTypesRegistered(t *testing.T) {
 			if err := os.WriteFile(path, nil, 0o644); err != nil {
 				t.Fatal(err)
 			}
-			ct := content.DefaultRegistry().Detect(path)
+			ct := detectAt(path)
 			if ct == nil || ct.Name() != tc.want {
 				t.Errorf("Detect(%s): got %v, want %s", tc.ext, ct, tc.want)
 			}
@@ -153,10 +152,10 @@ func TestAudioRespectsCancellation(t *testing.T) {
 	if err := os.WriteFile(path, body, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ct := content.DefaultRegistry().Detect(path)
+	ct := detectAt(path)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := ct.Attributes(ctx, path)
+	_, err := attributesAt(ctx, ct, path)
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("Attributes(cancelled): err = %v, want context.Canceled", err)
 	}

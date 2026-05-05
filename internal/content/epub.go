@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/xml"
 	"io"
+	"io/fs"
 )
 
 func init() {
@@ -17,22 +18,26 @@ func (e *epubType) Name() string         { return "epub" }
 func (e *epubType) Extensions() []string { return []string{".epub"} }
 func (e *epubType) MagicBytes() [][]byte { return nil }
 
-func (e *epubType) Attributes(ctx context.Context, filePath string) (Attributes, error) {
+func (e *epubType) Attributes(ctx context.Context, fsys fs.FS, filePath string) (Attributes, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	zr, err := zip.OpenReader(filePath)
+	ra, size, closer, err := openReaderAt(fsys, filePath)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = zr.Close() }()
+	defer func() { _ = closer() }()
+	zr, err := zip.NewReader(ra, size)
+	if err != nil {
+		return nil, err
+	}
 
-	opfPath, err := readOPFPath(&zr.Reader)
+	opfPath, err := readOPFPath(zr)
 	if err != nil || opfPath == "" {
 		return Attributes{}, nil
 	}
 
-	title, author, lang := readZipDublinCore(ctx, &zr.Reader, opfPath)
+	title, author, lang := readZipDublinCore(ctx, zr, opfPath)
 
 	attrs := Attributes{
 		"language": lang,

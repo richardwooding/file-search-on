@@ -16,11 +16,11 @@ import (
 
 func imageAttrs(t *testing.T, ctx context.Context, path string) content.Attributes {
 	t.Helper()
-	ct := content.DefaultRegistry().Detect(path)
+	ct := detectAt(path)
 	if ct == nil {
 		t.Fatalf("Detect: nil for %s", path)
 	}
-	attrs, err := ct.Attributes(ctx, path)
+	attrs, err := attributesAt(ctx, ct, path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestHEICRegistered(t *testing.T) {
 		if err := os.WriteFile(path, nil, 0o644); err != nil {
 			t.Fatal(err)
 		}
-		ct := content.DefaultRegistry().Detect(path)
+		ct := detectAt(path)
 		if ct == nil || ct.Name() != "image/heic" {
 			t.Errorf("Detect(%s): got %v, want image/heic", ext, ct)
 		}
@@ -119,11 +119,11 @@ func TestImageRespectsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	ct := content.DefaultRegistry().Detect("testdata/exif-light.jpg")
+	ct := detectAt("testdata/exif-light.jpg")
 	if ct == nil {
 		t.Fatal("Detect: nil for testdata/exif-light.jpg")
 	}
-	_, err := ct.Attributes(ctx, "testdata/exif-light.jpg")
+	_, err := attributesAt(ctx, ct, "testdata/exif-light.jpg")
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("Attributes(cancelled ctx): err = %v, want context.Canceled", err)
 	}

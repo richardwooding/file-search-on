@@ -3,7 +3,7 @@ package content
 import (
 	"bufio"
 	"context"
-	"os"
+	"io/fs"
 	"strings"
 )
 
@@ -17,11 +17,11 @@ func (t *textType) Name() string         { return "text" }
 func (t *textType) Extensions() []string { return []string{".txt", ".text", ".log"} }
 func (t *textType) MagicBytes() [][]byte { return nil }
 
-func (t *textType) Attributes(ctx context.Context, path string) (Attributes, error) {
+func (t *textType) Attributes(ctx context.Context, fsys fs.FS, path string) (Attributes, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	f, err := os.Open(path)
+	f, err := fsys.Open(path)
 	if err != nil {
 		return nil, err
 	}

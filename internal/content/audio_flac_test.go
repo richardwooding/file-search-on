@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/richardwooding/file-search-on/internal/content"
 )
 
 // buildFLAC builds a minimal FLAC file with a STREAMINFO block containing
@@ -58,11 +57,11 @@ func TestFLACInfo(t *testing.T) {
 	if err := os.WriteFile(path, buildFLAC(44100, 2, 4_410_000), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ct := content.DefaultRegistry().Detect(path)
+	ct := detectAt(path)
 	if ct == nil || ct.Name() != "audio/flac" {
 		t.Fatalf("Detect: got %v, want audio/flac", ct)
 	}
-	attrs, err := ct.Attributes(t.Context(), path)
+	attrs, err := attributesAt(t.Context(), ct, path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}
@@ -86,8 +85,8 @@ func TestFLACBadMagic(t *testing.T) {
 	if err := os.WriteFile(path, []byte("not a flac"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ct := content.DefaultRegistry().Detect(path)
-	attrs, err := ct.Attributes(t.Context(), path)
+	ct := detectAt(path)
+	attrs, err := attributesAt(t.Context(), ct, path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}

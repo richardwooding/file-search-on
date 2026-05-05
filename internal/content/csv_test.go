@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/richardwooding/file-search-on/internal/content"
 )
 
 func TestCSVAttributes(t *testing.T) {
@@ -40,11 +39,11 @@ func TestCSVAttributes(t *testing.T) {
 			if err := os.WriteFile(path, []byte(tc.body), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			ct := content.DefaultRegistry().Detect(path)
+			ct := detectAt(path)
 			if ct == nil || ct.Name() != "csv" {
 				t.Fatalf("Detect: got %v, want csv", ct)
 			}
-			attrs, err := ct.Attributes(t.Context(), path)
+			attrs, err := attributesAt(t.Context(), ct, path)
 			if err != nil {
 				t.Fatalf("Attributes: %v", err)
 			}
@@ -68,8 +67,8 @@ func TestCSVEmpty(t *testing.T) {
 	if err := os.WriteFile(path, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ct := content.DefaultRegistry().Detect(path)
-	attrs, err := ct.Attributes(t.Context(), path)
+	ct := detectAt(path)
+	attrs, err := attributesAt(t.Context(), ct, path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}

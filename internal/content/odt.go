@@ -3,6 +3,7 @@ package content
 import (
 	"archive/zip"
 	"context"
+	"io/fs"
 )
 
 func init() {
@@ -18,16 +19,20 @@ func (o *odtType) MagicBytes() [][]byte { return nil }
 // Attributes reads OpenDocument metadata from `meta.xml`. ODT differs from
 // OOXML only in the metadata entry path; the inner element vocabulary is the
 // same Dublin Core triple, so readZipDublinCore handles the parsing.
-func (o *odtType) Attributes(ctx context.Context, filePath string) (Attributes, error) {
+func (o *odtType) Attributes(ctx context.Context, fsys fs.FS, filePath string) (Attributes, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	zr, err := zip.OpenReader(filePath)
+	ra, size, closer, err := openReaderAt(fsys, filePath)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = zr.Close() }()
+	defer func() { _ = closer() }()
+	zr, err := zip.NewReader(ra, size)
+	if err != nil {
+		return nil, err
+	}
 
-	title, author, lang := readZipDublinCore(ctx, &zr.Reader, "meta.xml")
+	title, author, lang := readZipDublinCore(ctx, zr, "meta.xml")
 	return officeAttributes(title, author, lang), nil
 }

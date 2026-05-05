@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/richardwooding/file-search-on/internal/content"
 )
 
 // avih builds a minimal AVI main header (avih chunk body, 56 bytes).
@@ -80,11 +79,11 @@ func TestAVIInfo(t *testing.T) {
 	if err := os.WriteFile(path, buildAVI(33333, 3000, 1280, 720, "H264"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ct := content.DefaultRegistry().Detect(path)
+	ct := detectAt(path)
 	if ct == nil || ct.Name() != "video/x-msvideo" {
 		t.Fatalf("Detect: got %v, want video/x-msvideo", ct)
 	}
-	attrs, err := ct.Attributes(t.Context(), path)
+	attrs, err := attributesAt(t.Context(), ct, path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}

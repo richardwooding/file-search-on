@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/richardwooding/file-search-on/internal/content"
 )
 
 const containerXML = `<?xml version="1.0" encoding="UTF-8"?>
@@ -55,12 +54,12 @@ func TestEPUBAttributes(t *testing.T) {
 	path := filepath.Join(dir, "guide.epub")
 	writeMinimalEPUB(t, path)
 
-	ct := content.DefaultRegistry().Detect(path)
+	ct := detectAt(path)
 	if ct == nil || ct.Name() != "epub" {
 		t.Fatalf("Detect: got %v, want epub", ct)
 	}
 
-	attrs, err := ct.Attributes(t.Context(), path)
+	attrs, err := attributesAt(t.Context(), ct, path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}
@@ -81,11 +80,11 @@ func TestEPUBNotAZip(t *testing.T) {
 	if err := os.WriteFile(path, []byte("not a zip"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ct := content.DefaultRegistry().Detect(path)
+	ct := detectAt(path)
 	if ct == nil || ct.Name() != "epub" {
 		t.Fatalf("Detect: got %v, want epub", ct)
 	}
-	if _, err := ct.Attributes(t.Context(), path); err == nil {
+	if _, err := attributesAt(t.Context(), ct, path); err == nil {
 		t.Errorf("Attributes on broken zip: expected error, got nil")
 	}
 }

@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/richardwooding/file-search-on/internal/content"
 )
 
 // vintEncode encodes a uint64 as an EBML variable-length integer using the
@@ -96,11 +95,11 @@ func TestMKVInfo(t *testing.T) {
 	if err := os.WriteFile(path, buildMKV(1_000_000, 100_000, 1920, 1080, 33_333_333), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ct := content.DefaultRegistry().Detect(path)
+	ct := detectAt(path)
 	if ct == nil || ct.Name() != "video/x-matroska" {
 		t.Fatalf("Detect: got %v, want video/x-matroska", ct)
 	}
-	attrs, err := ct.Attributes(t.Context(), path)
+	attrs, err := attributesAt(t.Context(), ct, path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}

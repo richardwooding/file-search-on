@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/richardwooding/file-search-on/internal/content"
 )
 
 const ooxmlCoreXML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -81,11 +80,11 @@ func TestOOXMLAttributes(t *testing.T) {
 		t.Run(tc.ext, func(t *testing.T) {
 			path := filepath.Join(dir, "doc"+tc.ext)
 			writeOOXMLZip(t, path)
-			ct := content.DefaultRegistry().Detect(path)
+			ct := detectAt(path)
 			if ct == nil || ct.Name() != tc.want {
 				t.Fatalf("Detect: got %v, want %s", ct, tc.want)
 			}
-			attrs, err := ct.Attributes(t.Context(), path)
+			attrs, err := attributesAt(t.Context(), ct, path)
 			if err != nil {
 				t.Fatalf("Attributes: %v", err)
 			}
@@ -107,12 +106,12 @@ func TestODTAttributes(t *testing.T) {
 	path := filepath.Join(dir, "open.odt")
 	writeODTZip(t, path)
 
-	ct := content.DefaultRegistry().Detect(path)
+	ct := detectAt(path)
 	if ct == nil || ct.Name() != "office/odt" {
 		t.Fatalf("Detect: got %v, want office/odt", ct)
 	}
 
-	attrs, err := ct.Attributes(t.Context(), path)
+	attrs, err := attributesAt(t.Context(), ct, path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}
@@ -134,8 +133,8 @@ func TestOfficeMissingMetadata(t *testing.T) {
 	writeZipWithEntries(t, path, map[string]string{
 		"[Content_Types].xml": `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>`,
 	})
-	ct := content.DefaultRegistry().Detect(path)
-	attrs, err := ct.Attributes(t.Context(), path)
+	ct := detectAt(path)
+	attrs, err := attributesAt(t.Context(), ct, path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}
@@ -153,8 +152,8 @@ func TestOfficeNotAZip(t *testing.T) {
 	if err := os.WriteFile(path, []byte("not a zip"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ct := content.DefaultRegistry().Detect(path)
-	if _, err := ct.Attributes(t.Context(), path); err == nil {
+	ct := detectAt(path)
+	if _, err := attributesAt(t.Context(), ct, path); err == nil {
 		t.Errorf("Attributes on broken zip: expected error, got nil")
 	}
 }

@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/richardwooding/file-search-on/internal/content"
 )
 
 // pdfFixture builds a minimal valid PDF byte slice with the given metadata.
@@ -99,11 +98,11 @@ func TestPDFCatalogLang(t *testing.T) {
 		catalogLang: "en-US",
 	})
 
-	ct := content.DefaultRegistry().Detect(path)
+	ct := detectAt(path)
 	if ct == nil || ct.Name() != "pdf" {
 		t.Fatalf("Detect: got %v, want pdf", ct)
 	}
-	attrs, err := ct.Attributes(t.Context(), path)
+	attrs, err := attributesAt(t.Context(), ct, path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}
@@ -130,8 +129,8 @@ func TestPDFXMPLanguageFallback(t *testing.T) {
 		xmpLanguage: "fr",
 	})
 
-	ct := content.DefaultRegistry().Detect(path)
-	attrs, err := ct.Attributes(t.Context(), path)
+	ct := detectAt(path)
+	attrs, err := attributesAt(t.Context(), ct, path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}
@@ -150,8 +149,8 @@ func TestPDFCatalogLangBeatsXMP(t *testing.T) {
 		xmpLanguage: "de",
 	})
 
-	ct := content.DefaultRegistry().Detect(path)
-	attrs, err := ct.Attributes(t.Context(), path)
+	ct := detectAt(path)
+	attrs, err := attributesAt(t.Context(), ct, path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}
@@ -164,8 +163,8 @@ func TestPDFNoLanguage(t *testing.T) {
 	dir := t.TempDir()
 	path := writePDF(t, dir, "doc.pdf", pdfFixture{title: "x", author: "y"})
 
-	ct := content.DefaultRegistry().Detect(path)
-	attrs, err := ct.Attributes(t.Context(), path)
+	ct := detectAt(path)
+	attrs, err := attributesAt(t.Context(), ct, path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}
@@ -178,10 +177,10 @@ func TestPDFRespectsCancellation(t *testing.T) {
 	dir := t.TempDir()
 	path := writePDF(t, dir, "doc.pdf", pdfFixture{title: "x", author: "y", catalogLang: "en"})
 
-	ct := content.DefaultRegistry().Detect(path)
+	ct := detectAt(path)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := ct.Attributes(ctx, path)
+	_, err := attributesAt(ctx, ct, path)
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("Attributes(cancelled ctx): err = %v, want context.Canceled", err)
 	}

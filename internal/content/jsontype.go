@@ -3,7 +3,7 @@ package content
 import (
 	"context"
 	"encoding/json"
-	"os"
+	"io/fs"
 )
 
 func init() {
@@ -23,11 +23,11 @@ func (j *jsonType) MagicBytes() [][]byte {
 	}
 }
 
-func (j *jsonType) Attributes(ctx context.Context, path string) (Attributes, error) {
+func (j *jsonType) Attributes(ctx context.Context, fsys fs.FS, path string) (Attributes, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	f, err := os.Open(path)
+	f, err := fsys.Open(path)
 	if err != nil {
 		return nil, err
 	}

@@ -3,7 +3,7 @@ package content
 import (
 	"bufio"
 	"context"
-	"os"
+	"io/fs"
 	"regexp"
 	"strings"
 )
@@ -29,11 +29,11 @@ var (
 	htmlLangRe = regexp.MustCompile(`(?i)<html[^>]*\blang\s*=\s*["']?([A-Za-z][\w-]*)`)
 )
 
-func (h *htmlType) Attributes(ctx context.Context, path string) (Attributes, error) {
+func (h *htmlType) Attributes(ctx context.Context, fsys fs.FS, path string) (Attributes, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	f, err := os.Open(path)
+	f, err := fsys.Open(path)
 	if err != nil {
 		return nil, err
 	}

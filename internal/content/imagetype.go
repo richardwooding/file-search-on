@@ -7,7 +7,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
-	"os"
+	"io/fs"
 
 	"github.com/evanoberholster/imagemeta"
 	"github.com/evanoberholster/imagemeta/exif2"
@@ -37,7 +37,7 @@ func (i *imageType) Name() string         { return i.name }
 func (i *imageType) Extensions() []string { return i.exts }
 func (i *imageType) MagicBytes() [][]byte { return i.magic }
 
-func (i *imageType) Attributes(ctx context.Context, path string) (Attributes, error) {
+func (i *imageType) Attributes(ctx context.Context, fsys fs.FS, path string) (Attributes, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -46,26 +46,26 @@ func (i *imageType) Attributes(ctx context.Context, path string) (Attributes, er
 		"height": int64(0),
 	}
 
-	f, err := os.Open(path)
+	rs, _, closer, err := openReadSeeker(fsys, path)
 	if err != nil {
 		return attrs, nil
 	}
-	defer func() { _ = f.Close() }()
+	defer func() { _ = closer() }()
 
 	// EXIF-bearing types: try imagemeta first. Header-only read; sub-ms.
 	if supportsEXIF(i.name) {
-		if e, err := imagemeta.Decode(f); err == nil {
+		if e, err := imagemeta.Decode(rs); err == nil {
 			populateEXIF(attrs, e)
 		}
 		// Reset for the stdlib fallback regardless of imagemeta's outcome.
-		_, _ = f.Seek(0, io.SeekStart)
+		_, _ = rs.Seek(0, io.SeekStart)
 	}
 
 	// stdlib width/height for JPEG/PNG/GIF — fills in if EXIF didn't.
 	if attrs["width"] == int64(0) {
 		switch i.name {
 		case "image/jpeg", "image/png", "image/gif":
-			if cfg, _, err := image.DecodeConfig(f); err == nil {
+			if cfg, _, err := image.DecodeConfig(rs); err == nil {
 				attrs["width"] = int64(cfg.Width)
 				attrs["height"] = int64(cfg.Height)
 			}

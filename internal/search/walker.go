@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
@@ -38,6 +39,10 @@ type Options struct {
 	// FileAttributes the CEL evaluator built. Off by default so the cheap
 	// path-and-size case does not pay the pointer-keeping cost.
 	IncludeAttributes bool
+	// FS overrides the filesystem used for walking and IO. Defaults to
+	// `os.DirFS(Root)` when nil. Tests inject embed.FS or fstest.MapFS for
+	// hermetic execution; production almost never sets this.
+	FS fs.FS
 }
 
 // Walk walks the directory and returns matching files
@@ -52,9 +57,19 @@ func Walk(ctx context.Context, opts Options, registry *content.Registry) ([]Resu
 		return nil, err
 	}
 
+	fsys := opts.FS
+	if fsys == nil {
+		root := opts.Root
+		if root == "" {
+			root = "."
+		}
+		fsys = os.DirFS(root)
+	}
+
 	var mu sync.Mutex
 	var results []Result
-	paths := make(chan string, opts.Workers*2)
+	type job struct{ fsPath, displayPath string }
+	jobs := make(chan job, opts.Workers*2)
 	var wg sync.WaitGroup
 
 	for i := 0; i < opts.Workers; i++ {
@@ -63,11 +78,11 @@ func Walk(ctx context.Context, opts Options, registry *content.Registry) ([]Resu
 				select {
 				case <-ctx.Done():
 					return
-				case path, ok := <-paths:
+				case j, ok := <-jobs:
 					if !ok {
 						return
 					}
-					attrs, err := celexpr.BuildAttributes(ctx, path, registry)
+					attrs, err := celexpr.BuildAttributes(ctx, fsys, j.fsPath, j.displayPath, registry)
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 						return
 					}
@@ -79,7 +94,7 @@ func Walk(ctx context.Context, opts Options, registry *content.Registry) ([]Resu
 						continue
 					}
 					r := Result{
-						Path:        path,
+						Path:        j.displayPath,
 						ContentType: attrs.ContentType,
 						Size:        attrs.Size,
 					}
@@ -94,21 +109,28 @@ func Walk(ctx context.Context, opts Options, registry *content.Registry) ([]Resu
 		})
 	}
 
-	walkErr := filepath.WalkDir(opts.Root, func(path string, d fs.DirEntry, err error) error {
+	walkErr := fs.WalkDir(fsys, ".", func(fsPath string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if d.IsDir() {
 			return nil
 		}
+		// User-facing path: OS-native join with Root when set, else the
+		// fs-style path. Tests that pass an in-memory FS without a Root
+		// see fs-style paths in Result.Path.
+		displayPath := fsPath
+		if opts.Root != "" {
+			displayPath = filepath.Join(opts.Root, filepath.FromSlash(fsPath))
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case paths <- path:
+		case jobs <- job{fsPath: fsPath, displayPath: displayPath}:
 		}
 		return nil
 	})
-	close(paths)
+	close(jobs)
 	wg.Wait()
 
 	return results, walkErr

@@ -4,8 +4,8 @@ import (
 	"bufio"
 	"context"
 	"encoding/csv"
-	"os"
-	"path/filepath"
+	"io/fs"
+	"path"
 	"strings"
 )
 
@@ -19,18 +19,18 @@ func (c *csvType) Name() string         { return "csv" }
 func (c *csvType) Extensions() []string { return []string{".csv", ".tsv"} }
 func (c *csvType) MagicBytes() [][]byte { return nil }
 
-func (c *csvType) Attributes(ctx context.Context, path string) (Attributes, error) {
+func (c *csvType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attributes, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	f, err := os.Open(path)
+	f, err := fsys.Open(p)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
 
 	delim := ','
-	if strings.EqualFold(filepath.Ext(path), ".tsv") {
+	if strings.EqualFold(path.Ext(p), ".tsv") {
 		delim = '\t'
 	}
 
