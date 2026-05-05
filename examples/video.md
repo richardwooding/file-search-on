@@ -36,6 +36,14 @@ file-search-on 'is_video && audio_codec == "opus"'             # WebM / modern M
 file-search-on 'is_video && audio_codec == "ac3"'              # Blu-ray rips
 ```
 
+The first audio track's `sample_rate` and `channels` (the same keys used by standalone audio) populate from the video container too:
+
+```sh
+file-search-on 'is_video && sample_rate >= 48000'              # 48 kHz audio (broadcast / cinema)
+file-search-on 'is_video && channels > 2'                      # surround mixes (5.1, 7.1)
+file-search-on 'is_video && channels == 1'                     # mono / interview clips
+```
+
 ## Resolution
 
 ```sh
@@ -78,6 +86,54 @@ file-search-on 'is_video && bitrate < 1000 && video_height >= 1080'   # over-com
 file-search-on 'is_video && bitrate > 50000'                          # uncompressed / RAW captures
 ```
 
+`nominal_bitrate` is the codec/container-declared value. MP4 reads it from the `btrt` box's avgBitrate (a video-track-only number); MKV reads `Bitrate` (0x4FB1); AVI reads `avih.maxBytesPerSec` (a whole-file ceiling — not strictly video-only but the closest stored value). Useful for filtering streaming targets:
+
+```sh
+file-search-on 'is_video && nominal_bitrate >= 5000'   # ≥ 5 Mbps — Blu-ray / streaming masters
+file-search-on 'is_video && nominal_bitrate < 1000'    # streaming-friendly low-bitrate
+```
+
+## Rotation
+
+Phone-recorded clips often store portrait video as 1920×1080 with a 90° rotation matrix in MP4 `tkhd`. The pixel dimensions stay landscape; `rotation` carries the displayed orientation:
+
+```sh
+file-search-on 'is_video && rotation == 90' -d ~/Movies          # portrait phone clips
+file-search-on 'is_video && rotation > 0'                         # any non-default rotation
+file-search-on 'is_video && rotation == 0 && video_height > video_width'   # genuinely-shot portrait
+```
+
+`rotation` is one of 0 / 90 / 180 / 270, decoded from MP4 `tkhd`'s 3×3 display matrix when it's a pure axis-aligned rotation. Non-MP4 containers and arbitrary affine matrices stay at 0.
+
+## HDR and colour-space
+
+Three attributes — `is_hdr`, `color_primaries`, `color_transfer` — decoded from MP4 `colr` (nclx form) and MKV `Colour` (0x55B0):
+
+```sh
+file-search-on 'is_video && is_hdr' -d ~/Movies                  # all HDR content
+file-search-on 'is_video && color_transfer == "pq"'              # HDR10 / Dolby Vision base layer
+file-search-on 'is_video && color_transfer == "hlg"'             # broadcast HDR (BBC iPlayer, NHK, etc.)
+file-search-on 'is_video && color_primaries == "bt2020"'         # wide-gamut SDR or HDR
+file-search-on 'is_video && color_primaries == "bt709"'          # standard HD
+file-search-on 'is_video && color_primaries == "p3"'             # DCI-P3 / Display P3
+```
+
+`is_hdr` is true when transfer is PQ (SMPTE ST 2084) or HLG. `color_primaries` and `color_transfer` map H.273 enum values to friendly short names (`bt709`, `bt2020`, `p3`, `pq`, `hlg`); unknown enums fall through to `""`. AVI carries no colour metadata.
+
+## Subtitles
+
+Detect embedded subtitle / closed-caption tracks and their languages:
+
+```sh
+file-search-on 'is_video && subtitles' -d ~/Movies                # any sub track present
+file-search-on 'is_video && "eng" in subtitle_languages'          # has English subs
+file-search-on 'is_video && subtitles &&
+                !("eng" in subtitle_languages)'                    # foreign-only — needs translation
+file-search-on 'is_video && size(subtitle_languages) > 1'         # multi-language releases
+```
+
+Sources: MP4 / MOV `trak` with handler `text` / `subt` / `sbtl` / `clcp`; MKV TrackEntry with `TrackType=17`. Languages are ISO 639-2 codes from MP4 `mdhd` or MKV `Language`; an empty string in the list means the track had no language tag (or was tagged `und`). AVI doesn't carry subtitles in any standard form.
+
 ## Format-specific filters
 
 ```sh
@@ -119,9 +175,28 @@ file-search-on 'is_video && video_codec == "h265"' -o json | jq -s 'map(.duratio
 file-search-on 'is_video && video_height >= 2160' -o bare
 ```
 
-## Known limitations
+## Combined queries — film discovery
 
-- **Aspect-ratio rotation**: phone-recorded clips often store portrait video as 1920×1080 with a 90° rotation matrix in `tkhd`. We currently report the stored dimensions, not the displayed dimensions. Tracked in [#36](https://github.com/richardwooding/file-search-on/issues/36).
-- **HDR**: `colr` (MP4) and `Colour` (MKV) elements aren't parsed; `is_hdr` is a follow-up. Tracked in [#38](https://github.com/richardwooding/file-search-on/issues/38).
-- **Subtitle tracks**: presence and language not surfaced. Tracked in [#39](https://github.com/richardwooding/file-search-on/issues/39).
-- **`audio_codec` is video-only** in the current build — for the audio track inside a video container. Audio sample_rate / channels for video files are tracked in [#37](https://github.com/richardwooding/file-search-on/issues/37).
+Find HDR films with English subtitles, modern codec, ≥ 1080p, longer than 30 minutes:
+
+```sh
+file-search-on '
+  is_video &&
+  is_hdr &&
+  "eng" in subtitle_languages &&
+  (video_codec == "h265" || video_codec == "av1") &&
+  video_height >= 1080 &&
+  duration > 1800
+' -d ~/Movies
+```
+
+Multi-language streaming targets (multiple subtitle tracks, ≤ 5 Mbps, AAC audio):
+
+```sh
+file-search-on '
+  is_video &&
+  size(subtitle_languages) > 1 &&
+  nominal_bitrate <= 5000 &&
+  audio_codec == "aac"
+' -d ~/Library
+```
