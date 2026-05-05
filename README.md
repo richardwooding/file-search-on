@@ -32,8 +32,8 @@ Across **24 file formats** organised into eight content-type families (documents
   | **Data** | JSON, CSV, TSV | json_kind, column_count, csv_columns |
   | **Plain text** | TXT, log, … | line_count, word_count |
   | **Images** | JPEG, PNG, GIF, WebP, TIFF, BMP, SVG, HEIC | dimensions + EXIF: camera, lens, GPS, ISO, focal_length, taken_at |
-  | **Audio** | MP3, M4A, FLAC, OGG | tags (artist, album, genre, year, …) + duration, bitrate, sample_rate, channels |
-  | **Video** | MP4, MOV, MKV, WebM, AVI | duration, bitrate, video_codec, audio_codec, video_width/height, frame_rate |
+  | **Audio** | MP3, M4A, FLAC, OGG | tags (artist, album, genre, year, …) + duration, bitrate / nominal_bitrate, sample_rate, channels, bit_depth, ReplayGain |
+  | **Video** | MP4, MOV, MKV, WebM, AVI | duration, bitrate / nominal_bitrate, video_codec, audio_codec, video_width/height, frame_rate, rotation, HDR / colour-space, subtitles |
   | **Office** | DOCX, XLSX, PPTX, ODT | title, author, language (Dublin Core) |
 
   Type predicates (`is_pdf`, `is_image`, `is_audio`, `is_video`, `is_office`, `is_epub`, …) light up automatically from the registered content type. See [examples/](./examples/) for recipes by family.
@@ -249,9 +249,12 @@ Run `file-search-on --list` for the canonical, up-to-date listing. The summary t
 | `artist`, `album`, `album_artist`, `composer`, `genre` | string | Audio tags (ID3v1/v2, MP4 atoms, Vorbis comments) |
 | `year`, `track` | int | Release year, track number |
 | `duration` | double | Seconds |
-| `bitrate` | int | kbps (file_size × 8 / duration / 1000) |
+| `bitrate` | int | kbps — computed average (`file_size × 8 / duration / 1000`) |
+| `nominal_bitrate` | int | kbps — codec/container-stored. MP3 first-frame bitrate; OGG `bitrate_nominal`; M4A esds [not yet, see #58] |
 | `sample_rate` | int | Hz |
 | `channels` | int | 1 = mono, 2 = stereo, … |
+| `bit_depth` | int | Bits per sample. FLAC STREAMINFO + MP4 `stsd`; 0 for MP3 / OGG (not stored) |
+| `replaygain_track_gain`, `replaygain_album_gain` | double | dB — Vorbis comments (FLAC + OGG) and ID3v2 TXXX (MP3); M4A iTunes atoms [not yet, see #59] |
 
 ### Video
 
@@ -260,8 +263,16 @@ Run `file-search-on --list` for the canonical, up-to-date listing. The summary t
 | `video_codec`, `audio_codec` | string | h264, h265, av1, vp9, aac, opus, ... |
 | `video_width`, `video_height` | int | Frame pixels |
 | `frame_rate` | double | fps |
+| `rotation` | int | Degrees (0 / 90 / 180 / 270) decoded from MP4 `tkhd` display matrix; 0 for non-MP4 or non-axis-aligned matrices |
 | `duration` | double | Seconds (shared with audio) |
-| `bitrate` | int | Kbps (shared with audio) |
+| `bitrate` | int | kbps — computed average (shared with audio) |
+| `nominal_bitrate` | int | kbps — codec/container-stored. MP4 `btrt` avgBitrate; MKV `Bitrate` (0x4FB1); AVI `avih.maxBytesPerSec` |
+| `sample_rate`, `channels` | int | First audio track inside the video container (shared keys with standalone audio) |
+| `is_hdr` | bool | True when transfer is PQ (HDR10 / Dolby Vision base) or HLG |
+| `color_primaries` | string | `bt709`, `bt2020`, `p3`, or `""` |
+| `color_transfer` | string | `bt709`, `pq`, `hlg`, or `""` |
+| `subtitles` | bool | At least one subtitle / closed-caption track present |
+| `subtitle_languages` | `list<string>` | ISO 639-2 codes per subtitle track in declaration order |
 
 ### Built-in functions — fuzzy, phonetic, and geographic matching
 
