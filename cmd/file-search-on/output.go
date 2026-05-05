@@ -79,6 +79,7 @@ type Record struct {
 	Bitrate    int64   `json:"bitrate,omitempty"`
 	SampleRate int64   `json:"sample_rate,omitempty"`
 	Channels   int64   `json:"channels,omitempty"`
+	BitDepth   int64   `json:"bit_depth,omitempty"`
 
 	VideoCodec  string  `json:"video_codec,omitempty"`
 	AudioCodec  string  `json:"audio_codec,omitempty"`
@@ -220,6 +221,9 @@ func recordFrom(r search.Result) Record {
 	if v, ok := a.Extra["channels"].(int64); ok {
 		rec.Channels = v
 	}
+	if v, ok := a.Extra["bit_depth"].(int64); ok {
+		rec.BitDepth = v
+	}
 	if v, ok := a.Extra["video_codec"].(string); ok {
 		rec.VideoCodec = v
 	}
@@ -341,6 +345,7 @@ func printVerbose(w io.Writer, results []search.Result) {
 		printIfInt(w, "bitrate", rec.Bitrate)
 		printIfInt(w, "sample_rate", rec.SampleRate)
 		printIfInt(w, "channels", rec.Channels)
+		printIfInt(w, "bit_depth", rec.BitDepth)
 
 		// Video.
 		printIfStr(w, "video_codec", rec.VideoCodec)

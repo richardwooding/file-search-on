@@ -216,6 +216,17 @@ func TestFixturesAttributeSpotChecks(t *testing.T) {
 				if sr, _ := a["sample_rate"].(int64); sr != 44100 {
 					t.Errorf("sample_rate = %v; want 44100", a["sample_rate"])
 				}
+				if bd, _ := a["bit_depth"].(int64); bd != 16 {
+					t.Errorf("bit_depth = %v; want 16", a["bit_depth"])
+				}
+			},
+		},
+		{
+			path: "sample.m4a",
+			check: func(t *testing.T, a content.Attributes) {
+				if bd, _ := a["bit_depth"].(int64); bd != 16 {
+					t.Errorf("bit_depth = %v; want 16 (AAC nominal)", a["bit_depth"])
+				}
 			},
 		},
 		{
