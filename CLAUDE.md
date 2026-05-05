@@ -108,6 +108,7 @@ When you change the promoted-variable set:
 2. Add a matching `cel.Variable(...)` in `celexpr.New` **and** a default in the activation map and a case in the `attrs.Extra` switch in `celexpr.Evaluate`. All three must move together; cel-go errors on undeclared variables at runtime.
 3. Add an entry to `celexpr.Schema()` in `internal/celexpr/schema.go` (this drives both `--list` output and the MCP `list_attributes` tool — `printHelp` is now data-driven and needs no edits) and update the README front-matter table.
 4. Add a test in `internal/content/frontmatter_test.go` that exercises the new promotion across at least one of the three formats.
+5. **Update `examples/markdown.md`** — add at least one recipe that uses the new key in a CEL expression, alongside the existing `tags` / `draft` / `frontmatter.<key>` examples.
 
 ### Adding a new content type
 
@@ -115,6 +116,8 @@ When you change the promoted-variable set:
 2. If it introduces new attributes, declare matching `cel.Variable(...)` entries in `celexpr.New` **and** wire them in both the activation defaults map and the `attrs.Extra` switch in `Evaluate` (`internal/celexpr/evaluator.go`). Forgetting either side will produce CEL "no such attribute" errors at runtime. Add an `AttributeDoc` to the right slice in `celexpr.Schema()` so the new attribute shows up in `--list` and the MCP `list_attributes` tool.
 3. If it's an image-family type, also extend the `strings.HasPrefix(contentTypeName, "image/")` branch logic in `BuildAttributes`. The registered-types listing in `--list` is generated from `content.DefaultRegistry().Types()`, so the new type appears there automatically.
 4. For office documents, register the type with name `office/<format>` (e.g. `office/docx`); the `strings.HasPrefix(contentTypeName, "office/")` branch in `BuildAttributes` will set `is_office = true` automatically. DOCX/XLSX/PPTX use `docProps/core.xml` (Dublin Core); ODT uses `meta.xml`. Both go through the shared `readZipDublinCore` helper in `internal/content/dublincore.go`.
+5. **Update `README.md`** — add the new attribute(s) to the matching family table under the *Available attributes* section (Common / Document / Data / Markdown front-matter / Images / Audio / Video). The README is the human-facing summary readers find first; `--list` is canonical but readers don't always run it.
+6. **Update `examples/`** — add a recipe to the matching `examples/*.md` file (`audio.md`, `video.md`, `images.md`, `markdown.md`, `data.md`, `text.md`, `office.md`, `epub.md`). At least one concrete `file-search-on '<expr>'` invocation that uses the new attribute. If the new feature closed a "Known limitations" / "tracked in #X" note in any examples file, **delete the stale note** as part of the same PR — leaving it in misleads readers about what the tool can do.
 
 ### Adding a CEL function
 
@@ -126,8 +129,14 @@ CEL functions (callable from inside expressions, distinct from variables) are wi
 4. Add a `FunctionDoc` entry to `celexpr.Schema()` in `internal/celexpr/schema.go`. This is the only place function docs live — both the CLI `--list` output (via `printFuncs` in `cmd/file-search-on/main.go`) and the MCP `list_attributes` tool surface them automatically.
 5. Optionally update the MCP `search` tool's `Description` in `internal/mcpserver/server.go` if the new function is significant enough to mention in the handshake.
 6. Add unit tests for the algorithm in `internal/celexpr/functions_test.go` and a CEL-level integration test in the same file's `TestEvaluateFuzzyFunctions` (table-driven).
+7. **Update `README.md`** — add the new function to the *Built-in functions* table (under *Available attributes*) with its signature, return type, and a one-line description. New functions also deserve a short prose recipe in the section above the table when they introduce a new query pattern (the existing fuzzy / phonetic / geographic prose is the model).
+8. **Update `examples/`** — add at least one recipe under [`examples/fuzzy-search.md`](./examples/fuzzy-search.md) (or wherever the function fits thematically). Cross-link from the per-family file (`audio.md`, `images.md`, etc.) when the function is naturally used with attributes from that family.
 
 The four call sites — algorithm impl, binding, env declaration, schema doc — all live in `functions.go` + `schema.go`. cel-go binds at runtime, so missing any of them surfaces as a CEL "undeclared reference" error during expression compilation, not at Go-build time.
+
+#### Why README + examples/ are on the list
+
+Steps 5 and 6 (above, and 7–8 in the function-extension flow) cover the human-facing surfaces. They're not auto-generated: `--list` reads `celexpr.Schema()` programmatically, but `README.md` and `examples/*.md` are hand-curated. v0.10.0 shipped 9 new attributes that all four programmatic surfaces (`--list`, `list_attributes`, `SearchMatch`, `Record`) picked up correctly — and every one was missing from the README and examples until a follow-up doc-sync sweep (#61, #63). Bake the doc updates into the same PR as the code change so readers don't see drift between the canonical schema and the human summary.
 
 ### MCP server
 
