@@ -21,6 +21,15 @@ type videoInfo struct {
 	// the first one — same convention as the codec-name fields above.
 	AudioSampleRate int64 // Hz
 	AudioChannels   int64
+
+	// Rotation in degrees (0 / 90 / 180 / 270) — derived from the MP4
+	// tkhd display matrix. Matters for portrait-recorded phone clips
+	// stored as e.g. 1920×1080 with a 90° rotation matrix. Other
+	// container formats (MKV / AVI) leave this 0; MKV's rotation lives
+	// in Video/Projection (newer spec, less common; out of scope for
+	// now). For non-pure-rotation matrices (skew, mirror, projective)
+	// stays 0.
+	Rotation int64
 }
 
 // readMP4VideoInfo walks an MP4/MOV/M4V atom tree extracting playback +
@@ -76,7 +85,7 @@ func videoScanMOOV(r io.ReadSeeker, end int64, info *videoInfo) error {
 // Two passes because hdlr and minf can appear in either order in the file,
 // and we need both pieces of info before we can correctly interpret stsd.
 func videoScanTRAK(r io.ReadSeeker, trakStart, trakEnd int64, info *videoInfo) error {
-	// Find mdia bounds inside trak.
+	// Find mdia bounds + tkhd contents inside trak.
 	var mdiaStart, mdiaEnd int64 = -1, -1
 	if err := walkBoxes(r, trakStart, trakEnd, []string{"mdia"}, func(end int64) error {
 		cur, _ := r.Seek(0, io.SeekCurrent)
@@ -88,6 +97,13 @@ func videoScanTRAK(r io.ReadSeeker, trakStart, trakEnd int64, info *videoInfo) e
 	}
 	if mdiaStart < 0 {
 		return nil
+	}
+	// Tkhd is a sibling of mdia inside trak; only read it for video
+	// tracks (we don't know trackType yet here, but the matrix lives in
+	// every tkhd — so scan unconditionally and only assign Rotation
+	// later when the track is identified as video).
+	if rotation := readMP4Tkhd(r, trakStart, trakEnd); rotation != 0 && info.Rotation == 0 {
+		info.Rotation = rotation
 	}
 
 	// Pass 1: collect track type, timescale, minf bounds.
@@ -162,6 +178,83 @@ func videoScanTRAK(r io.ReadSeeker, trakStart, trakEnd int64, info *videoInfo) e
 			}
 		}
 	})
+}
+
+// readMP4Tkhd looks inside trak for a tkhd box and decodes its 3×3 display
+// matrix into a rotation angle (0 / 90 / 180 / 270). Returns 0 for the
+// identity matrix or any matrix that isn't a pure axis-aligned rotation
+// (skew, mirror, projective transforms).
+//
+// The tkhd matrix is at offset 40 (v0) or 52 (v1) from the start of the
+// box content (after the box header consumed by readBoxHeader). It is 9
+// int32 values in 16.16 signed fixed-point: a, b, u, c, d, v, x, y, w.
+// For pure rotations (a, b, c, d) is one of:
+//
+//	(1, 0, 0, 1)   →   0°
+//	(0, 1, -1, 0)  →  90° clockwise
+//	(-1, 0, 0, -1) → 180°
+//	(0, -1, 1, 0)  → 270°
+//
+// Stored as 32-bit fixed-point so 1.0 = 0x00010000, -1.0 = -0x00010000.
+func readMP4Tkhd(r io.ReadSeeker, trakStart, trakEnd int64) int64 {
+	if _, err := r.Seek(trakStart, io.SeekStart); err != nil {
+		return 0
+	}
+	var rotation int64
+	for {
+		pos, _ := r.Seek(0, io.SeekCurrent)
+		if pos >= trakEnd {
+			break
+		}
+		size, name, contentLen, err := readBoxHeader(r)
+		if err != nil {
+			return 0
+		}
+		next := pos + size
+		if name == "tkhd" {
+			rotation = decodeTkhdRotation(r, contentLen)
+		}
+		if _, err := r.Seek(next, io.SeekStart); err != nil {
+			return 0
+		}
+	}
+	return rotation
+}
+
+func decodeTkhdRotation(r io.ReadSeeker, contentLen int64) int64 {
+	const v0Off, v1Off = 40, 52
+	if contentLen < v0Off+36 {
+		return 0
+	}
+	buf := make([]byte, contentLen)
+	if _, err := io.ReadFull(r, buf); err != nil {
+		return 0
+	}
+	matOff := v0Off
+	if buf[0] == 1 {
+		matOff = v1Off
+	}
+	if int64(matOff+36) > contentLen {
+		return 0
+	}
+	a := int32(binary.BigEndian.Uint32(buf[matOff : matOff+4]))
+	b := int32(binary.BigEndian.Uint32(buf[matOff+4 : matOff+8]))
+	c := int32(binary.BigEndian.Uint32(buf[matOff+12 : matOff+16]))
+	d := int32(binary.BigEndian.Uint32(buf[matOff+16 : matOff+20]))
+
+	const fp1 = int32(0x00010000)
+	const fpN = -fp1
+	switch {
+	case a == fp1 && b == 0 && c == 0 && d == fp1:
+		return 0
+	case a == 0 && b == fp1 && c == fpN && d == 0:
+		return 90
+	case a == fpN && b == 0 && c == 0 && d == fpN:
+		return 180
+	case a == 0 && b == fpN && c == fp1 && d == 0:
+		return 270
+	}
+	return 0
 }
 
 // readVideoMVHD pulls duration_seconds from mvhd; same logic as audio MVHD

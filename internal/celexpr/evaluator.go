@@ -104,6 +104,7 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("video_width", cel.IntType),
 		cel.Variable("video_height", cel.IntType),
 		cel.Variable("frame_rate", cel.DoubleType),
+		cel.Variable("rotation", cel.IntType),
 		cel.Variable("frontmatter", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("frontmatter_format", cel.StringType),
 		cel.Variable("tags", cel.ListType(cel.StringType)),
@@ -192,6 +193,7 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 		"video_width":        int64(0),
 		"video_height":       int64(0),
 		"frame_rate":         float64(0),
+		"rotation":           int64(0),
 		"frontmatter":        map[string]any{},
 		"frontmatter_format": "",
 		"tags":               []string{},
@@ -283,6 +285,8 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 				activation["video_height"] = v
 			case "frame_rate":
 				activation["frame_rate"] = v
+			case "rotation":
+				activation["rotation"] = v
 			case "frontmatter":
 				activation["frontmatter"] = v
 			case "frontmatter_format":

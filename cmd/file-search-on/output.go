@@ -86,6 +86,7 @@ type Record struct {
 	VideoWidth  int64   `json:"video_width,omitempty"`
 	VideoHeight int64   `json:"video_height,omitempty"`
 	FrameRate   float64 `json:"frame_rate,omitempty"`
+	Rotation    int64   `json:"rotation,omitempty"`
 }
 
 // recordFrom projects a search.Result into the wire shape. Falls back to
@@ -239,6 +240,9 @@ func recordFrom(r search.Result) Record {
 	if v, ok := a.Extra["frame_rate"].(float64); ok {
 		rec.FrameRate = v
 	}
+	if v, ok := a.Extra["rotation"].(int64); ok {
+		rec.Rotation = v
+	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
 		rec.FrontmatterFormat = v
 	}
@@ -353,6 +357,7 @@ func printVerbose(w io.Writer, results []search.Result) {
 		printIfInt(w, "video_width", rec.VideoWidth)
 		printIfInt(w, "video_height", rec.VideoHeight)
 		printIfFloat(w, "frame_rate", rec.FrameRate)
+		printIfInt(w, "rotation", rec.Rotation)
 
 		// Frontmatter shape + lists + date.
 		if rec.FrontmatterFormat != "" {

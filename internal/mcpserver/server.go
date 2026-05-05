@@ -107,6 +107,7 @@ type SearchMatch struct {
 	VideoWidth  int64   `json:"video_width,omitempty"`
 	VideoHeight int64   `json:"video_height,omitempty"`
 	FrameRate   float64 `json:"frame_rate,omitempty"`
+	Rotation    int64   `json:"rotation,omitempty"`
 }
 
 // matchFrom projects a search.Result (with Attrs populated) into a
@@ -249,6 +250,9 @@ func matchFrom(r search.Result) SearchMatch {
 	}
 	if v, ok := a.Extra["frame_rate"].(float64); ok {
 		m.FrameRate = v
+	}
+	if v, ok := a.Extra["rotation"].(int64); ok {
+		m.Rotation = v
 	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
 		m.FrontmatterFormat = v
