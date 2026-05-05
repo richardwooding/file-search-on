@@ -8,7 +8,7 @@ import (
 )
 
 // extractReplayGain pulls ReplayGain track and album gain values (in dB)
-// from the dhowden/tag Raw() map. Two storage paths are covered:
+// from the dhowden/tag Raw() map. Three storage paths are covered:
 //
 //   - **Vorbis comments** (FLAC + OGG): keys like REPLAYGAIN_TRACK_GAIN
 //     map directly to a string value such as "-7.42 dB". Vorbis tag
@@ -19,20 +19,35 @@ import (
 //     stores them in Raw() under "TXXX", "TXXX_1", "TXXX_2", … each as
 //     a *tag.Comm with Description = "replaygain_track_gain" (or _album_)
 //     and Text = the dB value.
+//   - **M4A / MP4** (iTunes-style "----" atoms): inside
+//     moov/udta/meta/ilst with mean=com.apple.iTunes, name=replaygain_*.
+//     dhowden/tag's MP4 reader stores these directly under the inner
+//     name atom's value (lower-case "replaygain_track_gain") as a
+//     plain string.
 //
-// **Not yet covered**: M4A iTunes-style "----" atoms inside
-// moov/udta/meta/ilst (mean=com.apple.iTunes, name=replaygain_track_gain).
-// Tracked for a follow-up — most Apple Music libraries use Sound Check
-// (the iTunNORM atom) rather than ReplayGain anyway.
-//
-// Returns 0 for any value that's missing or unparseable.
+// Returns 0 for any value that's missing or unparseable. The three
+// paths are checked in order; the first non-zero value wins per side
+// (track / album).
 func extractReplayGain(raw map[string]any) (track, album float64) {
-	// Vorbis comments path — direct uppercase string keys.
-	if v, ok := raw["REPLAYGAIN_TRACK_GAIN"].(string); ok {
-		track = parseGainDB(v)
+	// Vorbis-comments + M4A iTunes path — both encode the value as a
+	// plain string under the canonical name. Vorbis dhowden/tag
+	// upper-cases the key; M4A keeps the inner-name's case (lower).
+	// Probe both shapes for each side.
+	for _, key := range []string{"REPLAYGAIN_TRACK_GAIN", "replaygain_track_gain"} {
+		if v, ok := raw[key].(string); ok {
+			if g := parseGainDB(v); g != 0 {
+				track = g
+				break
+			}
+		}
 	}
-	if v, ok := raw["REPLAYGAIN_ALBUM_GAIN"].(string); ok {
-		album = parseGainDB(v)
+	for _, key := range []string{"REPLAYGAIN_ALBUM_GAIN", "replaygain_album_gain"} {
+		if v, ok := raw[key].(string); ok {
+			if g := parseGainDB(v); g != 0 {
+				album = g
+				break
+			}
+		}
 	}
 
 	// ID3v2 TXXX path — iterate looking for replaygain descriptions.
