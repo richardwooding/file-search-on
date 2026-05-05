@@ -271,6 +271,51 @@ func TestFixturesAttributeSpotChecks(t *testing.T) {
 			},
 		},
 		{
+			// Regression cover for #51: ffmpeg-emitted MKV files have a
+			// populated EBML header (EBMLVersion, DocType, etc.). The
+			// parser used to read only the header's id + size and then
+			// land on the header's first child instead of the Segment,
+			// causing every subsequent attribute read to fail silently.
+			path: "sample.mkv",
+			check: func(t *testing.T, a content.Attributes) {
+				if w, _ := a["video_width"].(int64); w != 64 {
+					t.Errorf("video_width = %v; want 64", a["video_width"])
+				}
+				if h, _ := a["video_height"].(int64); h != 48 {
+					t.Errorf("video_height = %v; want 48", a["video_height"])
+				}
+				if a["video_codec"] != "h264" {
+					t.Errorf("video_codec = %q; want h264", a["video_codec"])
+				}
+				if d, _ := a["duration"].(float64); d <= 0 {
+					t.Errorf("duration = %v; want > 0", a["duration"])
+				}
+				if a["audio_codec"] != "vorbis" {
+					t.Errorf("audio_codec = %q; want vorbis", a["audio_codec"])
+				}
+				if sr, _ := a["sample_rate"].(int64); sr != 44100 {
+					t.Errorf("sample_rate = %v; want 44100", a["sample_rate"])
+				}
+			},
+		},
+		{
+			path: "sample.webm",
+			check: func(t *testing.T, a content.Attributes) {
+				if w, _ := a["video_width"].(int64); w != 64 {
+					t.Errorf("video_width = %v; want 64", a["video_width"])
+				}
+				if a["video_codec"] != "vp9" {
+					t.Errorf("video_codec = %q; want vp9", a["video_codec"])
+				}
+				if a["audio_codec"] != "opus" {
+					t.Errorf("audio_codec = %q; want opus", a["audio_codec"])
+				}
+				if sr, _ := a["sample_rate"].(int64); sr != 48000 {
+					t.Errorf("sample_rate = %v; want 48000", a["sample_rate"])
+				}
+			},
+		},
+		{
 			path: "sample.docx",
 			check: func(t *testing.T, a content.Attributes) {
 				if a["title"] != "Sample Office Fixture" {
