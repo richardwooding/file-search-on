@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<library>
+  <book id="1">
+    <title>Sample XML Fixture</title>
+    <author>file-search-on test fixtures</author>
+  </book>
+</library>
