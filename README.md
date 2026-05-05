@@ -18,12 +18,12 @@ file-search-on 'is_image && soundex(camera_make) == soundex("Nikon")'           
 file-search-on 'is_markdown && ngram_similarity(title, "kubernetes", 2) > 0.6'    # substring-tolerant title match
 ```
 
-Across **33 file formats** organised into eleven content-type families (documents, data, images, audio, video, office, ebooks, plain text, archives, compiled binaries, email), with format-specific metadata extraction.
+Across **51 file formats** organised into twelve content-type families (documents, data, images, audio, video, office, ebooks, plain text, archives, compiled binaries, email, source code), with format-specific metadata extraction.
 
 ## Features
 
 - **Pluggable content-type detection** — extension-first with magic-byte fallback. New formats are a single registration call.
-- **Eleven content-type families**, each with its own metadata extractors:
+- **Twelve content-type families**, each with its own metadata extractors:
 
   | Family | Formats | Bundle of attributes |
   | --- | --- | --- |
@@ -38,6 +38,7 @@ Across **33 file formats** organised into eleven content-type families (document
   | **Archives** | ZIP (incl. JAR / WAR / EAR), TAR, TAR.GZ, GZIP | entry_count, uncompressed_size, top_level_entries, has_root_dir |
   | **Binaries** | ELF (Linux/BSD), Mach-O (macOS, incl. universal), PE (Windows) | architectures, bitness, binary_format, binary_type, is_dynamically_linked, is_stripped, entry_point |
   | **Email** | RFC 5322 (`.eml`), Unix mbox (`.mbox`) | title (subject), author (from), email_to, email_cc, sent_at, attachment_count, email_count |
+  | **Source code** | Go, Python, JS/TS, Rust, C/C++, Java, Ruby, Swift, Kotlin, Shell, Lua, Elixir, Clojure, Haskell, OCaml, Zig | language, line_count, loc, comment_loc, blank_loc |
 
   Type predicates (`is_pdf`, `is_image`, `is_audio`, `is_video`, `is_office`, `is_epub`, …) light up automatically from the registered content type. See [examples/](./examples/) for recipes by family.
 
@@ -202,7 +203,7 @@ Run `file-search-on --list` for the canonical, up-to-date listing. The summary t
 | `size` | int | File size in bytes |
 | `ext` | string | File extension (e.g. `.md`) |
 | `content_type` | string | Detected content type |
-| `is_markdown`, `is_json`, `is_xml`, `is_html`, `is_pdf`, `is_image`, `is_text`, `is_csv`, `is_epub`, `is_office`, `is_audio`, `is_video`, `is_archive`, `is_binary`, `is_email` | bool | Type predicates |
+| `is_markdown`, `is_json`, `is_xml`, `is_html`, `is_pdf`, `is_image`, `is_text`, `is_csv`, `is_epub`, `is_office`, `is_audio`, `is_video`, `is_archive`, `is_binary`, `is_email`, `is_source` | bool | Type predicates |
 
 ### Document / markup
 
@@ -319,6 +320,20 @@ RFC 5322 messages (`.eml`, `.email`) and Unix mbox archives (`.mbox`). Both pars
 | `email_count` | int | mbox archives — number of messages (count of `^From ` separator lines). Always 1 for single `.eml` files. |
 
 **Detection**: `.eml` is extension-only (RFC 5322 messages can begin with any header — no canonical magic). `.mbox` is extension + magic `From ` (5 bytes — F, r, o, m, space) at offset 0. Outlook `.msg` is out of scope (proprietary OLE binary). Maildir directories are handled implicitly — each file inside is `.eml`-shaped.
+
+### Source code
+
+Eighteen languages registered: Go, Python, JS, TS, Rust, C, C++, Java, Ruby, Swift, Kotlin, Shell, Lua, Elixir, Clojure, Haskell, OCaml, Zig. Detection is extension-only (no third-party language-detection lib). Line classification uses per-language line + block comment markers; mixed lines (code with trailing comment) count as code, lines that BEGIN with a comment marker count as comment — matches the cloc / tokei convention.
+
+| Attribute | Type | Source |
+| --- | --- | --- |
+| `language` | string | canonical programming-language name (`go`, `python`, `javascript`, `typescript`, `rust`, `c`, `cpp`, `java`, `ruby`, `swift`, `kotlin`, `shell`, `lua`, `elixir`, `clojure`, `haskell`, `ocaml`, `zig`) — reused with markup/EPUB/office locale codes; locale codes are 2-letter ISO 639-1 and don't overlap with these names |
+| `line_count` | int | total physical lines (reused with text family) |
+| `loc` | int | non-blank, non-comment lines |
+| `comment_loc` | int | comment-only lines (line-comment marker at start, plus every line wholly inside a block comment) |
+| `blank_loc` | int | empty or whitespace-only lines |
+
+Caveats: string literals containing `//` or `/*` are treated as code (no string-aware parsing). Block comments that open mid-line are not tracked — the line is classified by what it BEGINS with.
 
 ### Built-in functions — fuzzy, phonetic, and geographic matching
 

@@ -37,6 +37,7 @@ type FileAttributes struct {
 	IsArchive   bool
 	IsBinary    bool
 	IsEmail     bool
+	IsSource    bool
 	Extra       content.Attributes
 }
 
@@ -70,6 +71,7 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("is_archive", cel.BoolType),
 		cel.Variable("is_binary", cel.BoolType),
 		cel.Variable("is_email", cel.BoolType),
+		cel.Variable("is_source", cel.BoolType),
 		cel.Variable("title", cel.StringType),
 		cel.Variable("word_count", cel.IntType),
 		cel.Variable("line_count", cel.IntType),
@@ -137,6 +139,9 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("sent_at", cel.TimestampType),
 		cel.Variable("attachment_count", cel.IntType),
 		cel.Variable("email_count", cel.IntType),
+		cel.Variable("loc", cel.IntType),
+		cel.Variable("comment_loc", cel.IntType),
+		cel.Variable("blank_loc", cel.IntType),
 		cel.Variable("frontmatter", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("frontmatter_format", cel.StringType),
 		cel.Variable("tags", cel.ListType(cel.StringType)),
@@ -188,6 +193,7 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 		"is_archive":         attrs.IsArchive,
 		"is_binary":          attrs.IsBinary,
 		"is_email":           attrs.IsEmail,
+		"is_source":          attrs.IsSource,
 		"title":              "",
 		"word_count":         int64(0),
 		"line_count":         int64(0),
@@ -255,6 +261,9 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 		"sent_at":               time.Time{},
 		"attachment_count":      int64(0),
 		"email_count":           int64(0),
+		"loc":                   int64(0),
+		"comment_loc":           int64(0),
+		"blank_loc":             int64(0),
 		"frontmatter":        map[string]any{},
 		"frontmatter_format": "",
 		"tags":               []string{},
@@ -400,6 +409,12 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 				activation["attachment_count"] = v
 			case "email_count":
 				activation["email_count"] = v
+			case "loc":
+				activation["loc"] = v
+			case "comment_loc":
+				activation["comment_loc"] = v
+			case "blank_loc":
+				activation["blank_loc"] = v
 			case "frontmatter":
 				activation["frontmatter"] = v
 			case "frontmatter_format":
@@ -449,7 +464,7 @@ func BuildAttributes(ctx context.Context, fsys fs.FS, fsPath, displayPath string
 	contentTypeName := ""
 	isMarkdown, isJSON, isXML, isHTML, isPDF, isImage := false, false, false, false, false, false
 	isText, isCSV, isEPUB, isOffice, isAudio, isVideo := false, false, false, false, false, false
-	var isArchive, isBinary, isEmail bool
+	var isArchive, isBinary, isEmail, isSource bool
 
 	var extra content.Attributes
 	if ct != nil {
@@ -485,6 +500,8 @@ func BuildAttributes(ctx context.Context, fsys fs.FS, fsPath, displayPath string
 			isBinary = true
 		case strings.HasPrefix(contentTypeName, "email/"):
 			isEmail = true
+		case strings.HasPrefix(contentTypeName, "source/"):
+			isSource = true
 		}
 		extra, err = ct.Attributes(ctx, fsys, fsPath)
 		if err != nil {
@@ -514,6 +531,7 @@ func BuildAttributes(ctx context.Context, fsys fs.FS, fsPath, displayPath string
 		IsArchive:   isArchive,
 		IsBinary:    isBinary,
 		IsEmail:     isEmail,
+		IsSource:    isSource,
 		IsVideo:     isVideo,
 		Extra:       extra,
 	}, nil

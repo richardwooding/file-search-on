@@ -69,6 +69,7 @@ type Record struct {
 	IsArchive  bool `json:"is_archive,omitempty"`
 	IsBinary   bool `json:"is_binary,omitempty"`
 	IsEmail    bool `json:"is_email,omitempty"`
+	IsSource   bool `json:"is_source,omitempty"`
 
 	Artist      string `json:"artist,omitempty"`
 	Album       string `json:"album,omitempty"`
@@ -122,6 +123,10 @@ type Record struct {
 	SentAt          string   `json:"sent_at,omitempty"`
 	AttachmentCount int64    `json:"attachment_count,omitempty"`
 	EmailCount      int64    `json:"email_count,omitempty"`
+
+	LOC        int64 `json:"loc,omitempty"`
+	CommentLOC int64 `json:"comment_loc,omitempty"`
+	BlankLOC   int64 `json:"blank_loc,omitempty"`
 }
 
 // recordFrom projects a search.Result into the wire shape. Falls back to
@@ -154,6 +159,7 @@ func recordFrom(r search.Result) Record {
 	rec.IsArchive = a.IsArchive
 	rec.IsBinary = a.IsBinary
 	rec.IsEmail = a.IsEmail
+	rec.IsSource = a.IsSource
 
 	if a.Extra == nil {
 		return rec
@@ -359,6 +365,15 @@ func recordFrom(r search.Result) Record {
 	if v, ok := a.Extra["email_count"].(int64); ok {
 		rec.EmailCount = v
 	}
+	if v, ok := a.Extra["loc"].(int64); ok {
+		rec.LOC = v
+	}
+	if v, ok := a.Extra["comment_loc"].(int64); ok {
+		rec.CommentLOC = v
+	}
+	if v, ok := a.Extra["blank_loc"].(int64); ok {
+		rec.BlankLOC = v
+	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
 		rec.FrontmatterFormat = v
 	}
@@ -498,6 +513,11 @@ func printVerbose(w io.Writer, results []search.Result) {
 		if rec.HasRootDir {
 			fp(w, "  %-13s %v\n", "has_root_dir", true)
 		}
+
+		// Source-code metadata.
+		printIfInt(w, "loc", rec.LOC)
+		printIfInt(w, "comment_loc", rec.CommentLOC)
+		printIfInt(w, "blank_loc", rec.BlankLOC)
 
 		// Email metadata.
 		if len(rec.EmailTo) > 0 {

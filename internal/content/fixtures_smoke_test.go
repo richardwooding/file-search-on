@@ -53,6 +53,9 @@ var expectedTypes = map[string]string{
 	"sample.exe":    "binary/pe",
 	"sample.eml":    "email/rfc822",
 	"sample.mbox":   "email/mbox",
+	"sample.go":    "source/go",
+	"sample.py":    "source/python",
+	"sample.rs":    "source/rust",
 }
 
 // TestFixturesDetect walks the embedded fixture bank and asserts every
@@ -497,6 +500,57 @@ func TestFixturesAttributeSpotChecks(t *testing.T) {
 				}
 				if a["author"] != "Alice Tester" {
 					t.Errorf("author = %q; want Alice Tester (first-message From)", a["author"])
+				}
+			},
+		},
+		{
+			// sample.go: 17 lines — 3 line-comment header + 1 package +
+			// 1 blank + 5-line block comment + 1 blank + 1 import +
+			// 1 blank + 1 line comment + 3 lines of fn body.
+			path: "sample.go",
+			check: func(t *testing.T, a content.Attributes) {
+				if a["language"] != "go" {
+					t.Errorf("language = %q; want go", a["language"])
+				}
+				if v, _ := a["line_count"].(int64); v != 17 {
+					t.Errorf("line_count = %v; want 17", a["line_count"])
+				}
+				if v, _ := a["loc"].(int64); v != 5 {
+					t.Errorf("loc = %v; want 5", a["loc"])
+				}
+				if v, _ := a["comment_loc"].(int64); v != 9 {
+					t.Errorf("comment_loc = %v; want 9", a["comment_loc"])
+				}
+				if v, _ := a["blank_loc"].(int64); v != 3 {
+					t.Errorf("blank_loc = %v; want 3", a["blank_loc"])
+				}
+			},
+		},
+		{
+			path: "sample.py",
+			check: func(t *testing.T, a content.Attributes) {
+				if a["language"] != "python" {
+					t.Errorf("language = %q; want python", a["language"])
+				}
+				if v, _ := a["loc"].(int64); v != 4 {
+					t.Errorf("loc = %v; want 4", a["loc"])
+				}
+				if v, _ := a["comment_loc"].(int64); v != 4 {
+					t.Errorf("comment_loc = %v; want 4", a["comment_loc"])
+				}
+			},
+		},
+		{
+			path: "sample.rs",
+			check: func(t *testing.T, a content.Attributes) {
+				if a["language"] != "rust" {
+					t.Errorf("language = %q; want rust", a["language"])
+				}
+				if v, _ := a["loc"].(int64); v != 6 {
+					t.Errorf("loc = %v; want 6", a["loc"])
+				}
+				if v, _ := a["comment_loc"].(int64); v != 4 {
+					t.Errorf("comment_loc = %v; want 4 (// + ///)", a["comment_loc"])
 				}
 			},
 		},
