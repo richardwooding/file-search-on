@@ -263,9 +263,9 @@ Run `file-search-on --list` for the canonical, up-to-date listing. The summary t
 | `duration` | double | Seconds (shared with audio) |
 | `bitrate` | int | Kbps (shared with audio) |
 
-### Built-in functions — fuzzy and phonetic matching
+### Built-in functions — fuzzy, phonetic, and geographic matching
 
-Real-world metadata is messy. Tags get scraped, EXIF strings drift across capitalisations, names get transliterated half a dozen ways. Exact-equality queries (`artist == "Radiohead"`) miss `Radiohad`, `Radiohea`, and `RADIOHEAD`. The CEL environment registers four built-in functions to bridge that gap. They compose with everything else — boolean operators, type predicates, attribute access — and they're available everywhere a string attribute exists.
+Real-world metadata is messy. Tags get scraped, EXIF strings drift across capitalisations, names get transliterated half a dozen ways. Exact-equality queries (`artist == "Radiohead"`) miss `Radiohad`, `Radiohea`, and `RADIOHEAD`. GPS bounding boxes do fine for "the city of Cape Town" but break down for anything that isn't a rectangle. The CEL environment registers built-in functions to bridge those gaps. They compose with everything else — boolean operators, type predicates, attribute access.
 
 | Function | Returns | What it does |
 | --- | --- | --- |
@@ -273,6 +273,7 @@ Real-world metadata is messy. Tags get scraped, EXIF strings drift across capita
 | `soundex(s)` | string | American Soundex (NARA standard) — 4-character phonetic code. Words that sound alike collide on the same code. Vowels reset same-code suppression but H/W are transparent (so `Ashcraft` and `Ashcroft` both encode to `A261`). |
 | `ngrams(s, n)` | list&lt;string&gt; | Character-level n-grams as a list — sliding window, length `n`. Compose with CEL list operators (`.exists()`, `.size()`, `in`) for set-membership checks. |
 | `ngram_similarity(a, b, n)` | double | Jaccard similarity over the deduplicated n-gram sets, ranging 0.0 (no overlap) to 1.0 (identical). The default ergonomic choice for substring-tolerant similarity. |
+| `point_in_polygon(lat, lon, polygon)` | bool | Test whether `(lat, lon)` lies inside an arbitrary polygon. `polygon` is a flat `list<double>` of alternating `lat,lon` pairs. Planar ray-casting — good for neighbourhoods, cities, small countries; pre-project for very large or near-pole polygons. |
 
 **Typo-tolerant equality** — within 2 edits of the target, no canonicalisation pass needed:
 
@@ -309,7 +310,28 @@ file-search-on 'ngram_similarity(name, "file-search-on", 3) > 0.5'
 file-search-on 'is_markdown && "kub" in ngrams(title, 3)'
 ```
 
-**They compose naturally** — fuzzy operators are ordinary CEL functions, so they slot into any expression alongside the structural attributes:
+**Geographic point-in-polygon** — for photo searches that aren't rectangles. The polygon is a flat list of alternating `lat,lon` pairs, in order around the boundary; closing back to the first point is implicit:
+
+```sh
+# Photos taken inside Cape Town's City Bowl (rough quadrilateral).
+file-search-on '
+  is_image &&
+  point_in_polygon(gps_lat, gps_lon, [
+    -33.96, 18.40,
+    -33.91, 18.40,
+    -33.91, 18.45,
+    -33.96, 18.45
+  ])
+' -d ~/Pictures
+
+# Concave / arbitrary boundaries work — useful for "around the lake but not in
+# it" or country borders that aren't rectangles.
+file-search-on 'is_image && point_in_polygon(gps_lat, gps_lon, [<your-vertices>])'
+```
+
+Algorithm: planar ray-casting — accurate for neighbourhoods, cities, and small countries where curvature is negligible. Pre-project for very large or near-pole polygons.
+
+**They compose naturally** — fuzzy and geographic operators are ordinary CEL functions, so they slot into any expression alongside the structural attributes:
 
 ```sh
 file-search-on '
@@ -317,7 +339,8 @@ file-search-on '
   soundex(camera_make) == soundex("Nikon") &&
   iso < 800 &&
   f_stop < 2.8 &&
-  taken_at > timestamp("2024-01-01T00:00:00Z")
+  taken_at > timestamp("2024-01-01T00:00:00Z") &&
+  point_in_polygon(gps_lat, gps_lon, [-33.96, 18.40, -33.91, 18.40, -33.91, 18.45, -33.96, 18.45])
 ' -d ~/Photos
 ```
 

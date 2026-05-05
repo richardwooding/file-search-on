@@ -111,6 +111,7 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("date", cel.TimestampType),
 	}
 	opts = append(opts, fuzzyFunctions()...)
+	opts = append(opts, geoFunctions()...)
 	env, err := cel.NewEnv(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("creating CEL environment: %w", err)

@@ -297,12 +297,12 @@ func New(version string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "search",
-		Description: "Recursively search a directory for files matching a CEL expression evaluated over file metadata and content-type-specific attributes. CEL expressions can use built-in fuzzy-match functions: levenshtein(a, b) for edit distance, soundex(s) for phonetic codes, ngrams(s, n) for character n-grams, and ngram_similarity(a, b, n) for Jaccard similarity. Call list_attributes for the full attribute and function schema.",
+		Description: "Recursively search a directory for files matching a CEL expression evaluated over file metadata and content-type-specific attributes. CEL expressions can use built-in fuzzy-match functions — levenshtein(a, b) for edit distance, soundex(s) for phonetic codes, ngrams(s, n) for character n-grams, ngram_similarity(a, b, n) for Jaccard similarity — and the geographic helper point_in_polygon(lat, lon, polygon) for filtering by arbitrary GPS-coordinate boundaries. Call list_attributes for the full attribute and function schema.",
 	}, searchHandler)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_attributes",
-		Description: "List every CEL attribute available to the search tool, the built-in functions (levenshtein, soundex, ngrams, ngram_similarity) with their signatures, and the registered content types.",
+		Description: "List every CEL attribute available to the search tool, the built-in functions (levenshtein, soundex, ngrams, ngram_similarity, point_in_polygon) with their signatures, and the registered content types.",
 	}, listAttributesHandler)
 
 	mcp.AddTool(s, &mcp.Tool{

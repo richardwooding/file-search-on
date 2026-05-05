@@ -136,3 +136,36 @@ file-search-on 'is_image && levenshtein(lens, "70-200mm f/2.8") <= 3'
 ```
 
 See [`fuzzy-search.md`](./fuzzy-search.md) for the full set of fuzzy / phonetic recipes.
+
+## Photos inside an arbitrary region (point-in-polygon)
+
+Bounding-box queries (`gps_lat > x && gps_lat < y && gps_lon > w && gps_lon < z`) are great for rectangles, but real geographies aren't rectangles. `point_in_polygon(lat, lon, polygon)` takes a flat `list<double>` of alternating lat,lon pairs in vertex order — wrap-around to the first point is implicit, you don't need to repeat it.
+
+```sh
+# Photos taken inside Cape Town's City Bowl (rough quadrilateral).
+file-search-on '
+  is_image &&
+  point_in_polygon(gps_lat, gps_lon, [
+    -33.96, 18.40,
+    -33.91, 18.40,
+    -33.91, 18.45,
+    -33.96, 18.45
+  ])
+' -d ~/Pictures
+
+# Concave polygons work — handy for "near the harbour but not in the water".
+# Vertices defined clockwise or counter-clockwise; either order is fine.
+file-search-on 'is_image && point_in_polygon(gps_lat, gps_lon, [<your-vertices>])'
+
+# Compose with the rest of EXIF — Nikon, low ISO, wide aperture, in-region.
+file-search-on '
+  is_image &&
+  soundex(camera_make) == soundex("Nikon") &&
+  iso < 800 && f_stop < 2.8 &&
+  point_in_polygon(gps_lat, gps_lon, [
+    -33.96, 18.40, -33.91, 18.40, -33.91, 18.45, -33.96, 18.45
+  ])
+' -d ~/Pictures
+```
+
+The algorithm is planar ray-casting — accurate for neighbourhoods, cities, and small countries. For continent-scale polygons or anything near the poles, project to a flat coordinate system before feeding the vertices in.
