@@ -88,6 +88,13 @@ func readMP3Info(r io.ReadSeeker, fileSize int64) (audioInfo, error) {
 		SampleRate: int64(sampleRate),
 		Channels:   channels,
 	}
+	// First-frame bitrate is the codec-stored value (kbps). For CBR
+	// it's the actual track bitrate; for VBR it's the bitrate of the
+	// first frame and Xing/Info will refine it but is not always
+	// present, so surface this regardless.
+	if bitrate > 0 {
+		info.NominalBitrate = int64(bitrate)
+	}
 
 	// Locate Xing/Info offset within the first frame.
 	var xingOffset int

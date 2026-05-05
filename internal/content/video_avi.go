@@ -125,6 +125,7 @@ func readAVIH(r io.ReadSeeker, size int64, info *videoInfo) {
 		return
 	}
 	microSecPerFrame := binary.LittleEndian.Uint32(buf[0:4])
+	maxBytesPerSec := binary.LittleEndian.Uint32(buf[4:8])
 	totalFrames := binary.LittleEndian.Uint32(buf[16:20])
 	width := binary.LittleEndian.Uint32(buf[32:36])
 	height := binary.LittleEndian.Uint32(buf[36:40])
@@ -135,6 +136,13 @@ func readAVIH(r io.ReadSeeker, size int64, info *videoInfo) {
 	}
 	info.Width = int64(width)
 	info.Height = int64(height)
+	// maxBytesPerSec is the AVI header's overall max-bandwidth field; convert
+	// to kbps for nominal_bitrate. It's the whole file's playback envelope
+	// (video + audio combined), not strictly a video-track value, but it's
+	// the closest codec-stored bitrate AVI carries.
+	if maxBytesPerSec > 0 {
+		info.NominalBitrate = int64(maxBytesPerSec) * 8 / 1000
+	}
 }
 
 // readAVISTRL walks an strl LIST looking for the strh stream header and

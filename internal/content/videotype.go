@@ -82,6 +82,9 @@ func (v *videoType) Attributes(ctx context.Context, fsys fs.FS, path string) (At
 	if info.Rotation > 0 {
 		attrs["rotation"] = info.Rotation
 	}
+	if info.NominalBitrate > 0 {
+		attrs["nominal_bitrate"] = info.NominalBitrate
+	}
 	return attrs, nil
 }
 
