@@ -43,9 +43,20 @@ func readMKVInfo(r io.ReadSeeker, fileSize int64) (videoInfo, error) {
 		return videoInfo{}, err
 	}
 
-	// Skip the top-level EBML header element. After it, we expect a Segment.
-	if _, _, err := readEBMLElement(r); err != nil {
+	// Skip the top-level EBML header element. We need to skip BOTH its
+	// header (id + size VINTs, consumed by readEBMLElement) and its
+	// body — real ffmpeg output populates the header with child
+	// elements (EBMLVersion, EBMLReadVersion, DocType, etc.). Without
+	// the body skip, the next readEBMLElement call lands on the
+	// header's first child instead of the Segment.
+	_, hdrSize, err := readEBMLElement(r)
+	if err != nil {
 		return videoInfo{}, err
+	}
+	if hdrSize > 0 {
+		if _, err := r.Seek(hdrSize, io.SeekCurrent); err != nil {
+			return videoInfo{}, err
+		}
 	}
 	id, size, err := readEBMLElement(r)
 	if err != nil {
