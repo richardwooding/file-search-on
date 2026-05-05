@@ -133,6 +133,66 @@ func TestSearchToolReturnsAttributes(t *testing.T) {
 	}
 }
 
+func TestReadAttributesTool(t *testing.T) {
+	dir := t.TempDir()
+	body := "---\ntitle: Solo\nauthor: K\nlanguage: en\ntags:\n  - solo\n---\n# h1\n\nbody body body body\n"
+	path := filepath.Join(dir, "post.md")
+	mustWrite(t, path, body)
+
+	ctx, cs := newSession(t)
+
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "read_attributes",
+		Arguments: ReadAttributesInput{Path: path},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.GetError() != nil {
+		t.Fatalf("tool returned error: %v", res.GetError())
+	}
+
+	var m SearchMatch
+	mustDecodeStructured(t, res, &m)
+
+	if m.Path != path {
+		t.Errorf("path = %q, want %q", m.Path, path)
+	}
+	if m.ContentType != "markdown" {
+		t.Errorf("content_type = %q, want markdown", m.ContentType)
+	}
+	if m.Title != "Solo" {
+		t.Errorf("title = %q, want Solo", m.Title)
+	}
+	if m.Author != "K" {
+		t.Errorf("author = %q, want K", m.Author)
+	}
+	if !m.IsMarkdown {
+		t.Errorf("is_markdown = false, want true")
+	}
+	if m.FrontmatterFormat != "yaml" {
+		t.Errorf("frontmatter_format = %q, want yaml", m.FrontmatterFormat)
+	}
+	if len(m.Tags) != 1 || m.Tags[0] != "solo" {
+		t.Errorf("tags = %v, want [solo]", m.Tags)
+	}
+}
+
+func TestReadAttributesToolMissingPath(t *testing.T) {
+	ctx, cs := newSession(t)
+
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "read_attributes",
+		Arguments: ReadAttributesInput{},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("expected IsError=true for empty path; got false")
+	}
+}
+
 func TestListAttributesTool(t *testing.T) {
 	ctx, cs := newSession(t)
 

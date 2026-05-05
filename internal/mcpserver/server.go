@@ -4,6 +4,8 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"time"
 
@@ -13,6 +15,13 @@ import (
 	"github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/search"
 )
+
+// ReadAttributesInput is the JSON-schema input for the `read_attributes`
+// tool. Path can be absolute or relative to the server's working
+// directory; agents should prefer absolute paths.
+type ReadAttributesInput struct {
+	Path string `json:"path" jsonschema:"Filesystem path of a single file to extract attributes from. Absolute paths are preferred; relative paths resolve against the server's working directory."`
+}
 
 // SearchInput is the JSON-schema input for the `search` tool.
 type SearchInput struct {
@@ -296,6 +305,11 @@ func New(version string) *mcp.Server {
 		Description: "List every CEL attribute available to the search tool, the built-in functions (levenshtein, soundex, ngrams, ngram_similarity) with their signatures, and the registered content types.",
 	}, listAttributesHandler)
 
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "read_attributes",
+		Description: "Extract content-type-specific attributes for a single file path. Use when the agent already knows the path and wants metadata without running a CEL filter or walking a directory. Returns the same SearchMatch shape as the search tool — title, author, EXIF, audio tags, video codec, frontmatter, etc., depending on the detected content type.",
+	}, readAttributesHandler)
+
 	return s
 }
 
@@ -334,6 +348,29 @@ func searchHandler(ctx context.Context, _ *mcp.CallToolRequest, in SearchInput) 
 	}
 
 	return nil, SearchOutput{Matches: matches, Count: len(matches)}, nil
+}
+
+func readAttributesHandler(ctx context.Context, _ *mcp.CallToolRequest, in ReadAttributesInput) (*mcp.CallToolResult, SearchMatch, error) {
+	if in.Path == "" {
+		return nil, SearchMatch{}, fmt.Errorf("path is required")
+	}
+	abs, err := filepath.Abs(in.Path)
+	if err != nil {
+		return nil, SearchMatch{}, fmt.Errorf("resolve path: %w", err)
+	}
+	dir := filepath.Dir(abs)
+	base := filepath.Base(abs)
+
+	attrs, err := celexpr.BuildAttributes(ctx, os.DirFS(dir), base, abs, content.DefaultRegistry())
+	if err != nil {
+		return nil, SearchMatch{}, fmt.Errorf("read attributes: %w", err)
+	}
+	return nil, matchFrom(search.Result{
+		Path:        abs,
+		ContentType: attrs.ContentType,
+		Size:        attrs.Size,
+		Attrs:       attrs,
+	}), nil
 }
 
 func listAttributesHandler(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, ListAttributesOutput, error) {
