@@ -15,6 +15,12 @@ type videoInfo struct {
 	VideoCodec string // "h264", "h265", ...
 	AudioCodec string // "aac", "mp3", ...
 	FrameRate  float64
+
+	// First-audio-track playback metadata. Files almost always have a
+	// single audio track; multi-track files (multi-language films) use
+	// the first one — same convention as the codec-name fields above.
+	AudioSampleRate int64 // Hz
+	AudioChannels   int64
 }
 
 // readMP4VideoInfo walks an MP4/MOV/M4V atom tree extracting playback +
@@ -244,6 +250,15 @@ func readVideoSTSD(r io.ReadSeeker, end int64, trackType string, info *videoInfo
 			return nil
 		case "soun":
 			info.AudioCodec = mp4AudioCodecName(name)
+			// AudioSampleEntry preamble layout matches the standalone
+			// MP4 audio parser: channels at +16, sample_rate at +24
+			// (uint16 of a fixed-point uint32). Read both opportunistically;
+			// short entries fall through with zero values.
+			var body [28]byte
+			if _, err := io.ReadFull(r, body[:]); err == nil {
+				info.AudioChannels = int64(binary.BigEndian.Uint16(body[16:18]))
+				info.AudioSampleRate = int64(binary.BigEndian.Uint16(body[24:26]))
+			}
 			return nil
 		}
 		if _, err := r.Seek(next, io.SeekStart); err != nil {

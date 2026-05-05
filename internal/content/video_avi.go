@@ -137,9 +137,13 @@ func readAVIH(r io.ReadSeeker, size int64, info *videoInfo) {
 	info.Height = int64(height)
 }
 
-// readAVISTRL walks an strl LIST looking for the strh stream header. The
-// reader is positioned just after the "strl" type tag.
+// readAVISTRL walks an strl LIST looking for the strh stream header and
+// strf format header. The reader is positioned just after the "strl" type
+// tag. fccType from strh is remembered so the immediately-following strf
+// is parsed with the right struct (BITMAPINFOHEADER for vids,
+// WAVEFORMATEX for auds).
 func readAVISTRL(r io.ReadSeeker, end int64, info *videoInfo) error {
+	var fccType string
 	for {
 		pos, _ := r.Seek(0, io.SeekCurrent)
 		if pos+8 > end {
@@ -154,8 +158,13 @@ func readAVISTRL(r io.ReadSeeker, end int64, info *videoInfo) error {
 		if size%2 == 1 {
 			nextPos++
 		}
-		if string(ch[0:4]) == "strh" {
-			readSTRH(r, size, info)
+		switch string(ch[0:4]) {
+		case "strh":
+			fccType = readSTRH(r, size, info)
+		case "strf":
+			if fccType == "auds" {
+				readSTRFAuds(r, size, info)
+			}
 		}
 		if _, err := r.Seek(nextPos, io.SeekStart); err != nil {
 			return nil
@@ -164,14 +173,15 @@ func readAVISTRL(r io.ReadSeeker, end int64, info *videoInfo) error {
 }
 
 // readSTRH reads the AVIStreamHeader (56 bytes), populating video_codec
-// or audio_codec depending on fccType.
-func readSTRH(r io.ReadSeeker, size int64, info *videoInfo) {
+// or audio_codec depending on fccType. Returns the fccType so the caller
+// can dispatch the following strf chunk.
+func readSTRH(r io.ReadSeeker, size int64, info *videoInfo) string {
 	if size < 8 {
-		return
+		return ""
 	}
 	buf := make([]byte, size)
 	if _, err := io.ReadFull(r, buf); err != nil {
-		return
+		return ""
 	}
 	fccType := string(buf[0:4])
 	fccHandler := string(buf[4:8])
@@ -180,11 +190,40 @@ func readSTRH(r io.ReadSeeker, size int64, info *videoInfo) {
 		info.VideoCodec = aviCodecName(fccHandler)
 	case "auds":
 		// fccHandler is usually "0\x00\x00\x00" (twoCC for audio); the
-		// real codec id is in the WAVEFORMATEX in strf, which we don't
-		// parse. Surface the FOURCC if present, otherwise leave blank.
+		// real codec id is in the WAVEFORMATEX in strf. Surface the
+		// FOURCC if present, otherwise leave blank.
 		if codec := aviCodecName(fccHandler); codec != "" {
 			info.AudioCodec = codec
 		}
+	}
+	return fccType
+}
+
+// readSTRFAuds reads a WAVEFORMATEX struct from an auds stream's strf
+// chunk and populates info.AudioSampleRate / info.AudioChannels.
+//
+// WAVEFORMATEX layout (16+ bytes, little-endian):
+//
+//	WORD  wFormatTag       // 2 bytes
+//	WORD  nChannels        // 2 bytes
+//	DWORD nSamplesPerSec   // 4 bytes
+//	DWORD nAvgBytesPerSec  // 4 bytes
+//	WORD  nBlockAlign      // 2 bytes
+//	WORD  wBitsPerSample   // 2 bytes
+//	WORD  cbSize           // 2 bytes
+func readSTRFAuds(r io.ReadSeeker, size int64, info *videoInfo) {
+	if size < 8 {
+		return
+	}
+	buf := make([]byte, size)
+	if _, err := io.ReadFull(r, buf); err != nil {
+		return
+	}
+	if info.AudioChannels == 0 {
+		info.AudioChannels = int64(binary.LittleEndian.Uint16(buf[2:4]))
+	}
+	if info.AudioSampleRate == 0 {
+		info.AudioSampleRate = int64(binary.LittleEndian.Uint32(buf[4:8]))
 	}
 }
 
