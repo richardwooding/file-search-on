@@ -68,6 +68,20 @@ func (a *audioType) Attributes(ctx context.Context, fsys fs.FS, path string) (At
 		if t, _ := m.Track(); t > 0 {
 			attrs["track"] = int64(t)
 		}
+		// ReplayGain track / album gain in dB (negative = quieter,
+		// positive = louder). Format-specific extraction sits in the
+		// helper; populated for Vorbis comments (FLAC + OGG) and
+		// ID3v2 TXXX frames (MP3). M4A iTunes ---- atoms are not yet
+		// covered — out of scope for the initial #33 implementation;
+		// flagged in the schema doc.
+		if track, album := extractReplayGain(m.Raw()); track != 0 || album != 0 {
+			if track != 0 {
+				attrs["replaygain_track_gain"] = track
+			}
+			if album != 0 {
+				attrs["replaygain_album_gain"] = album
+			}
+		}
 	}
 	// Tag-read failure isn't fatal — playback metadata still flows through
 	// the per-format parsers below.
