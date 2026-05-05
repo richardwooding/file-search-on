@@ -88,6 +88,10 @@ type Record struct {
 	VideoHeight int64   `json:"video_height,omitempty"`
 	FrameRate   float64 `json:"frame_rate,omitempty"`
 	Rotation    int64   `json:"rotation,omitempty"`
+
+	ColorPrimaries string `json:"color_primaries,omitempty"`
+	ColorTransfer  string `json:"color_transfer,omitempty"`
+	IsHDR          bool   `json:"is_hdr,omitempty"`
 }
 
 // recordFrom projects a search.Result into the wire shape. Falls back to
@@ -247,6 +251,15 @@ func recordFrom(r search.Result) Record {
 	if v, ok := a.Extra["rotation"].(int64); ok {
 		rec.Rotation = v
 	}
+	if v, ok := a.Extra["color_primaries"].(string); ok {
+		rec.ColorPrimaries = v
+	}
+	if v, ok := a.Extra["color_transfer"].(string); ok {
+		rec.ColorTransfer = v
+	}
+	if v, ok := a.Extra["is_hdr"].(bool); ok {
+		rec.IsHDR = v
+	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
 		rec.FrontmatterFormat = v
 	}
@@ -363,6 +376,11 @@ func printVerbose(w io.Writer, results []search.Result) {
 		printIfInt(w, "video_height", rec.VideoHeight)
 		printIfFloat(w, "frame_rate", rec.FrameRate)
 		printIfInt(w, "rotation", rec.Rotation)
+		printIfStr(w, "color_primaries", rec.ColorPrimaries)
+		printIfStr(w, "color_transfer", rec.ColorTransfer)
+		if rec.IsHDR {
+			fp(w, "  %-13s %v\n", "is_hdr", true)
+		}
 
 		// Frontmatter shape + lists + date.
 		if rec.FrontmatterFormat != "" {

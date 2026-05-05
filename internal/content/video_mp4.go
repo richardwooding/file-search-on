@@ -39,6 +39,17 @@ type videoInfo struct {
 	//   - MKV / WebM: TrackEntry's Bitrate element (0x4FB1).
 	//   - AVI:        avih's maxBytesPerSec × 8 / 1000.
 	NominalBitrate int64
+
+	// Colour-space metadata, decoded from MP4 colr (nclx form) or
+	// MKV Colour (0x55B0). Empty / false when not present.
+	//   - ColourPrimaries: friendly name — "bt709", "bt2020", "p3",
+	//     "" (unknown / not present).
+	//   - ColourTransfer:  friendly name — "bt709", "pq", "hlg", "".
+	//   - IsHDR:           true when transfer is PQ (SMPTE ST 2084)
+	//     or HLG; the canonical "this is HDR content" signal.
+	ColourPrimaries string
+	ColourTransfer  string
+	IsHDR           bool
 }
 
 // readMP4VideoInfo walks an MP4/MOV/M4V atom tree extracting playback +
@@ -290,7 +301,8 @@ func readVisualSampleEntryChildren(r io.ReadSeeker, end int64, info *videoInfo) 
 			return
 		}
 		next := pos + size
-		if name == "btrt" {
+		switch name {
+		case "btrt":
 			var body [12]byte
 			if _, err := io.ReadFull(r, body[:]); err == nil {
 				avg := binary.BigEndian.Uint32(body[8:12])
@@ -301,11 +313,59 @@ func readVisualSampleEntryChildren(r io.ReadSeeker, end int64, info *videoInfo) 
 					info.NominalBitrate = int64(maxBR) / 1000
 				}
 			}
+		case "colr":
+			// ColourInformationBox. Layout:
+			//   4 bytes colour_type ("nclx" / "rICC" / "prof")
+			//   For "nclx":
+			//     uint16 colour_primaries
+			//     uint16 transfer_characteristics
+			//     uint16 matrix_coefficients
+			//     uint8  full_range_flag (top bit; rest reserved)
+			var head [4]byte
+			if _, err := io.ReadFull(r, head[:]); err == nil && string(head[:]) == "nclx" {
+				var body [7]byte
+				if _, err := io.ReadFull(r, body[:]); err == nil {
+					primaries := binary.BigEndian.Uint16(body[0:2])
+					transfer := binary.BigEndian.Uint16(body[2:4])
+					info.ColourPrimaries = nameColourPrimaries(primaries)
+					info.ColourTransfer = nameColourTransfer(transfer)
+					info.IsHDR = transfer == 16 || transfer == 18
+				}
+			}
 		}
 		if _, err := r.Seek(next, io.SeekStart); err != nil {
 			return
 		}
 	}
+}
+
+// nameColourPrimaries maps the H.273 colour_primaries enum to a friendly
+// short name. Anything outside the recognised set yields "".
+func nameColourPrimaries(v uint16) string {
+	switch v {
+	case 1:
+		return "bt709"
+	case 9:
+		return "bt2020"
+	case 11, 12: // 11 = SMPTE RP 431-2 (DCI-P3), 12 = SMPTE EG 432-1 (Display P3)
+		return "p3"
+	}
+	return ""
+}
+
+// nameColourTransfer maps transfer_characteristics to a friendly short name.
+// PQ (16) and HLG (18) are the two HDR signals; everything else maps to a
+// short name where it makes sense, "" otherwise.
+func nameColourTransfer(v uint16) string {
+	switch v {
+	case 1, 6, 14, 15: // BT.709 / BT.601 / BT.2020 SDR variants
+		return "bt709"
+	case 16:
+		return "pq"
+	case 18:
+		return "hlg"
+	}
+	return ""
 }
 
 // readVideoMVHD pulls duration_seconds from mvhd; same logic as audio MVHD

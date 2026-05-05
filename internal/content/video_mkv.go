@@ -27,6 +27,9 @@ var (
 	mkvIDSampleRate     = []byte{0xB5} // SamplingFrequency, EBML float
 	mkvIDChannels       = []byte{0x9F}
 	mkvIDBitrate        = []byte{0x4F, 0xB1} // bits/sec, optional, video TrackEntry only
+	mkvIDColour         = []byte{0x55, 0xB0} // child of Video; H.273 colour metadata
+	mkvIDColPrimaries   = []byte{0x55, 0xBB}
+	mkvIDColTransfer    = []byte{0x55, 0xBA}
 )
 
 // readMKVInfo walks the EBML tree of a MKV/WebM file extracting playback
@@ -133,6 +136,21 @@ func readMKVTrackEntry(r io.ReadSeeker, end int64, info *videoInfo) error {
 					if v, err := readEBMLUint(r, end); err == nil {
 						height = v
 					}
+				case idEquals(id, mkvIDColour):
+					return walkEBML(r, mustPos(r), end, func(id []byte, end int64) error {
+						switch {
+						case idEquals(id, mkvIDColPrimaries):
+							if v, err := readEBMLUint(r, end); err == nil {
+								info.ColourPrimaries = nameColourPrimaries(uint16(v))
+							}
+						case idEquals(id, mkvIDColTransfer):
+							if v, err := readEBMLUint(r, end); err == nil {
+								info.ColourTransfer = nameColourTransfer(uint16(v))
+								info.IsHDR = v == 16 || v == 18
+							}
+						}
+						return nil
+					})
 				}
 				return nil
 			})

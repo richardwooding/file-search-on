@@ -109,6 +109,10 @@ type SearchMatch struct {
 	VideoHeight int64   `json:"video_height,omitempty"`
 	FrameRate   float64 `json:"frame_rate,omitempty"`
 	Rotation    int64   `json:"rotation,omitempty"`
+
+	ColorPrimaries string `json:"color_primaries,omitempty"`
+	ColorTransfer  string `json:"color_transfer,omitempty"`
+	IsHDR          bool   `json:"is_hdr,omitempty"`
 }
 
 // matchFrom projects a search.Result (with Attrs populated) into a
@@ -257,6 +261,15 @@ func matchFrom(r search.Result) SearchMatch {
 	}
 	if v, ok := a.Extra["rotation"].(int64); ok {
 		m.Rotation = v
+	}
+	if v, ok := a.Extra["color_primaries"].(string); ok {
+		m.ColorPrimaries = v
+	}
+	if v, ok := a.Extra["color_transfer"].(string); ok {
+		m.ColorTransfer = v
+	}
+	if v, ok := a.Extra["is_hdr"].(bool); ok {
+		m.IsHDR = v
 	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
 		m.FrontmatterFormat = v
