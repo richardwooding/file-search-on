@@ -94,6 +94,12 @@ func (v *videoType) Attributes(ctx context.Context, fsys fs.FS, path string) (At
 	if info.IsHDR {
 		attrs["is_hdr"] = true
 	}
+	if info.Subtitles {
+		attrs["subtitles"] = true
+	}
+	if len(info.SubtitleLanguages) > 0 {
+		attrs["subtitle_languages"] = info.SubtitleLanguages
+	}
 	return attrs, nil
 }
 

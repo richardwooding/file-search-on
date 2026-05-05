@@ -30,6 +30,7 @@ var (
 	mkvIDColour         = []byte{0x55, 0xB0} // child of Video; H.273 colour metadata
 	mkvIDColPrimaries   = []byte{0x55, 0xBB}
 	mkvIDColTransfer    = []byte{0x55, 0xBA}
+	mkvIDLanguage       = []byte{0x22, 0xB5, 0x9C} // ISO 639-2 string in TrackEntry
 )
 
 // readMKVInfo walks the EBML tree of a MKV/WebM file extracting playback
@@ -106,6 +107,7 @@ func readMKVTrackEntry(r io.ReadSeeker, end int64, info *videoInfo) error {
 	var sampleRate float64
 	var channels uint64
 	var bitrate uint64 // bits per second (TrackEntry/Bitrate)
+	var language string
 
 	if err := walkEBML(r, mustPos(r), end, func(id []byte, end int64) error {
 		switch {
@@ -124,6 +126,10 @@ func readMKVTrackEntry(r io.ReadSeeker, end int64, info *videoInfo) error {
 		case idEquals(id, mkvIDBitrate):
 			if v, err := readEBMLUint(r, end); err == nil {
 				bitrate = v
+			}
+		case idEquals(id, mkvIDLanguage):
+			if v, err := readEBMLString(r, end); err == nil {
+				language = v
 			}
 		case idEquals(id, mkvIDVideo):
 			return walkEBML(r, mustPos(r), end, func(id []byte, end int64) error {
@@ -203,6 +209,13 @@ func readMKVTrackEntry(r io.ReadSeeker, end int64, info *videoInfo) error {
 				info.AudioChannels = int64(channels)
 			}
 		}
+	case 0x11: // subtitles (Matroska TrackType 17)
+		info.Subtitles = true
+		// Spec default language when omitted is "eng"; readEBMLString
+		// will leave language="" if the field is absent. Surface
+		// whatever's there (including "" when undeclared) so callers
+		// can distinguish missing from explicitly empty.
+		info.SubtitleLanguages = append(info.SubtitleLanguages, language)
 	}
 	return nil
 }

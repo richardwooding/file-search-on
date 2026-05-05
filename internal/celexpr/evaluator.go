@@ -109,6 +109,8 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("color_primaries", cel.StringType),
 		cel.Variable("color_transfer", cel.StringType),
 		cel.Variable("is_hdr", cel.BoolType),
+		cel.Variable("subtitles", cel.BoolType),
+		cel.Variable("subtitle_languages", cel.ListType(cel.StringType)),
 		cel.Variable("frontmatter", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("frontmatter_format", cel.StringType),
 		cel.Variable("tags", cel.ListType(cel.StringType)),
@@ -202,6 +204,8 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 		"color_primaries":    "",
 		"color_transfer":     "",
 		"is_hdr":             false,
+		"subtitles":          false,
+		"subtitle_languages": []string{},
 		"frontmatter":        map[string]any{},
 		"frontmatter_format": "",
 		"tags":               []string{},
@@ -303,6 +307,10 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 				activation["color_transfer"] = v
 			case "is_hdr":
 				activation["is_hdr"] = v
+			case "subtitles":
+				activation["subtitles"] = v
+			case "subtitle_languages":
+				activation["subtitle_languages"] = v
 			case "frontmatter":
 				activation["frontmatter"] = v
 			case "frontmatter_format":

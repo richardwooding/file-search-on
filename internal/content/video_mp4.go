@@ -50,6 +50,14 @@ type videoInfo struct {
 	ColourPrimaries string
 	ColourTransfer  string
 	IsHDR           bool
+
+	// Subtitles is true when at least one subtitle / closed-caption
+	// track is present in the container. SubtitleLanguages collects
+	// ISO 639-2 codes (or "" when language is unspecified) from those
+	// tracks, in declaration order. AVI doesn't carry standardised
+	// subtitle metadata; left empty.
+	Subtitles         bool
+	SubtitleLanguages []string
 }
 
 // readMP4VideoInfo walks an MP4/MOV/M4V atom tree extracting playback +
@@ -126,8 +134,8 @@ func videoScanTRAK(r io.ReadSeeker, trakStart, trakEnd int64, info *videoInfo) e
 		info.Rotation = rotation
 	}
 
-	// Pass 1: collect track type, timescale, minf bounds.
-	var trackType string
+	// Pass 1: collect track type, timescale, language, minf bounds.
+	var trackType, language string
 	var timescale uint32
 	var minfStart, minfEnd int64 = -1, -1
 	if _, err := r.Seek(mdiaStart, io.SeekStart); err != nil {
@@ -152,7 +160,7 @@ func videoScanTRAK(r io.ReadSeeker, trakStart, trakEnd int64, info *videoInfo) e
 			}
 			trackType = string(head[8:12])
 		case "mdhd":
-			timescale = readMDHDTimescale(r, contentLen)
+			timescale, language = readMDHD(r, contentLen)
 		case "minf":
 			cur, _ := r.Seek(0, io.SeekCurrent)
 			minfStart = cur
@@ -161,6 +169,15 @@ func videoScanTRAK(r io.ReadSeeker, trakStart, trakEnd int64, info *videoInfo) e
 		if _, err := r.Seek(next, io.SeekStart); err != nil {
 			return err
 		}
+	}
+
+	// Subtitle / closed-caption tracks don't have a stsd we want to walk
+	// (the codec name is in stsd but that's not what users filter on).
+	// Record presence + language and return.
+	if isSubtitleTrack(trackType) {
+		info.Subtitles = true
+		info.SubtitleLanguages = append(info.SubtitleLanguages, language)
+		return nil
 	}
 
 	if minfStart < 0 || trackType == "" {
@@ -399,27 +416,77 @@ func readVideoMVHD(r io.ReadSeeker, contentLen int64, info *videoInfo) error {
 	return nil
 }
 
-// readMDHDTimescale reads the 4-byte timescale from a track-level media
-// header. Layout same shape as mvhd (version-conditional offsets).
-func readMDHDTimescale(r io.ReadSeeker, contentLen int64) uint32 {
+// readMDHD reads the timescale + ISO 639-2 language from a track-level
+// media header. Layout (v0):
+//
+//	1 byte version + 3 bytes flags
+//	4 bytes creation_time
+//	4 bytes modification_time
+//	4 bytes timescale          (offset 12)
+//	4 bytes duration
+//	2 bytes language           (offset 20) — 15 bits packed 5+5+5
+//	2 bytes pre_defined
+//
+// v1 widens the times to 64-bit; timescale is at +20, language at +32.
+//
+// Language is stored as three 5-bit values, each char = (5-bit value)
+// + 0x60. Returns "" if the language field is the "und" placeholder
+// (0x55C4) or otherwise unparseable.
+func readMDHD(r io.ReadSeeker, contentLen int64) (uint32, string) {
 	if contentLen < 4 {
-		return 0
+		return 0, ""
 	}
 	buf := make([]byte, contentLen)
 	if _, err := io.ReadFull(r, buf); err != nil {
-		return 0
+		return 0, ""
 	}
 	version := buf[0]
-	if version == 1 {
-		if len(buf) < 24 {
-			return 0
+	var timescale uint32
+	var langOff int
+	switch version {
+	case 1:
+		if len(buf) < 36 {
+			return 0, ""
 		}
-		return binary.BigEndian.Uint32(buf[20:24])
+		timescale = binary.BigEndian.Uint32(buf[20:24])
+		langOff = 32
+	default:
+		if len(buf) < 24 {
+			return 0, ""
+		}
+		timescale = binary.BigEndian.Uint32(buf[12:16])
+		langOff = 20
 	}
-	if len(buf) < 16 {
-		return 0
+	lang := decodeMDHDLanguage(binary.BigEndian.Uint16(buf[langOff : langOff+2]))
+	return timescale, lang
+}
+
+func decodeMDHDLanguage(packed uint16) string {
+	// 0x55C4 == "und" — explicit "undefined". Treat as empty.
+	if packed == 0x55C4 || packed == 0 {
+		return ""
 	}
-	return binary.BigEndian.Uint32(buf[12:16])
+	c1 := byte((packed>>10)&0x1F) + 0x60
+	c2 := byte((packed>>5)&0x1F) + 0x60
+	c3 := byte(packed&0x1F) + 0x60
+	for _, c := range []byte{c1, c2, c3} {
+		if c < 'a' || c > 'z' {
+			return ""
+		}
+	}
+	return string([]byte{c1, c2, c3})
+}
+
+// isSubtitleTrack reports whether an MP4 hdlr handler_type is a
+// subtitle / closed-caption track. text = 3GPP timed text; subt =
+// MPEG-4 subtitle; sbtl = closed captions in MOV; clcp = MOV
+// 608/708 captioning.
+func isSubtitleTrack(t string) bool {
+	switch t {
+	case "text", "subt", "sbtl", "clcp":
+		return true
+	}
+	return false
 }
 
 // readVideoSTSD parses stsd. For video tracks we read VisualSampleEntry
