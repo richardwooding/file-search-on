@@ -66,6 +66,7 @@ type Record struct {
 	IsOffice   bool `json:"is_office,omitempty"`
 	IsAudio    bool `json:"is_audio,omitempty"`
 	IsVideo    bool `json:"is_video,omitempty"`
+	IsArchive  bool `json:"is_archive,omitempty"`
 
 	Artist      string `json:"artist,omitempty"`
 	Album       string `json:"album,omitempty"`
@@ -98,6 +99,11 @@ type Record struct {
 
 	ReplayGainTrackGain float64 `json:"replaygain_track_gain,omitempty"`
 	ReplayGainAlbumGain float64 `json:"replaygain_album_gain,omitempty"`
+
+	EntryCount       int64    `json:"entry_count,omitempty"`
+	UncompressedSize int64    `json:"uncompressed_size,omitempty"`
+	TopLevelEntries  []string `json:"top_level_entries,omitempty"`
+	HasRootDir       bool     `json:"has_root_dir,omitempty"`
 }
 
 // recordFrom projects a search.Result into the wire shape. Falls back to
@@ -127,6 +133,7 @@ func recordFrom(r search.Result) Record {
 	rec.IsOffice = a.IsOffice
 	rec.IsAudio = a.IsAudio
 	rec.IsVideo = a.IsVideo
+	rec.IsArchive = a.IsArchive
 
 	if a.Extra == nil {
 		return rec
@@ -278,6 +285,18 @@ func recordFrom(r search.Result) Record {
 	if v, ok := a.Extra["replaygain_album_gain"].(float64); ok {
 		rec.ReplayGainAlbumGain = v
 	}
+	if v, ok := a.Extra["entry_count"].(int64); ok {
+		rec.EntryCount = v
+	}
+	if v, ok := a.Extra["uncompressed_size"].(int64); ok {
+		rec.UncompressedSize = v
+	}
+	if v, ok := a.Extra["top_level_entries"].([]string); ok && len(v) > 0 {
+		rec.TopLevelEntries = v
+	}
+	if v, ok := a.Extra["has_root_dir"].(bool); ok {
+		rec.HasRootDir = v
+	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
 		rec.FrontmatterFormat = v
 	}
@@ -406,6 +425,16 @@ func printVerbose(w io.Writer, results []search.Result) {
 		}
 		if len(rec.SubtitleLanguages) > 0 {
 			fp(w, "  %-13s %s\n", "sub_langs", strings.Join(rec.SubtitleLanguages, ", "))
+		}
+
+		// Archive metadata.
+		printIfInt(w, "entry_count", rec.EntryCount)
+		printIfInt(w, "uncomp_size", rec.UncompressedSize)
+		if len(rec.TopLevelEntries) > 0 {
+			fp(w, "  %-13s %s\n", "top_entries", strings.Join(rec.TopLevelEntries, ", "))
+		}
+		if rec.HasRootDir {
+			fp(w, "  %-13s %v\n", "has_root_dir", true)
 		}
 
 		// Frontmatter shape + lists + date.

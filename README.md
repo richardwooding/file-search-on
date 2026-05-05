@@ -18,12 +18,12 @@ file-search-on 'is_image && soundex(camera_make) == soundex("Nikon")'           
 file-search-on 'is_markdown && ngram_similarity(title, "kubernetes", 2) > 0.6'    # substring-tolerant title match
 ```
 
-Across **24 file formats** organised into eight content-type families (documents, data, images, audio, video, office, ebooks, plain text), with format-specific metadata extraction.
+Across **28 file formats** organised into nine content-type families (documents, data, images, audio, video, office, ebooks, plain text, archives), with format-specific metadata extraction.
 
 ## Features
 
 - **Pluggable content-type detection** — extension-first with magic-byte fallback. New formats are a single registration call.
-- **Eight content-type families**, each with its own metadata extractors:
+- **Nine content-type families**, each with its own metadata extractors:
 
   | Family | Formats | Bundle of attributes |
   | --- | --- | --- |
@@ -35,6 +35,7 @@ Across **24 file formats** organised into eight content-type families (documents
   | **Audio** | MP3, M4A, FLAC, OGG | tags (artist, album, genre, year, …) + duration, bitrate / nominal_bitrate, sample_rate, channels, bit_depth, ReplayGain |
   | **Video** | MP4, MOV, MKV, WebM, AVI | duration, bitrate / nominal_bitrate, video_codec, audio_codec, video_width/height, frame_rate, rotation, HDR / colour-space, subtitles |
   | **Office** | DOCX, XLSX, PPTX, ODT | title, author, language (Dublin Core) |
+  | **Archives** | ZIP (incl. JAR / WAR / EAR), TAR, TAR.GZ, GZIP | entry_count, uncompressed_size, top_level_entries, has_root_dir |
 
   Type predicates (`is_pdf`, `is_image`, `is_audio`, `is_video`, `is_office`, `is_epub`, …) light up automatically from the registered content type. See [examples/](./examples/) for recipes by family.
 
@@ -199,7 +200,7 @@ Run `file-search-on --list` for the canonical, up-to-date listing. The summary t
 | `size` | int | File size in bytes |
 | `ext` | string | File extension (e.g. `.md`) |
 | `content_type` | string | Detected content type |
-| `is_markdown`, `is_json`, `is_xml`, `is_html`, `is_pdf`, `is_image`, `is_text`, `is_csv`, `is_epub`, `is_office`, `is_audio`, `is_video` | bool | Type predicates |
+| `is_markdown`, `is_json`, `is_xml`, `is_html`, `is_pdf`, `is_image`, `is_text`, `is_csv`, `is_epub`, `is_office`, `is_audio`, `is_video`, `is_archive` | bool | Type predicates |
 
 ### Document / markup
 
@@ -273,6 +274,15 @@ Run `file-search-on --list` for the canonical, up-to-date listing. The summary t
 | `color_transfer` | string | `bt709`, `pq`, `hlg`, or `""` |
 | `subtitles` | bool | At least one subtitle / closed-caption track present |
 | `subtitle_languages` | `list<string>` | ISO 639-2 codes per subtitle track in declaration order |
+
+### Archives
+
+| Attribute | Type | Source |
+| --- | --- | --- |
+| `entry_count` | int | Number of entries inside ZIP / TAR / TAR.GZ. Always 1 for standalone `.gz` (single stream per RFC 1952) |
+| `uncompressed_size` | int | Sum of per-entry uncompressed sizes (ZIP / TAR / TAR.GZ). For standalone `.gz` reads the 4-byte ISIZE footer — note this is mod 2³², so > 4 GiB payloads report a wrapped value (matches `gzip -l`) |
+| `top_level_entries` | `list<string>` | Root-level entry names, sorted and deduplicated |
+| `has_root_dir` | bool | True when the archive has a single top-level entry (Unix tarball convention; useful for spotting ZIP-bombs when false) |
 
 ### Built-in functions — fuzzy, phonetic, and geographic matching
 

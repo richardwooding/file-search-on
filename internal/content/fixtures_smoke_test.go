@@ -43,6 +43,11 @@ var expectedTypes = map[string]string{
 	"sample.xlsx": "office/xlsx",
 	"sample.pptx": "office/pptx",
 	"sample.odt":  "office/odt",
+	"sample.zip":    "archive/zip",
+	"sample.jar":    "archive/zip",
+	"sample.tar":    "archive/tar",
+	"sample.tar.gz": "archive/tar+gzip",
+	"sample.gz":     "archive/gzip",
 }
 
 // TestFixturesDetect walks the embedded fixture bank and asserts every
@@ -83,6 +88,25 @@ func TestFixturesDetect(t *testing.T) {
 	for path := range expectedTypes {
 		if !seen[path] {
 			t.Errorf("fixture %q listed in expectedTypes but not present in embed.FS — regenerate?", path)
+		}
+	}
+}
+
+// archiveSpotCheck builds a check fn that asserts a regular archive
+// fixture has the expected entry_count, has_root_dir, and a single
+// expected top-level entry name. Reused across the zip / jar / tar /
+// tar.gz fixtures since they all hold the same source tree.
+func archiveSpotCheck(wantEntries int64, wantHasRoot bool, wantTopEntry string) func(t *testing.T, a content.Attributes) {
+	return func(t *testing.T, a content.Attributes) {
+		if ec, _ := a["entry_count"].(int64); ec != wantEntries {
+			t.Errorf("entry_count = %v; want %d", a["entry_count"], wantEntries)
+		}
+		if rd, _ := a["has_root_dir"].(bool); rd != wantHasRoot {
+			t.Errorf("has_root_dir = %v; want %v", a["has_root_dir"], wantHasRoot)
+		}
+		tops, _ := a["top_level_entries"].([]string)
+		if len(tops) != 1 || tops[0] != wantTopEntry {
+			t.Errorf("top_level_entries = %v; want [%q]", tops, wantTopEntry)
 		}
 	}
 }
@@ -276,6 +300,33 @@ func TestFixturesAttributeSpotChecks(t *testing.T) {
 				}
 				if ch, _ := a["channels"].(int64); ch != 1 {
 					t.Errorf("channels = %v; want 1", a["channels"])
+				}
+			},
+		},
+		{
+			// All three regular-archive fixtures (zip / tar / tar.gz)
+			// were generated from the same source tree: a single
+			// top-level dir `sample/` containing two files plus a
+			// nested subdir with one file = 5 entries (4 files + 1 dir
+			// header for `sample/subdir/`). Numbers should match
+			// across all three.
+			path: "sample.zip",
+			check: archiveSpotCheck(5, true, "sample"),
+		},
+		{path: "sample.jar", check: archiveSpotCheck(5, true, "sample")},
+		{path: "sample.tar", check: archiveSpotCheck(5, true, "sample")},
+		{path: "sample.tar.gz", check: archiveSpotCheck(5, true, "sample")},
+		{
+			// Standalone gzip: entry_count = 1 (gzip carries one stream),
+			// no top_level_entries (not a directory archive),
+			// has_root_dir = false.
+			path: "sample.gz",
+			check: func(t *testing.T, a content.Attributes) {
+				if ec, _ := a["entry_count"].(int64); ec != 1 {
+					t.Errorf("entry_count = %v; want 1", a["entry_count"])
+				}
+				if rd, _ := a["has_root_dir"].(bool); rd {
+					t.Errorf("has_root_dir = true; want false (standalone gzip has no directory)")
 				}
 			},
 		},
