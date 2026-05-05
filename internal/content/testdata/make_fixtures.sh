@@ -191,6 +191,27 @@ gzip -c "$arc_tmp/sample.txt" > sample.gz
 # .jar is a ZIP under another extension — same bytes work.
 cp sample.zip sample.jar
 
+# ─── Compiled binaries ─────────────────────────────────────────────────────
+# Three Go-built `hello world` binaries cover the ELF / Mach-O / PE
+# families. All cross-compiled from a single source so the fixture content
+# is reproducible. `-ldflags='-s -w'` strips both the Go symbol table and
+# DWARF — keeps the fixtures small (~1.5–1.7 MB each) AND lets the
+# fixture-smoke tests assert is_stripped=true.
+echo "→ binaries"
+bin_tmp=$(mktemp -d)
+cat > "$bin_tmp/main.go" <<'GO'
+package main
+
+import "fmt"
+
+func main() { fmt.Println("hello, file-search-on test fixture") }
+GO
+(cd "$bin_tmp" && go mod init samplefixture >/dev/null 2>&1 && \
+  GOOS=linux   GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o "$fixtures_dir/sample.elf"   . && \
+  GOOS=darwin  GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o "$fixtures_dir/sample.macho" . && \
+  GOOS=windows GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o "$fixtures_dir/sample.exe"   .)
+rm -rf "$bin_tmp"
+
 echo
 echo "Done. Inventory:"
 ls -la

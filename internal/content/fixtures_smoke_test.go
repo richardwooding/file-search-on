@@ -48,6 +48,9 @@ var expectedTypes = map[string]string{
 	"sample.tar":    "archive/tar",
 	"sample.tar.gz": "archive/tar+gzip",
 	"sample.gz":     "archive/gzip",
+	"sample.elf":    "binary/elf",
+	"sample.macho":  "binary/mach-o",
+	"sample.exe":    "binary/pe",
 }
 
 // TestFixturesDetect walks the embedded fixture bank and asserts every
@@ -88,6 +91,29 @@ func TestFixturesDetect(t *testing.T) {
 	for path := range expectedTypes {
 		if !seen[path] {
 			t.Errorf("fixture %q listed in expectedTypes but not present in embed.FS — regenerate?", path)
+		}
+	}
+}
+
+// binarySpotCheck builds a check fn that asserts a compiled-binary
+// fixture has the expected architecture, bitness, format, and binary
+// type. The fixtures are stripped, dynamically-linked Go executables
+// for x86_64 — so isStripped should be true and isDynamic true on
+// every platform.
+func binarySpotCheck(wantArch, wantFormat, wantType string, wantBitness int64) func(t *testing.T, a content.Attributes) {
+	return func(t *testing.T, a content.Attributes) {
+		archs, _ := a["architectures"].([]string)
+		if len(archs) != 1 || archs[0] != wantArch {
+			t.Errorf("architectures = %v; want [%q]", archs, wantArch)
+		}
+		if b, _ := a["bitness"].(int64); b != wantBitness {
+			t.Errorf("bitness = %v; want %d", a["bitness"], wantBitness)
+		}
+		if f, _ := a["binary_format"].(string); f != wantFormat {
+			t.Errorf("binary_format = %q; want %q", a["binary_format"], wantFormat)
+		}
+		if bt, _ := a["binary_type"].(string); bt != wantType {
+			t.Errorf("binary_type = %q; want %q", a["binary_type"], wantType)
 		}
 	}
 }
@@ -402,6 +428,33 @@ func TestFixturesAttributeSpotChecks(t *testing.T) {
 				}
 				if pc, _ := a["page_count"].(int64); pc < 1 {
 					t.Errorf("page_count = %v; want >= 1", a["page_count"])
+				}
+			},
+		},
+		{
+			// Three Go-compiled binaries (linux/darwin/windows × amd64),
+			// stripped (-ldflags='-s -w'), dynamically linked. All carry
+			// the standard runtime so binary_type is "executable" and
+			// is_dynamically_linked / is_stripped are both true.
+			path:  "sample.elf",
+			check: binarySpotCheck("x86_64", "elf", "executable", 64),
+		},
+		{
+			path:  "sample.macho",
+			check: binarySpotCheck("x86_64", "mach-o", "executable", 64),
+		},
+		{
+			path:  "sample.exe",
+			check: binarySpotCheck("x86_64", "pe", "executable", 64),
+		},
+		{
+			// Stripping detection: the three Go fixtures are all built
+			// with -ldflags='-s -w', so each parser must report
+			// is_stripped = true.
+			path: "sample.elf",
+			check: func(t *testing.T, a content.Attributes) {
+				if s, _ := a["is_stripped"].(bool); !s {
+					t.Errorf("is_stripped = false; want true (built with -ldflags='-s -w')")
 				}
 			},
 		},

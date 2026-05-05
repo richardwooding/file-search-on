@@ -88,6 +88,7 @@ type SearchMatch struct {
 	IsAudio    bool `json:"is_audio,omitempty"`
 	IsVideo    bool `json:"is_video,omitempty"`
 	IsArchive  bool `json:"is_archive,omitempty"`
+	IsBinary   bool `json:"is_binary,omitempty"`
 
 	Artist      string `json:"artist,omitempty"`
 	Album       string `json:"album,omitempty"`
@@ -125,6 +126,14 @@ type SearchMatch struct {
 	UncompressedSize int64    `json:"uncompressed_size,omitempty"`
 	TopLevelEntries  []string `json:"top_level_entries,omitempty"`
 	HasRootDir       bool     `json:"has_root_dir,omitempty"`
+
+	Architectures       []string `json:"architectures,omitempty"`
+	Bitness             int64    `json:"bitness,omitempty"`
+	BinaryFormat        string   `json:"binary_format,omitempty"`
+	BinaryType          string   `json:"binary_type,omitempty"`
+	IsDynamicallyLinked bool     `json:"is_dynamically_linked,omitempty"`
+	IsStripped          bool     `json:"is_stripped,omitempty"`
+	EntryPoint          int64    `json:"entry_point,omitempty"`
 }
 
 // matchFrom projects a search.Result (with Attrs populated) into a
@@ -145,6 +154,7 @@ func matchFrom(r search.Result) SearchMatch {
 	m.IsAudio = a.IsAudio
 	m.IsVideo = a.IsVideo
 	m.IsArchive = a.IsArchive
+	m.IsBinary = a.IsBinary
 
 	if a.Extra == nil {
 		return m
@@ -308,6 +318,27 @@ func matchFrom(r search.Result) SearchMatch {
 	if v, ok := a.Extra["has_root_dir"].(bool); ok {
 		m.HasRootDir = v
 	}
+	if v, ok := a.Extra["architectures"].([]string); ok && len(v) > 0 {
+		m.Architectures = v
+	}
+	if v, ok := a.Extra["bitness"].(int64); ok {
+		m.Bitness = v
+	}
+	if v, ok := a.Extra["binary_format"].(string); ok {
+		m.BinaryFormat = v
+	}
+	if v, ok := a.Extra["binary_type"].(string); ok {
+		m.BinaryType = v
+	}
+	if v, ok := a.Extra["is_dynamically_linked"].(bool); ok {
+		m.IsDynamicallyLinked = v
+	}
+	if v, ok := a.Extra["is_stripped"].(bool); ok {
+		m.IsStripped = v
+	}
+	if v, ok := a.Extra["entry_point"].(int64); ok {
+		m.EntryPoint = v
+	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
 		m.FrontmatterFormat = v
 	}
@@ -359,7 +390,7 @@ func New(version string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "search",
-		Description: "Recursively search a directory for files matching a CEL expression evaluated over file metadata and content-type-specific attributes. Supports nine content-type families (documents, markup, data, plain text, images, audio, video, office, archives — including ZIP / TAR / GZIP). CEL expressions can use built-in fuzzy-match functions — levenshtein(a, b) for edit distance, soundex(s) for phonetic codes, ngrams(s, n) for character n-grams, ngram_similarity(a, b, n) for Jaccard similarity — and the geographic helper point_in_polygon(lat, lon, polygon) for filtering by arbitrary GPS-coordinate boundaries. Call list_attributes for the full attribute and function schema.",
+		Description: "Recursively search a directory for files matching a CEL expression evaluated over file metadata and content-type-specific attributes. Supports ten content-type families (documents, markup, data, plain text, images, audio, video, office, archives — ZIP / TAR / GZIP — and compiled binaries — ELF / Mach-O / PE). CEL expressions can use built-in fuzzy-match functions — levenshtein(a, b) for edit distance, soundex(s) for phonetic codes, ngrams(s, n) for character n-grams, ngram_similarity(a, b, n) for Jaccard similarity — and the geographic helper point_in_polygon(lat, lon, polygon) for filtering by arbitrary GPS-coordinate boundaries. Call list_attributes for the full attribute and function schema.",
 	}, searchHandler)
 
 	mcp.AddTool(s, &mcp.Tool{

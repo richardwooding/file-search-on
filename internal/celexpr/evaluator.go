@@ -35,6 +35,7 @@ type FileAttributes struct {
 	IsAudio     bool
 	IsVideo     bool
 	IsArchive   bool
+	IsBinary    bool
 	Extra       content.Attributes
 }
 
@@ -66,6 +67,7 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("is_audio", cel.BoolType),
 		cel.Variable("is_video", cel.BoolType),
 		cel.Variable("is_archive", cel.BoolType),
+		cel.Variable("is_binary", cel.BoolType),
 		cel.Variable("title", cel.StringType),
 		cel.Variable("word_count", cel.IntType),
 		cel.Variable("line_count", cel.IntType),
@@ -119,6 +121,13 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("uncompressed_size", cel.IntType),
 		cel.Variable("top_level_entries", cel.ListType(cel.StringType)),
 		cel.Variable("has_root_dir", cel.BoolType),
+		cel.Variable("architectures", cel.ListType(cel.StringType)),
+		cel.Variable("bitness", cel.IntType),
+		cel.Variable("binary_format", cel.StringType),
+		cel.Variable("binary_type", cel.StringType),
+		cel.Variable("is_dynamically_linked", cel.BoolType),
+		cel.Variable("is_stripped", cel.BoolType),
+		cel.Variable("entry_point", cel.IntType),
 		cel.Variable("frontmatter", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("frontmatter_format", cel.StringType),
 		cel.Variable("tags", cel.ListType(cel.StringType)),
@@ -168,6 +177,7 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 		"is_audio":           attrs.IsAudio,
 		"is_video":           attrs.IsVideo,
 		"is_archive":         attrs.IsArchive,
+		"is_binary":          attrs.IsBinary,
 		"title":              "",
 		"word_count":         int64(0),
 		"line_count":         int64(0),
@@ -221,6 +231,13 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 		"uncompressed_size":     int64(0),
 		"top_level_entries":     []string{},
 		"has_root_dir":          false,
+		"architectures":         []string{},
+		"bitness":               int64(0),
+		"binary_format":         "",
+		"binary_type":           "",
+		"is_dynamically_linked": false,
+		"is_stripped":           false,
+		"entry_point":           int64(0),
 		"frontmatter":        map[string]any{},
 		"frontmatter_format": "",
 		"tags":               []string{},
@@ -338,6 +355,20 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 				activation["top_level_entries"] = v
 			case "has_root_dir":
 				activation["has_root_dir"] = v
+			case "architectures":
+				activation["architectures"] = v
+			case "bitness":
+				activation["bitness"] = v
+			case "binary_format":
+				activation["binary_format"] = v
+			case "binary_type":
+				activation["binary_type"] = v
+			case "is_dynamically_linked":
+				activation["is_dynamically_linked"] = v
+			case "is_stripped":
+				activation["is_stripped"] = v
+			case "entry_point":
+				activation["entry_point"] = v
 			case "frontmatter":
 				activation["frontmatter"] = v
 			case "frontmatter_format":
@@ -387,7 +418,7 @@ func BuildAttributes(ctx context.Context, fsys fs.FS, fsPath, displayPath string
 	contentTypeName := ""
 	isMarkdown, isJSON, isXML, isHTML, isPDF, isImage := false, false, false, false, false, false
 	isText, isCSV, isEPUB, isOffice, isAudio, isVideo := false, false, false, false, false, false
-	var isArchive bool
+	var isArchive, isBinary bool
 
 	var extra content.Attributes
 	if ct != nil {
@@ -419,6 +450,8 @@ func BuildAttributes(ctx context.Context, fsys fs.FS, fsPath, displayPath string
 			isVideo = true
 		case strings.HasPrefix(contentTypeName, "archive/"):
 			isArchive = true
+		case strings.HasPrefix(contentTypeName, "binary/"):
+			isBinary = true
 		}
 		extra, err = ct.Attributes(ctx, fsys, fsPath)
 		if err != nil {
@@ -446,6 +479,7 @@ func BuildAttributes(ctx context.Context, fsys fs.FS, fsPath, displayPath string
 		IsOffice:    isOffice,
 		IsAudio:     isAudio,
 		IsArchive:   isArchive,
+		IsBinary:    isBinary,
 		IsVideo:     isVideo,
 		Extra:       extra,
 	}, nil
