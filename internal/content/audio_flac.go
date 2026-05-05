@@ -14,6 +14,15 @@ type audioInfo struct {
 	SampleRate int64   // Hz
 	Channels   int64
 	BitDepth   int64 // bits per sample (FLAC + MP4 only; MP3 and OGG leave it 0)
+
+	// NominalBitrate is the codec-stored bitrate in kbps, distinct from
+	// audiotype.go's computed `bitrate` (file_size * 8 / duration).
+	// Populated for MP3 (first-frame bitrate index) and OGG Vorbis
+	// (bitrate_nominal in the identification header). FLAC and MP4 audio
+	// leave it 0 — FLAC's max_frame_size doesn't translate cleanly without
+	// frame timing; MP4's esds Elementary Stream Descriptor parse is
+	// non-trivial and tracked as a follow-up to #31.
+	NominalBitrate int64
 }
 
 // readFLACInfo parses the STREAMINFO metadata block of a FLAC file. The block

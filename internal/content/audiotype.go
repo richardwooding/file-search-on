@@ -92,6 +92,9 @@ func (a *audioType) Attributes(ctx context.Context, fsys fs.FS, path string) (At
 		if info.BitDepth > 0 {
 			attrs["bit_depth"] = info.BitDepth
 		}
+		if info.NominalBitrate > 0 {
+			attrs["nominal_bitrate"] = info.NominalBitrate
+		}
 	}
 	return attrs, nil
 }

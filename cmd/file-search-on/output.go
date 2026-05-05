@@ -75,11 +75,12 @@ type Record struct {
 	Track       int64  `json:"track,omitempty"`
 	Genre       string `json:"genre,omitempty"`
 
-	Duration   float64 `json:"duration,omitempty"`
-	Bitrate    int64   `json:"bitrate,omitempty"`
-	SampleRate int64   `json:"sample_rate,omitempty"`
-	Channels   int64   `json:"channels,omitempty"`
-	BitDepth   int64   `json:"bit_depth,omitempty"`
+	Duration       float64 `json:"duration,omitempty"`
+	Bitrate        int64   `json:"bitrate,omitempty"`
+	NominalBitrate int64   `json:"nominal_bitrate,omitempty"`
+	SampleRate     int64   `json:"sample_rate,omitempty"`
+	Channels       int64   `json:"channels,omitempty"`
+	BitDepth       int64   `json:"bit_depth,omitempty"`
 
 	VideoCodec  string  `json:"video_codec,omitempty"`
 	AudioCodec  string  `json:"audio_codec,omitempty"`
@@ -225,6 +226,9 @@ func recordFrom(r search.Result) Record {
 	if v, ok := a.Extra["bit_depth"].(int64); ok {
 		rec.BitDepth = v
 	}
+	if v, ok := a.Extra["nominal_bitrate"].(int64); ok {
+		rec.NominalBitrate = v
+	}
 	if v, ok := a.Extra["video_codec"].(string); ok {
 		rec.VideoCodec = v
 	}
@@ -347,6 +351,7 @@ func printVerbose(w io.Writer, results []search.Result) {
 		printIfInt(w, "track", rec.Track)
 		printIfFloat(w, "duration", rec.Duration)
 		printIfInt(w, "bitrate", rec.Bitrate)
+		printIfInt(w, "nominal_bitrate", rec.NominalBitrate)
 		printIfInt(w, "sample_rate", rec.SampleRate)
 		printIfInt(w, "channels", rec.Channels)
 		printIfInt(w, "bit_depth", rec.BitDepth)

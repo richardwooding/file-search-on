@@ -30,6 +30,15 @@ type videoInfo struct {
 	// now). For non-pure-rotation matrices (skew, mirror, projective)
 	// stays 0.
 	Rotation int64
+
+	// NominalBitrate is the codec/container-stored video bitrate in
+	// kbps, distinct from videotype.go's computed `bitrate` (file
+	// size × 8 / duration). Sources:
+	//   - MP4 / MOV: btrt box's avgBitrate inside the visual sample
+	//     entry (avc1 / hvc1 / av01 / vpcC / etc.).
+	//   - MKV / WebM: TrackEntry's Bitrate element (0x4FB1).
+	//   - AVI:        avih's maxBytesPerSec × 8 / 1000.
+	NominalBitrate int64
 }
 
 // readMP4VideoInfo walks an MP4/MOV/M4V atom tree extracting playback +
@@ -257,6 +266,48 @@ func decodeTkhdRotation(r io.ReadSeeker, contentLen int64) int64 {
 	return 0
 }
 
+// readVisualSampleEntryChildren walks the children of a VisualSampleEntry
+// (avc1 / hvc1 / av01 / vpcC / etc.) looking for the btrt box. btrt is a
+// MPEG-4 BitRateBox carrying codec-stored bitrates:
+//
+//	uint32 bufferSizeDB
+//	uint32 maxBitrate    (bits per second)
+//	uint32 avgBitrate    (bits per second)
+//
+// We surface avgBitrate as videoInfo.NominalBitrate (kbps), preferring
+// it over maxBitrate. If only maxBitrate is non-zero it falls through.
+//
+// The reader is positioned just past the 78-byte VisualSampleEntry body;
+// `end` is the end of the parent sample-entry box.
+func readVisualSampleEntryChildren(r io.ReadSeeker, end int64, info *videoInfo) {
+	for {
+		pos, _ := r.Seek(0, io.SeekCurrent)
+		if pos >= end {
+			return
+		}
+		size, name, _, err := readBoxHeader(r)
+		if err != nil {
+			return
+		}
+		next := pos + size
+		if name == "btrt" {
+			var body [12]byte
+			if _, err := io.ReadFull(r, body[:]); err == nil {
+				avg := binary.BigEndian.Uint32(body[8:12])
+				maxBR := binary.BigEndian.Uint32(body[4:8])
+				if avg > 0 {
+					info.NominalBitrate = int64(avg) / 1000
+				} else if maxBR > 0 {
+					info.NominalBitrate = int64(maxBR) / 1000
+				}
+			}
+		}
+		if _, err := r.Seek(next, io.SeekStart); err != nil {
+			return
+		}
+	}
+}
+
 // readVideoMVHD pulls duration_seconds from mvhd; same logic as audio MVHD
 // but writes to videoInfo.
 func readVideoMVHD(r io.ReadSeeker, contentLen int64, info *videoInfo) error {
@@ -340,6 +391,10 @@ func readVideoSTSD(r io.ReadSeeker, end int64, trackType string, info *videoInfo
 			info.VideoCodec = mp4VideoCodecName(name)
 			info.Width = int64(binary.BigEndian.Uint16(body[24:26]))
 			info.Height = int64(binary.BigEndian.Uint16(body[26:28]))
+			// Walk remaining children of the visual sample entry for the
+			// btrt box (codec-stored avg bitrate). Children may include
+			// avcC / hvcC / colr / btrt / pasp / etc. — we only consume btrt.
+			readVisualSampleEntryChildren(r, next, info)
 			return nil
 		case "soun":
 			info.AudioCodec = mp4AudioCodecName(name)

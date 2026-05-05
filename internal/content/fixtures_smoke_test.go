@@ -205,6 +205,12 @@ func TestFixturesAttributeSpotChecks(t *testing.T) {
 				if d, _ := a["duration"].(float64); d <= 0 {
 					t.Errorf("duration = %v; want > 0", a["duration"])
 				}
+				// MP3 nominal bitrate is the first-frame bitrate index.
+				// Fixture is encoded at -b:a 64k so the first frame's
+				// table index resolves to 64 kbps.
+				if nb, _ := a["nominal_bitrate"].(int64); nb != 64 {
+					t.Errorf("nominal_bitrate = %v; want 64", a["nominal_bitrate"])
+				}
 			},
 		},
 		{
