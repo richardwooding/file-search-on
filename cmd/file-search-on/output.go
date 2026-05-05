@@ -92,6 +92,9 @@ type Record struct {
 	ColorPrimaries string `json:"color_primaries,omitempty"`
 	ColorTransfer  string `json:"color_transfer,omitempty"`
 	IsHDR          bool   `json:"is_hdr,omitempty"`
+
+	Subtitles         bool     `json:"subtitles,omitempty"`
+	SubtitleLanguages []string `json:"subtitle_languages,omitempty"`
 }
 
 // recordFrom projects a search.Result into the wire shape. Falls back to
@@ -260,6 +263,12 @@ func recordFrom(r search.Result) Record {
 	if v, ok := a.Extra["is_hdr"].(bool); ok {
 		rec.IsHDR = v
 	}
+	if v, ok := a.Extra["subtitles"].(bool); ok {
+		rec.Subtitles = v
+	}
+	if v, ok := a.Extra["subtitle_languages"].([]string); ok && len(v) > 0 {
+		rec.SubtitleLanguages = v
+	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
 		rec.FrontmatterFormat = v
 	}
@@ -380,6 +389,12 @@ func printVerbose(w io.Writer, results []search.Result) {
 		printIfStr(w, "color_transfer", rec.ColorTransfer)
 		if rec.IsHDR {
 			fp(w, "  %-13s %v\n", "is_hdr", true)
+		}
+		if rec.Subtitles {
+			fp(w, "  %-13s %v\n", "subtitles", true)
+		}
+		if len(rec.SubtitleLanguages) > 0 {
+			fp(w, "  %-13s %s\n", "sub_langs", strings.Join(rec.SubtitleLanguages, ", "))
 		}
 
 		// Frontmatter shape + lists + date.

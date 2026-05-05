@@ -113,6 +113,9 @@ type SearchMatch struct {
 	ColorPrimaries string `json:"color_primaries,omitempty"`
 	ColorTransfer  string `json:"color_transfer,omitempty"`
 	IsHDR          bool   `json:"is_hdr,omitempty"`
+
+	Subtitles         bool     `json:"subtitles,omitempty"`
+	SubtitleLanguages []string `json:"subtitle_languages,omitempty"`
 }
 
 // matchFrom projects a search.Result (with Attrs populated) into a
@@ -270,6 +273,12 @@ func matchFrom(r search.Result) SearchMatch {
 	}
 	if v, ok := a.Extra["is_hdr"].(bool); ok {
 		m.IsHDR = v
+	}
+	if v, ok := a.Extra["subtitles"].(bool); ok {
+		m.Subtitles = v
+	}
+	if v, ok := a.Extra["subtitle_languages"].([]string); ok && len(v) > 0 {
+		m.SubtitleLanguages = v
 	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
 		m.FrontmatterFormat = v

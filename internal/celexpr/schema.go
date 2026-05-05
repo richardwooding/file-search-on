@@ -88,6 +88,8 @@ func Schema() SchemaDoc {
 			{"color_primaries", "string", "video colour primaries — 'bt709' (HD), 'bt2020' (HDR / wide-gamut), 'p3' (DCI-P3 / Display P3), or '' if unspecified. Decoded from MP4 colr nclx or MKV Colour element."},
 			{"color_transfer", "string", "video transfer characteristics — 'bt709' (SDR), 'pq' (SMPTE ST 2084 — HDR10), 'hlg' (Hybrid Log-Gamma — broadcast HDR), or '' if unspecified."},
 			{"is_hdr", "bool", "true when transfer is PQ (HDR10 / HDR10+ / Dolby Vision base layer) or HLG. The canonical 'this video is HDR' signal."},
+			{"subtitles", "bool", "true when at least one subtitle / closed-caption track is present (MP4 text/subt/sbtl/clcp tracks; MKV TrackType 17). Empty for AVI."},
+			{"subtitle_languages", "list<str>", "ISO 639-2 language codes from each subtitle track in declaration order. Empty string when language is unspecified or marked 'und'."},
 			{"sample_rate", "int", "audio sample rate in Hz"},
 			{"channels", "int", "audio channel count (1 = mono, 2 = stereo, etc.)"},
 			{"bit_depth", "int", "audio bits per sample (FLAC STREAMINFO / MP4 stsd sample_size; zero for MP3 / OGG which don't store it)"},
