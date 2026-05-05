@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/richardwooding/file-search-on/internal/content"
 )
 
 // buildOGG builds a minimal OGG file containing:
@@ -58,11 +57,11 @@ func TestOGGInfo(t *testing.T) {
 	if err := os.WriteFile(path, buildOGG(48000, 2, 4_800_000), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ct := content.DefaultRegistry().Detect(path)
+	ct := detectAt(path)
 	if ct == nil || ct.Name() != "audio/ogg" {
 		t.Fatalf("Detect: got %v, want audio/ogg", ct)
 	}
-	attrs, err := ct.Attributes(t.Context(), path)
+	attrs, err := attributesAt(t.Context(), ct, path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}

@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/richardwooding/file-search-on/internal/content"
 )
 
 // buildVideoMP4 constructs a minimal MP4 file with a video track (avc1) +
@@ -111,11 +110,11 @@ func TestVideoMP4Info(t *testing.T) {
 	if err := os.WriteFile(path, buildVideoMP4(1000, 100_000, 1920, 1080, 30000, 1000), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ct := content.DefaultRegistry().Detect(path)
+	ct := detectAt(path)
 	if ct == nil || ct.Name() != "video/mp4" {
 		t.Fatalf("Detect: got %v, want video/mp4", ct)
 	}
-	attrs, err := ct.Attributes(t.Context(), path)
+	attrs, err := attributesAt(t.Context(), ct, path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}

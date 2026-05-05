@@ -51,14 +51,14 @@ func TestTextRespectsLineCap(t *testing.T) {
 		content.SetMaxLineBytes(content.DefaultMaxLineBytes)
 	})
 
-	ct := content.DefaultRegistry().Detect(path)
+	ct := detectAt(path)
 	if ct == nil || ct.Name() != "text" {
 		t.Fatalf("Detect: got %v, want text", ct)
 	}
 
 	// 64 KiB cap: scanner can't fit the 200 KB line, returns no records.
 	content.SetMaxLineBytes(64 * 1024)
-	attrs, err := ct.Attributes(t.Context(), path)
+	attrs, err := attributesAt(t.Context(), ct, path)
 	if err != nil {
 		t.Fatalf("Attributes (low cap): %v", err)
 	}
@@ -68,7 +68,7 @@ func TestTextRespectsLineCap(t *testing.T) {
 
 	// 1 MiB cap: line fits, count is 1.
 	content.SetMaxLineBytes(content.DefaultMaxLineBytes)
-	attrs, err = ct.Attributes(t.Context(), path)
+	attrs, err = attributesAt(t.Context(), ct, path)
 	if err != nil {
 		t.Fatalf("Attributes (default cap): %v", err)
 	}

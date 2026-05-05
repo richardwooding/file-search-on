@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
-	"os"
+	"io/fs"
 
 	"github.com/dhowden/tag"
 )
@@ -31,19 +31,19 @@ func (a *audioType) MagicBytes() [][]byte { return a.magic }
 // FLAC/OGG) so a single ReadFrom covers all four registered types. Header-
 // only reads — sub-millisecond per file. Tag-only; duration / bitrate are
 // out of scope for v1 and would need format-specific decoders.
-func (a *audioType) Attributes(ctx context.Context, path string) (Attributes, error) {
+func (a *audioType) Attributes(ctx context.Context, fsys fs.FS, path string) (Attributes, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	attrs := Attributes{}
 
-	f, err := os.Open(path)
+	rs, fileSize, closer, err := openReadSeeker(fsys, path)
 	if err != nil {
 		return attrs, nil
 	}
-	defer func() { _ = f.Close() }()
+	defer func() { _ = closer() }()
 
-	if m, err := tag.ReadFrom(f); err == nil {
+	if m, err := tag.ReadFrom(rs); err == nil {
 		if v := m.Title(); v != "" {
 			attrs["title"] = v
 		}
@@ -75,22 +75,19 @@ func (a *audioType) Attributes(ctx context.Context, path string) (Attributes, er
 	// Playback metadata via per-format binary parsing. Each parser is bounded
 	// (header + at most a 64 KiB tail for OGG); they don't take ctx because
 	// the entry-point check at the top covers cancellation between files.
-	fileSize, err := f.Seek(0, io.SeekEnd)
-	if err == nil {
-		_, _ = f.Seek(0, io.SeekStart)
-		if info, err := readAudioInfo(a.name, f, fileSize); err == nil {
-			if info.Duration > 0 {
-				attrs["duration"] = info.Duration
-				if br := int64(float64(fileSize) * 8 / info.Duration / 1000); br > 0 {
-					attrs["bitrate"] = br
-				}
+	_, _ = rs.Seek(0, io.SeekStart)
+	if info, err := readAudioInfo(a.name, rs, fileSize); err == nil {
+		if info.Duration > 0 {
+			attrs["duration"] = info.Duration
+			if br := int64(float64(fileSize) * 8 / info.Duration / 1000); br > 0 {
+				attrs["bitrate"] = br
 			}
-			if info.SampleRate > 0 {
-				attrs["sample_rate"] = info.SampleRate
-			}
-			if info.Channels > 0 {
-				attrs["channels"] = info.Channels
-			}
+		}
+		if info.SampleRate > 0 {
+			attrs["sample_rate"] = info.SampleRate
+		}
+		if info.Channels > 0 {
+			attrs["channels"] = info.Channels
 		}
 	}
 	return attrs, nil

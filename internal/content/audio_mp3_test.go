@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/richardwooding/file-search-on/internal/content"
 )
 
 // buildMP3WithXing builds a minimal MP3 file: a tiny ID3v2 header (just an
@@ -52,11 +51,11 @@ func TestMP3WithXing(t *testing.T) {
 	if err := os.WriteFile(path, buildMP3WithXing(frames), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ct := content.DefaultRegistry().Detect(path)
+	ct := detectAt(path)
 	if ct == nil || ct.Name() != "audio/mpeg" {
 		t.Fatalf("Detect: got %v, want audio/mpeg", ct)
 	}
-	attrs, err := ct.Attributes(t.Context(), path)
+	attrs, err := attributesAt(t.Context(), ct, path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}
@@ -87,8 +86,8 @@ func TestMP3CBRFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ct := content.DefaultRegistry().Detect(path)
-	attrs, err := ct.Attributes(t.Context(), path)
+	ct := detectAt(path)
+	attrs, err := attributesAt(t.Context(), ct, path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}

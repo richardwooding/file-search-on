@@ -3,7 +3,7 @@ package content
 import (
 	"context"
 	"encoding/xml"
-	"os"
+	"io/fs"
 )
 
 func init() {
@@ -22,11 +22,11 @@ func (x *xmlType) MagicBytes() [][]byte {
 	}
 }
 
-func (x *xmlType) Attributes(ctx context.Context, path string) (Attributes, error) {
+func (x *xmlType) Attributes(ctx context.Context, fsys fs.FS, path string) (Attributes, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	f, err := os.Open(path)
+	f, err := fsys.Open(path)
 	if err != nil {
 		return nil, err
 	}

@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/richardwooding/file-search-on/internal/content"
 )
 
 // atomBox builds an MP4 atom (size + 4-byte type + content). Returns the
@@ -91,11 +90,11 @@ func TestMP4Info(t *testing.T) {
 	if err := os.WriteFile(path, buildMP4(1000, 100_000, 44100, 2), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ct := content.DefaultRegistry().Detect(path)
+	ct := detectAt(path)
 	if ct == nil || ct.Name() != "audio/mp4" {
 		t.Fatalf("Detect: got %v, want audio/mp4", ct)
 	}
-	attrs, err := ct.Attributes(t.Context(), path)
+	attrs, err := attributesAt(t.Context(), ct, path)
 	if err != nil {
 		t.Fatalf("Attributes: %v", err)
 	}

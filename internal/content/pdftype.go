@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/xml"
 	"io"
+	"io/fs"
 	"strings"
 
 	"github.com/ledongthuc/pdf"
@@ -34,15 +35,19 @@ func (p *pdfType) MagicBytes() [][]byte {
 // Each individual lookup is sub-millisecond on real PDFs; ctx is checked
 // at entry and between the catalog/XMP fallback paths so a cancelled walk
 // stops promptly.
-func (p *pdfType) Attributes(ctx context.Context, path string) (Attributes, error) {
+func (p *pdfType) Attributes(ctx context.Context, fsys fs.FS, path string) (Attributes, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	f, r, err := pdf.Open(path)
+	ra, size, closer, err := openReaderAt(fsys, path)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = f.Close() }()
+	defer func() { _ = closer() }()
+	r, err := pdf.NewReader(ra, size)
+	if err != nil {
+		return nil, err
+	}
 
 	trailer := r.Trailer()
 	root := trailer.Key("Root")

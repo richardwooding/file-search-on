@@ -3,21 +3,26 @@ package content
 import (
 	"archive/zip"
 	"context"
+	"io/fs"
 )
 
 // ooxmlAttributes is the shared body for DOCX/XLSX/PPTX. All three are
 // OOXML zip packages that store metadata in `docProps/core.xml`.
-func ooxmlAttributes(ctx context.Context, filePath string) (Attributes, error) {
+func ooxmlAttributes(ctx context.Context, fsys fs.FS, filePath string) (Attributes, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	zr, err := zip.OpenReader(filePath)
+	ra, size, closer, err := openReaderAt(fsys, filePath)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = zr.Close() }()
+	defer func() { _ = closer() }()
+	zr, err := zip.NewReader(ra, size)
+	if err != nil {
+		return nil, err
+	}
 
-	title, author, lang := readZipDublinCore(ctx, &zr.Reader, "docProps/core.xml")
+	title, author, lang := readZipDublinCore(ctx, zr, "docProps/core.xml")
 	return officeAttributes(title, author, lang), nil
 }
 

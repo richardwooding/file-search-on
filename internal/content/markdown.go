@@ -4,8 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"io"
-	"os"
+	"io/fs"
 	"strings"
 )
 
@@ -21,17 +20,11 @@ func (m *markdownType) Extensions() []string {
 }
 func (m *markdownType) MagicBytes() [][]byte { return nil }
 
-func (m *markdownType) Attributes(ctx context.Context, path string) (Attributes, error) {
+func (m *markdownType) Attributes(ctx context.Context, fsys fs.FS, path string) (Attributes, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = f.Close() }()
-
-	data, err := io.ReadAll(f)
+	data, err := readAll(fsys, path)
 	if err != nil {
 		return nil, err
 	}

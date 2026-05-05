@@ -3,7 +3,7 @@ package celexpr
 import (
 	"context"
 	"fmt"
-	"os"
+	"io/fs"
 	"path/filepath"
 	"strings"
 	"time"
@@ -302,23 +302,28 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 	return out == types.True, nil
 }
 
-// BuildAttributes builds file attributes for a given path. ctx is checked
-// at entry and threaded into ContentType.Attributes so per-file work can be
-// cancelled mid-scan.
-func BuildAttributes(ctx context.Context, path string, registry *content.Registry) (*FileAttributes, error) {
+// BuildAttributes builds file attributes for a given path. fsys is the
+// filesystem to read from; fsPath is the fs.FS-style key (forward slashes,
+// relative to the fsys root) used for IO; displayPath is the OS-native
+// path surfaced to users via FileAttributes.Path. In production both come
+// from the walker (`os.DirFS(root)` + relative slash path / `filepath.Join`
+// of the same). In tests, both can be the same fs-style key. ctx is
+// checked at entry and threaded into ContentType.Attributes so per-file
+// work can be cancelled mid-scan.
+func BuildAttributes(ctx context.Context, fsys fs.FS, fsPath, displayPath string, registry *content.Registry) (*FileAttributes, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	info, err := os.Stat(path)
+	info, err := fs.Stat(fsys, fsPath)
 	if err != nil {
 		return nil, err
 	}
 
 	name := info.Name()
 	ext := strings.ToLower(filepath.Ext(name))
-	dir := filepath.Dir(path)
+	dir := filepath.Dir(displayPath)
 
-	ct := registry.Detect(path)
+	ct := registry.Detect(fsys, fsPath)
 	contentTypeName := ""
 	isMarkdown, isJSON, isXML, isHTML, isPDF, isImage := false, false, false, false, false, false
 	isText, isCSV, isEPUB, isOffice, isAudio, isVideo := false, false, false, false, false, false
@@ -352,7 +357,7 @@ func BuildAttributes(ctx context.Context, path string, registry *content.Registr
 		case strings.HasPrefix(contentTypeName, "video/"):
 			isVideo = true
 		}
-		extra, err = ct.Attributes(ctx, path)
+		extra, err = ct.Attributes(ctx, fsys, fsPath)
 		if err != nil {
 			return nil, err
 		}
@@ -360,7 +365,7 @@ func BuildAttributes(ctx context.Context, path string, registry *content.Registr
 
 	return &FileAttributes{
 		Name:        name,
-		Path:        path,
+		Path:        displayPath,
 		Dir:         dir,
 		Size:        info.Size(),
 		Ext:         ext,

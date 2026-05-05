@@ -2,6 +2,7 @@ package content
 
 import (
 	"context"
+	"io/fs"
 	"sync"
 )
 
@@ -16,11 +17,15 @@ type ContentType interface {
 	Extensions() []string
 	// MagicBytes returns magic byte sequences for detection (nil if not used)
 	MagicBytes() [][]byte
-	// Attributes extracts type-specific attributes from the file at path.
-	// Implementations should check ctx.Err() at entry and (for loop-bound
-	// readers) periodically during scanning. Returning ctx.Err() on
-	// cancellation lets the walker terminate cleanly.
-	Attributes(ctx context.Context, path string) (Attributes, error)
+	// Attributes extracts type-specific attributes from the file at path
+	// on fsys. Path is interpreted as an fs.FS-style key (forward slashes,
+	// relative to the FS root). Implementations should check ctx.Err() at
+	// entry and (for loop-bound readers) periodically during scanning.
+	// Returning ctx.Err() on cancellation lets the walker terminate cleanly.
+	//
+	// Production threads `os.DirFS(root)` here; tests can pass embed.FS or
+	// fstest.MapFS for hermetic execution.
+	Attributes(ctx context.Context, fsys fs.FS, path string) (Attributes, error)
 }
 
 // Registry holds all registered content types
