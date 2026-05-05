@@ -1,0 +1,3 @@
+Sample plain text fixture.
+
+Three short lines for the line / word counter to chew on.

@@ -1,0 +1,6 @@
+{
+  "name": "sample",
+  "kind": "object",
+  "purpose": "file-search-on JSON test fixture",
+  "values": [1, 2, 3]
+}
