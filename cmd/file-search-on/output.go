@@ -67,6 +67,7 @@ type Record struct {
 	IsAudio    bool `json:"is_audio,omitempty"`
 	IsVideo    bool `json:"is_video,omitempty"`
 	IsArchive  bool `json:"is_archive,omitempty"`
+	IsBinary   bool `json:"is_binary,omitempty"`
 
 	Artist      string `json:"artist,omitempty"`
 	Album       string `json:"album,omitempty"`
@@ -104,6 +105,14 @@ type Record struct {
 	UncompressedSize int64    `json:"uncompressed_size,omitempty"`
 	TopLevelEntries  []string `json:"top_level_entries,omitempty"`
 	HasRootDir       bool     `json:"has_root_dir,omitempty"`
+
+	Architectures       []string `json:"architectures,omitempty"`
+	Bitness             int64    `json:"bitness,omitempty"`
+	BinaryFormat        string   `json:"binary_format,omitempty"`
+	BinaryType          string   `json:"binary_type,omitempty"`
+	IsDynamicallyLinked bool     `json:"is_dynamically_linked,omitempty"`
+	IsStripped          bool     `json:"is_stripped,omitempty"`
+	EntryPoint          int64    `json:"entry_point,omitempty"`
 }
 
 // recordFrom projects a search.Result into the wire shape. Falls back to
@@ -134,6 +143,7 @@ func recordFrom(r search.Result) Record {
 	rec.IsAudio = a.IsAudio
 	rec.IsVideo = a.IsVideo
 	rec.IsArchive = a.IsArchive
+	rec.IsBinary = a.IsBinary
 
 	if a.Extra == nil {
 		return rec
@@ -297,6 +307,27 @@ func recordFrom(r search.Result) Record {
 	if v, ok := a.Extra["has_root_dir"].(bool); ok {
 		rec.HasRootDir = v
 	}
+	if v, ok := a.Extra["architectures"].([]string); ok && len(v) > 0 {
+		rec.Architectures = v
+	}
+	if v, ok := a.Extra["bitness"].(int64); ok {
+		rec.Bitness = v
+	}
+	if v, ok := a.Extra["binary_format"].(string); ok {
+		rec.BinaryFormat = v
+	}
+	if v, ok := a.Extra["binary_type"].(string); ok {
+		rec.BinaryType = v
+	}
+	if v, ok := a.Extra["is_dynamically_linked"].(bool); ok {
+		rec.IsDynamicallyLinked = v
+	}
+	if v, ok := a.Extra["is_stripped"].(bool); ok {
+		rec.IsStripped = v
+	}
+	if v, ok := a.Extra["entry_point"].(int64); ok {
+		rec.EntryPoint = v
+	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
 		rec.FrontmatterFormat = v
 	}
@@ -436,6 +467,21 @@ func printVerbose(w io.Writer, results []search.Result) {
 		if rec.HasRootDir {
 			fp(w, "  %-13s %v\n", "has_root_dir", true)
 		}
+
+		// Binary metadata.
+		if len(rec.Architectures) > 0 {
+			fp(w, "  %-13s %s\n", "archs", strings.Join(rec.Architectures, ", "))
+		}
+		printIfInt(w, "bitness", rec.Bitness)
+		printIfStr(w, "bin_format", rec.BinaryFormat)
+		printIfStr(w, "bin_type", rec.BinaryType)
+		if rec.IsDynamicallyLinked {
+			fp(w, "  %-13s %v\n", "dynamic_link", true)
+		}
+		if rec.IsStripped {
+			fp(w, "  %-13s %v\n", "stripped", true)
+		}
+		printIfInt(w, "entry_point", rec.EntryPoint)
 
 		// Frontmatter shape + lists + date.
 		if rec.FrontmatterFormat != "" {

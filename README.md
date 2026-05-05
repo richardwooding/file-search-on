@@ -18,12 +18,12 @@ file-search-on 'is_image && soundex(camera_make) == soundex("Nikon")'           
 file-search-on 'is_markdown && ngram_similarity(title, "kubernetes", 2) > 0.6'    # substring-tolerant title match
 ```
 
-Across **28 file formats** organised into nine content-type families (documents, data, images, audio, video, office, ebooks, plain text, archives), with format-specific metadata extraction.
+Across **31 file formats** organised into ten content-type families (documents, data, images, audio, video, office, ebooks, plain text, archives, compiled binaries), with format-specific metadata extraction.
 
 ## Features
 
 - **Pluggable content-type detection** — extension-first with magic-byte fallback. New formats are a single registration call.
-- **Nine content-type families**, each with its own metadata extractors:
+- **Ten content-type families**, each with its own metadata extractors:
 
   | Family | Formats | Bundle of attributes |
   | --- | --- | --- |
@@ -36,6 +36,7 @@ Across **28 file formats** organised into nine content-type families (documents,
   | **Video** | MP4, MOV, MKV, WebM, AVI | duration, bitrate / nominal_bitrate, video_codec, audio_codec, video_width/height, frame_rate, rotation, HDR / colour-space, subtitles |
   | **Office** | DOCX, XLSX, PPTX, ODT | title, author, language (Dublin Core) |
   | **Archives** | ZIP (incl. JAR / WAR / EAR), TAR, TAR.GZ, GZIP | entry_count, uncompressed_size, top_level_entries, has_root_dir |
+  | **Binaries** | ELF (Linux/BSD), Mach-O (macOS, incl. universal), PE (Windows) | architectures, bitness, binary_format, binary_type, is_dynamically_linked, is_stripped, entry_point |
 
   Type predicates (`is_pdf`, `is_image`, `is_audio`, `is_video`, `is_office`, `is_epub`, …) light up automatically from the registered content type. See [examples/](./examples/) for recipes by family.
 
@@ -200,7 +201,7 @@ Run `file-search-on --list` for the canonical, up-to-date listing. The summary t
 | `size` | int | File size in bytes |
 | `ext` | string | File extension (e.g. `.md`) |
 | `content_type` | string | Detected content type |
-| `is_markdown`, `is_json`, `is_xml`, `is_html`, `is_pdf`, `is_image`, `is_text`, `is_csv`, `is_epub`, `is_office`, `is_audio`, `is_video`, `is_archive` | bool | Type predicates |
+| `is_markdown`, `is_json`, `is_xml`, `is_html`, `is_pdf`, `is_image`, `is_text`, `is_csv`, `is_epub`, `is_office`, `is_audio`, `is_video`, `is_archive`, `is_binary` | bool | Type predicates |
 
 ### Document / markup
 
@@ -283,6 +284,22 @@ Run `file-search-on --list` for the canonical, up-to-date listing. The summary t
 | `uncompressed_size` | int | Sum of per-entry uncompressed sizes (ZIP / TAR / TAR.GZ). For standalone `.gz` reads the 4-byte ISIZE footer — note this is mod 2³², so > 4 GiB payloads report a wrapped value (matches `gzip -l`) |
 | `top_level_entries` | `list<string>` | Root-level entry names, sorted and deduplicated |
 | `has_root_dir` | bool | True when the archive has a single top-level entry (Unix tarball convention; useful for spotting ZIP-bombs when false) |
+
+### Binaries
+
+Compiled executables — ELF (Linux/BSD), Mach-O (macOS, including universal/fat), PE (Windows). All three formats parsed via Go stdlib (`debug/elf`, `debug/macho`, `debug/pe`); no CGo, no third-party libraries.
+
+| Attribute | Type | Source |
+| --- | --- | --- |
+| `architectures` | `list<string>` | Canonical CPU arch names — `x86_64`, `arm64`, `i386`, `arm`, `ppc64`, `riscv64`, …. Length 1 for thin binaries; length ≥ 2 for fat (universal) Mach-O. |
+| `bitness` | int | 32 or 64. For fat Mach-O reflects the first slice. |
+| `binary_format` | string | `elf`, `mach-o`, or `pe` — the format subtype lifted to a CEL string. |
+| `binary_type` | string | `executable`, `shared_library`, `object`, `core`, or `unknown` — cross-format normalisation. |
+| `is_dynamically_linked` | bool | ELF: `PT_INTERP` or `PT_DYNAMIC` segment. Mach-O: any `LC_LOAD_DYLIB` load command. PE: non-empty import directory. |
+| `is_stripped` | bool | ELF: `Symbols()` returns `ErrNoSymbols`. Mach-O: `Symtab` nil or empty. PE: `IMAGE_FILE_DEBUG_STRIPPED` characteristic OR empty COFF symbol table. |
+| `entry_point` | int | Virtual-address entry point (ELF `Entry` / PE `AddressOfEntryPoint`). Zero for shared libraries, object files, and Mach-O (debug/macho doesn't expose `LC_MAIN.entryoff`). |
+
+**Detection**: ELF (`\x7FELF`), Mach-O thin magics (4 variants), and PE (`MZ`) are all extension-or-magic. Mach-O fat magic `0xCAFEBABE` is **not** registered to avoid the Java `.class` collision; fat binaries are recognised via extension (`.dylib`) or by being parsed once Mach-O detection has fired some other way.
 
 ### Built-in functions — fuzzy, phonetic, and geographic matching
 

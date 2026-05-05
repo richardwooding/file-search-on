@@ -8,6 +8,11 @@
 *.so
 *.dylib
 
+# But the binary content-type fixtures are committed.
+!internal/content/testdata/fixtures/sample.exe
+!internal/content/testdata/fixtures/sample.macho
+!internal/content/testdata/fixtures/sample.elf
+
 # Test binary, built with `go test -c`
 *.test
 
