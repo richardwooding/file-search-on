@@ -87,6 +87,7 @@ type SearchMatch struct {
 	IsOffice   bool `json:"is_office,omitempty"`
 	IsAudio    bool `json:"is_audio,omitempty"`
 	IsVideo    bool `json:"is_video,omitempty"`
+	IsArchive  bool `json:"is_archive,omitempty"`
 
 	Artist      string `json:"artist,omitempty"`
 	Album       string `json:"album,omitempty"`
@@ -119,6 +120,11 @@ type SearchMatch struct {
 
 	ReplayGainTrackGain float64 `json:"replaygain_track_gain,omitempty"`
 	ReplayGainAlbumGain float64 `json:"replaygain_album_gain,omitempty"`
+
+	EntryCount       int64    `json:"entry_count,omitempty"`
+	UncompressedSize int64    `json:"uncompressed_size,omitempty"`
+	TopLevelEntries  []string `json:"top_level_entries,omitempty"`
+	HasRootDir       bool     `json:"has_root_dir,omitempty"`
 }
 
 // matchFrom projects a search.Result (with Attrs populated) into a
@@ -138,6 +144,7 @@ func matchFrom(r search.Result) SearchMatch {
 	m.IsText, m.IsCSV, m.IsEPUB, m.IsOffice = a.IsText, a.IsCSV, a.IsEPUB, a.IsOffice
 	m.IsAudio = a.IsAudio
 	m.IsVideo = a.IsVideo
+	m.IsArchive = a.IsArchive
 
 	if a.Extra == nil {
 		return m
@@ -289,6 +296,18 @@ func matchFrom(r search.Result) SearchMatch {
 	if v, ok := a.Extra["replaygain_album_gain"].(float64); ok {
 		m.ReplayGainAlbumGain = v
 	}
+	if v, ok := a.Extra["entry_count"].(int64); ok {
+		m.EntryCount = v
+	}
+	if v, ok := a.Extra["uncompressed_size"].(int64); ok {
+		m.UncompressedSize = v
+	}
+	if v, ok := a.Extra["top_level_entries"].([]string); ok && len(v) > 0 {
+		m.TopLevelEntries = v
+	}
+	if v, ok := a.Extra["has_root_dir"].(bool); ok {
+		m.HasRootDir = v
+	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
 		m.FrontmatterFormat = v
 	}
@@ -340,7 +359,7 @@ func New(version string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "search",
-		Description: "Recursively search a directory for files matching a CEL expression evaluated over file metadata and content-type-specific attributes. CEL expressions can use built-in fuzzy-match functions — levenshtein(a, b) for edit distance, soundex(s) for phonetic codes, ngrams(s, n) for character n-grams, ngram_similarity(a, b, n) for Jaccard similarity — and the geographic helper point_in_polygon(lat, lon, polygon) for filtering by arbitrary GPS-coordinate boundaries. Call list_attributes for the full attribute and function schema.",
+		Description: "Recursively search a directory for files matching a CEL expression evaluated over file metadata and content-type-specific attributes. Supports nine content-type families (documents, markup, data, plain text, images, audio, video, office, archives — including ZIP / TAR / GZIP). CEL expressions can use built-in fuzzy-match functions — levenshtein(a, b) for edit distance, soundex(s) for phonetic codes, ngrams(s, n) for character n-grams, ngram_similarity(a, b, n) for Jaccard similarity — and the geographic helper point_in_polygon(lat, lon, polygon) for filtering by arbitrary GPS-coordinate boundaries. Call list_attributes for the full attribute and function schema.",
 	}, searchHandler)
 
 	mcp.AddTool(s, &mcp.Tool{

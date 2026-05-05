@@ -12,6 +12,7 @@ CEL expression recipes by content family, plus cross-cutting cookbook patterns.
 | [`epub.md`](./epub.md) | EPUB ebooks — title, author, language |
 | [`data.md`](./data.md) | JSON / CSV / TSV / XML — `csv_columns`, `json_kind`, `root_element` |
 | [`text.md`](./text.md) | Plain text and HTML — `line_count`, `word_count`, long-line caps |
+| [`archives.md`](./archives.md) | ZIP / TAR / TAR.GZ / GZIP — Downloads triage, ZIP-bomb detection, compression ratios |
 | [`cookbook.md`](./cookbook.md) | Cross-family queries, output-format pipelines, integration with find / jq / ffmpeg / rga |
 | [`fuzzy-search.md`](./fuzzy-search.md) | Fuzzy / phonetic / n-gram similarity matching with `levenshtein`, `soundex`, `ngrams`, `ngram_similarity` |
 

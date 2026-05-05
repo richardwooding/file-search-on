@@ -50,6 +50,7 @@ func Schema() SchemaDoc {
 			{"is_office", "bool", "true if office document (DOCX, XLSX, PPTX, ODT — content_type starts with 'office/')"},
 			{"is_audio", "bool", "true if audio file (MP3, M4A, FLAC, OGG — content_type starts with 'audio/')"},
 			{"is_video", "bool", "true if video file (MP4, MOV, MKV, WebM, AVI — content_type starts with 'video/')"},
+			{"is_archive", "bool", "true if archive file (ZIP, TAR, TAR.GZ, GZIP — content_type starts with 'archive/')"},
 		},
 		TypeSpecific: []AttributeDoc{
 			{"title", "string", "title (front-matter, markdown h1, HTML title, PDF title, EPUB, office, audio)"},
@@ -92,6 +93,10 @@ func Schema() SchemaDoc {
 			{"subtitle_languages", "list<str>", "ISO 639-2 language codes from each subtitle track in declaration order. Empty string when language is unspecified or marked 'und'."},
 			{"replaygain_track_gain", "double", "ReplayGain track gain in dB (negative = quieter, positive = louder). Sourced from Vorbis comments (FLAC + OGG REPLAYGAIN_TRACK_GAIN), ID3v2 TXXX user-defined-text frames (MP3), and M4A iTunes ---- atoms (com.apple.iTunes namespace)."},
 			{"replaygain_album_gain", "double", "ReplayGain album gain in dB. Same sources / coverage as replaygain_track_gain — Vorbis comments, ID3v2 TXXX, and M4A iTunes ---- atoms."},
+			{"entry_count", "int", "archive entry count — number of files / directories inside a ZIP, TAR, or TAR.GZ. Always 1 for standalone .gz (gzip carries one stream per RFC 1952)."},
+			{"uncompressed_size", "int", "archive total uncompressed size in bytes — sum of per-entry sizes for ZIP / TAR / TAR.GZ. For standalone .gz reads the 4-byte ISIZE footer; this is mod 2^32 so files whose payload exceeds 4 GiB report a wrapped value (matches `gzip -l`)."},
+			{"top_level_entries", "list<str>", "archive root-level entry names, sorted and deduplicated. A traditional 'tarball-with-one-root-dir' has a single element; a sprawling archive that explodes into the working directory has many."},
+			{"has_root_dir", "bool", "true when the archive has a single top-level entry — the Unix convention. Useful for spotting ZIP-bombs (false → many top-level entries that would all extract into the cwd)."},
 			{"sample_rate", "int", "audio sample rate in Hz"},
 			{"channels", "int", "audio channel count (1 = mono, 2 = stereo, etc.)"},
 			{"bit_depth", "int", "audio bits per sample (FLAC STREAMINFO / MP4 stsd sample_size; zero for MP3 / OGG which don't store it)"},

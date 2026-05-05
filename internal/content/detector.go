@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"io"
 	"io/fs"
-	"path"
-	"slices"
 	"strings"
 )
 
@@ -20,11 +18,27 @@ func (r *Registry) Detect(fsys fs.FS, p string) ContentType {
 	copy(types, r.types)
 	r.mu.RUnlock()
 
-	ext := strings.ToLower(path.Ext(p))
+	// Two-pass extension match: prefer multi-component suffixes (e.g.
+	// ".tar.gz") over single-component fallbacks (".gz") so registered
+	// types like archive/tar+gzip win against archive/gzip when both
+	// match. The longest registered extension that case-insensitively
+	// suffix-matches the path wins.
+	pLower := strings.ToLower(p)
+	var best ContentType
+	bestLen := 0
 	for _, ct := range types {
-		if slices.Contains(ct.Extensions(), ext) {
-			return ct
+		for _, e := range ct.Extensions() {
+			if !strings.HasSuffix(pLower, e) {
+				continue
+			}
+			if len(e) > bestLen {
+				best = ct
+				bestLen = len(e)
+			}
 		}
+	}
+	if best != nil {
+		return best
 	}
 	if fsys == nil {
 		return nil

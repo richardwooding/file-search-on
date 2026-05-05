@@ -34,6 +34,7 @@ type FileAttributes struct {
 	IsOffice    bool
 	IsAudio     bool
 	IsVideo     bool
+	IsArchive   bool
 	Extra       content.Attributes
 }
 
@@ -64,6 +65,7 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("is_office", cel.BoolType),
 		cel.Variable("is_audio", cel.BoolType),
 		cel.Variable("is_video", cel.BoolType),
+		cel.Variable("is_archive", cel.BoolType),
 		cel.Variable("title", cel.StringType),
 		cel.Variable("word_count", cel.IntType),
 		cel.Variable("line_count", cel.IntType),
@@ -113,6 +115,10 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("subtitle_languages", cel.ListType(cel.StringType)),
 		cel.Variable("replaygain_track_gain", cel.DoubleType),
 		cel.Variable("replaygain_album_gain", cel.DoubleType),
+		cel.Variable("entry_count", cel.IntType),
+		cel.Variable("uncompressed_size", cel.IntType),
+		cel.Variable("top_level_entries", cel.ListType(cel.StringType)),
+		cel.Variable("has_root_dir", cel.BoolType),
 		cel.Variable("frontmatter", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("frontmatter_format", cel.StringType),
 		cel.Variable("tags", cel.ListType(cel.StringType)),
@@ -161,6 +167,7 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 		"is_office":          attrs.IsOffice,
 		"is_audio":           attrs.IsAudio,
 		"is_video":           attrs.IsVideo,
+		"is_archive":         attrs.IsArchive,
 		"title":              "",
 		"word_count":         int64(0),
 		"line_count":         int64(0),
@@ -210,6 +217,10 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 		"subtitle_languages": []string{},
 		"replaygain_track_gain": float64(0),
 		"replaygain_album_gain": float64(0),
+		"entry_count":           int64(0),
+		"uncompressed_size":     int64(0),
+		"top_level_entries":     []string{},
+		"has_root_dir":          false,
 		"frontmatter":        map[string]any{},
 		"frontmatter_format": "",
 		"tags":               []string{},
@@ -319,6 +330,14 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 				activation["replaygain_track_gain"] = v
 			case "replaygain_album_gain":
 				activation["replaygain_album_gain"] = v
+			case "entry_count":
+				activation["entry_count"] = v
+			case "uncompressed_size":
+				activation["uncompressed_size"] = v
+			case "top_level_entries":
+				activation["top_level_entries"] = v
+			case "has_root_dir":
+				activation["has_root_dir"] = v
 			case "frontmatter":
 				activation["frontmatter"] = v
 			case "frontmatter_format":
@@ -368,6 +387,7 @@ func BuildAttributes(ctx context.Context, fsys fs.FS, fsPath, displayPath string
 	contentTypeName := ""
 	isMarkdown, isJSON, isXML, isHTML, isPDF, isImage := false, false, false, false, false, false
 	isText, isCSV, isEPUB, isOffice, isAudio, isVideo := false, false, false, false, false, false
+	var isArchive bool
 
 	var extra content.Attributes
 	if ct != nil {
@@ -397,6 +417,8 @@ func BuildAttributes(ctx context.Context, fsys fs.FS, fsPath, displayPath string
 			isAudio = true
 		case strings.HasPrefix(contentTypeName, "video/"):
 			isVideo = true
+		case strings.HasPrefix(contentTypeName, "archive/"):
+			isArchive = true
 		}
 		extra, err = ct.Attributes(ctx, fsys, fsPath)
 		if err != nil {
@@ -423,6 +445,7 @@ func BuildAttributes(ctx context.Context, fsys fs.FS, fsPath, displayPath string
 		IsEPUB:      isEPUB,
 		IsOffice:    isOffice,
 		IsAudio:     isAudio,
+		IsArchive:   isArchive,
 		IsVideo:     isVideo,
 		Extra:       extra,
 	}, nil

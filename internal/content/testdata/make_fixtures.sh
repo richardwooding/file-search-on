@@ -116,7 +116,8 @@ PY
 # ─── EPUB / DOCX / ODT (pandoc) ────────────────────────────────────────────
 echo "→ epub / docx / odt"
 tmp_md=$(mktemp).md
-trap 'rm -f "$tmp_md"' EXIT
+arc_tmp=$(mktemp -d)
+trap 'rm -f "$tmp_md"; rm -rf "$arc_tmp"' EXIT
 
 cat > "$tmp_md" <<'EOF'
 ---
@@ -163,6 +164,32 @@ slide.shapes.title.text = "Sample PPTX Fixture"
 slide.placeholders[1].text = "Generated for the content-type test suite."
 p.save("sample.pptx")
 PY
+
+# ─── Archives ──────────────────────────────────────────────────────────────
+# Five fixtures cover the four registered archive families plus the .jar
+# extension alias of archive/zip. All entries live under a single top-level
+# directory `sample/` so has_root_dir=true on every multi-entry fixture.
+#
+# COPYFILE_DISABLE=1 + --no-xattrs are mandatory on macOS — without them tar
+# injects AppleDouble `._*` metadata files that pollute top_level_entries.
+echo "→ archives"
+fixtures_dir="$PWD"
+mkdir -p "$arc_tmp/sample"
+printf 'hello\n' > "$arc_tmp/sample/README.txt"
+printf 'x'       > "$arc_tmp/sample/data.txt"
+printf 'y'       > "$arc_tmp/sample/more.txt"
+
+rm -f sample.zip sample.tar sample.tar.gz sample.gz sample.jar
+(cd "$arc_tmp" && zip -qr "$fixtures_dir/sample.zip" sample)
+COPYFILE_DISABLE=1 tar --no-xattrs -cf sample.tar -C "$arc_tmp" sample
+COPYFILE_DISABLE=1 tar --no-xattrs -czf sample.tar.gz -C "$arc_tmp" sample
+
+# Standalone gzip — single stream over a small text payload.
+printf 'gzip standalone payload\n' > "$arc_tmp/sample.txt"
+gzip -c "$arc_tmp/sample.txt" > sample.gz
+
+# .jar is a ZIP under another extension — same bytes work.
+cp sample.zip sample.jar
 
 echo
 echo "Done. Inventory:"
