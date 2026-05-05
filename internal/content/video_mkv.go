@@ -23,6 +23,9 @@ var (
 	mkvIDVideo          = []byte{0xE0}
 	mkvIDPixelWidth     = []byte{0xB0}
 	mkvIDPixelHeight    = []byte{0xBA}
+	mkvIDAudio          = []byte{0xE1}
+	mkvIDSampleRate     = []byte{0xB5} // SamplingFrequency, EBML float
+	mkvIDChannels       = []byte{0x9F}
 )
 
 // readMKVInfo walks the EBML tree of a MKV/WebM file extracting playback
@@ -96,6 +99,8 @@ func readMKVTrackEntry(r io.ReadSeeker, end int64, info *videoInfo) error {
 	var codecID string
 	var defaultDur uint64
 	var width, height uint64
+	var sampleRate float64
+	var channels uint64
 
 	if err := walkEBML(r, mustPos(r), end, func(id []byte, end int64) error {
 		switch {
@@ -125,6 +130,20 @@ func readMKVTrackEntry(r io.ReadSeeker, end int64, info *videoInfo) error {
 				}
 				return nil
 			})
+		case idEquals(id, mkvIDAudio):
+			return walkEBML(r, mustPos(r), end, func(id []byte, end int64) error {
+				switch {
+				case idEquals(id, mkvIDSampleRate):
+					if v, err := readEBMLFloat(r, end); err == nil {
+						sampleRate = v
+					}
+				case idEquals(id, mkvIDChannels):
+					if v, err := readEBMLUint(r, end); err == nil {
+						channels = v
+					}
+				}
+				return nil
+			})
 		}
 		return nil
 	}); err != nil {
@@ -144,8 +163,17 @@ func readMKVTrackEntry(r io.ReadSeeker, end int64, info *videoInfo) error {
 			info.FrameRate = 1e9 / float64(defaultDur)
 		}
 	case 2: // audio
+		// First audio track wins; multi-track files (multi-language films)
+		// use track-1 audio for the AudioCodec / sample rate / channel
+		// fields. Subsequent audio tracks are ignored.
 		if info.AudioCodec == "" {
 			info.AudioCodec = mkvCodecName(codecID)
+			if sampleRate > 0 {
+				info.AudioSampleRate = int64(sampleRate)
+			}
+			if channels > 0 {
+				info.AudioChannels = int64(channels)
+			}
 		}
 	}
 	return nil
