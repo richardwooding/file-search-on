@@ -1,0 +1,27 @@
+From: "Alice Tester" <alice@example.com>
+To: "Bob Reviewer" <bob@example.com>, charlie@example.com
+Cc: "QA Team" <qa@example.com>
+Subject: Sample Email Fixture
+Date: Tue, 14 Apr 2026 09:30:00 +0000
+Message-ID: <fixture-001@example.com>
+In-Reply-To: <thread-root-000@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="boundary-fixture-42"
+
+--boundary-fixture-42
+Content-Type: text/plain; charset=utf-8
+
+This is the body of the sample email fixture used by the file-search-on
+test suite.
+
+The fixture exercises the email/rfc822 content type with a multipart
+message containing one text/plain body part and one attachment part.
+
+--boundary-fixture-42
+Content-Type: application/octet-stream; name="report.bin"
+Content-Disposition: attachment; filename="report.bin"
+Content-Transfer-Encoding: base64
+
+aGVsbG8gd29ybGQK
+
+--boundary-fixture-42--

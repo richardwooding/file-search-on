@@ -18,12 +18,12 @@ file-search-on 'is_image && soundex(camera_make) == soundex("Nikon")'           
 file-search-on 'is_markdown && ngram_similarity(title, "kubernetes", 2) > 0.6'    # substring-tolerant title match
 ```
 
-Across **31 file formats** organised into ten content-type families (documents, data, images, audio, video, office, ebooks, plain text, archives, compiled binaries), with format-specific metadata extraction.
+Across **33 file formats** organised into eleven content-type families (documents, data, images, audio, video, office, ebooks, plain text, archives, compiled binaries, email), with format-specific metadata extraction.
 
 ## Features
 
 - **Pluggable content-type detection** — extension-first with magic-byte fallback. New formats are a single registration call.
-- **Ten content-type families**, each with its own metadata extractors:
+- **Eleven content-type families**, each with its own metadata extractors:
 
   | Family | Formats | Bundle of attributes |
   | --- | --- | --- |
@@ -37,6 +37,7 @@ Across **31 file formats** organised into ten content-type families (documents, 
   | **Office** | DOCX, XLSX, PPTX, ODT | title, author, language (Dublin Core) |
   | **Archives** | ZIP (incl. JAR / WAR / EAR), TAR, TAR.GZ, GZIP | entry_count, uncompressed_size, top_level_entries, has_root_dir |
   | **Binaries** | ELF (Linux/BSD), Mach-O (macOS, incl. universal), PE (Windows) | architectures, bitness, binary_format, binary_type, is_dynamically_linked, is_stripped, entry_point |
+  | **Email** | RFC 5322 (`.eml`), Unix mbox (`.mbox`) | title (subject), author (from), email_to, email_cc, sent_at, attachment_count, email_count |
 
   Type predicates (`is_pdf`, `is_image`, `is_audio`, `is_video`, `is_office`, `is_epub`, …) light up automatically from the registered content type. See [examples/](./examples/) for recipes by family.
 
@@ -201,7 +202,7 @@ Run `file-search-on --list` for the canonical, up-to-date listing. The summary t
 | `size` | int | File size in bytes |
 | `ext` | string | File extension (e.g. `.md`) |
 | `content_type` | string | Detected content type |
-| `is_markdown`, `is_json`, `is_xml`, `is_html`, `is_pdf`, `is_image`, `is_text`, `is_csv`, `is_epub`, `is_office`, `is_audio`, `is_video`, `is_archive`, `is_binary` | bool | Type predicates |
+| `is_markdown`, `is_json`, `is_xml`, `is_html`, `is_pdf`, `is_image`, `is_text`, `is_csv`, `is_epub`, `is_office`, `is_audio`, `is_video`, `is_archive`, `is_binary`, `is_email` | bool | Type predicates |
 
 ### Document / markup
 
@@ -300,6 +301,24 @@ Compiled executables — ELF (Linux/BSD), Mach-O (macOS, including universal/fat
 | `entry_point` | int | Virtual-address entry point (ELF `Entry` / PE `AddressOfEntryPoint`). Zero for shared libraries, object files, and Mach-O (debug/macho doesn't expose `LC_MAIN.entryoff`). |
 
 **Detection**: ELF (`\x7FELF`), Mach-O thin magics (4 variants), and PE (`MZ`) are all extension-or-magic. Mach-O fat magic `0xCAFEBABE` is **not** registered to avoid the Java `.class` collision; fat binaries are recognised via extension (`.dylib`) or by being parsed once Mach-O detection has fired some other way.
+
+### Email
+
+RFC 5322 messages (`.eml`, `.email`) and Unix mbox archives (`.mbox`). Both parsed via stdlib `net/mail` for headers + `mime/multipart` for attachment counting; no third-party libs. For `.mbox` archives, the per-message attributes (`title`, `author`, `email_to`, `sent_at`, …) reflect the **first** message — `email_count` carries the multi-message shape.
+
+| Attribute | Type | Source |
+| --- | --- | --- |
+| `title` | string | RFC 5322 `Subject` (RFC 2047 encoded-words decoded; reused with markdown/PDF/EPUB/office/audio titles) |
+| `author` | string | RFC 5322 `From` — display name preferred, falls back to address (reused with markdown/PDF/EPUB/office authors) |
+| `email_to` | `list<string>` | `To` header — addresses only; display names dropped to keep list shape predictable for `"alice@example.com" in email_to` |
+| `email_cc` | `list<string>` | `Cc` header — addresses only |
+| `email_message_id` | string | `Message-ID` header (angle brackets stripped) |
+| `email_in_reply_to` | string | `In-Reply-To` header (angle brackets stripped) |
+| `sent_at` | timestamp | `Date` header parsed via `mail.ParseDate` |
+| `attachment_count` | int | top-level multipart parts with `Content-Disposition: attachment` or a `filename` parameter. Zero for non-multipart messages. |
+| `email_count` | int | mbox archives — number of messages (count of `^From ` separator lines). Always 1 for single `.eml` files. |
+
+**Detection**: `.eml` is extension-only (RFC 5322 messages can begin with any header — no canonical magic). `.mbox` is extension + magic `From ` (5 bytes — F, r, o, m, space) at offset 0. Outlook `.msg` is out of scope (proprietary OLE binary). Maildir directories are handled implicitly — each file inside is `.eml`-shaped.
 
 ### Built-in functions — fuzzy, phonetic, and geographic matching
 

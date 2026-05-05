@@ -1,0 +1,28 @@
+From alice@example.com Tue Apr 14 09:30:00 2026
+From: "Alice Tester" <alice@example.com>
+To: "Bob Reviewer" <bob@example.com>
+Subject: Sample MBOX First Message
+Date: Tue, 14 Apr 2026 09:30:00 +0000
+Message-ID: <mbox-001@example.com>
+
+First message in the mbox fixture. The first-message attributes
+flow through to the email parser surface.
+
+From bob@example.com Tue Apr 14 10:15:00 2026
+From: "Bob Reviewer" <bob@example.com>
+To: "Alice Tester" <alice@example.com>
+Subject: Re: Sample MBOX First Message
+Date: Tue, 14 Apr 2026 10:15:00 +0000
+Message-ID: <mbox-002@example.com>
+In-Reply-To: <mbox-001@example.com>
+
+Second message — a reply.
+
+From charlie@example.com Tue Apr 14 11:00:00 2026
+From: charlie@example.com
+To: alice@example.com, bob@example.com
+Subject: Unrelated thread
+Date: Tue, 14 Apr 2026 11:00:00 +0000
+Message-ID: <mbox-003@example.com>
+
+Third message in the archive — distinct thread.
