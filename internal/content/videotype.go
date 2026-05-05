@@ -79,6 +79,9 @@ func (v *videoType) Attributes(ctx context.Context, fsys fs.FS, path string) (At
 	if info.AudioChannels > 0 {
 		attrs["channels"] = info.AudioChannels
 	}
+	if info.Rotation > 0 {
+		attrs["rotation"] = info.Rotation
+	}
 	return attrs, nil
 }
 

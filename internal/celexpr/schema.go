@@ -92,6 +92,7 @@ func Schema() SchemaDoc {
 			{"video_width", "int", "video frame width in pixels"},
 			{"video_height", "int", "video frame height in pixels"},
 			{"frame_rate", "double", "video frame rate in fps"},
+			{"rotation", "int", "video display rotation in degrees (0 / 90 / 180 / 270) decoded from the MP4 tkhd matrix; 0 for non-rotated, non-MP4 formats, or non-pure-rotation matrices"},
 		},
 		Frontmatter: []AttributeDoc{
 			{"frontmatter", "map", "full parsed front-matter, e.g. frontmatter.category"},
