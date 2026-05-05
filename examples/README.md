@@ -15,6 +15,7 @@ CEL expression recipes by content family, plus cross-cutting cookbook patterns.
 | [`archives.md`](./archives.md) | ZIP / TAR / TAR.GZ / GZIP — Downloads triage, ZIP-bomb detection, compression ratios |
 | [`binaries.md`](./binaries.md) | ELF / Mach-O / PE — architecture filtering, static-vs-dynamic, stripped triage, rogue `.exe` hunting |
 | [`email.md`](./email.md) | `.eml` / `.mbox` — inbox triage, find emails by sender / subject / date, mbox archive sniffing |
+| [`source-code.md`](./source-code.md) | Go / Python / JS / TS / Rust / C / C++ / Java / Ruby / Swift / Kotlin / Shell / Lua / Elixir / Clojure / Haskell / OCaml / Zig — LOC counts, language filtering, comment density |
 | [`cookbook.md`](./cookbook.md) | Cross-family queries, output-format pipelines, integration with find / jq / ffmpeg / rga |
 | [`fuzzy-search.md`](./fuzzy-search.md) | Fuzzy / phonetic / n-gram similarity matching with `levenshtein`, `soundex`, `ngrams`, `ngram_similarity` |
 

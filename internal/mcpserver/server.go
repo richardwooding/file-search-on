@@ -90,6 +90,7 @@ type SearchMatch struct {
 	IsArchive  bool `json:"is_archive,omitempty"`
 	IsBinary   bool `json:"is_binary,omitempty"`
 	IsEmail    bool `json:"is_email,omitempty"`
+	IsSource   bool `json:"is_source,omitempty"`
 
 	Artist      string `json:"artist,omitempty"`
 	Album       string `json:"album,omitempty"`
@@ -143,6 +144,10 @@ type SearchMatch struct {
 	SentAt          string   `json:"sent_at,omitempty"` // RFC3339 when set
 	AttachmentCount int64    `json:"attachment_count,omitempty"`
 	EmailCount      int64    `json:"email_count,omitempty"`
+
+	LOC        int64 `json:"loc,omitempty"`
+	CommentLOC int64 `json:"comment_loc,omitempty"`
+	BlankLOC   int64 `json:"blank_loc,omitempty"`
 }
 
 // matchFrom projects a search.Result (with Attrs populated) into a
@@ -165,6 +170,7 @@ func matchFrom(r search.Result) SearchMatch {
 	m.IsArchive = a.IsArchive
 	m.IsBinary = a.IsBinary
 	m.IsEmail = a.IsEmail
+	m.IsSource = a.IsSource
 
 	if a.Extra == nil {
 		return m
@@ -370,6 +376,15 @@ func matchFrom(r search.Result) SearchMatch {
 	if v, ok := a.Extra["email_count"].(int64); ok {
 		m.EmailCount = v
 	}
+	if v, ok := a.Extra["loc"].(int64); ok {
+		m.LOC = v
+	}
+	if v, ok := a.Extra["comment_loc"].(int64); ok {
+		m.CommentLOC = v
+	}
+	if v, ok := a.Extra["blank_loc"].(int64); ok {
+		m.BlankLOC = v
+	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
 		m.FrontmatterFormat = v
 	}
@@ -421,7 +436,7 @@ func New(version string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "search",
-		Description: "Recursively search a directory for files matching a CEL expression evaluated over file metadata and content-type-specific attributes. Supports eleven content-type families (documents, markup, data, plain text, images, audio, video, office, archives — ZIP / TAR / GZIP — compiled binaries — ELF / Mach-O / PE — and email — .eml / .mbox). CEL expressions can use built-in fuzzy-match functions — levenshtein(a, b) for edit distance, soundex(s) for phonetic codes, ngrams(s, n) for character n-grams, ngram_similarity(a, b, n) for Jaccard similarity — and the geographic helper point_in_polygon(lat, lon, polygon) for filtering by arbitrary GPS-coordinate boundaries. Call list_attributes for the full attribute and function schema.",
+		Description: "Recursively search a directory for files matching a CEL expression evaluated over file metadata and content-type-specific attributes. Supports twelve content-type families (documents, markup, data, plain text, images, audio, video, office, archives — ZIP / TAR / GZIP — compiled binaries — ELF / Mach-O / PE — email — .eml / .mbox — and source code — Go / Python / JS / TS / Rust / C / C++ / Java / Ruby / Swift / Kotlin / Shell / Lua / Elixir / Clojure / Haskell / OCaml / Zig). CEL expressions can use built-in fuzzy-match functions — levenshtein(a, b) for edit distance, soundex(s) for phonetic codes, ngrams(s, n) for character n-grams, ngram_similarity(a, b, n) for Jaccard similarity — and the geographic helper point_in_polygon(lat, lon, polygon) for filtering by arbitrary GPS-coordinate boundaries. Call list_attributes for the full attribute and function schema.",
 	}, searchHandler)
 
 	mcp.AddTool(s, &mcp.Tool{
