@@ -116,6 +116,9 @@ type SearchMatch struct {
 
 	Subtitles         bool     `json:"subtitles,omitempty"`
 	SubtitleLanguages []string `json:"subtitle_languages,omitempty"`
+
+	ReplayGainTrackGain float64 `json:"replaygain_track_gain,omitempty"`
+	ReplayGainAlbumGain float64 `json:"replaygain_album_gain,omitempty"`
 }
 
 // matchFrom projects a search.Result (with Attrs populated) into a
@@ -279,6 +282,12 @@ func matchFrom(r search.Result) SearchMatch {
 	}
 	if v, ok := a.Extra["subtitle_languages"].([]string); ok && len(v) > 0 {
 		m.SubtitleLanguages = v
+	}
+	if v, ok := a.Extra["replaygain_track_gain"].(float64); ok {
+		m.ReplayGainTrackGain = v
+	}
+	if v, ok := a.Extra["replaygain_album_gain"].(float64); ok {
+		m.ReplayGainAlbumGain = v
 	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
 		m.FrontmatterFormat = v

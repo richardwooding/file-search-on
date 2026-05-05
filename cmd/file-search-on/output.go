@@ -95,6 +95,9 @@ type Record struct {
 
 	Subtitles         bool     `json:"subtitles,omitempty"`
 	SubtitleLanguages []string `json:"subtitle_languages,omitempty"`
+
+	ReplayGainTrackGain float64 `json:"replaygain_track_gain,omitempty"`
+	ReplayGainAlbumGain float64 `json:"replaygain_album_gain,omitempty"`
 }
 
 // recordFrom projects a search.Result into the wire shape. Falls back to
@@ -269,6 +272,12 @@ func recordFrom(r search.Result) Record {
 	if v, ok := a.Extra["subtitle_languages"].([]string); ok && len(v) > 0 {
 		rec.SubtitleLanguages = v
 	}
+	if v, ok := a.Extra["replaygain_track_gain"].(float64); ok {
+		rec.ReplayGainTrackGain = v
+	}
+	if v, ok := a.Extra["replaygain_album_gain"].(float64); ok {
+		rec.ReplayGainAlbumGain = v
+	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
 		rec.FrontmatterFormat = v
 	}
@@ -377,6 +386,8 @@ func printVerbose(w io.Writer, results []search.Result) {
 		printIfInt(w, "sample_rate", rec.SampleRate)
 		printIfInt(w, "channels", rec.Channels)
 		printIfInt(w, "bit_depth", rec.BitDepth)
+		printIfFloat(w, "rg_track_gain", rec.ReplayGainTrackGain)
+		printIfFloat(w, "rg_album_gain", rec.ReplayGainAlbumGain)
 
 		// Video.
 		printIfStr(w, "video_codec", rec.VideoCodec)

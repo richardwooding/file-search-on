@@ -111,6 +111,8 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("is_hdr", cel.BoolType),
 		cel.Variable("subtitles", cel.BoolType),
 		cel.Variable("subtitle_languages", cel.ListType(cel.StringType)),
+		cel.Variable("replaygain_track_gain", cel.DoubleType),
+		cel.Variable("replaygain_album_gain", cel.DoubleType),
 		cel.Variable("frontmatter", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("frontmatter_format", cel.StringType),
 		cel.Variable("tags", cel.ListType(cel.StringType)),
@@ -206,6 +208,8 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 		"is_hdr":             false,
 		"subtitles":          false,
 		"subtitle_languages": []string{},
+		"replaygain_track_gain": float64(0),
+		"replaygain_album_gain": float64(0),
 		"frontmatter":        map[string]any{},
 		"frontmatter_format": "",
 		"tags":               []string{},
@@ -311,6 +315,10 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 				activation["subtitles"] = v
 			case "subtitle_languages":
 				activation["subtitle_languages"] = v
+			case "replaygain_track_gain":
+				activation["replaygain_track_gain"] = v
+			case "replaygain_album_gain":
+				activation["replaygain_album_gain"] = v
 			case "frontmatter":
 				activation["frontmatter"] = v
 			case "frontmatter_format":
