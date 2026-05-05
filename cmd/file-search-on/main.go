@@ -109,6 +109,7 @@ type SearchCmd struct {
 	MaxLineBytes int    `short:"L" name:"max-line-bytes" help:"Per-line scanner cap for text/CSV/HTML (bytes). 0 uses the 1 MiB default." default:"0"`
 	Output       string `short:"o" name:"output" enum:"bare,default,verbose,json" default:"default" help:"Output format: bare | default | verbose | json."`
 	Format       string `name:"format" help:"Custom Go text/template applied per match (e.g. '{{.Path}}\\t{{.Title}}'). When set, takes precedence over -o."`
+	Unsorted     bool   `name:"unsorted" help:"Stream matches in walk order instead of buffering+sorting. Default and verbose modes still emit the count footer; bare/json/template are streamed and unsorted regardless."`
 }
 
 func (s *SearchCmd) Run(ctx context.Context) error {
@@ -142,23 +143,21 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		IncludeAttributes: includeAttrs,
 	}
 
-	// Streaming-friendly modes (bare / json / template) print as matches
-	// arrive — first result lands on stdout immediately rather than
-	// waiting for the full walk. The buffered path stays for default and
-	// verbose because both emit a "N file(s) found" footer that needs the
-	// total count.
-	if tmpl != nil {
-		return streamSearch(ctx, opts, tmpl, "")
-	}
-	if s.Output == "bare" || s.Output == "json" {
-		return streamSearch(ctx, opts, nil, s.Output)
+	// Streaming-friendly modes (bare / json / template) always stream —
+	// first result lands on stdout immediately rather than waiting for
+	// the full walk. Default and verbose stream too when --unsorted is
+	// set; otherwise they buffer for sort+footer (the historical UX).
+	streaming := tmpl != nil || s.Output == "bare" || s.Output == "json" || s.Unsorted
+	if streaming {
+		return streamSearch(ctx, opts, tmpl, s.Output)
 	}
 	return bufferedSearch(ctx, opts, s.Output)
 }
 
 // streamSearch drives WalkStream and prints each match as it arrives.
-// Either tmpl is non-nil (custom --format template) OR mode is "bare"
-// or "json" — never both. No sort, no count footer.
+// For default and verbose modes, counts records as they flow through
+// and emits the "N file(s) found" footer to stderr after the stream
+// closes — preserves the count UX even in streaming mode.
 func streamSearch(ctx context.Context, opts search.Options, tmpl *template.Template, mode string) error {
 	out := make(chan search.Result, 64)
 	var walkErr error
@@ -169,18 +168,26 @@ func streamSearch(ctx context.Context, opts search.Options, tmpl *template.Templ
 	}()
 
 	var printErr error
+	var count int64
 	switch {
 	case tmpl != nil:
 		printErr = printTemplateStream(os.Stdout, out, tmpl)
 	case mode == "json":
 		printErr = printJSONStream(os.Stdout, out)
-	default: // "bare"
+	case mode == "bare":
 		printBareStream(os.Stdout, out)
+	case mode == "verbose":
+		count = printVerboseStream(os.Stdout, out)
+	default: // "default"
+		count = printDefaultStream(os.Stdout, out)
 	}
 	<-done
 
 	if walkErr != nil {
 		return fmt.Errorf("search failed: %w", walkErr)
+	}
+	if mode == "default" || mode == "verbose" {
+		fmt.Fprintf(os.Stderr, "\n%d file(s) found\n", count)
 	}
 	return printErr
 }

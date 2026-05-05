@@ -183,6 +183,45 @@ func TestPrintJSONStream(t *testing.T) {
 	}
 }
 
+func TestPrintDefaultStream(t *testing.T) {
+	var buf bytes.Buffer
+	count := printDefaultStream(&buf, fixtureChan())
+	if count != 2 {
+		t.Errorf("count = %d; want 2", count)
+	}
+	got := buf.String()
+	if !strings.Contains(got, "docs/intro.md\t[markdown]\t4321 bytes") {
+		t.Errorf("printDefaultStream missing markdown row: %q", got)
+	}
+	if !strings.Contains(got, "data/sample.csv\t[csv]\t212 bytes") {
+		t.Errorf("printDefaultStream missing csv row: %q", got)
+	}
+}
+
+func TestPrintVerboseStream(t *testing.T) {
+	var buf bytes.Buffer
+	count := printVerboseStream(&buf, fixtureChan())
+	if count != 2 {
+		t.Errorf("count = %d; want 2", count)
+	}
+	got := buf.String()
+	for _, want := range []string{
+		"docs/intro.md\n",
+		"content_type   markdown",
+		"title         Introduction",
+		"data/sample.csv\n",
+		"column_count  4",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("printVerboseStream missing %q in:\n%s", want, got)
+		}
+	}
+	// Two records separated by a blank line.
+	if strings.Count(got, "content_type   ") != 2 {
+		t.Errorf("expected 2 records; got:\n%s", got)
+	}
+}
+
 func TestPrintTemplateStream(t *testing.T) {
 	tmpl, err := parseFormatTemplate(`{{.Path}}\t{{.Title}}`)
 	if err != nil {
