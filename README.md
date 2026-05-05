@@ -124,6 +124,18 @@ file-search-on 'is_markdown' -d ./docs --format '{{.Path}}\t{{.Title}}\t{{.WordC
 
 `-o bare`, `-o json`, and `--format` suppress the `<N> file(s) found` summary on stderr (the count is implicit in the line count). `--format` uses Go [`text/template`](https://pkg.go.dev/text/template); the data context is a flat record — `{{.Path}}`, `{{.Title}}`, `{{.WordCount}}`, `{{.Frontmatter}}`, all the `Is*` booleans, etc. Backslash escapes (`\t`, `\n`) are expanded before parsing.
 
+### Single-file inspection
+
+When you already have a path and just want every attribute the parser produces, use the `attrs` subcommand. It skips the walker and the CEL filter — straight to `BuildAttributes` on one file:
+
+```sh
+file-search-on attrs ~/Pictures/photo.jpg
+file-search-on attrs ~/Music/track.mp3 -o json | jq '.bitrate'
+file-search-on attrs ~/Documents/report.pdf --format '{{.Title}} ({{.PageCount}} pages)'
+```
+
+`-o verbose` is the default for `attrs` — it dumps every populated attribute (camera / EXIF for photos, ID3v2 / playback for audio, codec / dimensions / framerate for video, Dublin Core for office docs, frontmatter for markdown). `-o json` and `--format` use the same record schema as `search`. The MCP equivalent is the `read_attributes` tool — same shape, same coverage.
+
 ## Recipes
 
 Focused recipe collections live under [`examples/`](./examples/):
@@ -329,14 +341,15 @@ file-search-on mcp --transport sse  --addr :8080         # HTTP+SSE (DEPRECATED 
 
 For HTTP and SSE, `--addr` (default `:8080`) is the bind address and `--path` (default `/`) is the URL prefix.
 
-Two tools are exposed:
+Three tools are exposed:
 
 | Tool | Input | Output |
 | --- | --- | --- |
 | `search` | `expr`, `dir`, `workers`, `max_line_bytes` | `matches[]` (full attribute set per match) and `count` |
-| `list_attributes` | none | `schema` (common, type_specific, frontmatter) and `content_types[]` |
+| `read_attributes` | `path` | A single match — same shape as one `matches[]` entry from `search`. Use when the agent already has the path and wants metadata without walking. |
+| `list_attributes` | none | `schema` (common, type_specific, frontmatter, functions) and `content_types[]` |
 
-Empty `expr` matches everything; empty `dir` defaults to `.`. `workers` falls back to `runtime.NumCPU()`.
+Empty `expr` matches everything; empty `dir` defaults to `.`. `workers` falls back to `runtime.NumCPU()`. `read_attributes` requires `path`; relative paths resolve against the server's working directory, so absolute paths are preferred.
 
 Example Claude Desktop entry in `claude_desktop_config.json` (stdio):
 

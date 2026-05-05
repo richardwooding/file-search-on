@@ -286,7 +286,11 @@ func printDefault(w io.Writer, results []search.Result) {
 	}
 }
 
-// printVerbose writes a multi-line indented record per match.
+// printVerbose writes a multi-line indented record per match. Every
+// populated attribute is surfaced — common fields first (path, type,
+// size), then per-family blocks (markup, EXIF, audio tags, audio
+// playback, video, frontmatter). Zero-valued fields are skipped so the
+// output stays compact for files that only carry a subset.
 func printVerbose(w io.Writer, results []search.Result) {
 	for i, r := range results {
 		if i > 0 {
@@ -296,17 +300,56 @@ func printVerbose(w io.Writer, results []search.Result) {
 		fpn(w, rec.Path)
 		fp(w, "  content_type   %s\n", rec.ContentType)
 		fp(w, "  size           %s bytes\n", commafy(rec.Size))
+
+		// Common metadata.
 		printIfStr(w, "title", rec.Title)
 		printIfStr(w, "author", rec.Author)
 		printIfStr(w, "language", rec.Language)
+
+		// Markup / text / data shape.
 		printIfInt(w, "word_count", rec.WordCount)
 		printIfInt(w, "line_count", rec.LineCount)
 		printIfInt(w, "page_count", rec.PageCount)
 		printIfInt(w, "column_count", rec.ColumnCount)
-		printIfInt(w, "img_width", rec.ImgWidth)
-		printIfInt(w, "img_height", rec.ImgHeight)
 		printIfStr(w, "root_element", rec.RootElement)
 		printIfStr(w, "json_kind", rec.JSONKind)
+
+		// Image dimensions + EXIF.
+		printIfInt(w, "img_width", rec.ImgWidth)
+		printIfInt(w, "img_height", rec.ImgHeight)
+		printIfStr(w, "camera_make", rec.CameraMake)
+		printIfStr(w, "camera_model", rec.CameraModel)
+		printIfStr(w, "lens", rec.Lens)
+		printIfStr(w, "taken_at", rec.TakenAt)
+		printIfInt(w, "orientation", rec.Orientation)
+		printIfFloat(w, "gps_lat", rec.GPSLat)
+		printIfFloat(w, "gps_lon", rec.GPSLon)
+		printIfInt(w, "iso", rec.ISO)
+		printIfFloat(w, "focal_length", rec.FocalLength)
+		printIfFloat(w, "f_stop", rec.FStop)
+		printIfFloat(w, "exposure_time", rec.ExposureTime)
+
+		// Audio tags + playback.
+		printIfStr(w, "artist", rec.Artist)
+		printIfStr(w, "album", rec.Album)
+		printIfStr(w, "album_artist", rec.AlbumArtist)
+		printIfStr(w, "composer", rec.Composer)
+		printIfStr(w, "genre", rec.Genre)
+		printIfInt(w, "year", rec.Year)
+		printIfInt(w, "track", rec.Track)
+		printIfFloat(w, "duration", rec.Duration)
+		printIfInt(w, "bitrate", rec.Bitrate)
+		printIfInt(w, "sample_rate", rec.SampleRate)
+		printIfInt(w, "channels", rec.Channels)
+
+		// Video.
+		printIfStr(w, "video_codec", rec.VideoCodec)
+		printIfStr(w, "audio_codec", rec.AudioCodec)
+		printIfInt(w, "video_width", rec.VideoWidth)
+		printIfInt(w, "video_height", rec.VideoHeight)
+		printIfFloat(w, "frame_rate", rec.FrameRate)
+
+		// Frontmatter shape + lists + date.
 		if rec.FrontmatterFormat != "" {
 			fp(w, "  %-13s %s (%d keys)\n", "frontmatter", rec.FrontmatterFormat, len(rec.Frontmatter))
 		}
@@ -332,6 +375,12 @@ func printIfStr(w io.Writer, label, v string) {
 func printIfInt(w io.Writer, label string, v int64) {
 	if v != 0 {
 		fp(w, "  %-13s %s\n", label, commafy(v))
+	}
+}
+
+func printIfFloat(w io.Writer, label string, v float64) {
+	if v != 0 {
+		fp(w, "  %-13s %g\n", label, v)
 	}
 }
 
