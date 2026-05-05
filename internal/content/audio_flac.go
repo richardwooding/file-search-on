@@ -13,6 +13,7 @@ type audioInfo struct {
 	Duration   float64 // seconds
 	SampleRate int64   // Hz
 	Channels   int64
+	BitDepth   int64 // bits per sample (FLAC + MP4 only; MP3 and OGG leave it 0)
 }
 
 // readFLACInfo parses the STREAMINFO metadata block of a FLAC file. The block
@@ -55,21 +56,27 @@ func readFLACInfo(r io.ReadSeeker) (audioInfo, error) {
 	sampleRate := uint32(body[10])<<12 | uint32(body[11])<<4 | uint32(body[12])>>4
 	channels := int64((body[12]>>1)&0x07) + 1
 
+	// bps-1 is 5 bits straddling the byte 12/13 boundary: 1 bit at the
+	// bottom of body[12], 4 bits at the top of body[13]. Stored as
+	// (actual bps - 1), so 16-bit FLAC stores 15.
+	bitDepth := int64((body[12]&0x01)<<4) | int64((body[13]>>4)&0x0F)
+	bitDepth++
+
 	// Bytes 13-17: 4 high bits of bps-1 + 36 bits total_samples.
-	// We don't need bps for our shape; total_samples is the bottom 36 bits
-	// of body[13..17] (5 bytes, big-endian, with the top 4 bits being the
-	// remaining bits of bits-per-sample-1).
+	// total_samples is the bottom 36 bits of body[13..17] (5 bytes,
+	// big-endian, with the top 4 bits being the remaining bits of
+	// bits-per-sample-1).
 	hi := uint64(body[13]) & 0x0F
 	mid := uint64(binary.BigEndian.Uint32(body[14:18]))
 	totalSamples := (hi << 32) | mid
 
-	if sampleRate == 0 || totalSamples == 0 {
-		// Block is structurally valid but doesn't carry duration info.
-		return audioInfo{SampleRate: int64(sampleRate), Channels: channels}, nil
-	}
-	return audioInfo{
-		Duration:   float64(totalSamples) / float64(sampleRate),
+	info := audioInfo{
 		SampleRate: int64(sampleRate),
 		Channels:   channels,
-	}, nil
+		BitDepth:   bitDepth,
+	}
+	if sampleRate > 0 && totalSamples > 0 {
+		info.Duration = float64(totalSamples) / float64(sampleRate)
+	}
+	return info, nil
 }

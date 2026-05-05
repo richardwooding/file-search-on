@@ -86,6 +86,7 @@ func Schema() SchemaDoc {
 			{"bitrate", "int", "audio average bitrate in kbps (computed file_size * 8 / duration / 1000)"},
 			{"sample_rate", "int", "audio sample rate in Hz"},
 			{"channels", "int", "audio channel count (1 = mono, 2 = stereo, etc.)"},
+			{"bit_depth", "int", "audio bits per sample (FLAC STREAMINFO / MP4 stsd sample_size; zero for MP3 / OGG which don't store it)"},
 			{"video_codec", "string", "video codec (h264, h265, av1, vp9, vp8, mpeg4, etc.)"},
 			{"audio_codec", "string", "audio codec for the audio track in a video container (aac, mp3, opus, vorbis, etc.)"},
 			{"video_width", "int", "video frame width in pixels"},

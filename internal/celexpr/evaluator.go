@@ -98,6 +98,7 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("bitrate", cel.IntType),
 		cel.Variable("sample_rate", cel.IntType),
 		cel.Variable("channels", cel.IntType),
+		cel.Variable("bit_depth", cel.IntType),
 		cel.Variable("video_codec", cel.StringType),
 		cel.Variable("audio_codec", cel.StringType),
 		cel.Variable("video_width", cel.IntType),
@@ -185,6 +186,7 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 		"bitrate":            int64(0),
 		"sample_rate":        int64(0),
 		"channels":           int64(0),
+		"bit_depth":          int64(0),
 		"video_codec":        "",
 		"audio_codec":        "",
 		"video_width":        int64(0),
@@ -269,6 +271,8 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 				activation["sample_rate"] = v
 			case "channels":
 				activation["channels"] = v
+			case "bit_depth":
+				activation["bit_depth"] = v
 			case "video_codec":
 				activation["video_codec"] = v
 			case "audio_codec":

@@ -93,8 +93,9 @@ func readMVHD(r io.ReadSeeker, contentLen int64, info *audioInfo) error {
 // readAudioSTSD parses stsd looking for the first audio sample entry. Layout:
 // 1 byte version + 3 bytes flags + 4 bytes entry_count + first entry. Each
 // entry starts with the standard 8-byte box header + a 28-byte
-// AudioSampleEntry preamble; channels are at preamble offset +16 (uint16)
-// and sample_rate at +24 (uint16, fixed-point — only the integer part).
+// AudioSampleEntry preamble; channels are at preamble offset +16 (uint16),
+// sample_size (bits per sample) at +18 (uint16), and sample_rate at +24
+// (uint16, fixed-point — only the integer part).
 func readAudioSTSD(r io.ReadSeeker, end int64, info *audioInfo) error {
 	var preamble [8]byte
 	if _, err := io.ReadFull(r, preamble[:]); err != nil {
@@ -116,6 +117,7 @@ func readAudioSTSD(r io.ReadSeeker, end int64, info *audioInfo) error {
 				return err
 			}
 			info.Channels = int64(binary.BigEndian.Uint16(body[16:18]))
+			info.BitDepth = int64(binary.BigEndian.Uint16(body[18:20]))
 			info.SampleRate = int64(binary.BigEndian.Uint16(body[24:26]))
 			return nil
 		}

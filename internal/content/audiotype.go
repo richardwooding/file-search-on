@@ -89,6 +89,9 @@ func (a *audioType) Attributes(ctx context.Context, fsys fs.FS, path string) (At
 		if info.Channels > 0 {
 			attrs["channels"] = info.Channels
 		}
+		if info.BitDepth > 0 {
+			attrs["bit_depth"] = info.BitDepth
+		}
 	}
 	return attrs, nil
 }

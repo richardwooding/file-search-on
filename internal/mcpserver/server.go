@@ -100,6 +100,7 @@ type SearchMatch struct {
 	Bitrate    int64   `json:"bitrate,omitempty"`
 	SampleRate int64   `json:"sample_rate,omitempty"`
 	Channels   int64   `json:"channels,omitempty"`
+	BitDepth   int64   `json:"bit_depth,omitempty"`
 
 	VideoCodec  string  `json:"video_codec,omitempty"`
 	AudioCodec  string  `json:"audio_codec,omitempty"`
@@ -230,6 +231,9 @@ func matchFrom(r search.Result) SearchMatch {
 	}
 	if v, ok := a.Extra["channels"].(int64); ok {
 		m.Channels = v
+	}
+	if v, ok := a.Extra["bit_depth"].(int64); ok {
+		m.BitDepth = v
 	}
 	if v, ok := a.Extra["video_codec"].(string); ok {
 		m.VideoCodec = v
