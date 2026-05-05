@@ -128,7 +128,7 @@ file-search-on 'is_audio && replaygain_track_gain != 0 &&
                 replaygain_album_gain == 0'                    # track-only tagging
 ```
 
-ReplayGain is populated for FLAC and OGG (Vorbis comments) and MP3 (ID3v2 TXXX user-defined-text frames). M4A iTunes-style atoms aren't covered yet (most Apple Music libraries use Sound Check instead).
+ReplayGain is populated for FLAC and OGG (Vorbis comments), MP3 (ID3v2 TXXX user-defined-text frames), and M4A (iTunes `----` atoms in the `com.apple.iTunes` namespace — written by foobar2000, AtomicParsley, etc.). Most Apple Music libraries use Sound Check (`iTunNORM`) rather than ReplayGain, so an empty value is common for AAC files even when the rest of the metadata is present.
 
 ## Format-specific filters
 

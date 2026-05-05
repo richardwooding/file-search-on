@@ -90,3 +90,37 @@ func TestExtractReplayGain_Empty(t *testing.T) {
 		t.Errorf("empty Raw -> track=%v album=%v; want 0,0", track, album)
 	}
 }
+
+func TestExtractReplayGain_M4A_iTunesAtoms(t *testing.T) {
+	// dhowden/tag's MP4 reader handles the iTunes ---- atom shape:
+	// each ReplayGain value is stored under its inner-name atom's
+	// value (lower-case "replaygain_track_gain") as a plain string.
+	// Same value-type as Vorbis comments, just lower-cased keys.
+	raw := map[string]any{
+		"replaygain_track_gain": "-3.20 dB",
+		"replaygain_album_gain": "-2.80 dB",
+		"replaygain_track_peak": "0.987",          // ignored — peaks not surfaced
+		"©nam":                  "Some Track Title", // unrelated iTunes atom
+	}
+	track, album := extractReplayGain(raw)
+	if math.Abs(track-(-3.20)) > 1e-9 {
+		t.Errorf("track = %v; want -3.20", track)
+	}
+	if math.Abs(album-(-2.80)) > 1e-9 {
+		t.Errorf("album = %v; want -2.80", album)
+	}
+}
+
+func TestExtractReplayGain_M4AAlongsideVorbisStyle(t *testing.T) {
+	// A pathological case where both upper-case (Vorbis) and lower-case
+	// (M4A) keys are present. The probe checks upper-case first; if
+	// it yields a non-zero value the lower-case path is skipped.
+	raw := map[string]any{
+		"REPLAYGAIN_TRACK_GAIN": "-1.00 dB", // wins
+		"replaygain_track_gain": "-99.99 dB",
+	}
+	track, _ := extractReplayGain(raw)
+	if math.Abs(track-(-1.00)) > 1e-9 {
+		t.Errorf("track = %v; want -1.00 (uppercase Vorbis key wins)", track)
+	}
+}

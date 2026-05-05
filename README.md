@@ -254,7 +254,7 @@ Run `file-search-on --list` for the canonical, up-to-date listing. The summary t
 | `sample_rate` | int | Hz |
 | `channels` | int | 1 = mono, 2 = stereo, … |
 | `bit_depth` | int | Bits per sample. FLAC STREAMINFO + MP4 `stsd`; 0 for MP3 / OGG (not stored) |
-| `replaygain_track_gain`, `replaygain_album_gain` | double | dB — Vorbis comments (FLAC + OGG) and ID3v2 TXXX (MP3); M4A iTunes atoms [not yet, see #59] |
+| `replaygain_track_gain`, `replaygain_album_gain` | double | dB — Vorbis comments (FLAC + OGG), ID3v2 TXXX (MP3), and M4A iTunes `----` atoms (`com.apple.iTunes` namespace, surfaced under the inner `name` atom's value) |
 
 ### Video
 
