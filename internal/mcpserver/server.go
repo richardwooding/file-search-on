@@ -26,7 +26,7 @@ type ReadAttributesInput struct {
 
 // SearchInput is the JSON-schema input for the `search` tool.
 type SearchInput struct {
-	Expr         string `json:"expr,omitempty" jsonschema:"CEL expression matched against file attributes (e.g. 'is_pdf && page_count > 10'). Empty means match all."`
+	Expr         string `json:"expr,omitempty" jsonschema:"CEL expression matched against file attributes. Boolean type predicates: is_markdown, is_pdf, is_html, is_xml, is_json, is_csv, is_text, is_image, is_audio, is_video, is_office, is_epub, is_archive, is_binary, is_email, is_source. Common attributes: size (int, bytes), name/path/dir/ext (string), word_count/line_count/page_count (int), title/author/language (string). Examples: 'is_markdown && word_count > 500'; 'is_pdf && page_count > 10'; 'is_image && iso > 1600'; 'is_audio && sample_rate >= 96000'; 'is_video && duration > 1800'; 'is_source && language == \"go\" && loc > 100'; 'size > 1000000 && !is_binary'. Empty means match all. Call list_attributes for the full schema."`
 	Dir          string `json:"dir,omitempty" jsonschema:"Directory to search in. Defaults to '.'."`
 	Workers      int    `json:"workers,omitempty" jsonschema:"Number of parallel workers. Defaults to runtime.NumCPU()."`
 	MaxLineBytes int    `json:"max_line_bytes,omitempty" jsonschema:"Per-line scanner buffer cap for text/CSV/HTML (bytes). 0 uses the 1 MiB default; raise for very long log lines."`
@@ -442,6 +442,75 @@ type handlers struct {
 	idx index.Index
 }
 
+// serverInstructions is the text sent to MCP clients during initialize
+// (via ServerOptions.Instructions). Clients like Claude Code surface
+// this as system context, so the agent knows the predicate vocabulary
+// without having to call list_attributes first. Keep it dense but
+// scan-friendly: a paragraph of intent, the boolean predicate list, the
+// common-attribute list, and a handful of CEL recipes covering the main
+// content families.
+const serverInstructions = `file-search-on is a content-type-aware file search. The 'search' tool takes a CEL expression evaluated over per-file attributes and returns matching paths plus structured metadata.
+
+Use these boolean type predicates directly in your CEL expression — no need to call list_attributes first for them:
+
+  is_markdown   .md, .markdown
+  is_pdf        .pdf
+  is_html       .html, .htm
+  is_xml        .xml
+  is_json       .json
+  is_csv        .csv, .tsv
+  is_text       plain text and log files
+  is_image      .jpg, .jpeg, .png, .gif, .tif, .tiff, .heic, .webp
+  is_audio      .mp3, .m4a, .flac, .ogg, .wav
+  is_video      .mp4, .mov, .m4v, .mkv, .webm, .avi
+  is_office     .docx, .xlsx, .pptx, .odt
+  is_epub       .epub
+  is_archive    .zip, .tar, .tar.gz, .gz
+  is_binary     ELF / Mach-O / PE compiled binaries
+  is_email      .eml, .mbox
+  is_source     Go / Python / JS / TS / Rust / C / C++ / Java / Ruby / Swift / Kotlin / Shell / Lua / Elixir / Clojure / Haskell / OCaml / Zig
+
+Common attributes available on every file: name, path, dir, ext, size (bytes, int), content_type. Per-family attributes the parser populates when the file matches:
+
+  documents:  title, author, language, word_count, line_count, page_count
+  data:       json_kind ("object"/"array"), csv_columns (list<string>), root_element
+  markdown:   tags, categories, draft, date, frontmatter (map<string,dyn>), frontmatter_format
+  images:     img_width, img_height, camera_make, camera_model, lens, taken_at, iso, focal_length, f_stop, exposure_time, gps_lat, gps_lon, orientation
+  audio:      artist, album, album_artist, composer, year, track, genre, duration, bitrate, sample_rate, channels, bit_depth
+  video:      video_codec, audio_codec, video_width, video_height, frame_rate, duration, is_hdr, subtitles
+  archives:   entry_count, uncompressed_size, top_level_entries, has_root_dir
+  binaries:   architectures (list<string>), bitness, binary_format, binary_type, is_dynamically_linked, is_stripped, entry_point
+  email:      email_to, email_cc, email_message_id, email_in_reply_to, sent_at, attachment_count, email_count
+  source:     language, line_count, loc, comment_loc, blank_loc
+
+Recipe expressions:
+
+  is_markdown && word_count > 500
+  is_pdf && page_count > 10
+  is_image && camera_make == "SONY" && iso > 1600
+  is_image && taken_at > timestamp("2024-01-01T00:00:00Z")
+  is_audio && sample_rate >= 96000
+  is_video && video_height >= 2160 && duration > 1800
+  is_csv && csv_columns.exists(c, c == "revenue")
+  is_office && language == "fr"
+  is_archive && uncompressed_size > 100000000
+  is_binary && "x86_64" in architectures
+  is_source && language == "go" && loc > 200
+  is_email && size > 0 && sent_at > timestamp("2025-01-01T00:00:00Z")
+  size > 10000000 && !is_video                                  // large non-video files
+  is_markdown && tags.exists(t, t == "draft") && !draft
+  levenshtein(artist, "Radiohead") <= 2 && is_audio             // fuzzy: typo-tolerant
+  soundex(author) == soundex("Smith") && is_markdown            // phonetic
+  point_in_polygon(gps_lat, gps_lon, [[51.5,-0.2],[51.6,-0.2],[51.6,0.0],[51.5,0.0]])  // images inside London bbox
+
+Tools:
+  search           run a CEL expression against a directory; returns matches[] and count
+  read_attributes  same SearchMatch shape for one path; use when you already have the file
+  list_attributes  full schema (every attribute, every built-in function); call when the recipes above don't cover what you need
+  index_stats      cache hit/miss counters for this server process
+
+Performance: an attribute cache lives for the server's lifetime; repeated calls against the same files skip the per-file parse step. Empty 'expr' matches all files; empty 'dir' defaults to '.'.`
+
 // New builds an MCP server with file-search-on's tools registered. The
 // server is not connected to a transport; callers either pass it to
 // (*mcp.Server).Run for stdio service or (*mcp.Server).Connect for
@@ -457,13 +526,15 @@ func New(version string, idx index.Index) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{
 		Name:    "file-search-on",
 		Version: version,
-	}, nil)
+	}, &mcp.ServerOptions{
+		Instructions: serverInstructions,
+	})
 
 	h := &handlers{idx: idx}
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "search",
-		Description: "Recursively search a directory for files matching a CEL expression evaluated over file metadata and content-type-specific attributes. Supports twelve content-type families (documents, markup, data, plain text, images, audio, video, office, archives — ZIP / TAR / GZIP — compiled binaries — ELF / Mach-O / PE — email — .eml / .mbox — and source code — Go / Python / JS / TS / Rust / C / C++ / Java / Ruby / Swift / Kotlin / Shell / Lua / Elixir / Clojure / Haskell / OCaml / Zig). CEL expressions can use built-in fuzzy-match functions — levenshtein(a, b) for edit distance, soundex(s) for phonetic codes, ngrams(s, n) for character n-grams, ngram_similarity(a, b, n) for Jaccard similarity — and the geographic helper point_in_polygon(lat, lon, polygon) for filtering by arbitrary GPS-coordinate boundaries. Repeated searches reuse a per-process attribute cache so unchanged files skip the parse step. Call list_attributes for the full attribute and function schema, or index_stats for cache hit/miss counters.",
+		Description: "Recursively search a directory for files matching a CEL expression evaluated over file metadata and content-type-specific attributes. Boolean type predicates you can use directly in expr: is_markdown, is_pdf, is_html, is_xml, is_json, is_csv, is_text, is_image, is_audio, is_video, is_office, is_epub, is_archive, is_binary, is_email, is_source. Common scalar attributes: size (int bytes), name, path, dir, ext, content_type, title, author, language, word_count, line_count, page_count. Per-family attributes (image EXIF, audio tags, video codec, frontmatter, archive sizes, binary architectures, email headers, source-LOC) populate when the matching family fires — see list_attributes for the full schema. Built-in functions: levenshtein(a, b), soundex(s), ngrams(s, n), ngram_similarity(a, b, n) for fuzzy / phonetic matching; point_in_polygon(lat, lon, polygon) for GPS-bbox filtering. Example exprs: 'is_markdown && word_count > 500'; 'is_pdf && page_count > 10'; 'is_image && iso > 1600'; 'is_video && video_height >= 2160 && duration > 1800'; 'is_source && language == \"go\" && loc > 200'. Repeated searches reuse a per-process attribute cache so unchanged files skip the parse step (see index_stats).",
 	}, h.searchHandler)
 
 	mcp.AddTool(s, &mcp.Tool{
