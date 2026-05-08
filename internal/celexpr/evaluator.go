@@ -11,6 +11,7 @@ import (
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/richardwooding/file-search-on/internal/content"
+	"github.com/richardwooding/file-search-on/internal/index"
 )
 
 // FileAttributes holds all attributes available in CEL expressions
@@ -439,7 +440,23 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 	return out == types.True, nil
 }
 
-// BuildAttributes builds file attributes for a given path. fsys is the
+// BuildOptions tunes BuildAttributesWith. Index, when non-nil, is
+// consulted before any expensive parse: a (size, mtime)-validated hit
+// returns the cached attributes without re-running registry.Detect or
+// ContentType.Attributes; a miss falls through to the existing
+// extraction path and stores the result for the next call. nil Index
+// disables caching.
+type BuildOptions struct {
+	Index index.Index
+}
+
+// BuildAttributes is the no-cache wrapper. New callers should use
+// BuildAttributesWith and pass an index.Index when caching is desired.
+func BuildAttributes(ctx context.Context, fsys fs.FS, fsPath, displayPath string, registry *content.Registry) (*FileAttributes, error) {
+	return BuildAttributesWith(ctx, fsys, fsPath, displayPath, registry, BuildOptions{})
+}
+
+// BuildAttributesWith builds file attributes for a given path. fsys is the
 // filesystem to read from; fsPath is the fs.FS-style key (forward slashes,
 // relative to the fsys root) used for IO; displayPath is the OS-native
 // path surfaced to users via FileAttributes.Path. In production both come
@@ -447,7 +464,14 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 // of the same). In tests, both can be the same fs-style key. ctx is
 // checked at entry and threaded into ContentType.Attributes so per-file
 // work can be cancelled mid-scan.
-func BuildAttributes(ctx context.Context, fsys fs.FS, fsPath, displayPath string, registry *content.Registry) (*FileAttributes, error) {
+//
+// When opts.Index is non-nil and the on-disk file's mtime is non-zero,
+// the cache is consulted before registry.Detect and ContentType.Attributes
+// run; on hit, the cached (ContentType, Extra) is returned with a fresh
+// FileAttributes built from the live os.Stat result. On miss the regular
+// extraction path runs and the result is asynchronously enqueued for
+// storage.
+func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath string, registry *content.Registry, opts BuildOptions) (*FileAttributes, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -460,6 +484,25 @@ func BuildAttributes(ctx context.Context, fsys fs.FS, fsPath, displayPath string
 	ext := strings.ToLower(filepath.Ext(name))
 	dir := filepath.Dir(displayPath)
 
+	// Cache-key conversion: keys are absolute, OS-native paths so two
+	// runs that walk the same physical tree under different roots
+	// (./docs vs /home/u/proj/docs) hit the same entry. Non-absolute
+	// keys (typical only in tests with an in-memory fs.FS and no Root)
+	// degrade to "no caching" — Lookup returns miss and Put silently
+	// drops via the implementation's filepath.IsAbs guard.
+	var cacheKey string
+	if opts.Index != nil {
+		if abs, absErr := filepath.Abs(displayPath); absErr == nil {
+			cacheKey = filepath.Clean(abs)
+		}
+	}
+
+	if opts.Index != nil && cacheKey != "" {
+		if cached, ok := opts.Index.Lookup(cacheKey, info.Size(), info.ModTime()); ok {
+			return assembleFromCache(name, displayPath, dir, ext, info, cached), nil
+		}
+	}
+
 	ct := registry.Detect(fsys, fsPath)
 	contentTypeName := ""
 	isMarkdown, isJSON, isXML, isHTML, isPDF, isImage := false, false, false, false, false, false
@@ -469,44 +512,24 @@ func BuildAttributes(ctx context.Context, fsys fs.FS, fsPath, displayPath string
 	var extra content.Attributes
 	if ct != nil {
 		contentTypeName = ct.Name()
-		switch {
-		case contentTypeName == "markdown":
-			isMarkdown = true
-		case contentTypeName == "json":
-			isJSON = true
-		case contentTypeName == "xml":
-			isXML = true
-		case contentTypeName == "html":
-			isHTML = true
-		case contentTypeName == "pdf":
-			isPDF = true
-		case contentTypeName == "text":
-			isText = true
-		case contentTypeName == "csv":
-			isCSV = true
-		case contentTypeName == "epub":
-			isEPUB = true
-		case strings.HasPrefix(contentTypeName, "image/"):
-			isImage = true
-		case strings.HasPrefix(contentTypeName, "office/"):
-			isOffice = true
-		case strings.HasPrefix(contentTypeName, "audio/"):
-			isAudio = true
-		case strings.HasPrefix(contentTypeName, "video/"):
-			isVideo = true
-		case strings.HasPrefix(contentTypeName, "archive/"):
-			isArchive = true
-		case strings.HasPrefix(contentTypeName, "binary/"):
-			isBinary = true
-		case strings.HasPrefix(contentTypeName, "email/"):
-			isEmail = true
-		case strings.HasPrefix(contentTypeName, "source/"):
-			isSource = true
-		}
+		isMarkdown, isJSON, isXML, isHTML, isPDF, isImage,
+			isText, isCSV, isEPUB, isOffice, isAudio, isVideo,
+			isArchive, isBinary, isEmail, isSource = typeFlagsFor(contentTypeName)
 		extra, err = ct.Attributes(ctx, fsys, fsPath)
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	// Async store on miss. The implementation handles back-pressure;
+	// we never wait for the write.
+	if opts.Index != nil && cacheKey != "" {
+		_ = opts.Index.Put(cacheKey, &index.Entry{
+			Size:            info.Size(),
+			ModTimeUnixNano: info.ModTime().UnixNano(),
+			ContentType:     contentTypeName,
+			Extra:           map[string]any(extra),
+		})
 	}
 
 	return &FileAttributes{
@@ -535,4 +558,79 @@ func BuildAttributes(ctx context.Context, fsys fs.FS, fsPath, displayPath string
 		IsVideo:     isVideo,
 		Extra:       extra,
 	}, nil
+}
+
+// typeFlagsFor returns the boolean type-family flags for a registered
+// ContentType.Name(). Mirrors the switch that previously inlined into
+// BuildAttributes; factored out so cache-hit assembly can reuse it.
+func typeFlagsFor(name string) (isMarkdown, isJSON, isXML, isHTML, isPDF, isImage,
+	isText, isCSV, isEPUB, isOffice, isAudio, isVideo,
+	isArchive, isBinary, isEmail, isSource bool) {
+	switch {
+	case name == "markdown":
+		isMarkdown = true
+	case name == "json":
+		isJSON = true
+	case name == "xml":
+		isXML = true
+	case name == "html":
+		isHTML = true
+	case name == "pdf":
+		isPDF = true
+	case name == "text":
+		isText = true
+	case name == "csv":
+		isCSV = true
+	case name == "epub":
+		isEPUB = true
+	case strings.HasPrefix(name, "image/"):
+		isImage = true
+	case strings.HasPrefix(name, "office/"):
+		isOffice = true
+	case strings.HasPrefix(name, "audio/"):
+		isAudio = true
+	case strings.HasPrefix(name, "video/"):
+		isVideo = true
+	case strings.HasPrefix(name, "archive/"):
+		isArchive = true
+	case strings.HasPrefix(name, "binary/"):
+		isBinary = true
+	case strings.HasPrefix(name, "email/"):
+		isEmail = true
+	case strings.HasPrefix(name, "source/"):
+		isSource = true
+	}
+	return
+}
+
+func assembleFromCache(name, displayPath, dir, ext string, info fs.FileInfo, cached *index.Entry) *FileAttributes {
+	isMarkdown, isJSON, isXML, isHTML, isPDF, isImage,
+		isText, isCSV, isEPUB, isOffice, isAudio, isVideo,
+		isArchive, isBinary, isEmail, isSource := typeFlagsFor(cached.ContentType)
+	return &FileAttributes{
+		Name:        name,
+		Path:        displayPath,
+		Dir:         dir,
+		Size:        info.Size(),
+		Ext:         ext,
+		ModTime:     info.ModTime(),
+		ContentType: cached.ContentType,
+		IsMarkdown:  isMarkdown,
+		IsJSON:      isJSON,
+		IsXML:       isXML,
+		IsHTML:      isHTML,
+		IsPDF:       isPDF,
+		IsImage:     isImage,
+		IsText:      isText,
+		IsCSV:       isCSV,
+		IsEPUB:      isEPUB,
+		IsOffice:    isOffice,
+		IsAudio:     isAudio,
+		IsArchive:   isArchive,
+		IsBinary:    isBinary,
+		IsEmail:     isEmail,
+		IsSource:    isSource,
+		IsVideo:     isVideo,
+		Extra:       content.Attributes(cached.Extra),
+	}
 }

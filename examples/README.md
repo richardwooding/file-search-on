@@ -18,6 +18,7 @@ CEL expression recipes by content family, plus cross-cutting cookbook patterns.
 | [`source-code.md`](./source-code.md) | Go / Python / JS / TS / Rust / C / C++ / Java / Ruby / Swift / Kotlin / Shell / Lua / Elixir / Clojure / Haskell / OCaml / Zig — LOC counts, language filtering, comment density |
 | [`cookbook.md`](./cookbook.md) | Cross-family queries, output-format pipelines, integration with find / jq / ffmpeg / rga |
 | [`fuzzy-search.md`](./fuzzy-search.md) | Fuzzy / phonetic / n-gram similarity matching with `levenshtein`, `soundex`, `ngrams`, `ngram_similarity` |
+| [`indexing.md`](./indexing.md) | Persistent attribute index — `--index-path` for the CLI, auto-on cache for MCP, refresh and inspection |
 
 Every recipe is a complete `file-search-on '<expr>'` invocation that you can paste and run. Most include a few variations and useful output-format snippets.
 

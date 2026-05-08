@@ -113,6 +113,7 @@ file-search-on --list
 | `-L`, `--max-line-bytes` | Per-line scanner cap for text/CSV/HTML in bytes. Raise for very long log lines. | 1 MiB |
 | `-o`, `--output` | Output preset: `bare` (paths only), `default`, `verbose` (multi-line records), `json` (NDJSON). | `default` |
 | `--format` | Custom Go `text/template` per match (e.g. `'{{.Path}}\t{{.Title}}'`). Takes precedence over `-o`. | |
+| `--index-path` | Persistent attribute index file (bbolt). When set, unchanged files (matched by absolute path + size + mtime) skip the per-file content-type parse, making repeat searches dramatically faster. | unset (no caching) |
 
 Each matching file is printed as `<path>\t[<content-type>]\t<size> bytes`. The match count is written to stderr so it doesn't pollute pipelines.
 
@@ -127,6 +128,25 @@ file-search-on 'is_markdown' -d ./docs --format '{{.Path}}\t{{.Title}}\t{{.WordC
 ```
 
 `-o bare`, `-o json`, and `--format` suppress the `<N> file(s) found` summary on stderr (the count is implicit in the line count). `--format` uses Go [`text/template`](https://pkg.go.dev/text/template); the data context is a flat record — `{{.Path}}`, `{{.Title}}`, `{{.WordCount}}`, `{{.Frontmatter}}`, all the `Is*` booleans, etc. Backslash escapes (`\t`, `\n`) are expanded before parsing.
+
+### Persistent attribute index
+
+The first time `file-search-on` walks a directory, it parses every file (PDF metadata, EXIF, audio tags, markdown front-matter, …). For repeated searches against an unchanged tree, that work is wasted: the CEL expression changes, but the underlying attributes do not. Pass `--index-path` to cache the parse result in a single bbolt file:
+
+```sh
+file-search-on 'is_markdown && word_count > 500' -d ./docs --index-path ~/.cache/fso/docs.db   # cold: parses + stores
+file-search-on 'is_pdf && page_count > 10'        -d ./docs --index-path ~/.cache/fso/docs.db   # warm: hits the cache, dramatically faster
+```
+
+How it works:
+
+- **Validation.** Each entry is keyed by absolute path and validated against the file's `(size, mtime)` pair. Modify a file (`touch`, edit, replace) and that entry is invalidated; the rest stay warm.
+- **Expression-independent.** The cache stores the per-file attributes, not the search results — so any CEL expression you run benefits, including `--list` lookups via `read_attributes`.
+- **Footer line.** When `--index-path` is set, the CLI prints a stderr line like `index: 1234 hits, 56 misses, 56 stored, 0 stale, 0 errors` after the search.
+- **Schema versioning.** A new binary refuses to open an index file from an incompatible schema version and tells you to delete it. We never auto-delete user data; cache files are recoverable but not disposable from the tool's perspective.
+- **GC is lazy.** Entries for deleted/moved files are simply never read; they cost a small amount of disk space until the file is recreated. There is no built-in vacuum step.
+
+In MCP server mode the cache is **on by default and lives for the process lifetime** (no flag needed). Pass `--index-path` to make the cache persist across restarts. See [MCP server mode](#mcp-server-mode).
 
 ### Single-file inspection
 
@@ -156,6 +176,7 @@ Focused recipe collections live under [`examples/`](./examples/):
 | [`examples/text.md`](./examples/text.md) | Plain text / log files — line count, word count, big-line caps |
 | [`examples/cookbook.md`](./examples/cookbook.md) | Cross-cutting recipes — dedupe, mixed media filters, pipeline integration |
 | [`examples/fuzzy-search.md`](./examples/fuzzy-search.md) | Fuzzy / phonetic / n-gram similarity matching — `levenshtein`, `soundex`, `ngrams`, `ngram_similarity` |
+| [`examples/indexing.md`](./examples/indexing.md) | Persistent attribute index (`--index-path`) — cold/warm CLI runs, MCP auto-on cache, refresh + inspection |
 
 A handful of representative one-liners:
 
@@ -436,15 +457,23 @@ file-search-on mcp --transport sse  --addr :8080         # HTTP+SSE (DEPRECATED 
 
 For HTTP and SSE, `--addr` (default `:8080`) is the bind address and `--path` (default `/`) is the URL prefix.
 
-Three tools are exposed:
+Four tools are exposed:
 
 | Tool | Input | Output |
 | --- | --- | --- |
 | `search` | `expr`, `dir`, `workers`, `max_line_bytes` | `matches[]` (full attribute set per match) and `count` |
 | `read_attributes` | `path` | A single match — same shape as one `matches[]` entry from `search`. Use when the agent already has the path and wants metadata without walking. |
 | `list_attributes` | none | `schema` (common, type_specific, frontmatter, functions) and `content_types[]` |
+| `index_stats` | none | Cumulative cache counters for the running server: `hits`, `misses`, `puts`, `stales`, `errors`. Counters reset on server restart. |
 
 Empty `expr` matches everything; empty `dir` defaults to `.`. `workers` falls back to `runtime.NumCPU()`. `read_attributes` requires `path`; relative paths resolve against the server's working directory, so absolute paths are preferred.
+
+The MCP server keeps an attribute cache for its entire process lifetime. Repeated `search` and `read_attributes` calls against the same files skip the per-file parse step on the second-and-later invocations — agents that explore a tree iteratively get progressively faster responses. Pass `--index-path /path/to/file.db` to make the cache survive server restarts (see [Persistent attribute index](#persistent-attribute-index) for the file format and validation rules):
+
+```sh
+file-search-on mcp --index-path ~/.cache/fso/agent.db                    # stdio + persistent cache
+file-search-on mcp --transport http --addr :8080 --index-path /var/lib/fso.db
+```
 
 Example Claude Desktop entry in `claude_desktop_config.json` (stdio):
 

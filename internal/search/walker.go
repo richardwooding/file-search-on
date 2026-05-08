@@ -11,6 +11,7 @@ import (
 
 	"github.com/richardwooding/file-search-on/internal/celexpr"
 	"github.com/richardwooding/file-search-on/internal/content"
+	"github.com/richardwooding/file-search-on/internal/index"
 )
 
 // Result represents a matching file
@@ -43,6 +44,11 @@ type Options struct {
 	// `os.DirFS(Root)` when nil. Tests inject embed.FS or fstest.MapFS for
 	// hermetic execution; production almost never sets this.
 	FS fs.FS
+	// Index, when non-nil, is consulted by each worker to skip the
+	// expensive ContentType.Attributes parse for files whose
+	// (size, mtime) match a previous walk. The index handles its own
+	// concurrency; workers never block on it.
+	Index index.Index
 }
 
 // Walk walks the directory and returns every matching file. It is a
@@ -116,7 +122,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 					if !ok {
 						return
 					}
-					attrs, err := celexpr.BuildAttributes(ctx, fsys, j.fsPath, j.displayPath, registry)
+					attrs, err := celexpr.BuildAttributesWith(ctx, fsys, j.fsPath, j.displayPath, registry, celexpr.BuildOptions{Index: opts.Index})
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 						return
 					}
