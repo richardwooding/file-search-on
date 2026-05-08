@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -13,6 +14,7 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/richardwooding/file-search-on/internal/celexpr"
 	contentpkg "github.com/richardwooding/file-search-on/internal/content"
+	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/mcpserver"
 	"github.com/richardwooding/file-search-on/internal/search"
 )
@@ -87,18 +89,42 @@ type MCPCmd struct {
 	Transport string `name:"transport" enum:"stdio,http,sse" default:"stdio" help:"Transport: stdio (default; for desktop clients), http (Streamable HTTP, MCP 2025-03-26), or sse (DEPRECATED — HTTP+SSE, MCP 2024-11-05)."`
 	Addr      string `name:"addr" default:":8080" help:"host:port to bind for http or sse transports. Ignored for stdio."`
 	Path      string `name:"path" default:"/" help:"URL path prefix the handler is mounted at. Ignored for stdio."`
+	IndexPath string `name:"index-path" help:"Persistent attribute index file (bbolt). When unset the server uses an in-memory cache that lives for the process lifetime; setting this makes the cache survive restarts. The file is created on first use."`
 }
 
 func (m *MCPCmd) Run(ctx context.Context) error {
+	idx, err := openIndex(m.IndexPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = idx.Close() }()
+
 	switch m.Transport {
 	case "http":
-		return mcpserver.RunHTTP(ctx, version, m.Addr, m.Path)
+		return mcpserver.RunHTTP(ctx, version, m.Addr, m.Path, idx)
 	case "sse":
 		fmt.Fprintln(os.Stderr, "warning: --transport sse is DEPRECATED (MCP 2024-11-05); prefer --transport http for new clients.")
-		return mcpserver.RunSSE(ctx, version, m.Addr, m.Path)
+		return mcpserver.RunSSE(ctx, version, m.Addr, m.Path, idx)
 	default:
-		return mcpserver.Run(ctx, version)
+		return mcpserver.Run(ctx, version, idx)
 	}
+}
+
+// openIndex returns an index.Index for the given path. Empty path
+// means in-memory only. On schema mismatch it surfaces a helpful
+// "delete or re-point --index-path" message rather than a raw error.
+func openIndex(path string) (index.Index, error) {
+	if path == "" {
+		return index.NewMemory(), nil
+	}
+	idx, err := index.Open(path)
+	if err != nil {
+		if errors.Is(err, index.ErrSchemaMismatch) {
+			return nil, fmt.Errorf("index file at %s has an incompatible schema; delete it or pass a new --index-path", path)
+		}
+		return nil, fmt.Errorf("open index: %w", err)
+	}
+	return idx, nil
 }
 
 type SearchCmd struct {
@@ -110,6 +136,7 @@ type SearchCmd struct {
 	Output       string `short:"o" name:"output" enum:"bare,default,verbose,json" default:"default" help:"Output format: bare | default | verbose | json."`
 	Format       string `name:"format" help:"Custom Go text/template applied per match (e.g. '{{.Path}}\\t{{.Title}}'). When set, takes precedence over -o."`
 	Unsorted     bool   `name:"unsorted" help:"Stream matches in walk order instead of buffering+sorting. Default and verbose modes still emit the count footer; bare/json/template are streamed and unsorted regardless."`
+	IndexPath    string `name:"index-path" help:"Persistent attribute index file (bbolt). When set, unchanged files (matched by absolute path + size + mtime) skip the per-file content-type parse, making repeat searches dramatically faster. The file is created on first use; delete it to force a full re-extraction."`
 }
 
 func (s *SearchCmd) Run(ctx context.Context) error {
@@ -135,12 +162,25 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		}
 	}
 
+	// CLI is opt-in: nothing is created unless --index-path is set.
+	// One-shot CLI runs without an explicit path don't benefit from a
+	// process-local cache, so we skip the allocation entirely.
+	var idx index.Index
+	if s.IndexPath != "" {
+		var err error
+		idx, err = openIndex(s.IndexPath)
+		if err != nil {
+			return err
+		}
+	}
+
 	opts := search.Options{
 		Root:              s.Dir,
 		Expr:              s.Expr,
 		Workers:           s.Workers,
 		MaxLineBytes:      s.MaxLineBytes,
 		IncludeAttributes: includeAttrs,
+		Index:             idx,
 	}
 
 	// Streaming-friendly modes (bare / json / template) always stream —
@@ -148,10 +188,23 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 	// the full walk. Default and verbose stream too when --unsorted is
 	// set; otherwise they buffer for sort+footer (the historical UX).
 	streaming := tmpl != nil || s.Output == "bare" || s.Output == "json" || s.Unsorted
+	var runErr error
 	if streaming {
-		return streamSearch(ctx, opts, tmpl, s.Output)
+		runErr = streamSearch(ctx, opts, tmpl, s.Output)
+	} else {
+		runErr = bufferedSearch(ctx, opts, s.Output)
 	}
-	return bufferedSearch(ctx, opts, s.Output)
+	// Close the index BEFORE reading Stats so the bbolt writer goroutine
+	// has flushed pending puts; otherwise the footer can show "0 stored"
+	// even though the writes are queued and will land on disk before the
+	// process exits.
+	if idx != nil {
+		_ = idx.Close()
+		st := idx.Stats()
+		fmt.Fprintf(os.Stderr, "index: %d hits, %d misses, %d stored, %d stale, %d errors\n",
+			st.Hits, st.Misses, st.Puts, st.Stales, st.Errors)
+	}
+	return runErr
 }
 
 // streamSearch drives WalkStream and prints each match as it arrives.

@@ -8,17 +8,19 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/richardwooding/file-search-on/internal/index"
 )
 
 // RunHTTP serves the MCP server over the modern Streamable HTTP transport
 // (MCP spec 2025-03-26 onward). It blocks until ctx is cancelled or the
 // listener returns an error other than http.ErrServerClosed. Each incoming
-// request reuses the same *mcp.Server.
+// request reuses the same *mcp.Server (and so the same idx).
 //
 // addr is a host:port pair (e.g. ":8080"). path is the URL prefix the handler
 // is mounted at (e.g. "/" or "/mcp").
-func RunHTTP(ctx context.Context, version, addr, path string) error {
-	server := New(version)
+func RunHTTP(ctx context.Context, version, addr, path string, idx index.Index) error {
+	server := New(version, idx)
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return server
 	}, nil)
@@ -28,8 +30,8 @@ func RunHTTP(ctx context.Context, version, addr, path string) error {
 // RunSSE serves the MCP server over the deprecated HTTP+SSE transport
 // (MCP spec 2024-11-05). Kept for backward compatibility with older clients;
 // new deployments should prefer RunHTTP.
-func RunSSE(ctx context.Context, version, addr, path string) error {
-	server := New(version)
+func RunSSE(ctx context.Context, version, addr, path string, idx index.Index) error {
+	server := New(version, idx)
 	handler := mcp.NewSSEHandler(func(*http.Request) *mcp.Server {
 		return server
 	}, nil)

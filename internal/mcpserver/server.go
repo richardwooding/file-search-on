@@ -13,6 +13,7 @@ import (
 
 	"github.com/richardwooding/file-search-on/internal/celexpr"
 	"github.com/richardwooding/file-search-on/internal/content"
+	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/search"
 )
 
@@ -424,20 +425,46 @@ type ListAttributesOutput struct {
 	ContentTypes []ContentTypeDoc  `json:"content_types"`
 }
 
+// IndexStatsOutput is the structured output of the `index_stats` tool.
+// Counters are monotonic for the server process lifetime; restart resets.
+type IndexStatsOutput struct {
+	Hits   uint64 `json:"hits"`
+	Misses uint64 `json:"misses"`
+	Puts   uint64 `json:"puts"`
+	Stales uint64 `json:"stales"`
+	Errors uint64 `json:"errors"`
+}
+
+// handlers wraps tool handlers so they can share an index reference
+// across the server's lifetime. The MCP SDK requires plain functions
+// for AddTool, so we use closures to inject this shared state.
+type handlers struct {
+	idx index.Index
+}
+
 // New builds an MCP server with file-search-on's tools registered. The
 // server is not connected to a transport; callers either pass it to
 // (*mcp.Server).Run for stdio service or (*mcp.Server).Connect for
 // in-memory tests.
-func New(version string) *mcp.Server {
+//
+// idx is the attribute cache used by every search and read_attributes
+// call. It is intended to be created once per server process and live
+// for the server's lifetime — e.g. an in-memory index for stdio MCP,
+// or a bbolt-backed index opened via index.Open(path) when the user
+// wants persistence across restarts. nil idx disables caching; callers
+// almost always want index.NewMemory() at the very least.
+func New(version string, idx index.Index) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{
 		Name:    "file-search-on",
 		Version: version,
 	}, nil)
 
+	h := &handlers{idx: idx}
+
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "search",
-		Description: "Recursively search a directory for files matching a CEL expression evaluated over file metadata and content-type-specific attributes. Supports twelve content-type families (documents, markup, data, plain text, images, audio, video, office, archives — ZIP / TAR / GZIP — compiled binaries — ELF / Mach-O / PE — email — .eml / .mbox — and source code — Go / Python / JS / TS / Rust / C / C++ / Java / Ruby / Swift / Kotlin / Shell / Lua / Elixir / Clojure / Haskell / OCaml / Zig). CEL expressions can use built-in fuzzy-match functions — levenshtein(a, b) for edit distance, soundex(s) for phonetic codes, ngrams(s, n) for character n-grams, ngram_similarity(a, b, n) for Jaccard similarity — and the geographic helper point_in_polygon(lat, lon, polygon) for filtering by arbitrary GPS-coordinate boundaries. Call list_attributes for the full attribute and function schema.",
-	}, searchHandler)
+		Description: "Recursively search a directory for files matching a CEL expression evaluated over file metadata and content-type-specific attributes. Supports twelve content-type families (documents, markup, data, plain text, images, audio, video, office, archives — ZIP / TAR / GZIP — compiled binaries — ELF / Mach-O / PE — email — .eml / .mbox — and source code — Go / Python / JS / TS / Rust / C / C++ / Java / Ruby / Swift / Kotlin / Shell / Lua / Elixir / Clojure / Haskell / OCaml / Zig). CEL expressions can use built-in fuzzy-match functions — levenshtein(a, b) for edit distance, soundex(s) for phonetic codes, ngrams(s, n) for character n-grams, ngram_similarity(a, b, n) for Jaccard similarity — and the geographic helper point_in_polygon(lat, lon, polygon) for filtering by arbitrary GPS-coordinate boundaries. Repeated searches reuse a per-process attribute cache so unchanged files skip the parse step. Call list_attributes for the full attribute and function schema, or index_stats for cache hit/miss counters.",
+	}, h.searchHandler)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_attributes",
@@ -447,15 +474,20 @@ func New(version string) *mcp.Server {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "read_attributes",
 		Description: "Extract content-type-specific attributes for a single file path. Use when the agent already knows the path and wants metadata without running a CEL filter or walking a directory. Returns the same SearchMatch shape as the search tool — title, author, EXIF, audio tags, video codec, frontmatter, etc., depending on the detected content type.",
-	}, readAttributesHandler)
+	}, h.readAttributesHandler)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "index_stats",
+		Description: "Return cumulative attribute-cache counters (hits, misses, puts, stales, errors) for the running MCP server. Counters reset on server restart.",
+	}, h.indexStatsHandler)
 
 	return s
 }
 
-// Run starts an MCP server on stdio and blocks until the transport closes
-// or ctx is cancelled.
-func Run(ctx context.Context, version string) error {
-	return New(version).Run(ctx, &mcp.StdioTransport{})
+// Run starts an MCP server on stdio with the given index and blocks
+// until the transport closes or ctx is cancelled.
+func Run(ctx context.Context, version string, idx index.Index) error {
+	return New(version, idx).Run(ctx, &mcp.StdioTransport{})
 }
 
 // progressNotifyStride is the number of matches between two
@@ -464,7 +496,7 @@ func Run(ctx context.Context, version string) error {
 // later via an Options field if a client needs finer granularity.
 const progressNotifyStride = 50
 
-func searchHandler(ctx context.Context, req *mcp.CallToolRequest, in SearchInput) (*mcp.CallToolResult, SearchOutput, error) {
+func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, in SearchInput) (*mcp.CallToolResult, SearchOutput, error) {
 	expr := in.Expr
 	if expr == "" {
 		expr = "true"
@@ -484,6 +516,7 @@ func searchHandler(ctx context.Context, req *mcp.CallToolRequest, in SearchInput
 			Workers:           in.Workers,
 			MaxLineBytes:      in.MaxLineBytes,
 			IncludeAttributes: true,
+			Index:             h.idx,
 		}, content.DefaultRegistry(), out)
 		close(done)
 	}()
@@ -519,7 +552,7 @@ func searchHandler(ctx context.Context, req *mcp.CallToolRequest, in SearchInput
 	return nil, SearchOutput{Matches: matches, Count: len(matches)}, nil
 }
 
-func readAttributesHandler(ctx context.Context, _ *mcp.CallToolRequest, in ReadAttributesInput) (*mcp.CallToolResult, SearchMatch, error) {
+func (h *handlers) readAttributesHandler(ctx context.Context, _ *mcp.CallToolRequest, in ReadAttributesInput) (*mcp.CallToolResult, SearchMatch, error) {
 	if in.Path == "" {
 		return nil, SearchMatch{}, fmt.Errorf("path is required")
 	}
@@ -530,7 +563,7 @@ func readAttributesHandler(ctx context.Context, _ *mcp.CallToolRequest, in ReadA
 	dir := filepath.Dir(abs)
 	base := filepath.Base(abs)
 
-	attrs, err := celexpr.BuildAttributes(ctx, os.DirFS(dir), base, abs, content.DefaultRegistry())
+	attrs, err := celexpr.BuildAttributesWith(ctx, os.DirFS(dir), base, abs, content.DefaultRegistry(), celexpr.BuildOptions{Index: h.idx})
 	if err != nil {
 		return nil, SearchMatch{}, fmt.Errorf("read attributes: %w", err)
 	}
@@ -540,6 +573,20 @@ func readAttributesHandler(ctx context.Context, _ *mcp.CallToolRequest, in ReadA
 		Size:        attrs.Size,
 		Attrs:       attrs,
 	}), nil
+}
+
+func (h *handlers) indexStatsHandler(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, IndexStatsOutput, error) {
+	if h.idx == nil {
+		return nil, IndexStatsOutput{}, nil
+	}
+	st := h.idx.Stats()
+	return nil, IndexStatsOutput{
+		Hits:   st.Hits,
+		Misses: st.Misses,
+		Puts:   st.Puts,
+		Stales: st.Stales,
+		Errors: st.Errors,
+	}, nil
 }
 
 func listAttributesHandler(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, ListAttributesOutput, error) {
