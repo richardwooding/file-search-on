@@ -18,7 +18,7 @@ func newSession(t *testing.T) (context.Context, *mcp.ClientSession) {
 	t.Helper()
 	ctx := t.Context()
 
-	server := New("test", index.NewMemory())
+	server := New("test", index.NewMemory(), 0)
 	t1, t2 := mcp.NewInMemoryTransports()
 
 	ss, err := server.Connect(ctx, t1, nil)
@@ -242,7 +242,7 @@ func TestSearchTool_ProgressNotifications(t *testing.T) {
 	}
 
 	ctx := t.Context()
-	server := New("test", index.NewMemory())
+	server := New("test", index.NewMemory(), 0)
 	t1, t2 := mcp.NewInMemoryTransports()
 
 	ss, err := server.Connect(ctx, t1, nil)
@@ -300,7 +300,7 @@ func TestSearchTool_NoProgressTokenStaysSilent(t *testing.T) {
 	}
 
 	ctx := t.Context()
-	server := New("test", index.NewMemory())
+	server := New("test", index.NewMemory(), 0)
 	t1, t2 := mcp.NewInMemoryTransports()
 
 	ss, err := server.Connect(ctx, t1, nil)

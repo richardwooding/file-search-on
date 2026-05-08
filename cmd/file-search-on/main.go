@@ -10,6 +10,7 @@ import (
 	"sort"
 	"syscall"
 	"text/template"
+	"time"
 
 	"github.com/alecthomas/kong"
 	"github.com/richardwooding/file-search-on/internal/celexpr"
@@ -18,6 +19,29 @@ import (
 	"github.com/richardwooding/file-search-on/internal/mcpserver"
 	"github.com/richardwooding/file-search-on/internal/search"
 )
+
+// exitCodeError lets a subcommand request a specific process exit code.
+// main() type-switches on it via errors.As; the wrapped msg is used only
+// if a code is paired with a non-empty diagnostic, which it usually
+// isn't (subcommands typically print their own stderr explanation).
+type exitCodeError struct {
+	code int
+	msg  string
+}
+
+func (e *exitCodeError) Error() string {
+	if e.msg == "" {
+		return fmt.Sprintf("exit %d", e.code)
+	}
+	return e.msg
+}
+
+// isCancellation reports whether err is one of the context-cancellation
+// signals (deadline-exceeded / canceled). Used to fork the post-walk
+// path between "real error" and "partial results due to ctx".
+func isCancellation(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
 
 var (
 	version = "dev"
@@ -86,10 +110,11 @@ func (a *AttrsCmd) Run(ctx context.Context) error {
 }
 
 type MCPCmd struct {
-	Transport string `name:"transport" enum:"stdio,http,sse" default:"stdio" help:"Transport: stdio (default; for desktop clients), http (Streamable HTTP, MCP 2025-03-26), or sse (DEPRECATED — HTTP+SSE, MCP 2024-11-05)."`
-	Addr      string `name:"addr" default:":8080" help:"host:port to bind for http or sse transports. Ignored for stdio."`
-	Path      string `name:"path" default:"/" help:"URL path prefix the handler is mounted at. Ignored for stdio."`
-	IndexPath string `name:"index-path" help:"Persistent attribute index file (bbolt). When unset the server uses an in-memory cache that lives for the process lifetime; setting this makes the cache survive restarts. The file is created on first use."`
+	Transport string        `name:"transport" enum:"stdio,http,sse" default:"stdio" help:"Transport: stdio (default; for desktop clients), http (Streamable HTTP, MCP 2025-03-26), or sse (DEPRECATED — HTTP+SSE, MCP 2024-11-05)."`
+	Addr      string        `name:"addr" default:":8080" help:"host:port to bind for http or sse transports. Ignored for stdio."`
+	Path      string        `name:"path" default:"/" help:"URL path prefix the handler is mounted at. Ignored for stdio."`
+	IndexPath string        `name:"index-path" help:"Persistent attribute index file (bbolt). When unset the server uses an in-memory cache that lives for the process lifetime; setting this makes the cache survive restarts. The file is created on first use."`
+	Timeout   time.Duration `name:"timeout" default:"60s" help:"Default per-tool-call timeout (Go duration: 30s, 2m, 5m). Each search/read_attributes invocation is wrapped with this deadline. Per-call 'timeout_seconds' input on the search tool overrides this. Set to 0 to disable the default (not recommended — long-running calls can exceed MCP client read deadlines)."`
 }
 
 func (m *MCPCmd) Run(ctx context.Context) error {
@@ -101,12 +126,12 @@ func (m *MCPCmd) Run(ctx context.Context) error {
 
 	switch m.Transport {
 	case "http":
-		return mcpserver.RunHTTP(ctx, version, m.Addr, m.Path, idx)
+		return mcpserver.RunHTTP(ctx, version, m.Addr, m.Path, idx, m.Timeout)
 	case "sse":
 		fmt.Fprintln(os.Stderr, "warning: --transport sse is DEPRECATED (MCP 2024-11-05); prefer --transport http for new clients.")
-		return mcpserver.RunSSE(ctx, version, m.Addr, m.Path, idx)
+		return mcpserver.RunSSE(ctx, version, m.Addr, m.Path, idx, m.Timeout)
 	default:
-		return mcpserver.Run(ctx, version, idx)
+		return mcpserver.Run(ctx, version, idx, m.Timeout)
 	}
 }
 
@@ -128,15 +153,16 @@ func openIndex(path string) (index.Index, error) {
 }
 
 type SearchCmd struct {
-	Expr         string `arg:"" help:"CEL expression to match files (e.g. 'is_json && size > 1024')." optional:""`
-	Dir          string `short:"d" help:"Directory to search in." default:"."`
-	Workers      int    `short:"w" help:"Number of parallel workers." default:"0"`
-	List         bool   `short:"l" help:"List supported attributes and content types."`
-	MaxLineBytes int    `short:"L" name:"max-line-bytes" help:"Per-line scanner cap for text/CSV/HTML (bytes). 0 uses the 1 MiB default." default:"0"`
-	Output       string `short:"o" name:"output" enum:"bare,default,verbose,json" default:"default" help:"Output format: bare | default | verbose | json."`
-	Format       string `name:"format" help:"Custom Go text/template applied per match (e.g. '{{.Path}}\\t{{.Title}}'). When set, takes precedence over -o."`
-	Unsorted     bool   `name:"unsorted" help:"Stream matches in walk order instead of buffering+sorting. Default and verbose modes still emit the count footer; bare/json/template are streamed and unsorted regardless."`
-	IndexPath    string `name:"index-path" help:"Persistent attribute index file (bbolt). When set, unchanged files (matched by absolute path + size + mtime) skip the per-file content-type parse, making repeat searches dramatically faster. The file is created on first use; delete it to force a full re-extraction."`
+	Expr         string        `arg:"" help:"CEL expression to match files (e.g. 'is_json && size > 1024')." optional:""`
+	Dir          string        `short:"d" help:"Directory to search in." default:"."`
+	Workers      int           `short:"w" help:"Number of parallel workers." default:"0"`
+	List         bool          `short:"l" help:"List supported attributes and content types."`
+	MaxLineBytes int           `short:"L" name:"max-line-bytes" help:"Per-line scanner cap for text/CSV/HTML (bytes). 0 uses the 1 MiB default." default:"0"`
+	Output       string        `short:"o" name:"output" enum:"bare,default,verbose,json" default:"default" help:"Output format: bare | default | verbose | json."`
+	Format       string        `name:"format" help:"Custom Go text/template applied per match (e.g. '{{.Path}}\\t{{.Title}}'). When set, takes precedence over -o."`
+	Unsorted     bool          `name:"unsorted" help:"Stream matches in walk order instead of buffering+sorting. Default and verbose modes still emit the count footer; bare/json/template are streamed and unsorted regardless."`
+	IndexPath    string        `name:"index-path" help:"Persistent attribute index file (bbolt). When set, unchanged files (matched by absolute path + size + mtime) skip the per-file content-type parse, making repeat searches dramatically faster. The file is created on first use; delete it to force a full re-extraction."`
+	Timeout      time.Duration `name:"timeout" help:"Maximum walk duration (Go duration string: 30s, 2m, 500ms). Default unset = no timeout. On expiry, results collected so far are still printed and the process exits 124. Ctrl-C exits 130 with whatever was collected."`
 }
 
 func (s *SearchCmd) Run(ctx context.Context) error {
@@ -174,6 +200,20 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		}
 	}
 
+	// Layer a timeout on top of the signal-bound parent ctx so we can
+	// distinguish "user pressed Ctrl-C" (parent ctx canceled) from
+	// "--timeout fired" (effective ctx deadline-exceeded but parent
+	// ctx still healthy). The walker, MCP-search, and index code all
+	// honour ctx; partial results land in the slice/channel before
+	// the helpers return.
+	parentCtx := ctx
+	effectiveCtx := ctx
+	if s.Timeout > 0 {
+		var cancel context.CancelFunc
+		effectiveCtx, cancel = context.WithTimeout(ctx, s.Timeout)
+		defer cancel()
+	}
+
 	opts := search.Options{
 		Root:              s.Dir,
 		Expr:              s.Expr,
@@ -190,9 +230,9 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 	streaming := tmpl != nil || s.Output == "bare" || s.Output == "json" || s.Unsorted
 	var runErr error
 	if streaming {
-		runErr = streamSearch(ctx, opts, tmpl, s.Output)
+		runErr = streamSearch(effectiveCtx, opts, tmpl, s.Output)
 	} else {
-		runErr = bufferedSearch(ctx, opts, s.Output)
+		runErr = bufferedSearch(effectiveCtx, opts, s.Output)
 	}
 	// Close the index BEFORE reading Stats so the bbolt writer goroutine
 	// has flushed pending puts; otherwise the footer can show "0 stored"
@@ -203,6 +243,20 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		st := idx.Stats()
 		fmt.Fprintf(os.Stderr, "index: %d hits, %d misses, %d stored, %d stale, %d errors\n",
 			st.Hits, st.Misses, st.Puts, st.Stales, st.Errors)
+	}
+
+	// Distinguish timeout, Ctrl-C, and real errors. The stream/buffered
+	// helpers print whatever they collected before returning the ctx
+	// error, so stdout already reflects the partial set.
+	if isCancellation(runErr) {
+		switch {
+		case errors.Is(parentCtx.Err(), context.Canceled):
+			fmt.Fprintln(os.Stderr, "search interrupted; results above may be incomplete")
+			return &exitCodeError{code: 130, msg: "interrupted"}
+		case s.Timeout > 0 && errors.Is(effectiveCtx.Err(), context.DeadlineExceeded):
+			fmt.Fprintf(os.Stderr, "search timed out after %s; results above may be incomplete\n", s.Timeout)
+			return &exitCodeError{code: 124, msg: "timeout"}
+		}
 	}
 	return runErr
 }
@@ -236,11 +290,17 @@ func streamSearch(ctx context.Context, opts search.Options, tmpl *template.Templ
 	}
 	<-done
 
-	if walkErr != nil {
-		return fmt.Errorf("search failed: %w", walkErr)
-	}
 	if mode == "default" || mode == "verbose" {
 		fmt.Fprintf(os.Stderr, "\n%d file(s) found\n", count)
+	}
+	if walkErr != nil {
+		// Cancellation gets returned as-is so the parent can surface
+		// the right exit code + diagnostic; partial results have
+		// already been printed by the per-mode streamer.
+		if isCancellation(walkErr) {
+			return walkErr
+		}
+		return fmt.Errorf("search failed: %w", walkErr)
 	}
 	return printErr
 }
@@ -248,11 +308,12 @@ func streamSearch(ctx context.Context, opts search.Options, tmpl *template.Templ
 // bufferedSearch keeps the historical Walk + sort + print + footer flow
 // for default and verbose modes, both of which emit a "N file(s) found"
 // footer that requires the full result set.
+//
+// On context cancellation, search.Walk still returns the partial set in
+// the results slice; we sort+print it before bubbling the cancellation
+// up so the user sees what was collected.
 func bufferedSearch(ctx context.Context, opts search.Options, mode string) error {
 	results, err := search.Walk(ctx, opts, contentpkg.DefaultRegistry())
-	if err != nil {
-		return fmt.Errorf("search failed: %w", err)
-	}
 
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Path < results[j].Path
@@ -264,6 +325,13 @@ func bufferedSearch(ctx context.Context, opts search.Options, mode string) error
 		printDefault(os.Stdout, results)
 	}
 	fmt.Fprintf(os.Stderr, "\n%d file(s) found\n", len(results))
+
+	if err != nil {
+		if isCancellation(err) {
+			return err
+		}
+		return fmt.Errorf("search failed: %w", err)
+	}
 	return nil
 }
 
@@ -320,6 +388,12 @@ func main() {
 		kong.BindTo(ctx, (*context.Context)(nil)),
 	)
 	if err := kctx.Run(); err != nil {
+		var ece *exitCodeError
+		if errors.As(err, &ece) {
+			// The subcommand has already printed its own diagnostic
+			// to stderr; surface only the exit code.
+			os.Exit(ece.code)
+		}
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}

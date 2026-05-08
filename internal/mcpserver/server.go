@@ -3,6 +3,7 @@ package mcpserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,10 +27,11 @@ type ReadAttributesInput struct {
 
 // SearchInput is the JSON-schema input for the `search` tool.
 type SearchInput struct {
-	Expr         string `json:"expr,omitempty" jsonschema:"CEL expression matched against file attributes. Boolean type predicates: is_markdown, is_pdf, is_html, is_xml, is_json, is_csv, is_text, is_image, is_audio, is_video, is_office, is_epub, is_archive, is_binary, is_email, is_source. Common attributes: size (int, bytes), name/path/dir/ext (string), word_count/line_count/page_count (int), title/author/language (string). Examples: 'is_markdown && word_count > 500'; 'is_pdf && page_count > 10'; 'is_image && iso > 1600'; 'is_audio && sample_rate >= 96000'; 'is_video && duration > 1800'; 'is_source && language == \"go\" && loc > 100'; 'size > 1000000 && !is_binary'. Empty means match all. Call list_attributes for the full schema."`
-	Dir          string `json:"dir,omitempty" jsonschema:"Directory to search in. Defaults to '.'."`
-	Workers      int    `json:"workers,omitempty" jsonschema:"Number of parallel workers. Defaults to runtime.NumCPU()."`
-	MaxLineBytes int    `json:"max_line_bytes,omitempty" jsonschema:"Per-line scanner buffer cap for text/CSV/HTML (bytes). 0 uses the 1 MiB default; raise for very long log lines."`
+	Expr           string   `json:"expr,omitempty" jsonschema:"CEL expression matched against file attributes. Boolean type predicates: is_markdown, is_pdf, is_html, is_xml, is_json, is_csv, is_text, is_image, is_audio, is_video, is_office, is_epub, is_archive, is_binary, is_email, is_source. Common attributes: size (int, bytes), name/path/dir/ext (string), word_count/line_count/page_count (int), title/author/language (string). Examples: 'is_markdown && word_count > 500'; 'is_pdf && page_count > 10'; 'is_image && iso > 1600'; 'is_audio && sample_rate >= 96000'; 'is_video && duration > 1800'; 'is_source && language == \"go\" && loc > 100'; 'size > 1000000 && !is_binary'. Empty means match all. Call list_attributes for the full schema."`
+	Dir            string   `json:"dir,omitempty" jsonschema:"Directory to search in. Defaults to '.'."`
+	Workers        int      `json:"workers,omitempty" jsonschema:"Number of parallel workers. Defaults to runtime.NumCPU()."`
+	MaxLineBytes   int      `json:"max_line_bytes,omitempty" jsonschema:"Per-line scanner buffer cap for text/CSV/HTML (bytes). 0 uses the 1 MiB default; raise for very long log lines."`
+	TimeoutSeconds *float64 `json:"timeout_seconds,omitempty" jsonschema:"Override the server's default per-call timeout for this invocation (in seconds; fractions allowed). Omit to use the server default (set when the MCP server was started). Pass 0 to disable the timeout for this call. On expiry the walk is cancelled and the partial result set is returned with cancelled=true."`
 }
 
 // SearchMatch is one match returned by the `search` tool. Beyond path /
@@ -408,9 +410,20 @@ func matchFrom(r search.Result) SearchMatch {
 }
 
 // SearchOutput is the structured output of the `search` tool.
+//
+// When Cancelled is true, the walk did not complete; Matches contains
+// every result that was emitted by the walker before the deadline /
+// signal fired. CancellationReason distinguishes "timeout" (server
+// default or per-call timeout_seconds expired) from "client_cancel"
+// (the MCP client closed the request or the parent ctx was cancelled
+// for some other reason). ElapsedSeconds reports wall-clock time spent
+// inside the search handler — useful for tuning timeouts.
 type SearchOutput struct {
-	Matches []SearchMatch `json:"matches"`
-	Count   int           `json:"count"`
+	Matches            []SearchMatch `json:"matches"`
+	Count              int           `json:"count"`
+	Cancelled          bool          `json:"cancelled,omitempty"`
+	CancellationReason string        `json:"cancellation_reason,omitempty"`
+	ElapsedSeconds     float64       `json:"elapsed_seconds,omitempty"`
 }
 
 // ContentTypeDoc describes a registered content type.
@@ -436,10 +449,12 @@ type IndexStatsOutput struct {
 }
 
 // handlers wraps tool handlers so they can share an index reference
-// across the server's lifetime. The MCP SDK requires plain functions
-// for AddTool, so we use closures to inject this shared state.
+// and the server-level default timeout across the server's lifetime.
+// The MCP SDK requires plain functions for AddTool, so we use closures
+// to inject this shared state.
 type handlers struct {
-	idx index.Index
+	idx            index.Index
+	defaultTimeout time.Duration
 }
 
 // serverInstructions is the text sent to MCP clients during initialize
@@ -509,7 +524,9 @@ Tools:
   list_attributes  full schema (every attribute, every built-in function); call when the recipes above don't cover what you need
   index_stats      cache hit/miss counters for this server process
 
-Performance: an attribute cache lives for the server's lifetime; repeated calls against the same files skip the per-file parse step. Empty 'expr' matches all files; empty 'dir' defaults to '.'.`
+Performance: an attribute cache lives for the server's lifetime; repeated calls against the same files skip the per-file parse step. Empty 'expr' matches all files; empty 'dir' defaults to '.'.
+
+Timeouts and partial results: every tool call is wrapped with a server-default timeout (typically 60s; configured at server startup via --timeout). The 'search' tool also accepts 'timeout_seconds' on input — pass a positive number to override, or 0 to disable for that call. On expiry, the search tool DOES NOT return an error; it returns the partial match set with cancelled=true, cancellation_reason="timeout" (or "client_cancel" for transport-side cancellation), and elapsed_seconds set. Always inspect 'cancelled' in the response — a partial result set may be exactly what you want, or you may want to retry with a tighter expression / larger timeout / smaller dir. read_attributes is bounded by the same default timeout but returns an error on cancellation (no partial-result semantics for one file).`
 
 // New builds an MCP server with file-search-on's tools registered. The
 // server is not connected to a transport; callers either pass it to
@@ -522,7 +539,14 @@ Performance: an attribute cache lives for the server's lifetime; repeated calls 
 // or a bbolt-backed index opened via index.Open(path) when the user
 // wants persistence across restarts. nil idx disables caching; callers
 // almost always want index.NewMemory() at the very least.
-func New(version string, idx index.Index) *mcp.Server {
+//
+// defaultTimeout is the per-call ceiling applied to every tool
+// invocation. <= 0 disables the default (calls inherit the parent ctx
+// only). The search tool's input also accepts a per-call
+// timeout_seconds override. A bounded default is strongly recommended
+// because MCP clients have their own read deadlines; a runaway server
+// walk would otherwise wedge the client.
+func New(version string, idx index.Index, defaultTimeout time.Duration) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{
 		Name:    "file-search-on",
 		Version: version,
@@ -530,11 +554,11 @@ func New(version string, idx index.Index) *mcp.Server {
 		Instructions: serverInstructions,
 	})
 
-	h := &handlers{idx: idx}
+	h := &handlers{idx: idx, defaultTimeout: defaultTimeout}
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "search",
-		Description: "Recursively search a directory for files matching a CEL expression evaluated over file metadata and content-type-specific attributes. Boolean type predicates you can use directly in expr: is_markdown, is_pdf, is_html, is_xml, is_json, is_csv, is_text, is_image, is_audio, is_video, is_office, is_epub, is_archive, is_binary, is_email, is_source. Common scalar attributes: size (int bytes), name, path, dir, ext, content_type, title, author, language, word_count, line_count, page_count. Per-family attributes (image EXIF, audio tags, video codec, frontmatter, archive sizes, binary architectures, email headers, source-LOC) populate when the matching family fires — see list_attributes for the full schema. Built-in functions: levenshtein(a, b), soundex(s), ngrams(s, n), ngram_similarity(a, b, n) for fuzzy / phonetic matching; point_in_polygon(lat, lon, polygon) for GPS-bbox filtering. Example exprs: 'is_markdown && word_count > 500'; 'is_pdf && page_count > 10'; 'is_image && iso > 1600'; 'is_video && video_height >= 2160 && duration > 1800'; 'is_source && language == \"go\" && loc > 200'. Repeated searches reuse a per-process attribute cache so unchanged files skip the parse step (see index_stats).",
+		Description: "Recursively search a directory for files matching a CEL expression evaluated over file metadata and content-type-specific attributes. Boolean type predicates you can use directly in expr: is_markdown, is_pdf, is_html, is_xml, is_json, is_csv, is_text, is_image, is_audio, is_video, is_office, is_epub, is_archive, is_binary, is_email, is_source. Common scalar attributes: size (int bytes), name, path, dir, ext, content_type, title, author, language, word_count, line_count, page_count. Per-family attributes (image EXIF, audio tags, video codec, frontmatter, archive sizes, binary architectures, email headers, source-LOC) populate when the matching family fires — see list_attributes for the full schema. Built-in functions: levenshtein(a, b), soundex(s), ngrams(s, n), ngram_similarity(a, b, n) for fuzzy / phonetic matching; point_in_polygon(lat, lon, polygon) for GPS-bbox filtering. Example exprs: 'is_markdown && word_count > 500'; 'is_pdf && page_count > 10'; 'is_image && iso > 1600'; 'is_video && video_height >= 2160 && duration > 1800'; 'is_source && language == \"go\" && loc > 200'. Repeated searches reuse a per-process attribute cache so unchanged files skip the parse step (see index_stats). Timeouts: every call is bounded by the server's default timeout (set at startup via --timeout, typically 60s); pass timeout_seconds in the input to override (positive number = seconds, 0 = no timeout). On timeout the call DOES NOT error — it returns the partial match set with cancelled=true, cancellation_reason set, and elapsed_seconds populated. Always check 'cancelled' before treating the result as exhaustive.",
 	}, h.searchHandler)
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -555,10 +579,11 @@ func New(version string, idx index.Index) *mcp.Server {
 	return s
 }
 
-// Run starts an MCP server on stdio with the given index and blocks
-// until the transport closes or ctx is cancelled.
-func Run(ctx context.Context, version string, idx index.Index) error {
-	return New(version, idx).Run(ctx, &mcp.StdioTransport{})
+// Run starts an MCP server on stdio with the given index and default
+// per-call timeout, and blocks until the transport closes or ctx is
+// cancelled.
+func Run(ctx context.Context, version string, idx index.Index, defaultTimeout time.Duration) error {
+	return New(version, idx, defaultTimeout).Run(ctx, &mcp.StdioTransport{})
 }
 
 // progressNotifyStride is the number of matches between two
@@ -576,6 +601,25 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 	if dir == "" {
 		dir = "."
 	}
+
+	// Resolve the effective timeout: per-call override > server default.
+	// A nil pointer inherits the default; an explicit 0 means "no
+	// timeout for this call" (the parent ctx still applies). We track
+	// the parent ctx separately so we can distinguish a server-level
+	// cancellation (transport close, parent ctx) from our own
+	// timeout firing.
+	parentCtx := ctx
+	timeout := h.defaultTimeout
+	if in.TimeoutSeconds != nil {
+		timeout = time.Duration(*in.TimeoutSeconds * float64(time.Second))
+	}
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
+	start := time.Now()
 
 	out := make(chan search.Result, 64)
 	var walkErr error
@@ -612,7 +656,10 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 	}
 	<-done
 
-	if walkErr != nil {
+	elapsed := time.Since(start).Seconds()
+
+	cancelled := errors.Is(walkErr, context.Canceled) || errors.Is(walkErr, context.DeadlineExceeded)
+	if walkErr != nil && !cancelled {
 		return nil, SearchOutput{}, fmt.Errorf("walk: %w", walkErr)
 	}
 
@@ -620,7 +667,23 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 	// contract regardless of walk order during the stream.
 	sort.Slice(matches, func(i, j int) bool { return matches[i].Path < matches[j].Path })
 
-	return nil, SearchOutput{Matches: matches, Count: len(matches)}, nil
+	output := SearchOutput{
+		Matches:        matches,
+		Count:          len(matches),
+		ElapsedSeconds: elapsed,
+	}
+	if cancelled {
+		output.Cancelled = true
+		// "timeout" when our deadline fired and the parent ctx is
+		// still healthy; otherwise the parent (transport / client /
+		// process signal) is the cause.
+		if errors.Is(walkErr, context.DeadlineExceeded) && parentCtx.Err() == nil {
+			output.CancellationReason = "timeout"
+		} else {
+			output.CancellationReason = "client_cancel"
+		}
+	}
+	return nil, output, nil
 }
 
 func (h *handlers) readAttributesHandler(ctx context.Context, _ *mcp.CallToolRequest, in ReadAttributesInput) (*mcp.CallToolResult, SearchMatch, error) {
@@ -633,6 +696,15 @@ func (h *handlers) readAttributesHandler(ctx context.Context, _ *mcp.CallToolReq
 	}
 	dir := filepath.Dir(abs)
 	base := filepath.Base(abs)
+
+	// Single-file extraction is bounded but not free (markdown reads
+	// the whole file; PDFs / EXIF are header-only). Apply the server
+	// default timeout so a pathological file can't wedge the server.
+	if h.defaultTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, h.defaultTimeout)
+		defer cancel()
+	}
 
 	attrs, err := celexpr.BuildAttributesWith(ctx, os.DirFS(dir), base, abs, content.DefaultRegistry(), celexpr.BuildOptions{Index: h.idx})
 	if err != nil {
