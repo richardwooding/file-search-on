@@ -114,6 +114,7 @@ file-search-on --list
 | `-o`, `--output` | Output preset: `bare` (paths only), `default`, `verbose` (multi-line records), `json` (NDJSON). | `default` |
 | `--format` | Custom Go `text/template` per match (e.g. `'{{.Path}}\t{{.Title}}'`). Takes precedence over `-o`. | |
 | `--index-path` | Persistent attribute index file (bbolt). When set, unchanged files (matched by absolute path + size + mtime) skip the per-file content-type parse, making repeat searches dramatically faster. | unset (no caching) |
+| `--timeout` | Maximum walk duration (Go duration string: `30s`, `2m`, `500ms`). On expiry, results collected so far are still printed and the process exits 124. Ctrl-C exits 130 with whatever was collected. | unset (no timeout) |
 
 Each matching file is printed as `<path>\t[<content-type>]\t<size> bytes`. The match count is written to stderr so it doesn't pollute pipelines.
 
@@ -148,6 +149,44 @@ How it works:
 
 In MCP server mode the cache is **on by default and lives for the process lifetime** (no flag needed). Pass `--index-path` to make the cache persist across restarts. See [MCP server mode](#mcp-server-mode).
 
+### Timeouts and partial results
+
+Walks over large trees can take a while. Both the CLI and the MCP server expose timeouts so callers don't wait forever, and both surface **partial results** when a deadline fires — whatever was collected before cancellation is still returned, just with a clear "this was incomplete" signal.
+
+**CLI** — `--timeout` accepts any Go duration:
+
+```sh
+file-search-on 'is_pdf' -d ~/Documents --timeout 30s
+file-search-on 'is_video && duration > 1800' -d ~/Movies --timeout 2m -o json
+```
+
+When the deadline fires:
+
+- Whatever results were already collected are printed to stdout (sorted, in the requested format).
+- The footer `<N> file(s) found` reflects the partial count.
+- A warning is written to stderr: `search timed out after 30s; results above may be incomplete`.
+- The process exits with code **124** (matches GNU `timeout(1)` convention). Ctrl-C exits **130** (`128 + SIGINT`). Successful completion exits 0; hard errors exit 1.
+
+Default is **no timeout** — back-compatible with how the CLI behaved before this flag existed.
+
+**MCP** — every tool call is bounded by a server-default timeout (typically **60 seconds**, configurable at startup via `--timeout`). The `search` tool also accepts `timeout_seconds` on input to override per-call:
+
+```json
+{ "expr": "is_image && iso > 1600", "dir": "~/Pictures", "timeout_seconds": 10 }
+```
+
+`timeout_seconds: 0` disables the timeout for that specific call. On expiry, the search tool **does not return an error** — it returns the partial match set with three new fields:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `cancelled` | bool | True if the walk did not complete. |
+| `cancellation_reason` | string | `"timeout"` (our deadline fired) or `"client_cancel"` (transport closed, parent context cancelled, etc.). |
+| `elapsed_seconds` | float | Wall-clock time spent in the search handler. |
+
+Always inspect `cancelled` before treating the result as exhaustive. `read_attributes` is bounded by the same server default but returns an error on cancellation (single-file extraction has no partial-result semantics).
+
+The reasoning: an MCP client (Claude Desktop, Claude Code, etc.) has its own read deadline; if the server walks for minutes the client gives up and the agent loses both the data and the chance to retry. Returning a partial set with a clear `cancelled` flag lets the agent see what was found, decide whether it's enough, and refine if not.
+
 ### Single-file inspection
 
 When you already have a path and just want every attribute the parser produces, use the `attrs` subcommand. It skips the walker and the CEL filter — straight to `BuildAttributes` on one file:
@@ -177,6 +216,7 @@ Focused recipe collections live under [`examples/`](./examples/):
 | [`examples/cookbook.md`](./examples/cookbook.md) | Cross-cutting recipes — dedupe, mixed media filters, pipeline integration |
 | [`examples/fuzzy-search.md`](./examples/fuzzy-search.md) | Fuzzy / phonetic / n-gram similarity matching — `levenshtein`, `soundex`, `ngrams`, `ngram_similarity` |
 | [`examples/indexing.md`](./examples/indexing.md) | Persistent attribute index (`--index-path`) — cold/warm CLI runs, MCP auto-on cache, refresh + inspection |
+| [`examples/timeouts.md`](./examples/timeouts.md) | Timeouts and partial results — CLI `--timeout`, MCP `timeout_seconds`, exit codes, cancellation semantics |
 
 A handful of representative one-liners:
 
@@ -447,6 +487,7 @@ The same binary can run as a [Model Context Protocol](https://modelcontextprotoc
 file-search-on mcp                                       # stdio (default; for desktop clients)
 file-search-on mcp --transport http --addr :8080         # Streamable HTTP (MCP 2025-03-26)
 file-search-on mcp --transport sse  --addr :8080         # HTTP+SSE (DEPRECATED — MCP 2024-11-05)
+file-search-on mcp --timeout 90s                         # raise the per-call default (60s out of the box)
 ```
 
 | Transport | Spec version | When to use |
@@ -455,13 +496,13 @@ file-search-on mcp --transport sse  --addr :8080         # HTTP+SSE (DEPRECATED 
 | `http` | 2025-03-26 | Network-accessible servers, multi-client, or Docker deployments. |
 | `sse` | 2024-11-05 | Legacy clients only. The HTTP+SSE transport was deprecated in the 2025-03-26 spec; new deployments should pick `http`. |
 
-For HTTP and SSE, `--addr` (default `:8080`) is the bind address and `--path` (default `/`) is the URL prefix.
+For HTTP and SSE, `--addr` (default `:8080`) is the bind address and `--path` (default `/`) is the URL prefix. `--timeout` (default `60s`) sets the per-tool-call deadline; per-call `timeout_seconds` on the `search` tool input overrides it. See [Timeouts and partial results](#timeouts-and-partial-results).
 
 Four tools are exposed:
 
 | Tool | Input | Output |
 | --- | --- | --- |
-| `search` | `expr`, `dir`, `workers`, `max_line_bytes` | `matches[]` (full attribute set per match) and `count` |
+| `search` | `expr`, `dir`, `workers`, `max_line_bytes`, `timeout_seconds` | `matches[]` (full attribute set per match), `count`, `cancelled`, `cancellation_reason`, `elapsed_seconds` |
 | `read_attributes` | `path` | A single match — same shape as one `matches[]` entry from `search`. Use when the agent already has the path and wants metadata without walking. |
 | `list_attributes` | none | `schema` (common, type_specific, frontmatter, functions) and `content_types[]` |
 | `index_stats` | none | Cumulative cache counters for the running server: `hits`, `misses`, `puts`, `stales`, `errors`. Counters reset on server restart. |

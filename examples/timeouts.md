@@ -1,0 +1,114 @@
+# Timeouts and partial results
+
+Walks over large trees can take a while. Both the CLI and the MCP server expose timeouts so callers don't wait forever, and **both surface partial results when a deadline fires**: whatever was collected before cancellation is still returned, with a clear "this was incomplete" signal.
+
+## CLI
+
+```sh
+file-search-on 'is_pdf' -d ~/Documents --timeout 30s
+file-search-on 'is_video && duration > 1800' -d ~/Movies --timeout 2m -o json
+file-search-on 'is_audio' -d ~/Music --timeout 1m --index-path ~/.cache/fso/music.db
+```
+
+`--timeout` accepts any Go duration (`30s`, `2m`, `500ms`, `1h`). Default is **no timeout** — back-compatible.
+
+When the deadline fires:
+
+- The partial result set is sorted and printed to stdout.
+- The footer `<N> file(s) found` reflects the partial count.
+- A warning lands on stderr: `search timed out after 30s; results above may be incomplete`.
+- The process **exits 124** (matches GNU `timeout(1)` convention).
+
+Other exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | Walk completed (whether or not any files matched). |
+| 1 | Hard error: bad CEL expression, missing directory, parse failure, etc. |
+| 124 | `--timeout` fired. |
+| 130 | Ctrl-C / SIGINT. |
+
+Shell-pipeline pattern: pipe results through `jq` / `xargs` and check the exit code separately to handle partial results explicitly:
+
+```sh
+results=$(file-search-on 'is_pdf' -d ~/Documents --timeout 10s -o json)
+case $? in
+  0)   echo "$results" | jq '.path' ;;
+  124) echo "$results" | jq '.path' ; echo "(partial — timed out)" ;;
+  *)   echo "search failed" >&2 ; exit 1 ;;
+esac
+```
+
+## MCP
+
+Every tool call is bounded by a server-default timeout, set when the MCP server starts:
+
+```sh
+file-search-on mcp                          # default: 60 seconds per call
+file-search-on mcp --timeout 2m             # raise the default for all calls
+file-search-on mcp --timeout 0              # disable the default (NOT RECOMMENDED — see below)
+```
+
+The `search` tool also accepts `timeout_seconds` on input to override per-call:
+
+```json
+{
+  "expr": "is_image && iso > 1600",
+  "dir": "/Users/me/Pictures",
+  "timeout_seconds": 10
+}
+```
+
+| `timeout_seconds` value | Effect |
+| --- | --- |
+| omitted | Use the server default. |
+| positive number | Override; deadline fires after that many seconds. |
+| `0` | No timeout for this call (parent context still applies). |
+
+On expiry the search tool **does not return an error** — it returns the partial match set with these fields populated:
+
+```json
+{
+  "matches": [ /* whatever was collected */ ],
+  "count": 47,
+  "cancelled": true,
+  "cancellation_reason": "timeout",
+  "elapsed_seconds": 10.003
+}
+```
+
+`cancellation_reason` is one of:
+
+- `"timeout"` — our own deadline fired.
+- `"client_cancel"` — the parent context was cancelled (transport closed, MCP client gave up, server shutting down, …).
+
+Always inspect `cancelled` before treating the result as exhaustive. A common pattern for an agent:
+
+1. Issue a `search` with a tight timeout.
+2. If `cancelled` is true and the partial set is interesting, refine the expression to narrow the search and retry.
+3. If `cancelled` is true and the partial set is too small to draw conclusions, retry with a larger `timeout_seconds`.
+4. If `cancelled` is false, the result is the full set.
+
+`read_attributes` is bounded by the same server default but **returns an error on cancellation** — single-file extraction has no partial-result semantics.
+
+## Why the default is 60s for MCP
+
+MCP clients (Claude Desktop, Claude Code, IDE plugins) have their own read deadlines. If the server walks for several minutes, the client times out at the transport layer, the agent loses both the data and the connection, and you typically have to restart the conversation.
+
+A 60-second per-call default is comfortably under the read deadline of every common MCP client we know of, and is enough time for non-trivial walks of moderately large trees on warm caches. If you routinely scan multi-hundred-thousand-file trees, raise the default at startup (`--timeout 5m`) and let agents tighten it per-call when they want quick exploratory results.
+
+`--timeout 0` disables the default, which means a single call can wedge the server until the underlying MCP client gives up. Avoid unless you have specific reasons.
+
+## Why the default is "no timeout" for the CLI
+
+The CLI is typically run interactively from a shell. If the user wants to give up, they hit Ctrl-C — there's a human in the loop. Adding a default deadline would change muscle-memory for shell users without good reason. `--timeout` is opt-in for cron jobs, CI pipelines, and shell scripts that need a hard ceiling.
+
+## Cancellation propagation
+
+The walker, the per-file content-type parsers, the CEL evaluator, and the bbolt index writer all honour `context.Done()` — when the deadline fires, an in-flight file finishes its current scan loop iteration and exits cleanly. Partial results that already landed in the channel are surfaced; in-flight work is dropped.
+
+Practical implications:
+
+- Cancelling at any time is safe — no corrupted index, no half-written files, no leaked goroutines.
+- A file that was being parsed when the deadline fired won't be in the result set even if some partial attributes were extracted; we don't surface "half-extracted" attributes.
+- Repeated calls after a partial run still benefit from the index: files that **completed** before the deadline are cached; files that were mid-scan are not.
