@@ -23,6 +23,8 @@ CEL expression recipes by content family, plus cross-cutting cookbook patterns.
 | [`top-k.md`](./top-k.md) | Top-K queries — `--sort` / `--limit` for "biggest 5 videos", "10 most recent photos", etc. |
 | [`snippets.md`](./snippets.md) | Body previews — `--snippet` returns the first N lines of text files alongside metadata |
 | [`exclude.md`](./exclude.md) | Pruning the walk — `--exclude` basename globs and `--respect-gitignore` for monorepos |
+| [`body-search.md`](./body-search.md) | Content filters — `--body` exposes file body to CEL; pair with `contains` / `matches` (RE2) / `startsWith` |
+| [`stats.md`](./stats.md) | Directory reconnaissance — `file-search-on stats` aggregates a content-type histogram with totals |
 
 Every recipe is a complete `file-search-on '<expr>'` invocation that you can paste and run. Most include a few variations and useful output-format snippets.
 

@@ -52,6 +52,7 @@ var (
 var CLI struct {
 	Search  SearchCmd        `cmd:"" help:"Search for files matching a CEL expression." default:"withargs"`
 	Attrs   AttrsCmd         `cmd:"" name:"attrs" help:"Print attributes for a single file (no walk, no CEL)."`
+	Stats   StatsCmd         `cmd:"" name:"stats" help:"Aggregate content-type counts and total sizes for a directory tree."`
 	MCP     MCPCmd           `cmd:"" name:"mcp" help:"Run as a Model Context Protocol server (stdio, http, or sse)."`
 	Version kong.VersionFlag `short:"V" help:"Print version and exit."`
 }
@@ -105,6 +106,82 @@ func (a *AttrsCmd) Run(ctx context.Context) error {
 		printDefault(os.Stdout, results)
 	default: // "" or "verbose"
 		printVerbose(os.Stdout, results)
+	}
+	return nil
+}
+
+type StatsCmd struct {
+	Dir              string        `short:"d" help:"Directory to walk." default:"."`
+	Expr             string        `arg:"" help:"Optional CEL expression to scope the stats (e.g. 'is_markdown' for markdown-only counts). Defaults to matching every file." optional:""`
+	Workers          int           `short:"w" help:"Parallel workers." default:"0"`
+	MaxLineBytes     int           `short:"L" name:"max-line-bytes" help:"Per-line scanner cap for text/CSV/HTML (bytes). 0 uses the 1 MiB default." default:"0"`
+	IndexPath        string        `name:"index-path" help:"Persistent attribute index file (bbolt); see search subcommand."`
+	Timeout          time.Duration `name:"timeout" help:"Maximum walk duration. On expiry, the partial histogram is still printed and the process exits 124."`
+	Exclude          []string      `name:"exclude" help:"Glob pattern matched against file/dir basenames; matches are skipped. Repeatable."`
+	RespectGitignore bool          `name:"respect-gitignore" help:"Parse a .gitignore at the walk root and skip matching paths."`
+	Output           string        `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table (default; human-readable) | json (machine-readable)."`
+}
+
+func (s *StatsCmd) Run(ctx context.Context) error {
+	expr := s.Expr
+	if expr == "" {
+		expr = "true"
+	}
+
+	parentCtx := ctx
+	effectiveCtx := ctx
+	if s.Timeout > 0 {
+		var cancel context.CancelFunc
+		effectiveCtx, cancel = context.WithTimeout(ctx, s.Timeout)
+		defer cancel()
+	}
+
+	var idx index.Index
+	if s.IndexPath != "" {
+		var err error
+		idx, err = openIndex(s.IndexPath)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = idx.Close() }()
+	}
+
+	stats, err := search.ComputeStats(effectiveCtx, search.Options{
+		Root:             s.Dir,
+		Expr:             expr,
+		Workers:          s.Workers,
+		MaxLineBytes:     s.MaxLineBytes,
+		Index:            idx,
+		Excludes:         s.Exclude,
+		RespectGitignore: s.RespectGitignore,
+	}, contentpkg.DefaultRegistry())
+
+	// Print even on cancellation — ComputeStats returns the partial
+	// tally with Cancelled=true rather than nil.
+	if stats != nil {
+		if s.Output == "json" {
+			if err := printStatsJSON(os.Stdout, stats); err != nil {
+				return err
+			}
+		} else {
+			printStatsTable(os.Stdout, stats)
+		}
+	}
+
+	if err != nil && !isCancellation(err) {
+		return fmt.Errorf("stats failed: %w", err)
+	}
+	// Same exit-code contract as search: 124 on timeout, 130 on
+	// Ctrl-C, otherwise 0 (partial results aren't a hard failure).
+	if stats != nil && stats.Cancelled {
+		switch {
+		case errors.Is(parentCtx.Err(), context.Canceled):
+			fmt.Fprintln(os.Stderr, "stats interrupted; counts above may be incomplete")
+			return &exitCodeError{code: 130, msg: "interrupted"}
+		case s.Timeout > 0 && errors.Is(effectiveCtx.Err(), context.DeadlineExceeded):
+			fmt.Fprintf(os.Stderr, "stats timed out after %s; counts above may be incomplete\n", s.Timeout)
+			return &exitCodeError{code: 124, msg: "timeout"}
+		}
 	}
 	return nil
 }
@@ -168,6 +245,8 @@ type SearchCmd struct {
 	Limit            int           `name:"limit" default:"0" help:"Cap the result set at N matches. With --sort, returns the top-N (after sorting). Without --sort, returns the first N in walk order. 0 = unlimited."`
 	Snippet          bool          `name:"snippet" help:"Read a snippet of each match's body (first N lines, see --snippet-lines) and include it in verbose/json/template output. Only text-based content types (markdown / text / html / csv / json / xml / source/*) populate; binary families leave the snippet empty."`
 	SnippetLines     int           `name:"snippet-lines" default:"10" help:"How many lines of body content to include per match when --snippet is set."`
+	Body             bool          `name:"body" help:"Make file body available to the CEL expression as the 'body' string variable. Pair with CEL's built-in string methods to filter on content: --body 'is_markdown && body.contains(\"transformer\")', or for regex: --body 'is_source && body.matches(\"(?i)\\\\bTODO\\\\b\")'. Only text-based content types populate; the body is capped at --body-max-bytes (default 1 MiB). Expensive: reads every candidate file's body, not just headers."`
+	BodyMaxBytes     int           `name:"body-max-bytes" default:"0" help:"Cap on the body string read per file in bytes. 0 uses the 1 MiB default. Files larger than the cap are silently truncated; the prefix still participates in the CEL filter."`
 	Exclude          []string      `name:"exclude" help:"Glob pattern matched against the basename of each file/directory; matches are skipped (directories are pruned). Repeatable: --exclude node_modules --exclude '*.bak'."`
 	RespectGitignore bool          `name:"respect-gitignore" help:"Parse a .gitignore at the walk root (if present) and skip matching paths. Nested .gitignore files in subdirectories are NOT honoured in this version."`
 }
@@ -185,7 +264,9 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 	// --format implies attribute access; same for verbose/json
 	// presets. --sort also needs Attrs (per-family sort keys live in
 	// FileAttributes.Extra), as does --snippet (rendered through the
-	// Record path which already requires attrs).
+	// Record path which already requires attrs). --body doesn't
+	// need Attrs surfaced on Result (the body lives in Extra only
+	// for CEL evaluation), but it's harmless to keep them.
 	includeAttrs := s.Format != "" || s.Output == "verbose" || s.Output == "json" || s.Sort != "" || s.Snippet
 
 	// Parse the template up front so a bad template fails before we walk.
@@ -236,6 +317,8 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		Limit:             s.Limit,
 		IncludeSnippet:    s.Snippet,
 		SnippetLines:      s.SnippetLines,
+		IncludeBody:       s.Body,
+		BodyMaxBytes:      s.BodyMaxBytes,
 		Excludes:          s.Exclude,
 		RespectGitignore:  s.RespectGitignore,
 	}

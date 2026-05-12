@@ -57,6 +57,7 @@ func Schema() SchemaDoc {
 		},
 		TypeSpecific: []AttributeDoc{
 			{"title", "string", "title (front-matter, markdown h1, HTML title, PDF title, EPUB, office, audio)"},
+			{"body", "string", "full file body (text content types only — markdown/text/html/csv/json/xml/source). Populated when --body (CLI) or include_body (MCP) is set; capped at body_max_bytes (default 1 MiB). Combine with CEL string methods: body.contains(\"X\"), body.matches(\"...\"), body.startsWith(\"Once upon\")."},
 			{"word_count", "int", "word count (markdown body, plain text)"},
 			{"line_count", "int", "line count (plain text)"},
 			{"column_count", "int", "column count from header line (CSV/TSV)"},

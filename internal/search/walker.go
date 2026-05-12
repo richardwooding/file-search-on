@@ -82,6 +82,16 @@ type Options struct {
 	IncludeSnippet bool
 	SnippetLines   int // default 10 when IncludeSnippet is true and this is <= 0
 
+	// IncludeBody, when true, makes BuildAttributesWith read each
+	// candidate file's body for text content types and expose it as
+	// the "body" CEL variable, so filters like
+	// body.contains("transformer") or body.matches("\\bAPI\\b") fire
+	// at search time. Distinct from IncludeSnippet (which surfaces
+	// a preview on Result for display) — body participates in the
+	// filter; snippet is for the caller to see.
+	IncludeBody  bool
+	BodyMaxBytes int // hard cap on the body string in bytes; 0 → 1 MiB default
+
 	// Excludes is a list of glob patterns matched against each
 	// directory or file's BASENAME during walk (filepath.Match
 	// semantics). Matched directories are skipped via fs.SkipDir,
@@ -184,7 +194,11 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 					if !ok {
 						return
 					}
-					attrs, err := celexpr.BuildAttributesWith(ctx, fsys, j.fsPath, j.displayPath, registry, celexpr.BuildOptions{Index: opts.Index})
+					attrs, err := celexpr.BuildAttributesWith(ctx, fsys, j.fsPath, j.displayPath, registry, celexpr.BuildOptions{
+						Index:        opts.Index,
+						IncludeBody:  opts.IncludeBody,
+						BodyMaxBytes: opts.BodyMaxBytes,
+					})
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 						return
 					}
