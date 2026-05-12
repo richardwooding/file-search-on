@@ -18,7 +18,7 @@ file-search-on 'is_image && soundex(camera_make) == soundex("Nikon")'           
 file-search-on 'is_markdown && ngram_similarity(title, "kubernetes", 2) > 0.6'    # substring-tolerant title match
 ```
 
-Across **55 file formats** organised into thirteen content-type families (documents, data, images, audio, video, office, ebooks, plain text, archives, compiled binaries, email, source code, notebooks), with format-specific metadata extraction.
+Across **73 file formats** organised into thirteen content-type families (documents, data, images, audio, video, office, ebooks, plain text, archives, compiled binaries, email, source code, notebooks), with format-specific metadata extraction.
 
 ## Features
 
@@ -436,6 +436,8 @@ Run `file-search-on --list` for the canonical, up-to-date listing. The summary t
 | `ext` | string | File extension (e.g. `.md`) |
 | `content_type` | string | Detected content type |
 | `is_markdown`, `is_json`, `is_yaml`, `is_xml`, `is_html`, `is_pdf`, `is_image`, `is_text`, `is_csv`, `is_epub`, `is_office`, `is_audio`, `is_video`, `is_archive`, `is_binary`, `is_email`, `is_source`, `is_notebook` | bool | Type predicates |
+| `is_dockerfile`, `is_makefile`, `is_justfile`, `is_rakefile`, `is_license`, `is_changelog`, `is_contributing`, `is_codeowners`, `is_gitignore`, `is_dockerignore`, `is_gomod`, `is_node_manifest`, `is_cargo_manifest`, `is_pipfile`, `is_python_reqs`, `is_gemfile`, `is_procfile`, `is_vagrantfile` | bool | Per-type predicates for exact-name files (Dockerfile, Makefile, LICENSE, .gitignore, go.mod, package.json, etc.). Family predicates `is_build`, `is_repo_meta`, `is_ignore`, `is_manifest`, `is_platform` fire alongside (e.g. `is_dockerfile` and `is_build` are both true for a Dockerfile). |
+| `is_build`, `is_repo_meta`, `is_ignore`, `is_manifest`, `is_platform` | bool | Family predicates derived from `content_type` prefix (`build/*`, `repo/*`, `ignore/*`, `manifest/*`, `platform/*`) — mirrors the existing `is_image` / `is_audio` / `is_archive` family pattern |
 
 ### Document / markup
 
@@ -458,6 +460,14 @@ Run `file-search-on --list` for the canonical, up-to-date listing. The summary t
 | `yaml_kind` | string | YAML root node kind: `"object"` (mapping), `"array"` (sequence), or `"scalar"` |
 | `yaml_document_count` | int | Number of `---`-separated YAML documents (1 for single-doc; >1 for K8s manifest bundles) |
 | `root_element` | string | XML |
+
+### Repo files (exact-name)
+
+| Attribute | Type | Source |
+| --- | --- | --- |
+| `module` | string | Go module path declared in `go.mod`'s `module` directive |
+| `go_version` | string | Go toolchain version from `go.mod`'s `go` directive (e.g. `"1.26.2"`) |
+| `base_image` | string | First `FROM <image>` directive in a `Dockerfile` / `Containerfile` |
 
 ### Markdown front-matter (promoted)
 
