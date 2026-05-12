@@ -46,7 +46,7 @@ func TestSearchTool_SortByLimit_TopK(t *testing.T) {
 }
 
 // TestSearchTool_IncludeSnippet verifies that include_snippet=true
-// populates SearchMatch.Snippet for markdown matches and leaves it
+// populates search.Match.Snippet for markdown matches and leaves it
 // empty for binary matches.
 func TestSearchTool_IncludeSnippet(t *testing.T) {
 	dir := t.TempDir()

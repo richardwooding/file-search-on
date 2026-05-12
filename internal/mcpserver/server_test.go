@@ -12,6 +12,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/richardwooding/file-search-on/internal/index"
+	"github.com/richardwooding/file-search-on/internal/search"
 )
 
 func newSession(t *testing.T) (context.Context, *mcp.ClientSession) {
@@ -156,7 +157,7 @@ func TestReadAttributesTool(t *testing.T) {
 		t.Fatalf("tool returned error: %v", res.GetError())
 	}
 
-	var m SearchMatch
+	var m search.Match
 	mustDecodeStructured(t, res, &m)
 
 	if m.Path != path {

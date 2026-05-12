@@ -50,14 +50,14 @@ func printVerbose(w io.Writer, results []search.Result) {
 		if i > 0 {
 			fpn(w)
 		}
-		writeVerboseRecord(w, recordFrom(r))
+		writeVerboseRecord(w, search.MatchFrom(r))
 	}
 }
 
-// writeVerboseRecord renders one record. Caller is responsible for the
+// writeVerboseRecord renders one match. Caller is responsible for the
 // inter-record blank line. Shared between printVerbose (slice) and
 // printVerboseStream (channel).
-func writeVerboseRecord(w io.Writer, rec Record) {
+func writeVerboseRecord(w io.Writer, rec search.Match) {
 	fpn(w, rec.Path)
 	fp(w, "  content_type   %s\n", rec.ContentType)
 	fp(w, "  size           %s bytes\n", commafy(rec.Size))
@@ -233,7 +233,7 @@ func printBareStream(w io.Writer, ch <-chan search.Result) {
 func printJSONStream(w io.Writer, ch <-chan search.Result) error {
 	enc := json.NewEncoder(w)
 	for r := range ch {
-		if err := enc.Encode(recordFrom(r)); err != nil {
+		if err := enc.Encode(search.MatchFrom(r)); err != nil {
 			return fmt.Errorf("json encode %s: %w", r.Path, err)
 		}
 	}
@@ -244,7 +244,7 @@ func printJSONStream(w io.Writer, ch <-chan search.Result) error {
 // Renders each match through the parsed template as it arrives.
 func printTemplateStream(w io.Writer, ch <-chan search.Result, tmpl *template.Template) error {
 	for r := range ch {
-		if err := tmpl.Execute(w, recordFrom(r)); err != nil {
+		if err := tmpl.Execute(w, search.MatchFrom(r)); err != nil {
 			return fmt.Errorf("template execute %s: %w", r.Path, err)
 		}
 		fpn(w)
@@ -278,7 +278,7 @@ func printVerboseStream(w io.Writer, ch <-chan search.Result) int64 {
 			fpn(w)
 		}
 		count++
-		writeVerboseRecord(w, recordFrom(r))
+		writeVerboseRecord(w, search.MatchFrom(r))
 	}
 	return count
 }
@@ -287,17 +287,17 @@ func printVerboseStream(w io.Writer, ch <-chan search.Result) int64 {
 func printJSON(w io.Writer, results []search.Result) error {
 	enc := json.NewEncoder(w)
 	for _, r := range results {
-		if err := enc.Encode(recordFrom(r)); err != nil {
+		if err := enc.Encode(search.MatchFrom(r)); err != nil {
 			return fmt.Errorf("json encode %s: %w", r.Path, err)
 		}
 	}
 	return nil
 }
 
-// printTemplate renders each match through a parsed text/template against a Record.
+// printTemplate renders each match through a parsed text/template against a search.Match.
 func printTemplate(w io.Writer, results []search.Result, tmpl *template.Template) error {
 	for _, r := range results {
-		if err := tmpl.Execute(w, recordFrom(r)); err != nil {
+		if err := tmpl.Execute(w, search.MatchFrom(r)); err != nil {
 			return fmt.Errorf("template execute %s: %w", r.Path, err)
 		}
 		fpn(w)
