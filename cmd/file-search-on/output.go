@@ -70,6 +70,7 @@ type Record struct {
 	IsBinary   bool `json:"is_binary,omitempty"`
 	IsEmail    bool `json:"is_email,omitempty"`
 	IsSource   bool `json:"is_source,omitempty"`
+	IsNotebook bool `json:"is_notebook,omitempty"`
 
 	Artist      string `json:"artist,omitempty"`
 	Album       string `json:"album,omitempty"`
@@ -128,6 +129,11 @@ type Record struct {
 	CommentLOC int64 `json:"comment_loc,omitempty"`
 	BlankLOC   int64 `json:"blank_loc,omitempty"`
 
+	CellCount         int64  `json:"cell_count,omitempty"`
+	CodeCellCount     int64  `json:"code_cell_count,omitempty"`
+	MarkdownCellCount int64  `json:"markdown_cell_count,omitempty"`
+	Kernel            string `json:"kernel,omitempty"`
+
 	// Snippet is the first N lines of the file body, populated when
 	// `--snippet` is set and the content type is text-based. Empty
 	// otherwise; rendered inline by verbose mode and surfaced
@@ -167,6 +173,7 @@ func recordFrom(r search.Result) Record {
 	rec.IsBinary = a.IsBinary
 	rec.IsEmail = a.IsEmail
 	rec.IsSource = a.IsSource
+	rec.IsNotebook = a.IsNotebook
 
 	if a.Extra == nil {
 		return rec
@@ -381,6 +388,18 @@ func recordFrom(r search.Result) Record {
 	if v, ok := a.Extra["blank_loc"].(int64); ok {
 		rec.BlankLOC = v
 	}
+	if v, ok := a.Extra["cell_count"].(int64); ok {
+		rec.CellCount = v
+	}
+	if v, ok := a.Extra["code_cell_count"].(int64); ok {
+		rec.CodeCellCount = v
+	}
+	if v, ok := a.Extra["markdown_cell_count"].(int64); ok {
+		rec.MarkdownCellCount = v
+	}
+	if v, ok := a.Extra["kernel"].(string); ok {
+		rec.Kernel = v
+	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
 		rec.FrontmatterFormat = v
 	}
@@ -532,6 +551,12 @@ func writeVerboseRecord(w io.Writer, rec Record) {
 	printIfInt(w, "loc", rec.LOC)
 	printIfInt(w, "comment_loc", rec.CommentLOC)
 	printIfInt(w, "blank_loc", rec.BlankLOC)
+
+	// Notebook metadata.
+	printIfInt(w, "cell_count", rec.CellCount)
+	printIfInt(w, "code_cells", rec.CodeCellCount)
+	printIfInt(w, "md_cells", rec.MarkdownCellCount)
+	printIfStr(w, "kernel", rec.Kernel)
 
 	// Email metadata.
 	if len(rec.EmailTo) > 0 {

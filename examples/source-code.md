@@ -1,6 +1,6 @@
 # Recipes — Source code
 
-Source-code content types: `source/go`, `source/python`, `source/javascript`, `source/typescript`, `source/rust`, `source/c`, `source/cpp`, `source/java`, `source/ruby`, `source/swift`, `source/kotlin`, `source/shell`, `source/lua`, `source/elixir`, `source/clojure`, `source/haskell`, `source/ocaml`, `source/zig`. Umbrella boolean `is_source`.
+Source-code content types: `source/go`, `source/python`, `source/javascript`, `source/typescript`, `source/rust`, `source/c`, `source/cpp`, `source/java`, `source/ruby`, `source/swift`, `source/kotlin`, `source/scala`, `source/shell`, `source/lua`, `source/elixir`, `source/clojure`, `source/haskell`, `source/ocaml`, `source/zig`. Umbrella boolean `is_source`.
 
 Hand-rolled. No third-party language-detection lib (no `go-enry`, no `linguist`). Detection is extension-based — see "Out of scope" below for the cases that surfaces. Line classification follows the cloc / tokei convention: blank lines are blank, lines starting with a comment marker are comment, everything else is code. Mixed lines (code with trailing comment) count as code.
 

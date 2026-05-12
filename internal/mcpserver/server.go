@@ -103,6 +103,7 @@ type SearchMatch struct {
 	IsBinary   bool `json:"is_binary,omitempty"`
 	IsEmail    bool `json:"is_email,omitempty"`
 	IsSource   bool `json:"is_source,omitempty"`
+	IsNotebook bool `json:"is_notebook,omitempty"`
 
 	Artist      string `json:"artist,omitempty"`
 	Album       string `json:"album,omitempty"`
@@ -161,6 +162,11 @@ type SearchMatch struct {
 	CommentLOC int64 `json:"comment_loc,omitempty"`
 	BlankLOC   int64 `json:"blank_loc,omitempty"`
 
+	CellCount         int64  `json:"cell_count,omitempty"`
+	CodeCellCount     int64  `json:"code_cell_count,omitempty"`
+	MarkdownCellCount int64  `json:"markdown_cell_count,omitempty"`
+	Kernel            string `json:"kernel,omitempty"`
+
 	// Snippet is the first N lines of the file body when the search
 	// call had include_snippet=true and the content type is
 	// text-based. Empty otherwise. Lets an agent decide whether a
@@ -190,6 +196,7 @@ func matchFrom(r search.Result) SearchMatch {
 	m.IsBinary = a.IsBinary
 	m.IsEmail = a.IsEmail
 	m.IsSource = a.IsSource
+	m.IsNotebook = a.IsNotebook
 
 	if a.Extra == nil {
 		return m
@@ -403,6 +410,18 @@ func matchFrom(r search.Result) SearchMatch {
 	}
 	if v, ok := a.Extra["blank_loc"].(int64); ok {
 		m.BlankLOC = v
+	}
+	if v, ok := a.Extra["cell_count"].(int64); ok {
+		m.CellCount = v
+	}
+	if v, ok := a.Extra["code_cell_count"].(int64); ok {
+		m.CodeCellCount = v
+	}
+	if v, ok := a.Extra["markdown_cell_count"].(int64); ok {
+		m.MarkdownCellCount = v
+	}
+	if v, ok := a.Extra["kernel"].(string); ok {
+		m.Kernel = v
 	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
 		m.FrontmatterFormat = v

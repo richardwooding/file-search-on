@@ -118,6 +118,7 @@ func init() {
 	registerSource("source/java", "java", []string{".java"}, "//", "/*", "*/")
 	registerSource("source/swift", "swift", []string{".swift"}, "//", "/*", "*/")
 	registerSource("source/kotlin", "kotlin", []string{".kt", ".kts"}, "//", "/*", "*/")
+	registerSource("source/scala", "scala", []string{".scala", ".sc"}, "//", "/*", "*/")
 	registerSource("source/zig", "zig", []string{".zig"}, "//", "", "")
 
 	// Hash-comment family (no block syntax in the simple form we model).
