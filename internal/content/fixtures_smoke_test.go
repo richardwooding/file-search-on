@@ -216,8 +216,8 @@ func TestFixturesAttributeSpotChecks(t *testing.T) {
 		{
 			path: "sample.json",
 			check: func(t *testing.T, a content.Attributes) {
-				if a["kind"] != "object" {
-					t.Errorf("kind = %q; want object", a["kind"])
+				if a["json_kind"] != "object" {
+					t.Errorf("json_kind = %q; want object", a["json_kind"])
 				}
 			},
 		},
@@ -240,11 +240,11 @@ func TestFixturesAttributeSpotChecks(t *testing.T) {
 		{
 			path: "sample.png",
 			check: func(t *testing.T, a content.Attributes) {
-				if w, _ := a["width"].(int64); w != 16 {
-					t.Errorf("width = %v; want 16", a["width"])
+				if w, _ := a["img_width"].(int64); w != 16 {
+					t.Errorf("img_width = %v; want 16", a["img_width"])
 				}
-				if h, _ := a["height"].(int64); h != 16 {
-					t.Errorf("height = %v; want 16", a["height"])
+				if h, _ := a["img_height"].(int64); h != 16 {
+					t.Errorf("img_height = %v; want 16", a["img_height"])
 				}
 			},
 		},

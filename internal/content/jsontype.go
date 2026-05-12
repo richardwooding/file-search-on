@@ -36,7 +36,7 @@ func (j *jsonType) Attributes(ctx context.Context, fsys fs.FS, path string) (Att
 	decoder := json.NewDecoder(f)
 	tok, err := decoder.Token()
 	if err != nil {
-		return Attributes{"kind": "unknown"}, nil
+		return Attributes{"json_kind": "unknown"}, nil
 	}
 	kind := "unknown"
 	if d, ok := tok.(json.Delim); ok {
@@ -48,6 +48,6 @@ func (j *jsonType) Attributes(ctx context.Context, fsys fs.FS, path string) (Att
 		}
 	}
 	return Attributes{
-		"kind": kind,
+		"json_kind": kind,
 	}, nil
 }

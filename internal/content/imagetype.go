@@ -42,8 +42,8 @@ func (i *imageType) Attributes(ctx context.Context, fsys fs.FS, path string) (At
 		return nil, err
 	}
 	attrs := Attributes{
-		"width":  int64(0),
-		"height": int64(0),
+		"img_width":  int64(0),
+		"img_height": int64(0),
 	}
 
 	rs, _, closer, err := openReadSeeker(fsys, path)
@@ -62,12 +62,12 @@ func (i *imageType) Attributes(ctx context.Context, fsys fs.FS, path string) (At
 	}
 
 	// stdlib width/height for JPEG/PNG/GIF — fills in if EXIF didn't.
-	if attrs["width"] == int64(0) {
+	if attrs["img_width"] == int64(0) {
 		switch i.name {
 		case "image/jpeg", "image/png", "image/gif":
 			if cfg, _, err := image.DecodeConfig(rs); err == nil {
-				attrs["width"] = int64(cfg.Width)
-				attrs["height"] = int64(cfg.Height)
+				attrs["img_width"] = int64(cfg.Width)
+				attrs["img_height"] = int64(cfg.Height)
 			}
 		}
 	}
@@ -89,10 +89,10 @@ func supportsEXIF(name string) bool {
 // fields are left out so callers see "absent" rather than "unset" defaults.
 func populateEXIF(attrs Attributes, e exif2.Exif) {
 	if e.ImageWidth > 0 {
-		attrs["width"] = int64(e.ImageWidth)
+		attrs["img_width"] = int64(e.ImageWidth)
 	}
 	if e.ImageHeight > 0 {
-		attrs["height"] = int64(e.ImageHeight)
+		attrs["img_height"] = int64(e.ImageHeight)
 	}
 	if e.Make != "" {
 		attrs["camera_make"] = e.Make

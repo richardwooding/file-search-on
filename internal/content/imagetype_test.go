@@ -36,10 +36,10 @@ func TestEXIFLightJPEG(t *testing.T) {
 	attrs := imageAttrs(t, ctx, "testdata/exif-light.jpg")
 
 	// Width/height present (50x50 from the fixture).
-	if got := attrs["width"]; got != int64(50) {
+	if got := attrs["img_width"]; got != int64(50) {
 		t.Errorf("width = %v, want 50", got)
 	}
-	if got := attrs["height"]; got != int64(50) {
+	if got := attrs["img_height"]; got != int64(50) {
 		t.Errorf("height = %v, want 50", got)
 	}
 
@@ -76,10 +76,10 @@ func TestPNGNoEXIF(t *testing.T) {
 	}
 
 	attrs := imageAttrs(t, t.Context(), path)
-	if got := attrs["width"]; got != int64(4) {
+	if got := attrs["img_width"]; got != int64(4) {
 		t.Errorf("width = %v, want 4", got)
 	}
-	if got := attrs["height"]; got != int64(3) {
+	if got := attrs["img_height"]; got != int64(3) {
 		t.Errorf("height = %v, want 3", got)
 	}
 	for _, key := range []string{"camera_make", "taken_at"} {
