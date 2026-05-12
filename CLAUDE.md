@@ -46,6 +46,31 @@ Run the CLI:
 
 If `Expr` is empty it defaults to `"true"` (matches all files). Worker count defaults to `runtime.NumCPU()` when `-w` is 0 or unset.
 
+### Fuzz testing
+
+The high-risk parsers — frontmatter (YAML/TOML/JSON), MP3 ID3v2 + Xing/Info, MKV EBML, MP4 box walker, CEL expression compile, and the index's gob decoder — have native Go [fuzz targets](https://go.dev/doc/security/fuzz) (`FuzzXxx` functions in `*_fuzz_test.go`).
+
+Workflows:
+
+- **Regular CI** (`ci.yml`): `go test ./...` automatically executes each fuzz target's **seed corpus** (the deterministic inputs added via `f.Add(...)`). Anything that panics during regular CI implies a seed regression — fix or remove the seed.
+- **Scheduled fuzz** (`fuzz.yml`): runs each target for 5 minutes nightly at 03:30 UTC. Crashes land in `testdata/fuzz/<FuzzName>/<hash>` inside the failed-run's artifacts; commit those entries to lock in regression coverage. Manual `workflow_dispatch` trigger accepts a `fuzztime` input (e.g. `30m`) for bug-hunt sessions.
+
+Run locally:
+
+```sh
+go test -run=FuzzSplitFrontmatter ./internal/content/                          # seed corpus only (fast)
+go test -fuzz=FuzzSplitFrontmatter -fuzztime=30s ./internal/content/           # mutate for 30s
+go test -fuzz=FuzzSplitFrontmatter -fuzztime=5m ./internal/content/            # bug-hunt session
+```
+
+Adding a new fuzz target:
+
+1. Pick a parser that takes adversarial input — bytes from disk, strings from CLI/MCP. Hand-rolled binary parsers are the highest-value targets (the stdlib `debug/elf`, `debug/macho`, `archive/zip` paths are already fuzzed upstream).
+2. Add `FuzzXxx(f *testing.F)` to an internal `*_fuzz_test.go` (`package <pkg>`, not `_test`) so unexported functions are reachable.
+3. Seed via `f.Add(...)` with a mix of valid inputs and pathological edge cases (empty buffers, truncated headers, gigantic length prefixes).
+4. The fuzz body must "never panic" — assertions about returned values are optional; the hard contract is no crash.
+5. Add a matrix entry to `.github/workflows/fuzz.yml` so the scheduled run exercises the new target.
+
 ## Architecture
 
 Five internal packages compose the pipeline. The first three are tightly coupled by the `FileAttributes` shape; the fifth (`internal/index`) is an optional cache plumbed through `BuildAttributesWith` and `search.Options.Index`:

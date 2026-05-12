@@ -599,6 +599,19 @@ go tool fix help     # list every available fixer
 
 CI runs `go fix ./... && git diff --exit-code` after every build, so the project stays idiomatic for whichever Go release the toolchain is pinned to. After bumping the Go version, run `go fix ./...` from a clean working tree and commit the result on its own.
 
+### Fuzz testing
+
+High-risk parsers (frontmatter, MP3 headers, MKV EBML, MP4 boxes, CEL compile, gob decoder) have native [Go fuzz targets](https://go.dev/doc/security/fuzz). The seed corpus runs on every CI build (via the regular `go test` invocation); a scheduled workflow (`.github/workflows/fuzz.yml`) runs each target for 5 minutes nightly to discover new failures. Crashes are uploaded as workflow artifacts and should be committed to `testdata/fuzz/<FuzzName>/` for regression coverage.
+
+Run locally:
+
+```sh
+go test -run=FuzzSplitFrontmatter ./internal/content/                 # seed corpus only (fast)
+go test -fuzz=FuzzSplitFrontmatter -fuzztime=30s ./internal/content/  # mutate for 30 seconds
+```
+
+See [CLAUDE.md](./CLAUDE.md#fuzz-testing) for the list of current targets and a guide to adding new ones.
+
 ## License
 
 [MIT](./LICENSE)

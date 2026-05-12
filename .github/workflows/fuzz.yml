@@ -1,0 +1,83 @@
+name: Fuzz
+
+# Native Go fuzzing — go.dev/doc/security/fuzz — discovers panics
+# and timeouts in parsers (frontmatter, MP3 headers, EBML, MP4
+# boxes, CEL expressions, gob decoder) by mutating seed corpora.
+#
+# This workflow runs each target for a few minutes nightly. Found
+# crashes land in testdata/fuzz/<FuzzName>/ inside the failed run's
+# artifacts; commit those entries to lock in regression coverage.
+#
+# Regular CI (ci.yml) automatically executes the seed corpus for
+# every fuzz target on every push — that catches the basics. This
+# workflow is the proactive bug-hunt that fires when nobody is
+# watching.
+on:
+  schedule:
+    # 03:30 UTC daily. Off-hours so it doesn't compete with the
+    # main CI runners.
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+    # Manual trigger from the Actions tab — useful when adding a
+    # new fuzz target or after touching a parser.
+    inputs:
+      fuzztime:
+        description: "Duration per target (e.g. 60s, 5m, 30m)"
+        default: "5m"
+        required: false
+
+jobs:
+  fuzz:
+    name: ${{ matrix.target.name }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      # One job per target so crashes in one don't mask others, and
+      # so the matrix view in the Actions UI shows per-target status.
+      fail-fast: false
+      matrix:
+        target:
+          - name: SplitFrontmatter
+            pkg: ./internal/content/
+            func: FuzzSplitFrontmatter
+          - name: ReadMP3Info
+            pkg: ./internal/content/
+            func: FuzzReadMP3Info
+          - name: ReadMKVInfo
+            pkg: ./internal/content/
+            func: FuzzReadMKVInfo
+          - name: ReadMP4VideoInfo
+            pkg: ./internal/content/
+            func: FuzzReadMP4VideoInfo
+          - name: CELCompile
+            pkg: ./internal/celexpr/
+            func: FuzzCELCompile
+          - name: DecodeEntry
+            pkg: ./internal/index/
+            func: FuzzDecodeEntry
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.2"
+          cache: true
+      - name: Fuzz ${{ matrix.target.name }}
+        run: |
+          go test \
+            -run='^$' \
+            -fuzz=${{ matrix.target.func }} \
+            -fuzztime=${{ github.event.inputs.fuzztime || '5m' }} \
+            ${{ matrix.target.pkg }}
+      - name: Upload crash corpus on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          # Go writes failing seeds to testdata/fuzz/<FuzzName>/.
+          # Capture the whole testdata tree so we don't have to
+          # second-guess the layout.
+          name: fuzz-corpus-${{ matrix.target.name }}
+          path: |
+            **/testdata/fuzz/${{ matrix.target.func }}/
+          if-no-files-found: ignore
+          retention-days: 30
