@@ -469,6 +469,8 @@ Run `file-search-on --list` for the canonical, up-to-date listing. The summary t
 | `module` | string | Go module path declared in `go.mod`'s `module` directive |
 | `go_version` | string | Go toolchain version from `go.mod`'s `go` directive (e.g. `"1.26.2"`) |
 | `base_image` | string | First `FROM <image>` directive in a `Dockerfile` / `Containerfile` |
+| `project_types` | `list<string>` | Names of every project type the file's containing project matches (e.g. `["go"]`). Populated by `--resolve-projects` (CLI) / `resolve_projects=true` (MCP); empty otherwise. |
+| `project_type` | string | First (alphabetically-sorted) match from `project_types` — convenience for `project_type == "go"` queries. |
 
 ### Markdown front-matter (promoted)
 

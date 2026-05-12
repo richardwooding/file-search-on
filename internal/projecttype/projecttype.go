@@ -15,9 +15,12 @@
 package projecttype
 
 import (
+	"fmt"
 	"path/filepath"
 	"sort"
 	"sync"
+
+	"github.com/google/cel-go/cel"
 )
 
 // ProjectType describes a kind of project and the indicators that
@@ -36,28 +39,51 @@ type ProjectType struct {
 	// (and is returned to the caller for "why did this match"
 	// debuggability).
 	Indicators []Indicator
+
+	// compiled holds the cel.Program for each Indicator that uses
+	// CELExpr. Same length as Indicators when set; nil entries for
+	// HasFile / HasGlob indicators. Built by Register() so the
+	// hot path doesn't re-compile per evaluation.
+	compiled []cel.Program
 }
 
 // Indicator is a single match rule against a directory's contents.
-// Exactly one of HasFile or HasGlob should be set per indicator.
+// Exactly one of HasFile / HasGlob / CELExpr should be set per
+// indicator.
 type Indicator struct {
 	// HasFile is a case-insensitive exact basename match. Most
-	// project indicators are this shape (go.mod, package.json,
-	// Cargo.toml, pyproject.toml, Gemfile, pom.xml).
+	// built-in project indicators are this shape (go.mod,
+	// package.json, Cargo.toml, pyproject.toml, Gemfile, pom.xml).
 	HasFile string
 	// HasGlob is a glob (filepath.Match) over basenames. Used by
 	// Terraform (`*.tf`), .NET (`*.csproj`), and similar
 	// extension-based project signals.
 	HasGlob string
+	// CELExpr is a CEL expression evaluated against a directory
+	// context with two list-of-string variables:
+	//
+	//   files    — basenames of files in the inspected dir
+	//   subdirs  — basenames of immediate subdirectories
+	//
+	// Example: `"services" in subdirs && "foo.yaml" in files`. The
+	// expression must compile at Register() time; bad CEL fails
+	// the registration. Used by user-defined custom project types
+	// loaded from --project-type-config YAML.
+	CELExpr string
 }
 
 // String describes the indicator in a human-readable form, surfaced
 // to MCP / CLI consumers so they can see WHY a project matched.
 func (i Indicator) String() string {
-	if i.HasFile != "" {
+	switch {
+	case i.HasFile != "":
 		return i.HasFile
+	case i.HasGlob != "":
+		return i.HasGlob
+	case i.CELExpr != "":
+		return "cel:" + i.CELExpr
 	}
-	return i.HasGlob
+	return ""
 }
 
 // Match couples a matched ProjectType with the indicator that fired.
@@ -78,13 +104,68 @@ type Registry struct {
 
 var defaultRegistry = &Registry{}
 
-// Register adds a project type to the default registry. Called from
-// init() in builtins.go (and, eventually, from CEL-driven custom-type
-// config loaders).
+// NewRegistry returns an empty Registry — useful for tests that want
+// isolation from the package-level defaultRegistry. Production code
+// almost always uses DefaultRegistry().
+func NewRegistry() *Registry {
+	return &Registry{}
+}
+
+// Register adds a project type to this registry. Compiles any
+// CEL-expression indicators eagerly — bad CEL is returned as an
+// error so callers (config loaders, tests) can surface it cleanly.
+func (r *Registry) Register(t *ProjectType) error {
+	if err := compileIndicators(t); err != nil {
+		return fmt.Errorf("Register(%q): %w", t.Name, err)
+	}
+	r.mu.Lock()
+	r.types = append(r.types, t)
+	r.mu.Unlock()
+	return nil
+}
+
+// Register adds a project type to the package-level default
+// registry. Panics on CEL compile failure — appropriate for init()
+// callers (built-in types) where a bad indicator is a programming
+// bug. Config-driven callers should use Registry.Register on
+// DefaultRegistry() directly to get an error return.
 func Register(t *ProjectType) {
-	defaultRegistry.mu.Lock()
-	defaultRegistry.types = append(defaultRegistry.types, t)
-	defaultRegistry.mu.Unlock()
+	if err := defaultRegistry.Register(t); err != nil {
+		panic(fmt.Errorf("projecttype.Register(%q): %w", t.Name, err))
+	}
+}
+
+// compileIndicators populates ProjectType.compiled with cel.Program
+// entries for every CELExpr indicator. HasFile / HasGlob indicators
+// get a nil slot at the same index. Returns the first compile error
+// (with the indicator's CEL source attached for debuggability).
+func compileIndicators(t *ProjectType) error {
+	if !hasCELIndicator(t.Indicators) {
+		t.compiled = nil
+		return nil
+	}
+	progs := make([]cel.Program, len(t.Indicators))
+	for i, ind := range t.Indicators {
+		if ind.CELExpr == "" {
+			continue
+		}
+		prog, err := compileDirCEL(ind.CELExpr)
+		if err != nil {
+			return fmt.Errorf("indicator[%d] CEL compile: %w", i, err)
+		}
+		progs[i] = prog
+	}
+	t.compiled = progs
+	return nil
+}
+
+func hasCELIndicator(inds []Indicator) bool {
+	for _, ind := range inds {
+		if ind.CELExpr != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // DefaultRegistry returns the package-level registry — the singleton
@@ -107,17 +188,26 @@ func (r *Registry) Types() []*ProjectType {
 // match reports whether any indicator on this ProjectType fires
 // against the supplied directory listing. Returns the matching
 // indicator on success; empty Indicator + false on no match.
-func (t *ProjectType) match(listing []string) (Indicator, bool) {
-	for _, ind := range t.Indicators {
-		for _, name := range listing {
-			if ind.HasFile != "" && equalFold(name, ind.HasFile) {
-				return ind, true
-			}
-			if ind.HasGlob != "" {
-				ok, err := filepath.Match(ind.HasGlob, name)
-				if err == nil && ok {
+// files contains file basenames; subdirs contains immediate
+// subdirectory basenames. CEL indicators evaluate against both.
+func (t *ProjectType) match(files, subdirs []string) (Indicator, bool) {
+	for i, ind := range t.Indicators {
+		switch {
+		case ind.HasFile != "":
+			for _, name := range files {
+				if equalFold(name, ind.HasFile) {
 					return ind, true
 				}
+			}
+		case ind.HasGlob != "":
+			for _, name := range files {
+				if ok, err := filepath.Match(ind.HasGlob, name); err == nil && ok {
+					return ind, true
+				}
+			}
+		case ind.CELExpr != "" && i < len(t.compiled) && t.compiled[i] != nil:
+			if evalDirCEL(t.compiled[i], files, subdirs) {
+				return ind, true
 			}
 		}
 	}

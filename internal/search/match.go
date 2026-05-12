@@ -69,6 +69,13 @@ type Match struct {
 	IsYAML     bool `json:"is_yaml,omitempty"`
 	IsTOML     bool `json:"is_toml,omitempty"`
 
+	// Project context. Populated only when the walker was invoked
+	// with Options.ResolveProjects (CLI --resolve-projects, MCP
+	// resolve_projects=true). Empty for files outside any project
+	// root or when resolution wasn't requested.
+	ProjectTypes []string `json:"project_types,omitempty"`
+	ProjectType  string   `json:"project_type,omitempty"`
+
 	// Exact-name content types (PR #94). Per-type predicates plus
 	// family predicates (IsBuild, IsRepoMeta, IsIgnore, IsManifest,
 	// IsPlatform) coexist, mirroring how is_image / is_audio etc.
@@ -255,6 +262,12 @@ func MatchFrom(r Result) Match {
 	}
 	if v, ok := a.Extra["base_image"].(string); ok {
 		m.BaseImage = v
+	}
+	if v, ok := a.Extra["project_types"].([]string); ok && len(v) > 0 {
+		m.ProjectTypes = v
+	}
+	if v, ok := a.Extra["project_type"].(string); ok {
+		m.ProjectType = v
 	}
 	if v, ok := a.Extra["img_width"].(int64); ok {
 		m.ImgWidth = v

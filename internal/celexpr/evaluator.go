@@ -12,6 +12,7 @@ import (
 	"github.com/google/cel-go/common/types"
 	"github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/index"
+	"github.com/richardwooding/file-search-on/internal/projecttype"
 )
 
 // FileAttributes holds all attributes available in CEL expressions
@@ -111,6 +112,11 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("yaml_kind", cel.StringType),
 		cel.Variable("yaml_document_count", cel.IntType),
 		cel.Variable("is_toml", cel.BoolType),
+
+		// Project-context variables (PR #97). Populated by the
+		// walker via Options.ResolveProjects = true; empty otherwise.
+		cel.Variable("project_types", cel.ListType(cel.StringType)),
+		cel.Variable("project_type", cel.StringType),
 
 		// Exact-name content types (per-type predicates).
 		cel.Variable("is_dockerfile", cel.BoolType),
@@ -283,6 +289,13 @@ type BuildOptions struct {
 	Index        index.Index
 	IncludeBody  bool
 	BodyMaxBytes int
+	// ProjectResolver, when set, populates Extra["project_types"]
+	// and Extra["project_type"] for each file by walking up the
+	// file's directory chain to the nearest project-root indicator.
+	// nil disables project-context resolution. Constructed by the
+	// walker when search.Options.ResolveProjects is true (one per
+	// walk root for multi-root walks).
+	ProjectResolver *projecttype.ProjectResolver
 }
 
 // defaultBodyMaxBytes caps the body string supplied to CEL when
@@ -354,6 +367,21 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 					attrs.Extra["body"] = body
 				}
 			}
+			// Same project-context wiring as the cache-miss path —
+			// the index doesn't (and shouldn't) cache project context.
+			if opts.ProjectResolver != nil {
+				if matches := opts.ProjectResolver.Resolve(displayPath); len(matches) > 0 {
+					if attrs.Extra == nil {
+						attrs.Extra = content.Attributes{}
+					}
+					names := make([]string, len(matches))
+					for i, m := range matches {
+						names[i] = m.Type
+					}
+					attrs.Extra["project_types"] = names
+					attrs.Extra["project_type"] = names[0]
+				}
+			}
 			return attrs, nil
 		}
 	}
@@ -392,6 +420,24 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 				extra = content.Attributes{}
 			}
 			extra["body"] = body
+		}
+	}
+
+	// Project-context resolution. NOT cached in the index — the
+	// "containing project" is a directory-tree property, not a
+	// per-file one, and would invalidate every time a project root
+	// is added or removed elsewhere.
+	if opts.ProjectResolver != nil {
+		if matches := opts.ProjectResolver.Resolve(displayPath); len(matches) > 0 {
+			if extra == nil {
+				extra = content.Attributes{}
+			}
+			names := make([]string, len(matches))
+			for i, m := range matches {
+				names[i] = m.Type
+			}
+			extra["project_types"] = names
+			extra["project_type"] = names[0]
 		}
 	}
 

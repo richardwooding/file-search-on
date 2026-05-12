@@ -80,6 +80,10 @@ func writeVerboseRecord(w io.Writer, rec search.Match) {
 	printIfStr(w, "module", rec.Module)
 	printIfStr(w, "go_version", rec.GoVersion)
 	printIfStr(w, "base_image", rec.BaseImage)
+	printIfStr(w, "project_type", rec.ProjectType)
+	if len(rec.ProjectTypes) > 0 {
+		fp(w, "  project_types  [%s]\n", strings.Join(rec.ProjectTypes, ", "))
+	}
 
 	// Image dimensions + EXIF.
 	printIfInt(w, "img_width", rec.ImgWidth)
