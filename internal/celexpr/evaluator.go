@@ -39,6 +39,7 @@ type FileAttributes struct {
 	IsBinary    bool
 	IsEmail     bool
 	IsSource    bool
+	IsNotebook  bool
 	Extra       content.Attributes
 }
 
@@ -73,6 +74,7 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("is_binary", cel.BoolType),
 		cel.Variable("is_email", cel.BoolType),
 		cel.Variable("is_source", cel.BoolType),
+		cel.Variable("is_notebook", cel.BoolType),
 		cel.Variable("title", cel.StringType),
 		cel.Variable("body", cel.StringType),
 		cel.Variable("word_count", cel.IntType),
@@ -144,6 +146,10 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("loc", cel.IntType),
 		cel.Variable("comment_loc", cel.IntType),
 		cel.Variable("blank_loc", cel.IntType),
+		cel.Variable("cell_count", cel.IntType),
+		cel.Variable("code_cell_count", cel.IntType),
+		cel.Variable("markdown_cell_count", cel.IntType),
+		cel.Variable("kernel", cel.StringType),
 		cel.Variable("frontmatter", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("frontmatter_format", cel.StringType),
 		cel.Variable("tags", cel.ListType(cel.StringType)),
@@ -196,6 +202,7 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 		"is_binary":          attrs.IsBinary,
 		"is_email":           attrs.IsEmail,
 		"is_source":          attrs.IsSource,
+		"is_notebook":        attrs.IsNotebook,
 		"title":              "",
 		"body":               "",
 		"word_count":         int64(0),
@@ -267,6 +274,10 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 		"loc":                   int64(0),
 		"comment_loc":           int64(0),
 		"blank_loc":             int64(0),
+		"cell_count":            int64(0),
+		"code_cell_count":       int64(0),
+		"markdown_cell_count":   int64(0),
+		"kernel":                "",
 		"frontmatter":        map[string]any{},
 		"frontmatter_format": "",
 		"tags":               []string{},
@@ -420,6 +431,14 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 				activation["comment_loc"] = v
 			case "blank_loc":
 				activation["blank_loc"] = v
+			case "cell_count":
+				activation["cell_count"] = v
+			case "code_cell_count":
+				activation["code_cell_count"] = v
+			case "markdown_cell_count":
+				activation["markdown_cell_count"] = v
+			case "kernel":
+				activation["kernel"] = v
 			case "frontmatter":
 				activation["frontmatter"] = v
 			case "frontmatter_format":
@@ -548,14 +567,14 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	contentTypeName := ""
 	isMarkdown, isJSON, isXML, isHTML, isPDF, isImage := false, false, false, false, false, false
 	isText, isCSV, isEPUB, isOffice, isAudio, isVideo := false, false, false, false, false, false
-	var isArchive, isBinary, isEmail, isSource bool
+	var isArchive, isBinary, isEmail, isSource, isNotebook bool
 
 	var extra content.Attributes
 	if ct != nil {
 		contentTypeName = ct.Name()
 		isMarkdown, isJSON, isXML, isHTML, isPDF, isImage,
 			isText, isCSV, isEPUB, isOffice, isAudio, isVideo,
-			isArchive, isBinary, isEmail, isSource = typeFlagsFor(contentTypeName)
+			isArchive, isBinary, isEmail, isSource, isNotebook = typeFlagsFor(contentTypeName)
 		extra, err = ct.Attributes(ctx, fsys, fsPath)
 		if err != nil {
 			return nil, err
@@ -611,6 +630,7 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 		IsBinary:    isBinary,
 		IsEmail:     isEmail,
 		IsSource:    isSource,
+		IsNotebook:  isNotebook,
 		IsVideo:     isVideo,
 		Extra:       extra,
 	}, nil
@@ -621,7 +641,7 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 // BuildAttributes; factored out so cache-hit assembly can reuse it.
 func typeFlagsFor(name string) (isMarkdown, isJSON, isXML, isHTML, isPDF, isImage,
 	isText, isCSV, isEPUB, isOffice, isAudio, isVideo,
-	isArchive, isBinary, isEmail, isSource bool) {
+	isArchive, isBinary, isEmail, isSource, isNotebook bool) {
 	switch {
 	case name == "markdown":
 		isMarkdown = true
@@ -655,6 +675,8 @@ func typeFlagsFor(name string) (isMarkdown, isJSON, isXML, isHTML, isPDF, isImag
 		isEmail = true
 	case strings.HasPrefix(name, "source/"):
 		isSource = true
+	case strings.HasPrefix(name, "notebook/"):
+		isNotebook = true
 	}
 	return
 }
@@ -662,7 +684,7 @@ func typeFlagsFor(name string) (isMarkdown, isJSON, isXML, isHTML, isPDF, isImag
 func assembleFromCache(name, displayPath, dir, ext string, info fs.FileInfo, cached *index.Entry) *FileAttributes {
 	isMarkdown, isJSON, isXML, isHTML, isPDF, isImage,
 		isText, isCSV, isEPUB, isOffice, isAudio, isVideo,
-		isArchive, isBinary, isEmail, isSource := typeFlagsFor(cached.ContentType)
+		isArchive, isBinary, isEmail, isSource, isNotebook := typeFlagsFor(cached.ContentType)
 	return &FileAttributes{
 		Name:        name,
 		Path:        displayPath,
@@ -686,6 +708,7 @@ func assembleFromCache(name, displayPath, dir, ext string, info fs.FileInfo, cac
 		IsBinary:    isBinary,
 		IsEmail:     isEmail,
 		IsSource:    isSource,
+		IsNotebook:  isNotebook,
 		IsVideo:     isVideo,
 		Extra:       content.Attributes(cached.Extra),
 	}

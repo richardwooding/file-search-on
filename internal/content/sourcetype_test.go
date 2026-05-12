@@ -133,6 +133,8 @@ func TestSourceDetection_ByExtension(t *testing.T) {
 		{"a.exs", "source/elixir"},
 		{"a.cljs", "source/clojure"},
 		{"a.zig", "source/zig"},
+		{"a.scala", "source/scala"},
+		{"a.sc", "source/scala"},
 	}
 	for _, c := range cases {
 		fsys := fstest.MapFS{c.path: {Data: []byte("")}}

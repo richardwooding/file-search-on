@@ -18,7 +18,7 @@ file-search-on 'is_image && soundex(camera_make) == soundex("Nikon")'           
 file-search-on 'is_markdown && ngram_similarity(title, "kubernetes", 2) > 0.6'    # substring-tolerant title match
 ```
 
-Across **51 file formats** organised into twelve content-type families (documents, data, images, audio, video, office, ebooks, plain text, archives, compiled binaries, email, source code), with format-specific metadata extraction.
+Across **54 file formats** organised into thirteen content-type families (documents, data, images, audio, video, office, ebooks, plain text, archives, compiled binaries, email, source code, notebooks), with format-specific metadata extraction.
 
 ## Features
 
@@ -38,7 +38,8 @@ Across **51 file formats** organised into twelve content-type families (document
   | **Archives** | ZIP (incl. JAR / WAR / EAR), TAR, TAR.GZ, GZIP | entry_count, uncompressed_size, top_level_entries, has_root_dir |
   | **Binaries** | ELF (Linux/BSD), Mach-O (macOS, incl. universal), PE (Windows) | architectures, bitness, binary_format, binary_type, is_dynamically_linked, is_stripped, entry_point |
   | **Email** | RFC 5322 (`.eml`), Unix mbox (`.mbox`) | title (subject), author (from), email_to, email_cc, sent_at, attachment_count, email_count |
-  | **Source code** | Go, Python, JS/TS, Rust, C/C++, Java, Ruby, Swift, Kotlin, Shell, Lua, Elixir, Clojure, Haskell, OCaml, Zig | language, line_count, loc, comment_loc, blank_loc |
+  | **Source code** | Go, Python, JS/TS, Rust, C/C++, Java, Ruby, Swift, Kotlin, Scala, Shell, Lua, Elixir, Clojure, Haskell, OCaml, Zig | language, line_count, loc, comment_loc, blank_loc |
+  | **Notebooks** | Jupyter `.ipynb`, Apache Zeppelin `.zpln` | cell_count, code_cell_count, markdown_cell_count, kernel, language, title |
 
   Type predicates (`is_pdf`, `is_image`, `is_audio`, `is_video`, `is_office`, `is_epub`, …) light up automatically from the registered content type. See [examples/](./examples/) for recipes by family.
 
@@ -306,6 +307,7 @@ Focused recipe collections live under [`examples/`](./examples/):
 | [`examples/epub.md`](./examples/epub.md) | EPUB books — title, author, language; XMP fallback |
 | [`examples/data.md`](./examples/data.md) | JSON arrays vs objects, CSV column membership, XML root elements |
 | [`examples/text.md`](./examples/text.md) | Plain text / log files — line count, word count, big-line caps |
+| [`examples/notebooks.md`](./examples/notebooks.md) | Jupyter (`.ipynb`) and Apache Zeppelin (`.zpln`) — `cell_count`, `code_cell_count`, `kernel`, `language` |
 | [`examples/cookbook.md`](./examples/cookbook.md) | Cross-cutting recipes — dedupe, mixed media filters, pipeline integration |
 | [`examples/fuzzy-search.md`](./examples/fuzzy-search.md) | Fuzzy / phonetic / n-gram similarity matching — `levenshtein`, `soundex`, `ngrams`, `ngram_similarity` |
 | [`examples/indexing.md`](./examples/indexing.md) | Persistent attribute index (`--index-path`) — cold/warm CLI runs, MCP auto-on cache, refresh + inspection |
@@ -362,7 +364,7 @@ Run `file-search-on --list` for the canonical, up-to-date listing. The summary t
 | `size` | int | File size in bytes |
 | `ext` | string | File extension (e.g. `.md`) |
 | `content_type` | string | Detected content type |
-| `is_markdown`, `is_json`, `is_xml`, `is_html`, `is_pdf`, `is_image`, `is_text`, `is_csv`, `is_epub`, `is_office`, `is_audio`, `is_video`, `is_archive`, `is_binary`, `is_email`, `is_source` | bool | Type predicates |
+| `is_markdown`, `is_json`, `is_xml`, `is_html`, `is_pdf`, `is_image`, `is_text`, `is_csv`, `is_epub`, `is_office`, `is_audio`, `is_video`, `is_archive`, `is_binary`, `is_email`, `is_source`, `is_notebook` | bool | Type predicates |
 
 ### Document / markup
 
@@ -483,17 +485,32 @@ RFC 5322 messages (`.eml`, `.email`) and Unix mbox archives (`.mbox`). Both pars
 
 ### Source code
 
-Eighteen languages registered: Go, Python, JS, TS, Rust, C, C++, Java, Ruby, Swift, Kotlin, Shell, Lua, Elixir, Clojure, Haskell, OCaml, Zig. Detection is extension-only (no third-party language-detection lib). Line classification uses per-language line + block comment markers; mixed lines (code with trailing comment) count as code, lines that BEGIN with a comment marker count as comment — matches the cloc / tokei convention.
+Nineteen languages registered: Go, Python, JS, TS, Rust, C, C++, Java, Ruby, Swift, Kotlin, Scala, Shell, Lua, Elixir, Clojure, Haskell, OCaml, Zig. Detection is extension-only (no third-party language-detection lib). Line classification uses per-language line + block comment markers; mixed lines (code with trailing comment) count as code, lines that BEGIN with a comment marker count as comment — matches the cloc / tokei convention.
 
 | Attribute | Type | Source |
 | --- | --- | --- |
-| `language` | string | canonical programming-language name (`go`, `python`, `javascript`, `typescript`, `rust`, `c`, `cpp`, `java`, `ruby`, `swift`, `kotlin`, `shell`, `lua`, `elixir`, `clojure`, `haskell`, `ocaml`, `zig`) — reused with markup/EPUB/office locale codes; locale codes are 2-letter ISO 639-1 and don't overlap with these names |
+| `language` | string | canonical programming-language name (`go`, `python`, `javascript`, `typescript`, `rust`, `c`, `cpp`, `java`, `ruby`, `swift`, `kotlin`, `scala`, `shell`, `lua`, `elixir`, `clojure`, `haskell`, `ocaml`, `zig`) — reused with markup/EPUB/office locale codes; locale codes are 2-letter ISO 639-1 and don't overlap with these names |
 | `line_count` | int | total physical lines (reused with text family) |
 | `loc` | int | non-blank, non-comment lines |
 | `comment_loc` | int | comment-only lines (line-comment marker at start, plus every line wholly inside a block comment) |
 | `blank_loc` | int | empty or whitespace-only lines |
 
 Caveats: string literals containing `//` or `/*` are treated as code (no string-aware parsing). Block comments that open mid-line are not tracked — the line is classified by what it BEGINS with.
+
+### Notebooks
+
+Computational notebooks in JSON-on-disk formats: **Jupyter** (`.ipynb`) and **Apache Zeppelin** (`.zpln`). Detection is extension-only. Both expose a shared attribute set so agents can write content-type-agnostic filters like `is_notebook && cell_count > 20`.
+
+| Attribute | Type | Source |
+| --- | --- | --- |
+| `cell_count` | int | total number of cells (Jupyter) / paragraphs (Zeppelin) |
+| `code_cell_count` | int | code cells — Jupyter `cell_type == "code"`, Zeppelin paragraphs whose editor language isn't markdown and whose text doesn't begin with `%md` |
+| `markdown_cell_count` | int | markdown cells — Jupyter `cell_type == "markdown"`, Zeppelin paragraphs marked as markdown or starting with `%md` |
+| `kernel` | string | Jupyter `metadata.kernelspec.name` (falling back to `display_name`); Zeppelin `defaultInterpreterGroup` (typically `spark`, `python`, etc.) |
+| `language` | string | reused — Jupyter `metadata.language_info.name` (falling back to `kernelspec.language`). Zeppelin doesn't surface a notebook-level language. |
+| `title` | string | reused — Zeppelin notebook `name`. Jupyter notebooks don't have an explicit title; leave empty (or derive from filename in your query). |
+
+Recipes (CLI + MCP) live in [examples/notebooks.md](./examples/notebooks.md). Detection caveat: a notebook saved with a generic `.json` extension is detected as JSON, not as a notebook — agents and tooling that emit JSON-extension notebooks should rename. The longest-suffix-match detector ensures `.ipynb` and `.zpln` always win over `.json` for those specific extensions.
 
 ### Built-in functions — fuzzy, phonetic, and geographic matching
 
