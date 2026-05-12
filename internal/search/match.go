@@ -67,6 +67,7 @@ type Match struct {
 	IsSource   bool `json:"is_source,omitempty"`
 	IsNotebook bool `json:"is_notebook,omitempty"`
 	IsYAML     bool `json:"is_yaml,omitempty"`
+	IsTOML     bool `json:"is_toml,omitempty"`
 
 	// Exact-name content types (PR #94). Per-type predicates plus
 	// family predicates (IsBuild, IsRepoMeta, IsIgnore, IsManifest,
@@ -198,6 +199,7 @@ func MatchFrom(r Result) Match {
 	m.IsSource = a.IsSource
 	m.IsNotebook = a.IsNotebook
 	m.IsYAML = a.IsYAML
+	m.IsTOML = a.IsTOML
 	m.IsDockerfile, m.IsMakefile, m.IsJustfile, m.IsRakefile = a.IsDockerfile, a.IsMakefile, a.IsJustfile, a.IsRakefile
 	m.IsLicense, m.IsChangelog, m.IsContributing, m.IsCodeowners = a.IsLicense, a.IsChangelog, a.IsContributing, a.IsCodeowners
 	m.IsGitignore, m.IsDockerignore = a.IsGitignore, a.IsDockerignore

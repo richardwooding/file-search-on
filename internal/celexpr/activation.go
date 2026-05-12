@@ -78,6 +78,8 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.IsNotebook, true
 	case "is_yaml":
 		return a.attrs.IsYAML, true
+	case "is_toml":
+		return a.attrs.IsTOML, true
 	case "is_dockerfile":
 		return a.attrs.IsDockerfile, true
 	case "is_makefile":

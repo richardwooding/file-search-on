@@ -25,6 +25,22 @@ Empty / malformed JSON (`json_kind == "unknown"`):
 file-search-on 'is_json && json_kind == "unknown"'
 ```
 
+## TOML
+
+```sh
+file-search-on 'is_toml'                                         # every .toml file
+file-search-on 'is_toml && body.contains("[tool.poetry]")' --body   # Poetry pyproject.toml files
+file-search-on 'is_toml && body.contains("[package]")' --body       # Cargo-style manifests
+```
+
+`is_toml` also fires for `Cargo.toml` and `Cargo.lock` (alongside `is_cargo_manifest`/`is_manifest`) — so a generic "find all TOML files" query picks them up:
+
+```sh
+file-search-on 'is_toml'                                         # .toml + Cargo.toml + Cargo.lock
+```
+
+TOML detection is extension-only (no canonical magic byte). The TOML root is always a table (mapping), so there's no `toml_kind` attribute — TOML's shape is structurally fixed.
+
 ## YAML
 
 By root shape:

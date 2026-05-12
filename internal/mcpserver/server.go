@@ -59,10 +59,11 @@ Use these boolean type predicates directly in your CEL expression — no need to
   is_pdf        .pdf
   is_html       .html, .htm
   is_xml        .xml
-  is_json       .json
+  is_json       .json (also fires for package.json / package-lock.json)
   is_yaml       .yaml, .yml
+  is_toml       .toml (also fires for Cargo.toml / Cargo.lock)
   is_csv        .csv, .tsv
-  is_text       plain text and log files
+  is_text       plain text and log files (also fires for requirements.txt, LICENSE, CHANGELOG, CONTRIBUTING)
   is_image      .jpg, .jpeg, .png, .gif, .tif, .tiff, .heic, .webp
   is_audio      .mp3, .m4a, .flac, .ogg, .wav
   is_video      .mp4, .mov, .m4v, .mkv, .webm, .avi
@@ -74,23 +75,27 @@ Use these boolean type predicates directly in your CEL expression — no need to
   is_source     Go / Python / JS / TS / Rust / C / C++ / Java / Ruby / Swift / Kotlin / Shell / Lua / Elixir / Clojure / Haskell / OCaml / Zig
 
 Exact-name content types (matched by filename, not extension). Both the
-per-type predicate AND the family predicate fire for each match:
+per-type predicate AND the family predicate fire for each match. When
+the file is also a recognised underlying format (JSON / TOML / plain
+text), that predicate fires too — so an agent can write either the
+specific predicate or the broader format predicate and get the same
+matches:
 
   is_dockerfile / is_build    Dockerfile, Containerfile
   is_makefile / is_build      Makefile (+ variants), GNUmakefile, BSDmakefile
   is_justfile / is_build      Justfile, justfile
   is_rakefile / is_build      Rakefile
-  is_license / is_repo_meta   LICENSE, LICENCE, COPYING (bare; LICENSE.md is markdown)
-  is_changelog / is_repo_meta CHANGELOG, HISTORY (bare)
-  is_contributing / is_repo_meta  CONTRIBUTING (bare)
+  is_license / is_repo_meta / is_text       LICENSE, LICENCE, COPYING (bare; LICENSE.md is markdown)
+  is_changelog / is_repo_meta / is_text     CHANGELOG, HISTORY (bare)
+  is_contributing / is_repo_meta / is_text  CONTRIBUTING (bare)
   is_codeowners / is_repo_meta    CODEOWNERS, OWNERS
   is_gitignore / is_ignore    .gitignore, .gitattributes
   is_dockerignore / is_ignore .dockerignore
   is_gomod / is_manifest      go.mod, go.sum
-  is_node_manifest / is_manifest    package.json, package-lock.json
-  is_cargo_manifest / is_manifest   Cargo.toml, Cargo.lock
-  is_pipfile / is_manifest    Pipfile, Pipfile.lock
-  is_python_reqs / is_manifest      requirements.txt
+  is_node_manifest / is_manifest / is_json     package.json, package-lock.json
+  is_cargo_manifest / is_manifest / is_toml    Cargo.toml, Cargo.lock
+  is_pipfile / is_manifest                     Pipfile, Pipfile.lock
+  is_python_reqs / is_manifest / is_text       requirements.txt
   is_gemfile / is_manifest    Gemfile, Gemfile.lock
   is_procfile / is_platform   Procfile
   is_vagrantfile / is_platform      Vagrantfile
