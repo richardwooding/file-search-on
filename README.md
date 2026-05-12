@@ -376,6 +376,7 @@ Focused recipe collections live under [`examples/`](./examples/):
 | [`examples/data.md`](./examples/data.md) | JSON arrays vs objects, CSV column membership, XML root elements |
 | [`examples/text.md`](./examples/text.md) | Plain text / log files — line count, word count, big-line caps |
 | [`examples/notebooks.md`](./examples/notebooks.md) | Jupyter (`.ipynb`) and Apache Zeppelin (`.zpln`) — `cell_count`, `code_cell_count`, `kernel`, `language` |
+| [`examples/projects.md`](./examples/projects.md) | Project type detection — `detect-project` / `find-projects` for go / node / rust / python / terraform / docker-compose / … |
 | [`examples/cookbook.md`](./examples/cookbook.md) | Cross-cutting recipes — dedupe, mixed media filters, pipeline integration |
 | [`examples/fuzzy-search.md`](./examples/fuzzy-search.md) | Fuzzy / phonetic / n-gram similarity matching — `levenshtein`, `soundex`, `ngrams`, `ngram_similarity` |
 | [`examples/indexing.md`](./examples/indexing.md) | Persistent attribute index (`--index-path`) — cold/warm CLI runs, MCP auto-on cache, refresh + inspection |

@@ -141,6 +141,8 @@ Tools:
   read_lines       print a specific line range from a file — for context around a search match
   stats            histogram + totals for a directory tree, bucketed by any attribute via group_by
   find_duplicates  groups of byte-identical files keyed by sha256 — "what's eating my disk?"
+  detect_project   what kind of project (go / node / rust / python / …) is THIS directory
+  find_projects    walk a root and identify every project subdirectory under it
   list_attributes  full schema (every attribute, every built-in function); call when the recipes above don't cover what you need
   index_stats      cache hit/miss counters for this server process
 
@@ -228,6 +230,16 @@ func New(version string, idx index.Index, defaultTimeout time.Duration) *mcp.Ser
 		Name:        "find_duplicates",
 		Description: "Find groups of byte-identical files keyed by sha256. Useful for 'what's eating my disk?' and 'find redundant copies' workflows. Two-pass for performance: files with unique sizes are skipped entirely (cheaper than computing their hash). Pair with expr to scope (e.g. expr='is_image' for photo dedup) and min_size to skip tiny duplicates. Hashes are cached in the attribute index alongside (size, mtime) — first run on a large tree can be slow (every candidate file is read in full), but subsequent runs are free for unchanged files. Output: duplicates[] sorted by wasted_bytes descending — biggest reclamation candidates first.",
 	}, h.findDuplicatesHandler)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "detect_project",
+		Description: "Inspect a single directory and report which project type(s) it matches based on canonical indicator files (go.mod → go, package.json → node, Cargo.toml → rust, pyproject.toml/requirements.txt/Pipfile → python, Gemfile → ruby, pom.xml → java-maven, build.gradle → java-gradle, *.csproj → dotnet, *.tf → terraform, docker-compose.yml → docker-compose). A directory can match multiple types simultaneously (a Go module that also ships docker-compose.yml hits both). Output includes the matched indicator filename for each type so callers can audit detection decisions. Non-recursive — only the given directory's own listing is read.",
+	}, h.detectProjectHandler)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "find_projects",
+		Description: "Walk a root directory and return every project root found. A project root is a directory whose contents match a registered project-type indicator. By default the walker stops at the first match per branch (the 'find me all my Go repos' shape) — pass nested=true to also surface sub-projects inside matched roots (monorepo workspaces, vendored deps). Filter to specific types with 'types': ['go','rust',…]. Prune the walk with 'excludes' (basename globs like ['node_modules', '.git', 'target']) or respect_gitignore. Honours the same timeout / cancellation contract as the search tool — on expiry the partial result set is returned with cancelled=true, never an error.",
+	}, h.findProjectsHandler)
 
 	return s
 }
