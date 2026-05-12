@@ -1,11 +1,9 @@
 package content
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"io/fs"
-	"strings"
 )
 
 func init() {
@@ -31,19 +29,27 @@ func (m *markdownType) Attributes(ctx context.Context, fsys fs.FS, path string) 
 
 	fm, body := splitFrontmatter(data)
 
+	// Body is already in memory, so we don't need a bufio.Scanner —
+	// just walk newlines directly with bytes.Cut. Avoids the 64 KiB
+	// upfront scanner-buffer allocation that dominated this path.
+	// Title detection uses bytes.HasPrefix to avoid the per-line
+	// []byte→string copy; bytes.Fields skips it for word counting
+	// too. The ATX-heading rule (Markdown spec): "# " followed by
+	// non-empty text on the same line — we keep the same heuristic.
 	var title string
 	var wordCount int
-	scanner := bufio.NewScanner(bytes.NewReader(body))
-	scanner.Buffer(make([]byte, 64*1024), MaxLineBytes())
-	for scanner.Scan() {
+	remaining := body
+	for len(remaining) > 0 {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		line := scanner.Text()
-		if title == "" && strings.HasPrefix(line, "# ") {
-			title = strings.TrimPrefix(line, "# ")
+		var line []byte
+		line, remaining, _ = bytes.Cut(remaining, []byte("\n"))
+		line = bytes.TrimRight(line, "\r")
+		if title == "" && bytes.HasPrefix(line, []byte("# ")) {
+			title = string(line[2:])
 		}
-		wordCount += len(strings.Fields(line))
+		wordCount += len(bytes.Fields(line))
 	}
 
 	attrs := Attributes{
