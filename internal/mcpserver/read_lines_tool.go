@@ -45,12 +45,11 @@ func (h *handlers) readLinesHandler(ctx context.Context, _ *mcp.CallToolRequest,
 	// Honour the server's default timeout so a pathological file
 	// (multi-gigabyte log) can't wedge the server. read_lines is
 	// bounded by max_lines too, but the line scanner can still
-	// take real time on huge files.
-	if h.defaultTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, h.defaultTimeout)
-		defer cancel()
-	}
+	// take real time on huge files. No per-call override on this
+	// tool — pass nil.
+	var cancel context.CancelFunc
+	ctx, cancel = h.resolveTimeout(ctx, nil)
+	defer cancel()
 
 	res, err := search.ReadLines(ctx, os.DirFS(dir), base, in.StartLine, in.EndLine, in.MaxLines)
 	if err != nil {

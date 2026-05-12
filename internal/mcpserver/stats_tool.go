@@ -67,20 +67,12 @@ func (h *handlers) statsHandler(ctx context.Context, _ *mcp.CallToolRequest, in 
 		dir = "."
 	}
 
-	// Same timeout resolution as searchHandler: per-call > server
-	// default > none. parentCtx separation isn't needed because
-	// ComputeStats itself surfaces cancelled=true via the Stats
-	// struct rather than via the ctx — we just need to apply the
-	// deadline.
-	timeout := h.defaultTimeout
-	if in.TimeoutSeconds != nil {
-		timeout = time.Duration(*in.TimeoutSeconds * float64(time.Second))
-	}
-	if timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
-	}
+	// parentCtx separation isn't needed because ComputeStats itself
+	// surfaces cancelled=true via the Stats struct rather than via the
+	// ctx — we just need to apply the deadline.
+	var cancel context.CancelFunc
+	ctx, cancel = h.resolveTimeout(ctx, in.TimeoutSeconds)
+	defer cancel()
 
 	start := time.Now()
 	stats, err := search.ComputeStats(ctx, search.Options{

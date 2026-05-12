@@ -34,11 +34,10 @@ func (h *handlers) readAttributesHandler(ctx context.Context, _ *mcp.CallToolReq
 	// Single-file extraction is bounded but not free (markdown reads
 	// the whole file; PDFs / EXIF are header-only). Apply the server
 	// default timeout so a pathological file can't wedge the server.
-	if h.defaultTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, h.defaultTimeout)
-		defer cancel()
-	}
+	// No per-call override on this tool — pass nil.
+	var cancel context.CancelFunc
+	ctx, cancel = h.resolveTimeout(ctx, nil)
+	defer cancel()
 
 	attrs, err := celexpr.BuildAttributesWith(ctx, os.DirFS(dir), base, abs, content.DefaultRegistry(), celexpr.BuildOptions{Index: h.idx})
 	if err != nil {

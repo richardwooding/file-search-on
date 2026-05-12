@@ -59,16 +59,9 @@ func (h *handlers) findDuplicatesHandler(ctx context.Context, _ *mcp.CallToolReq
 		dir = "."
 	}
 
-	// Same timeout resolution as the other walking tools.
-	timeout := h.defaultTimeout
-	if in.TimeoutSeconds != nil {
-		timeout = time.Duration(*in.TimeoutSeconds * float64(time.Second))
-	}
-	if timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
-	}
+	var cancel context.CancelFunc
+	ctx, cancel = h.resolveTimeout(ctx, in.TimeoutSeconds)
+	defer cancel()
 
 	start := time.Now()
 	dups, err := search.FindDuplicates(ctx, search.Options{
