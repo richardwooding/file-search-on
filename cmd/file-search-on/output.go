@@ -76,6 +76,9 @@ func writeVerboseRecord(w io.Writer, rec search.Match) {
 	printIfStr(w, "json_kind", rec.JSONKind)
 	printIfStr(w, "yaml_kind", rec.YAMLKind)
 	printIfInt(w, "yaml_document_count", rec.YAMLDocumentCount)
+	printIfStr(w, "module", rec.Module)
+	printIfStr(w, "go_version", rec.GoVersion)
+	printIfStr(w, "base_image", rec.BaseImage)
 
 	// Image dimensions + EXIF.
 	printIfInt(w, "img_width", rec.ImgWidth)

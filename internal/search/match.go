@@ -68,6 +68,38 @@ type Match struct {
 	IsNotebook bool `json:"is_notebook,omitempty"`
 	IsYAML     bool `json:"is_yaml,omitempty"`
 
+	// Exact-name content types (PR #94). Per-type predicates plus
+	// family predicates (IsBuild, IsRepoMeta, IsIgnore, IsManifest,
+	// IsPlatform) coexist, mirroring how is_image / is_audio etc.
+	// fire alongside content_type.
+	IsDockerfile    bool `json:"is_dockerfile,omitempty"`
+	IsMakefile      bool `json:"is_makefile,omitempty"`
+	IsJustfile      bool `json:"is_justfile,omitempty"`
+	IsRakefile      bool `json:"is_rakefile,omitempty"`
+	IsLicense       bool `json:"is_license,omitempty"`
+	IsChangelog     bool `json:"is_changelog,omitempty"`
+	IsContributing  bool `json:"is_contributing,omitempty"`
+	IsCodeowners    bool `json:"is_codeowners,omitempty"`
+	IsGitignore     bool `json:"is_gitignore,omitempty"`
+	IsDockerignore  bool `json:"is_dockerignore,omitempty"`
+	IsGomod         bool `json:"is_gomod,omitempty"`
+	IsNodeManifest  bool `json:"is_node_manifest,omitempty"`
+	IsCargoManifest bool `json:"is_cargo_manifest,omitempty"`
+	IsPipfile       bool `json:"is_pipfile,omitempty"`
+	IsPythonReqs    bool `json:"is_python_reqs,omitempty"`
+	IsGemfile       bool `json:"is_gemfile,omitempty"`
+	IsProcfile      bool `json:"is_procfile,omitempty"`
+	IsVagrantfile   bool `json:"is_vagrantfile,omitempty"`
+	IsBuild         bool `json:"is_build,omitempty"`
+	IsRepoMeta      bool `json:"is_repo_meta,omitempty"`
+	IsIgnore        bool `json:"is_ignore,omitempty"`
+	IsManifest      bool `json:"is_manifest,omitempty"`
+	IsPlatform      bool `json:"is_platform,omitempty"`
+
+	Module    string `json:"module,omitempty"`
+	GoVersion string `json:"go_version,omitempty"`
+	BaseImage string `json:"base_image,omitempty"`
+
 	Artist      string `json:"artist,omitempty"`
 	Album       string `json:"album,omitempty"`
 	AlbumArtist string `json:"album_artist,omitempty"`
@@ -166,6 +198,13 @@ func MatchFrom(r Result) Match {
 	m.IsSource = a.IsSource
 	m.IsNotebook = a.IsNotebook
 	m.IsYAML = a.IsYAML
+	m.IsDockerfile, m.IsMakefile, m.IsJustfile, m.IsRakefile = a.IsDockerfile, a.IsMakefile, a.IsJustfile, a.IsRakefile
+	m.IsLicense, m.IsChangelog, m.IsContributing, m.IsCodeowners = a.IsLicense, a.IsChangelog, a.IsContributing, a.IsCodeowners
+	m.IsGitignore, m.IsDockerignore = a.IsGitignore, a.IsDockerignore
+	m.IsGomod, m.IsNodeManifest, m.IsCargoManifest = a.IsGomod, a.IsNodeManifest, a.IsCargoManifest
+	m.IsPipfile, m.IsPythonReqs, m.IsGemfile = a.IsPipfile, a.IsPythonReqs, a.IsGemfile
+	m.IsProcfile, m.IsVagrantfile = a.IsProcfile, a.IsVagrantfile
+	m.IsBuild, m.IsRepoMeta, m.IsIgnore, m.IsManifest, m.IsPlatform = a.IsBuild, a.IsRepoMeta, a.IsIgnore, a.IsManifest, a.IsPlatform
 
 	if a.Extra == nil {
 		return m
@@ -205,6 +244,15 @@ func MatchFrom(r Result) Match {
 	}
 	if v, ok := a.Extra["yaml_document_count"].(int64); ok {
 		m.YAMLDocumentCount = v
+	}
+	if v, ok := a.Extra["module"].(string); ok {
+		m.Module = v
+	}
+	if v, ok := a.Extra["go_version"].(string); ok {
+		m.GoVersion = v
+	}
+	if v, ok := a.Extra["base_image"].(string); ok {
+		m.BaseImage = v
 	}
 	if v, ok := a.Extra["img_width"].(int64); ok {
 		m.ImgWidth = v

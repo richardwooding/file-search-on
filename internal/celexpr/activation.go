@@ -78,6 +78,52 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.IsNotebook, true
 	case "is_yaml":
 		return a.attrs.IsYAML, true
+	case "is_dockerfile":
+		return a.attrs.IsDockerfile, true
+	case "is_makefile":
+		return a.attrs.IsMakefile, true
+	case "is_justfile":
+		return a.attrs.IsJustfile, true
+	case "is_rakefile":
+		return a.attrs.IsRakefile, true
+	case "is_license":
+		return a.attrs.IsLicense, true
+	case "is_changelog":
+		return a.attrs.IsChangelog, true
+	case "is_contributing":
+		return a.attrs.IsContributing, true
+	case "is_codeowners":
+		return a.attrs.IsCodeowners, true
+	case "is_gitignore":
+		return a.attrs.IsGitignore, true
+	case "is_dockerignore":
+		return a.attrs.IsDockerignore, true
+	case "is_gomod":
+		return a.attrs.IsGomod, true
+	case "is_node_manifest":
+		return a.attrs.IsNodeManifest, true
+	case "is_cargo_manifest":
+		return a.attrs.IsCargoManifest, true
+	case "is_pipfile":
+		return a.attrs.IsPipfile, true
+	case "is_python_reqs":
+		return a.attrs.IsPythonReqs, true
+	case "is_gemfile":
+		return a.attrs.IsGemfile, true
+	case "is_procfile":
+		return a.attrs.IsProcfile, true
+	case "is_vagrantfile":
+		return a.attrs.IsVagrantfile, true
+	case "is_build":
+		return a.attrs.IsBuild, true
+	case "is_repo_meta":
+		return a.attrs.IsRepoMeta, true
+	case "is_ignore":
+		return a.attrs.IsIgnore, true
+	case "is_manifest":
+		return a.attrs.IsManifest, true
+	case "is_platform":
+		return a.attrs.IsPlatform, true
 	}
 	if v, ok := a.attrs.Extra[name]; ok {
 		return v, true
@@ -111,6 +157,9 @@ var zeroDefaults = map[string]any{
 	"json_kind":             "",
 	"yaml_kind":             "",
 	"yaml_document_count":   int64(0),
+	"module":                "",
+	"go_version":            "",
+	"base_image":            "",
 	"img_width":             int64(0),
 	"img_height":            int64(0),
 	"camera_make":           "",

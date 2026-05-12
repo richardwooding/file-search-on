@@ -41,7 +41,37 @@ type FileAttributes struct {
 	IsSource    bool
 	IsNotebook  bool
 	IsYAML      bool
-	Extra       content.Attributes
+
+	// Exact-name content types (PR #94). Per-type predicates fire for
+	// the matching content_type; family predicates (IsBuild,
+	// IsRepoMeta, IsIgnore, IsManifest, IsPlatform) fire on the
+	// content_type name prefix, mirroring how IsImage / IsAudio etc.
+	// are populated for image/* / audio/* families.
+	IsDockerfile     bool
+	IsMakefile       bool
+	IsJustfile       bool
+	IsRakefile       bool
+	IsBuild          bool
+	IsLicense        bool
+	IsChangelog      bool
+	IsContributing   bool
+	IsCodeowners     bool
+	IsRepoMeta       bool
+	IsGitignore      bool
+	IsDockerignore   bool
+	IsIgnore         bool
+	IsGomod          bool
+	IsNodeManifest   bool
+	IsCargoManifest  bool
+	IsPipfile        bool
+	IsPythonReqs     bool
+	IsGemfile        bool
+	IsManifest       bool
+	IsProcfile       bool
+	IsVagrantfile    bool
+	IsPlatform       bool
+
+	Extra content.Attributes
 }
 
 // Evaluator evaluates CEL expressions against file attributes
@@ -79,6 +109,38 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("is_yaml", cel.BoolType),
 		cel.Variable("yaml_kind", cel.StringType),
 		cel.Variable("yaml_document_count", cel.IntType),
+
+		// Exact-name content types (per-type predicates).
+		cel.Variable("is_dockerfile", cel.BoolType),
+		cel.Variable("is_makefile", cel.BoolType),
+		cel.Variable("is_justfile", cel.BoolType),
+		cel.Variable("is_rakefile", cel.BoolType),
+		cel.Variable("is_license", cel.BoolType),
+		cel.Variable("is_changelog", cel.BoolType),
+		cel.Variable("is_contributing", cel.BoolType),
+		cel.Variable("is_codeowners", cel.BoolType),
+		cel.Variable("is_gitignore", cel.BoolType),
+		cel.Variable("is_dockerignore", cel.BoolType),
+		cel.Variable("is_gomod", cel.BoolType),
+		cel.Variable("is_node_manifest", cel.BoolType),
+		cel.Variable("is_cargo_manifest", cel.BoolType),
+		cel.Variable("is_pipfile", cel.BoolType),
+		cel.Variable("is_python_reqs", cel.BoolType),
+		cel.Variable("is_gemfile", cel.BoolType),
+		cel.Variable("is_procfile", cel.BoolType),
+		cel.Variable("is_vagrantfile", cel.BoolType),
+
+		// Exact-name family predicates.
+		cel.Variable("is_build", cel.BoolType),
+		cel.Variable("is_repo_meta", cel.BoolType),
+		cel.Variable("is_ignore", cel.BoolType),
+		cel.Variable("is_manifest", cel.BoolType),
+		cel.Variable("is_platform", cel.BoolType),
+
+		// Attributes parsed from exact-name types.
+		cel.Variable("module", cel.StringType),
+		cel.Variable("go_version", cel.StringType),
+		cel.Variable("base_image", cel.StringType),
 		cel.Variable("title", cel.StringType),
 		cel.Variable("body", cel.StringType),
 		cel.Variable("word_count", cel.IntType),
@@ -296,16 +358,9 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 
 	ct := registry.Detect(fsys, fsPath)
 	contentTypeName := ""
-	isMarkdown, isJSON, isXML, isHTML, isPDF, isImage := false, false, false, false, false, false
-	isText, isCSV, isEPUB, isOffice, isAudio, isVideo := false, false, false, false, false, false
-	var isArchive, isBinary, isEmail, isSource, isNotebook, isYAML bool
-
 	var extra content.Attributes
 	if ct != nil {
 		contentTypeName = ct.Name()
-		isMarkdown, isJSON, isXML, isHTML, isPDF, isImage,
-			isText, isCSV, isEPUB, isOffice, isAudio, isVideo,
-			isArchive, isBinary, isEmail, isSource, isNotebook, isYAML = typeFlagsFor(contentTypeName)
 		extra, err = ct.Attributes(ctx, fsys, fsPath)
 		if err != nil {
 			return nil, err
@@ -338,7 +393,7 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 		}
 	}
 
-	return &FileAttributes{
+	attrs := &FileAttributes{
 		Name:        name,
 		Path:        displayPath,
 		Dir:         dir,
@@ -346,80 +401,117 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 		Ext:         ext,
 		ModTime:     info.ModTime(),
 		ContentType: contentTypeName,
-		IsMarkdown:  isMarkdown,
-		IsJSON:      isJSON,
-		IsXML:       isXML,
-		IsHTML:      isHTML,
-		IsPDF:       isPDF,
-		IsImage:     isImage,
-		IsText:      isText,
-		IsCSV:       isCSV,
-		IsEPUB:      isEPUB,
-		IsOffice:    isOffice,
-		IsAudio:     isAudio,
-		IsArchive:   isArchive,
-		IsBinary:    isBinary,
-		IsEmail:     isEmail,
-		IsSource:    isSource,
-		IsNotebook:  isNotebook,
-		IsVideo:     isVideo,
-		IsYAML:      isYAML,
 		Extra:       extra,
-	}, nil
+	}
+	setTypeFlags(attrs, contentTypeName)
+	return attrs, nil
 }
 
-// typeFlagsFor returns the boolean type-family flags for a registered
-// ContentType.Name(). Mirrors the switch that previously inlined into
-// BuildAttributes; factored out so cache-hit assembly can reuse it.
-func typeFlagsFor(name string) (isMarkdown, isJSON, isXML, isHTML, isPDF, isImage,
-	isText, isCSV, isEPUB, isOffice, isAudio, isVideo,
-	isArchive, isBinary, isEmail, isSource, isNotebook, isYAML bool) {
-	switch {
-	case name == "markdown":
-		isMarkdown = true
-	case name == "json":
-		isJSON = true
-	case name == "yaml":
-		isYAML = true
-	case name == "xml":
-		isXML = true
-	case name == "html":
-		isHTML = true
-	case name == "pdf":
-		isPDF = true
-	case name == "text":
-		isText = true
-	case name == "csv":
-		isCSV = true
-	case name == "epub":
-		isEPUB = true
-	case strings.HasPrefix(name, "image/"):
-		isImage = true
-	case strings.HasPrefix(name, "office/"):
-		isOffice = true
-	case strings.HasPrefix(name, "audio/"):
-		isAudio = true
-	case strings.HasPrefix(name, "video/"):
-		isVideo = true
-	case strings.HasPrefix(name, "archive/"):
-		isArchive = true
-	case strings.HasPrefix(name, "binary/"):
-		isBinary = true
-	case strings.HasPrefix(name, "email/"):
-		isEmail = true
-	case strings.HasPrefix(name, "source/"):
-		isSource = true
-	case strings.HasPrefix(name, "notebook/"):
-		isNotebook = true
+// setTypeFlags populates the IsX boolean fields on attrs based on the
+// content-type name. Per-type flags (IsMarkdown, IsDockerfile, …)
+// match exact names; family flags (IsImage, IsBuild, IsManifest, …)
+// match the content_type name prefix. Both can be true for the same
+// file — e.g. content_type=build/dockerfile sets IsDockerfile AND
+// IsBuild. The single source of truth for type-name → predicate
+// mapping; reused by BuildAttributesWith and assembleFromCache.
+func setTypeFlags(attrs *FileAttributes, name string) {
+	// Exact-name (single-format) content types.
+	switch name {
+	case "markdown":
+		attrs.IsMarkdown = true
+	case "json":
+		attrs.IsJSON = true
+	case "yaml":
+		attrs.IsYAML = true
+	case "xml":
+		attrs.IsXML = true
+	case "html":
+		attrs.IsHTML = true
+	case "pdf":
+		attrs.IsPDF = true
+	case "text":
+		attrs.IsText = true
+	case "csv":
+		attrs.IsCSV = true
+	case "epub":
+		attrs.IsEPUB = true
+
+	// Exact-name (repo-files family) — per-type flag PLUS family flag
+	// set via the prefix check below.
+	case "build/dockerfile":
+		attrs.IsDockerfile = true
+	case "build/makefile":
+		attrs.IsMakefile = true
+	case "build/justfile":
+		attrs.IsJustfile = true
+	case "build/rakefile":
+		attrs.IsRakefile = true
+	case "repo/license":
+		attrs.IsLicense = true
+	case "repo/changelog":
+		attrs.IsChangelog = true
+	case "repo/contributing":
+		attrs.IsContributing = true
+	case "repo/codeowners":
+		attrs.IsCodeowners = true
+	case "ignore/git":
+		attrs.IsGitignore = true
+	case "ignore/docker":
+		attrs.IsDockerignore = true
+	case "manifest/gomod":
+		attrs.IsGomod = true
+	case "manifest/node":
+		attrs.IsNodeManifest = true
+	case "manifest/cargo":
+		attrs.IsCargoManifest = true
+	case "manifest/pipfile":
+		attrs.IsPipfile = true
+	case "manifest/python-reqs":
+		attrs.IsPythonReqs = true
+	case "manifest/gemfile":
+		attrs.IsGemfile = true
+	case "platform/procfile":
+		attrs.IsProcfile = true
+	case "platform/vagrant":
+		attrs.IsVagrantfile = true
 	}
-	return
+
+	// Family prefix flags. Existing image/office/audio/etc. plus the
+	// five new families (build, repo, ignore, manifest, platform).
+	switch {
+	case strings.HasPrefix(name, "image/"):
+		attrs.IsImage = true
+	case strings.HasPrefix(name, "office/"):
+		attrs.IsOffice = true
+	case strings.HasPrefix(name, "audio/"):
+		attrs.IsAudio = true
+	case strings.HasPrefix(name, "video/"):
+		attrs.IsVideo = true
+	case strings.HasPrefix(name, "archive/"):
+		attrs.IsArchive = true
+	case strings.HasPrefix(name, "binary/"):
+		attrs.IsBinary = true
+	case strings.HasPrefix(name, "email/"):
+		attrs.IsEmail = true
+	case strings.HasPrefix(name, "source/"):
+		attrs.IsSource = true
+	case strings.HasPrefix(name, "notebook/"):
+		attrs.IsNotebook = true
+	case strings.HasPrefix(name, "build/"):
+		attrs.IsBuild = true
+	case strings.HasPrefix(name, "repo/"):
+		attrs.IsRepoMeta = true
+	case strings.HasPrefix(name, "ignore/"):
+		attrs.IsIgnore = true
+	case strings.HasPrefix(name, "manifest/"):
+		attrs.IsManifest = true
+	case strings.HasPrefix(name, "platform/"):
+		attrs.IsPlatform = true
+	}
 }
 
 func assembleFromCache(name, displayPath, dir, ext string, info fs.FileInfo, cached *index.Entry) *FileAttributes {
-	isMarkdown, isJSON, isXML, isHTML, isPDF, isImage,
-		isText, isCSV, isEPUB, isOffice, isAudio, isVideo,
-		isArchive, isBinary, isEmail, isSource, isNotebook, isYAML := typeFlagsFor(cached.ContentType)
-	return &FileAttributes{
+	attrs := &FileAttributes{
 		Name:        name,
 		Path:        displayPath,
 		Dir:         dir,
@@ -427,24 +519,8 @@ func assembleFromCache(name, displayPath, dir, ext string, info fs.FileInfo, cac
 		Ext:         ext,
 		ModTime:     info.ModTime(),
 		ContentType: cached.ContentType,
-		IsMarkdown:  isMarkdown,
-		IsJSON:      isJSON,
-		IsXML:       isXML,
-		IsHTML:      isHTML,
-		IsPDF:       isPDF,
-		IsImage:     isImage,
-		IsText:      isText,
-		IsCSV:       isCSV,
-		IsEPUB:      isEPUB,
-		IsOffice:    isOffice,
-		IsAudio:     isAudio,
-		IsArchive:   isArchive,
-		IsBinary:    isBinary,
-		IsEmail:     isEmail,
-		IsSource:    isSource,
-		IsNotebook:  isNotebook,
-		IsVideo:     isVideo,
-		IsYAML:      isYAML,
 		Extra:       content.Attributes(cached.Extra),
 	}
+	setTypeFlags(attrs, cached.ContentType)
+	return attrs
 }

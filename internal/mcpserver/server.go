@@ -73,10 +73,34 @@ Use these boolean type predicates directly in your CEL expression — no need to
   is_email      .eml, .mbox
   is_source     Go / Python / JS / TS / Rust / C / C++ / Java / Ruby / Swift / Kotlin / Shell / Lua / Elixir / Clojure / Haskell / OCaml / Zig
 
+Exact-name content types (matched by filename, not extension). Both the
+per-type predicate AND the family predicate fire for each match:
+
+  is_dockerfile / is_build    Dockerfile, Containerfile
+  is_makefile / is_build      Makefile (+ variants), GNUmakefile, BSDmakefile
+  is_justfile / is_build      Justfile, justfile
+  is_rakefile / is_build      Rakefile
+  is_license / is_repo_meta   LICENSE, LICENCE, COPYING (bare; LICENSE.md is markdown)
+  is_changelog / is_repo_meta CHANGELOG, HISTORY (bare)
+  is_contributing / is_repo_meta  CONTRIBUTING (bare)
+  is_codeowners / is_repo_meta    CODEOWNERS, OWNERS
+  is_gitignore / is_ignore    .gitignore, .gitattributes
+  is_dockerignore / is_ignore .dockerignore
+  is_gomod / is_manifest      go.mod, go.sum
+  is_node_manifest / is_manifest    package.json, package-lock.json
+  is_cargo_manifest / is_manifest   Cargo.toml, Cargo.lock
+  is_pipfile / is_manifest    Pipfile, Pipfile.lock
+  is_python_reqs / is_manifest      requirements.txt
+  is_gemfile / is_manifest    Gemfile, Gemfile.lock
+  is_procfile / is_platform   Procfile
+  is_vagrantfile / is_platform      Vagrantfile
+
 Common attributes available on every file: name, path, dir, ext, size (bytes, int), content_type. Per-family attributes the parser populates when the file matches:
 
   documents:  title, author, language, word_count, line_count, page_count
   data:       json_kind ("object"/"array"), yaml_kind ("object"/"array"/"scalar"), yaml_document_count, csv_columns (list<string>), root_element
+  manifest:   module, go_version (go.mod)
+  build:      base_image (Dockerfile FROM directive)
   markdown:   tags, categories, draft, date, frontmatter (map<string,dyn>), frontmatter_format
   images:     img_width, img_height, camera_make, camera_model, lens, taken_at, iso, focal_length, f_stop, exposure_time, gps_lat, gps_lon, orientation
   audio:      artist, album, album_artist, composer, year, track, genre, duration, bitrate, sample_rate, channels, bit_depth
