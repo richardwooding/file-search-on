@@ -529,6 +529,43 @@ type StatsBucket struct {
 // back-compat. Same shape as StatsBucket.
 type StatsContentTypeBucket = StatsBucket
 
+// FindDuplicatesInput is the JSON-schema input for the
+// `find_duplicates` tool.
+type FindDuplicatesInput struct {
+	Expr             string   `json:"expr,omitempty" jsonschema:"Optional CEL expression to scope candidates (e.g. 'is_image' for photo dedup, 'is_archive' for archive dedup). Same CEL surface as search. Empty means every file."`
+	Dir              string   `json:"dir,omitempty" jsonschema:"Directory to walk. Defaults to '.'. Ignored when 'dirs' is non-empty."`
+	Dirs             []string `json:"dirs,omitempty" jsonschema:"Multiple directories to dedup across in one call."`
+	Workers          int      `json:"workers,omitempty" jsonschema:"Parallel workers. Defaults to runtime.NumCPU()."`
+	MaxLineBytes     int      `json:"max_line_bytes,omitempty" jsonschema:"Per-line scanner buffer cap (bytes). 0 uses the 1 MiB default."`
+	TimeoutSeconds   *float64 `json:"timeout_seconds,omitempty" jsonschema:"Override the server's default per-call timeout. Same semantics as the search tool. Duplicate detection can be expensive on cold caches — pair with a generous timeout for first runs."`
+	Excludes         []string `json:"excludes,omitempty" jsonschema:"Glob patterns matched against file/dir basenames; matches are pruned."`
+	RespectGitignore bool     `json:"respect_gitignore,omitempty" jsonschema:"When true, parse a .gitignore at each walk root and skip matching paths."`
+	MinSize          int64    `json:"min_size,omitempty" jsonschema:"Skip files smaller than this many bytes. Raise to e.g. 4096 to ignore tiny duplicates."`
+}
+
+// FindDuplicatesOutput is the structured output of `find_duplicates`.
+type FindDuplicatesOutput struct {
+	TotalFiles         int64           `json:"total_files"`
+	DuplicateGroups    int64           `json:"duplicate_groups"`
+	WastedBytes        int64           `json:"wasted_bytes"`
+	Duplicates         []DuplicateGroup `json:"duplicates"`
+	Cancelled          bool            `json:"cancelled,omitempty"`
+	CancellationReason string          `json:"cancellation_reason,omitempty"`
+	ElapsedSeconds     float64         `json:"elapsed_seconds,omitempty"`
+}
+
+// DuplicateGroup is one row of the duplicates output. Hash is the
+// sha256 hex; Size is the per-file byte count (same for every
+// file in the group); WastedBytes = (Count-1) * Size — the bytes
+// a dedupe would reclaim.
+type DuplicateGroup struct {
+	Hash        string   `json:"hash"`
+	Size        int64    `json:"size"`
+	Count       int      `json:"count"`
+	WastedBytes int64    `json:"wasted_bytes"`
+	Paths       []string `json:"paths"`
+}
+
 // ReadLinesInput is the JSON-schema input for the `read_lines` tool.
 type ReadLinesInput struct {
 	Path      string `json:"path" jsonschema:"Filesystem path of the file to read. Absolute paths preferred; relative resolves against the server's working directory."`
@@ -624,6 +661,7 @@ Tools:
   read_attributes  same SearchMatch shape for one path; use when you already have the file
   read_lines       print a specific line range from a file — for context around a search match
   stats            histogram + totals for a directory tree, bucketed by any attribute via group_by
+  find_duplicates  groups of byte-identical files keyed by sha256 — "what's eating my disk?"
   list_attributes  full schema (every attribute, every built-in function); call when the recipes above don't cover what you need
   index_stats      cache hit/miss counters for this server process
 
@@ -640,6 +678,10 @@ Stats / reconnaissance: the 'stats' tool aggregates a histogram + total counts +
 Multi-directory search: both 'search' and 'stats' accept 'dirs': []string. When non-empty it overrides 'dir' and walks all roots in one call (each root's .gitignore is honoured independently). Useful when an agent needs to search across, say, ~/Documents AND ~/Downloads without two round-trips.
 
 Read line ranges: the 'read_lines' tool returns lines [start_line, end_line] of a single file (1-indexed, inclusive). Useful as the second step after search — find matches via search, then call read_lines for context around each match without a separate read tool. max_lines caps the response (default 1000); the truncated flag tells you when the cap was hit.
+
+Duplicate detection: 'find_duplicates' returns groups of byte-identical files keyed by sha256. Two-pass for performance: files with unique sizes are skipped (cheaper than computing a hash you don't need). Pair with expr to scope (e.g. expr='is_image' to dedup photos only) and min_size to skip tiny duplicates. Hashes are cached in the attribute index alongside (size, mtime); first runs on large trees can be slow but subsequent calls on unchanged files are free. Output's duplicates[] is sorted by wasted_bytes descending so the biggest reclamation candidates show first.
+
+Time-bucket aggregation: 'stats' group_by accepts mtime_year, mtime_month, mtime_day, taken_at_year/month/day, sent_at_year/month/day, and date_year/month/day in addition to the string-attribute keys. Files with zero timestamps bucket as "(no date)" so they don't collide with "1970-01-01". Example: {expr:'is_image', group_by:'taken_at_year'} for "photos per year".
 
 Excluding directories: pass 'excludes' to skip directories and files by basename glob. Common values: ['node_modules', '.git', 'target', 'dist', '__pycache__', '*.bak']. Matched directories are pruned (their entire subtree is skipped). For path-aware semantics like 'src/build', set 'respect_gitignore': true and the server will parse a .gitignore at the walk root.
 
@@ -702,6 +744,11 @@ func New(version string, idx index.Index, defaultTimeout time.Duration) *mcp.Ser
 		Name:        "read_lines",
 		Description: "Print a specific line range from a single file. Completes the search-then-inspect loop without a separate read tool — agent flow: search for matches, then call read_lines for context around each match. Inputs: path (required), start_line (1-indexed inclusive; default 1), end_line (1-indexed inclusive; 0 = end of file), max_lines (cap; default 1000). Returns lines[] (no trailing newlines), total_lines, and truncated:true when the requested range exceeds max_lines. Errors only on missing/unreadable files or invalid ranges (start_line > end_line); pathological lines (huge / non-UTF-8) are truncated at 64 KiB per line and the scan continues.",
 	}, h.readLinesHandler)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "find_duplicates",
+		Description: "Find groups of byte-identical files keyed by sha256. Useful for 'what's eating my disk?' and 'find redundant copies' workflows. Two-pass for performance: files with unique sizes are skipped entirely (cheaper than computing their hash). Pair with expr to scope (e.g. expr='is_image' for photo dedup) and min_size to skip tiny duplicates. Hashes are cached in the attribute index alongside (size, mtime) — first run on a large tree can be slow (every candidate file is read in full), but subsequent runs are free for unchanged files. Output: duplicates[] sorted by wasted_bytes descending — biggest reclamation candidates first.",
+	}, h.findDuplicatesHandler)
 
 	return s
 }
@@ -917,6 +964,66 @@ func (h *handlers) readLinesHandler(ctx context.Context, _ *mcp.CallToolRequest,
 		Lines:      res.Lines,
 		Truncated:  res.Truncated,
 	}, nil
+}
+
+func (h *handlers) findDuplicatesHandler(ctx context.Context, _ *mcp.CallToolRequest, in FindDuplicatesInput) (*mcp.CallToolResult, FindDuplicatesOutput, error) {
+	expr := in.Expr
+	if expr == "" {
+		expr = "true"
+	}
+	dir := in.Dir
+	if dir == "" && len(in.Dirs) == 0 {
+		dir = "."
+	}
+
+	// Same timeout resolution as the other walking tools.
+	timeout := h.defaultTimeout
+	if in.TimeoutSeconds != nil {
+		timeout = time.Duration(*in.TimeoutSeconds * float64(time.Second))
+	}
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
+	start := time.Now()
+	dups, err := search.FindDuplicates(ctx, search.Options{
+		Root:             dir,
+		Roots:            in.Dirs,
+		Expr:             expr,
+		Workers:          in.Workers,
+		MaxLineBytes:     in.MaxLineBytes,
+		Index:            h.idx,
+		Excludes:         in.Excludes,
+		RespectGitignore: in.RespectGitignore,
+		MinSize:          in.MinSize,
+	}, content.DefaultRegistry())
+	elapsed := time.Since(start).Seconds()
+
+	if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		return nil, FindDuplicatesOutput{}, fmt.Errorf("find_duplicates: %w", err)
+	}
+
+	out := FindDuplicatesOutput{ElapsedSeconds: elapsed}
+	if dups != nil {
+		out.TotalFiles = dups.TotalFiles
+		out.DuplicateGroups = dups.DuplicateGroups
+		out.WastedBytes = dups.WastedBytes
+		out.Cancelled = dups.Cancelled
+		out.CancellationReason = dups.CancellationReason
+		out.Duplicates = make([]DuplicateGroup, len(dups.Duplicates))
+		for i, g := range dups.Duplicates {
+			out.Duplicates[i] = DuplicateGroup{
+				Hash:        g.Hash,
+				Size:        g.Size,
+				Count:       g.Count,
+				WastedBytes: g.WastedBytes,
+				Paths:       g.Paths,
+			}
+		}
+	}
+	return nil, out, nil
 }
 
 func (h *handlers) statsHandler(ctx context.Context, _ *mcp.CallToolRequest, in StatsInput) (*mcp.CallToolResult, StatsOutput, error) {

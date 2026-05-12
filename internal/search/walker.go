@@ -121,6 +121,13 @@ type Options struct {
 	// stats.go ValidGroupBys for the recognised set. Ignored by
 	// Walk/WalkStream — it only affects ComputeStats's aggregation.
 	GroupBy string
+
+	// MinSize is a duplicate-detection threshold: files smaller
+	// than this are not considered when finding duplicates. 0
+	// disables the threshold (every file participates). Ignored
+	// by Walk/WalkStream and ComputeStats — only FindDuplicates
+	// consults it.
+	MinSize int64
 }
 
 // Walk walks the directory and returns every matching file. It is a

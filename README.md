@@ -236,7 +236,20 @@ file-search-on stats 'is_source' --group-by language -d ./src
 file-search-on stats -d ~/Documents -d ~/Downloads
 ```
 
-Recognised `--group-by` keys: `content_type` (default), `ext`, `dir`, `language`, `camera_make`, `camera_model`, `lens`, `artist`, `album`, `genre`, `kernel`, `binary_format`, `binary_type`, `frontmatter_format`. Unknown values fall back to `content_type`.
+Recognised `--group-by` keys:
+
+- **String attributes:** `content_type` (default), `ext`, `dir`, `language`, `camera_make`, `camera_model`, `lens`, `artist`, `album`, `genre`, `kernel`, `binary_format`, `binary_type`, `frontmatter_format`.
+- **Time bucketing:** `mtime_year` / `mtime_month` / `mtime_day` (file mtime); `taken_at_year` / `_month` / `_day` (image EXIF); `sent_at_year` / `_month` / `_day` (email); `date_year` / `_month` / `_day` (markdown front-matter). Files with zero timestamps bucket as `"(no date)"`.
+
+Unknown values fall back to `content_type`.
+
+```sh
+# "How many photos per year did I take?"
+file-search-on stats 'is_image' --group-by taken_at_year -d ~/Pictures
+
+# "What did I edit last month?" (mtime in YYYY-MM)
+file-search-on stats --group-by mtime_month -d ~/Documents
+```
 
 Output (table mode, default):
 
@@ -250,6 +263,40 @@ TOTAL                            148      427,000,000 B
 ```
 
 `-o json` writes the same data as a structured object: `{total_count, total_size, group_by, groups[], content_types[], …}`. See [examples/stats.md](./examples/stats.md) for recipes; the MCP `stats` tool exposes the same shape.
+
+### Find duplicate files
+
+The `duplicates` subcommand (and matching MCP `find_duplicates` tool) reports groups of byte-identical files keyed by sha256. Useful for "what's eating my disk?" reconnaissance.
+
+```sh
+# Whole tree
+file-search-on duplicates -d ~/Downloads
+
+# Photos only — pair with a CEL filter to scope the candidates
+file-search-on duplicates 'is_image' -d ~/Pictures
+
+# Skip tiny duplicates that aren't worth reclaiming
+file-search-on duplicates -d . --min-size 4096
+
+# JSON output for piping into jq
+file-search-on duplicates -d ~/Music -o json | jq '.duplicates[0]'
+```
+
+Two-pass for performance: files with unique sizes are skipped (they can't be duplicates). Only files in size-collision groups get hashed. With `--index-path`, hashes are cached alongside the rest of the attribute entry — first runs on large trees can be slow, but **subsequent calls on unchanged files are free**.
+
+Output (table mode, sorted by wasted bytes descending):
+
+```
+hash:  a3b2c1...
+size:  2,048 bytes  (count=3, wasted=4,096 B)
+  /Users/me/dl/copy1.pdf
+  /Users/me/dl/copy2.pdf
+  /Users/me/Pictures/random-name.pdf
+
+2 duplicate group(s), 1,234 files considered, 4,096 B wasted
+```
+
+See [examples/duplicates.md](./examples/duplicates.md) for recipes.
 
 ### Read a range of lines
 
@@ -338,8 +385,9 @@ Focused recipe collections live under [`examples/`](./examples/):
 | [`examples/exclude.md`](./examples/exclude.md) | Pruning the walk — `--exclude` basename globs and `--respect-gitignore` |
 | [`examples/body-search.md`](./examples/body-search.md) | Content filters — `--body` exposes file body to CEL; pair with `contains` / `matches` (RE2) / `startsWith` |
 | [`examples/stats.md`](./examples/stats.md) | Directory reconnaissance — `file-search-on stats` aggregates a content-type histogram with totals |
-| [`examples/group-by.md`](./examples/group-by.md) | Stats bucketed by any attribute — `--group-by camera_make`, `--group-by language`, etc. |
+| [`examples/group-by.md`](./examples/group-by.md) | Stats bucketed by any attribute — `--group-by camera_make`, `--group-by language`, `--group-by taken_at_year`, etc. |
 | [`examples/read-lines.md`](./examples/read-lines.md) | Print a specific line range from a file — pairs with `search` to fetch match context |
+| [`examples/duplicates.md`](./examples/duplicates.md) | Find byte-identical files by sha256 — `file-search-on duplicates [--min-size N]` |
 
 A handful of representative one-liners:
 
@@ -644,7 +692,8 @@ Four tools are exposed:
 | `search` | `expr`, `dir`, `dirs[]`, `workers`, `max_line_bytes`, `timeout_seconds`, `sort_by`, `order`, `limit`, `include_snippet`, `snippet_lines`, `include_body`, `body_max_bytes`, `excludes`, `respect_gitignore` | `matches[]` (full attribute set per match — includes `snippet` when requested), `count`, `cancelled`, `cancellation_reason`, `elapsed_seconds` |
 | `read_attributes` | `path` | A single match — same shape as one `matches[]` entry from `search`. Use when the agent already has the path and wants metadata without walking. |
 | `read_lines` | `path`, `start_line`, `end_line`, `max_lines` | `{path, start_line, end_line, total_lines, lines[], truncated}`. A specific line range from a file — pairs with `search` to fetch context around matches. |
-| `stats` | `expr` (optional CEL scope), `dir`, `dirs[]`, `group_by`, `workers`, `max_line_bytes`, `timeout_seconds`, `excludes`, `respect_gitignore` | `total_count`, `total_size`, `group_by`, `groups[]` (each `{name, count, total_size}`), `content_types[]` (populated for default group_by only — back-compat), `cancelled`, `cancellation_reason`, `elapsed_seconds`. Reconnaissance histogram, bucketed by any attribute. |
+| `stats` | `expr` (optional CEL scope), `dir`, `dirs[]`, `group_by`, `workers`, `max_line_bytes`, `timeout_seconds`, `excludes`, `respect_gitignore` | `total_count`, `total_size`, `group_by`, `groups[]` (each `{name, count, total_size}`), `content_types[]` (populated for default group_by only — back-compat), `cancelled`, `cancellation_reason`, `elapsed_seconds`. Reconnaissance histogram, bucketed by any attribute including time-bucket keys (`mtime_year/month/day`, `taken_at_*`, `sent_at_*`, `date_*`). |
+| `find_duplicates` | `expr` (optional CEL scope), `dir`, `dirs[]`, `min_size`, `workers`, `max_line_bytes`, `timeout_seconds`, `excludes`, `respect_gitignore` | `total_files`, `duplicate_groups`, `wasted_bytes`, `duplicates[]` (each `{hash, size, count, wasted_bytes, paths[]}`), `cancelled`, `cancellation_reason`, `elapsed_seconds`. Sha256-keyed groups of byte-identical files; sorted by wasted_bytes descending. |
 | `list_attributes` | none | `schema` (common, type_specific, frontmatter, functions) and `content_types[]` |
 | `index_stats` | none | Cumulative cache counters for the running server: `hits`, `misses`, `puts`, `stales`, `errors`. Counters reset on server restart. |
 

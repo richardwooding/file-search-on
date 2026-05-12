@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/richardwooding/file-search-on/internal/content"
 )
@@ -45,10 +46,14 @@ type Bucket struct {
 type ContentTypeBucket = Bucket
 
 // validGroupBys is the closed set of attributes ComputeStats knows
-// how to bucket. Time-, list-, and numeric-typed attributes are
-// intentionally not in this set — they'd need range / per-element
-// bucketing semantics that are out of scope.
+// how to bucket. String-typed attributes are the natural case; the
+// time-bucket entries (mtime_year/month/day, taken_at_*, sent_at_*,
+// date_*) format the timestamp as a string before bucketing — files
+// with zero timestamps fall into the "(no date)" bucket. List- and
+// numeric-typed attributes intentionally aren't supported — they'd
+// need per-element or range semantics that are out of scope.
 var validGroupBys = map[string]struct{}{
+	// String attributes.
 	"content_type":       {},
 	"ext":                {},
 	"dir":                {},
@@ -63,6 +68,21 @@ var validGroupBys = map[string]struct{}{
 	"binary_format":      {},
 	"binary_type":        {},
 	"frontmatter_format": {},
+	// Time-bucket attributes (string formatted from the named
+	// timestamp). mtime_* reads FileAttributes.ModTime;
+	// taken_at_* / sent_at_* / date_* read from Extra.
+	"mtime_year":     {},
+	"mtime_month":    {},
+	"mtime_day":      {},
+	"taken_at_year":  {},
+	"taken_at_month": {},
+	"taken_at_day":   {},
+	"sent_at_year":   {},
+	"sent_at_month":  {},
+	"sent_at_day":    {},
+	"date_year":      {},
+	"date_month":     {},
+	"date_day":       {},
 }
 
 // ValidGroupBys returns the curated set of group_by keys ComputeStats
@@ -185,6 +205,17 @@ func bucketKey(r Result, groupBy string) string {
 		}
 		return filepath.Dir(r.Path)
 	}
+	// Time-bucket keys: extract the underlying time.Time, format
+	// to the requested granularity. Zero timestamps fall into a
+	// distinct "(no date)" bucket so they don't collide with
+	// "1970-01-01".
+	if attr, layout, ok := timeBucketSpec(groupBy); ok {
+		t := pullTime(r, attr)
+		if t.IsZero() {
+			return "(no date)"
+		}
+		return t.Format(layout)
+	}
 	if r.Attrs == nil || r.Attrs.Extra == nil {
 		return "unknown"
 	}
@@ -197,4 +228,50 @@ func bucketKey(r Result, groupBy string) string {
 		return "unknown"
 	}
 	return s
+}
+
+// timeBucketSpec maps a group_by key like "mtime_month" to the
+// underlying attribute name + a time.Format layout. Returns
+// ok=false for non-time-bucket keys.
+func timeBucketSpec(groupBy string) (attr, layout string, ok bool) {
+	for _, prefix := range []string{"mtime", "taken_at", "sent_at", "date"} {
+		for _, gran := range []struct {
+			suffix string
+			layout string
+		}{
+			{"_year", "2006"},
+			{"_month", "2006-01"},
+			{"_day", "2006-01-02"},
+		} {
+			if groupBy == prefix+gran.suffix {
+				return prefix, gran.layout, true
+			}
+		}
+	}
+	return "", "", false
+}
+
+// pullTime resolves the named time attribute on a Result. mtime
+// reads FileAttributes.ModTime directly; the rest go through
+// Extra. Returns zero time when missing or wrong-typed — the
+// caller buckets it as "(no date)".
+func pullTime(r Result, attr string) time.Time {
+	if attr == "mtime" {
+		if r.Attrs != nil {
+			return r.Attrs.ModTime
+		}
+		return time.Time{}
+	}
+	if r.Attrs == nil || r.Attrs.Extra == nil {
+		return time.Time{}
+	}
+	v, ok := r.Attrs.Extra[attr]
+	if !ok {
+		return time.Time{}
+	}
+	t, ok := v.(time.Time)
+	if !ok {
+		return time.Time{}
+	}
+	return t
 }
