@@ -53,6 +53,7 @@ var CLI struct {
 	Search  SearchCmd        `cmd:"" help:"Search for files matching a CEL expression." default:"withargs"`
 	Attrs   AttrsCmd         `cmd:"" name:"attrs" help:"Print attributes for a single file (no walk, no CEL)."`
 	Stats   StatsCmd         `cmd:"" name:"stats" help:"Aggregate content-type counts and total sizes for a directory tree."`
+	Lines   LinesCmd         `cmd:"" name:"lines" help:"Print a range of lines from a single file (no walk, no CEL)."`
 	MCP     MCPCmd           `cmd:"" name:"mcp" help:"Run as a Model Context Protocol server (stdio, http, or sse)."`
 	Version kong.VersionFlag `short:"V" help:"Print version and exit."`
 }
@@ -110,8 +111,48 @@ func (a *AttrsCmd) Run(ctx context.Context) error {
 	return nil
 }
 
+type LinesCmd struct {
+	Path     string `arg:"" help:"File to read lines from."`
+	Start    int    `short:"s" name:"start" help:"First line to print (1-indexed, inclusive)." default:"1"`
+	End      int    `short:"e" name:"end" help:"Last line to print (1-indexed, inclusive). 0 = end of file." default:"0"`
+	MaxLines int    `name:"max-lines" help:"Cap on lines returned. 0 uses the 1000-line default." default:"0"`
+	Output   string `short:"o" name:"output" enum:"text,json" default:"text" help:"Output format: text (default; raw lines) | json (machine-readable with start/end/total/truncated)."`
+}
+
+func (l *LinesCmd) Run(ctx context.Context) error {
+	abs, err := filepath.Abs(l.Path)
+	if err != nil {
+		return fmt.Errorf("resolve path: %w", err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", abs, err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("%s is a directory", abs)
+	}
+	dir := filepath.Dir(abs)
+	base := filepath.Base(abs)
+
+	res, err := search.ReadLines(ctx, os.DirFS(dir), base, l.Start, l.End, l.MaxLines)
+	if err != nil {
+		return fmt.Errorf("read lines: %w", err)
+	}
+
+	if l.Output == "json" {
+		return printLinesJSON(os.Stdout, abs, res)
+	}
+	for _, line := range res.Lines {
+		_, _ = fmt.Fprintln(os.Stdout, line)
+	}
+	if res.Truncated {
+		fmt.Fprintf(os.Stderr, "(truncated at %d lines; total lines in file: %d)\n", len(res.Lines), res.TotalLines)
+	}
+	return nil
+}
+
 type StatsCmd struct {
-	Dir              string        `short:"d" help:"Directory to walk." default:"."`
+	Dir              []string      `short:"d" help:"Directory to walk. Repeatable — pass -d ./a -d ./b to aggregate stats across multiple roots in one call." default:"."`
 	Expr             string        `arg:"" help:"Optional CEL expression to scope the stats (e.g. 'is_markdown' for markdown-only counts). Defaults to matching every file." optional:""`
 	Workers          int           `short:"w" help:"Parallel workers." default:"0"`
 	MaxLineBytes     int           `short:"L" name:"max-line-bytes" help:"Per-line scanner cap for text/CSV/HTML (bytes). 0 uses the 1 MiB default." default:"0"`
@@ -119,6 +160,7 @@ type StatsCmd struct {
 	Timeout          time.Duration `name:"timeout" help:"Maximum walk duration. On expiry, the partial histogram is still printed and the process exits 124."`
 	Exclude          []string      `name:"exclude" help:"Glob pattern matched against file/dir basenames; matches are skipped. Repeatable."`
 	RespectGitignore bool          `name:"respect-gitignore" help:"Parse a .gitignore at the walk root and skip matching paths."`
+	GroupBy          string        `name:"group-by" help:"Attribute to bucket by. Default 'content_type'. Recognised: content_type, ext, dir, language, camera_make, camera_model, lens, artist, album, genre, kernel, binary_format, binary_type, frontmatter_format. Unknown values fall back to content_type."`
 	Output           string        `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table (default; human-readable) | json (machine-readable)."`
 }
 
@@ -147,13 +189,14 @@ func (s *StatsCmd) Run(ctx context.Context) error {
 	}
 
 	stats, err := search.ComputeStats(effectiveCtx, search.Options{
-		Root:             s.Dir,
+		Roots:            s.Dir,
 		Expr:             expr,
 		Workers:          s.Workers,
 		MaxLineBytes:     s.MaxLineBytes,
 		Index:            idx,
 		Excludes:         s.Exclude,
 		RespectGitignore: s.RespectGitignore,
+		GroupBy:          s.GroupBy,
 	}, contentpkg.DefaultRegistry())
 
 	// Print even on cancellation — ComputeStats returns the partial
@@ -231,7 +274,7 @@ func openIndex(path string) (index.Index, error) {
 
 type SearchCmd struct {
 	Expr             string        `arg:"" help:"CEL expression to match files (e.g. 'is_json && size > 1024')." optional:""`
-	Dir              string        `short:"d" help:"Directory to search in." default:"."`
+	Dir              []string      `short:"d" help:"Directory to search in. Repeatable — pass -d ./docs -d ./posts to walk multiple roots in one call. Each root's .gitignore is honoured independently when --respect-gitignore is set." default:"."`
 	Workers          int           `short:"w" help:"Number of parallel workers." default:"0"`
 	List             bool          `short:"l" help:"List supported attributes and content types."`
 	MaxLineBytes     int           `short:"L" name:"max-line-bytes" help:"Per-line scanner cap for text/CSV/HTML (bytes). 0 uses the 1 MiB default." default:"0"`
@@ -306,7 +349,7 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 	}
 
 	opts := search.Options{
-		Root:              s.Dir,
+		Roots:             s.Dir,
 		Expr:              s.Expr,
 		Workers:           s.Workers,
 		MaxLineBytes:      s.MaxLineBytes,

@@ -34,7 +34,15 @@ type Result struct {
 
 // Options configures the search
 type Options struct {
-	Root    string
+	// Root is the single-directory case. Set Roots instead for
+	// multi-root walks; when Roots is non-empty Root is ignored.
+	Root string
+	// Roots is the multi-directory case — each entry is walked in
+	// turn through a per-root fs.DirFS and a per-root excluder (so
+	// each root's .gitignore is honoured independently). When
+	// non-empty, Root and FS are ignored. When empty, Root falls
+	// through to the historical single-root path.
+	Roots []string
 	Expr    string
 	Workers int
 	// MaxLineBytes overrides the per-line scanner buffer cap honoured by the
@@ -105,8 +113,14 @@ type Options struct {
 	// root (if present) and skips matching paths. Nested .gitignore
 	// files in subdirectories are NOT honoured in this version —
 	// only the root file is consulted. Patterns follow standard
-	// gitignore semantics including ** and negation.
+	// gitignore semantics including ** and negation. In multi-root
+	// mode (Roots non-empty), each root is checked independently.
 	RespectGitignore bool
+
+	// GroupBy controls the bucketing key used by ComputeStats. See
+	// stats.go ValidGroupBys for the recognised set. Ignored by
+	// Walk/WalkStream — it only affects ComputeStats's aggregation.
+	GroupBy string
 }
 
 // Walk walks the directory and returns every matching file. It is a
@@ -165,22 +179,51 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 		return err
 	}
 
-	fsys := opts.FS
-	if fsys == nil {
-		root := opts.Root
-		if root == "" {
-			root = "."
+	// Resolve which root(s) we're walking. opts.Roots takes
+	// precedence; falling back to opts.Root preserves the
+	// single-root (and opts.FS-override) test path.
+	type rootSpec struct {
+		root string
+		fsys fs.FS
+		exc  *excluder
+	}
+	var specs []rootSpec
+	if len(opts.Roots) > 0 {
+		// Multi-root: ignore opts.FS (it can't represent multiple
+		// roots) and build a per-root os.DirFS + excluder so each
+		// root's .gitignore is honoured independently.
+		for _, r := range opts.Roots {
+			rfs := os.DirFS(r)
+			specs = append(specs, rootSpec{
+				root: r,
+				fsys: rfs,
+				exc:  newExcluder(rfs, opts.Excludes, opts.RespectGitignore),
+			})
 		}
-		fsys = os.DirFS(root)
+	} else {
+		fsys := opts.FS
+		root := opts.Root
+		if fsys == nil {
+			if root == "" {
+				root = "."
+			}
+			fsys = os.DirFS(root)
+		}
+		specs = append(specs, rootSpec{
+			root: root,
+			fsys: fsys,
+			exc:  newExcluder(fsys, opts.Excludes, opts.RespectGitignore),
+		})
 	}
 
-	// Build the excluder once, before any worker fires. nil when
-	// neither Excludes nor RespectGitignore is enabled — Match
-	// short-circuits on nil so the walker pays nothing in the common
-	// case.
-	exc := newExcluder(fsys, opts.Excludes, opts.RespectGitignore)
-
-	type job struct{ fsPath, displayPath string }
+	// Jobs carry their own fsys + root so workers know which
+	// filesystem to read from (multi-root walks have different
+	// fs.FS per match).
+	type job struct {
+		fsys        fs.FS
+		fsPath      string
+		displayPath string
+	}
 	jobs := make(chan job, opts.Workers*2)
 	var wg sync.WaitGroup
 
@@ -194,7 +237,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 					if !ok {
 						return
 					}
-					attrs, err := celexpr.BuildAttributesWith(ctx, fsys, j.fsPath, j.displayPath, registry, celexpr.BuildOptions{
+					attrs, err := celexpr.BuildAttributesWith(ctx, j.fsys, j.fsPath, j.displayPath, registry, celexpr.BuildOptions{
 						Index:        opts.Index,
 						IncludeBody:  opts.IncludeBody,
 						BodyMaxBytes: opts.BodyMaxBytes,
@@ -223,7 +266,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 					// match passes through with Snippet="" and the
 					// caller can treat absence as "not text".
 					if opts.IncludeSnippet && isTextContentType(attrs.ContentType) {
-						s, _ := readSnippet(ctx, fsys, j.fsPath, opts.SnippetLines)
+						s, _ := readSnippet(ctx, j.fsys, j.fsPath, opts.SnippetLines)
 						r.Snippet = s
 					}
 					select {
@@ -236,39 +279,52 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 		})
 	}
 
-	walkErr := fs.WalkDir(fsys, ".", func(fsPath string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		// Honour excludes before anything else. Matched directories
-		// return fs.SkipDir so their subtree is pruned — that's the
-		// whole point of "skip node_modules" vs. "filter
-		// node_modules out after walking it".
-		if fsPath != "." && exc.Match(fsPath, d.IsDir()) {
+	// Producer: iterate each root through fs.WalkDir, feeding the
+	// shared jobs channel. Errors across roots are concatenated so
+	// the caller sees them all (rather than just the first); the
+	// post-loop ctx.Err() sweep covers worker-side cancellation.
+	var walkErrs []error
+	for _, spec := range specs {
+		err := fs.WalkDir(spec.fsys, ".", func(fsPath string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			// Honour excludes before anything else. Matched directories
+			// return fs.SkipDir so their subtree is pruned.
+			if fsPath != "." && spec.exc.Match(fsPath, d.IsDir()) {
+				if d.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
+			}
 			if d.IsDir() {
-				return fs.SkipDir
+				return nil
+			}
+			// User-facing path: OS-native join with the root the
+			// match came from. Tests that pass an in-memory FS
+			// without a root see fs-style paths in Result.Path.
+			displayPath := fsPath
+			if spec.root != "" {
+				displayPath = filepath.Join(spec.root, filepath.FromSlash(fsPath))
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case jobs <- job{fsys: spec.fsys, fsPath: fsPath, displayPath: displayPath}:
 			}
 			return nil
+		})
+		if err != nil {
+			walkErrs = append(walkErrs, err)
 		}
-		if d.IsDir() {
-			return nil
+		if ctx.Err() != nil {
+			// Cancellation mid-walk: don't iterate remaining roots.
+			break
 		}
-		// User-facing path: OS-native join with Root when set, else the
-		// fs-style path. Tests that pass an in-memory FS without a Root
-		// see fs-style paths in Result.Path.
-		displayPath := fsPath
-		if opts.Root != "" {
-			displayPath = filepath.Join(opts.Root, filepath.FromSlash(fsPath))
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case jobs <- job{fsPath: fsPath, displayPath: displayPath}:
-		}
-		return nil
-	})
+	}
 	close(jobs)
 	wg.Wait()
+	walkErr := errors.Join(walkErrs...)
 
 	// Workers exit on ctx.Done() without surfacing an error of their
 	// own, so a fast producer + tightly-deadlined ctx can leave

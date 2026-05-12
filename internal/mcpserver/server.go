@@ -28,7 +28,8 @@ type ReadAttributesInput struct {
 // SearchInput is the JSON-schema input for the `search` tool.
 type SearchInput struct {
 	Expr             string   `json:"expr,omitempty" jsonschema:"CEL expression matched against file attributes. Boolean type predicates: is_markdown, is_pdf, is_html, is_xml, is_json, is_csv, is_text, is_image, is_audio, is_video, is_office, is_epub, is_archive, is_binary, is_email, is_source. Common attributes: size (int, bytes), name/path/dir/ext (string), word_count/line_count/page_count (int), title/author/language (string). Examples: 'is_markdown && word_count > 500'; 'is_pdf && page_count > 10'; 'is_image && iso > 1600'; 'is_audio && sample_rate >= 96000'; 'is_video && duration > 1800'; 'is_source && language == \"go\" && loc > 100'; 'size > 1000000 && !is_binary'. Empty means match all. Call list_attributes for the full schema."`
-	Dir              string   `json:"dir,omitempty" jsonschema:"Directory to search in. Defaults to '.'."`
+	Dir              string   `json:"dir,omitempty" jsonschema:"Directory to search in. Defaults to '.'. Ignored when 'dirs' is non-empty."`
+	Dirs             []string `json:"dirs,omitempty" jsonschema:"Multiple directories to search in one call. When non-empty, takes precedence over 'dir'. Each root's .gitignore is honoured independently when respect_gitignore is set."`
 	Workers          int      `json:"workers,omitempty" jsonschema:"Number of parallel workers. Defaults to runtime.NumCPU()."`
 	MaxLineBytes     int      `json:"max_line_bytes,omitempty" jsonschema:"Per-line scanner buffer cap for text/CSV/HTML (bytes). 0 uses the 1 MiB default; raise for very long log lines."`
 	TimeoutSeconds   *float64 `json:"timeout_seconds,omitempty" jsonschema:"Override the server's default per-call timeout for this invocation (in seconds; fractions allowed). Omit to use the server default (set when the MCP server was started). Pass 0 to disable the timeout for this call. On expiry the walk is cancelled and the partial result set is returned with cancelled=true."`
@@ -486,32 +487,66 @@ type IndexStatsOutput struct {
 // StatsInput is the JSON-schema input for the `stats` tool.
 type StatsInput struct {
 	Expr             string   `json:"expr,omitempty" jsonschema:"Optional CEL expression to scope the histogram (e.g. 'is_markdown' counts only markdown files). Empty means every file. Same CEL surface as the search tool."`
-	Dir              string   `json:"dir,omitempty" jsonschema:"Directory to walk. Defaults to '.'."`
+	Dir              string   `json:"dir,omitempty" jsonschema:"Directory to walk. Defaults to '.'. Ignored when 'dirs' is non-empty."`
+	Dirs             []string `json:"dirs,omitempty" jsonschema:"Multiple directories to aggregate stats across in one call. When non-empty, takes precedence over 'dir'."`
 	Workers          int      `json:"workers,omitempty" jsonschema:"Parallel workers. Defaults to runtime.NumCPU()."`
 	MaxLineBytes     int      `json:"max_line_bytes,omitempty" jsonschema:"Per-line scanner buffer cap for text/CSV/HTML (bytes). 0 uses the 1 MiB default."`
 	TimeoutSeconds   *float64 `json:"timeout_seconds,omitempty" jsonschema:"Override the server's default per-call timeout. Same semantics as the search tool: positive = seconds, 0 = no timeout, omitted = server default. On timeout the partial histogram is returned with cancelled=true."`
 	Excludes         []string `json:"excludes,omitempty" jsonschema:"Glob patterns matched against file/dir basenames; matches are pruned. Same as the search tool."`
 	RespectGitignore bool     `json:"respect_gitignore,omitempty" jsonschema:"When true, parse a .gitignore at the walk root and skip matching paths."`
+	GroupBy          string   `json:"group_by,omitempty" jsonschema:"Bucket key. Default 'content_type'. Recognised: content_type, ext, dir, language, camera_make, camera_model, lens, artist, album, genre, kernel, binary_format, binary_type, frontmatter_format. Unknown values fall back to content_type. Use group_by=ext to histogram by file extension, group_by=language to count source files per language, group_by=camera_make to bucket photos by camera, etc."`
 }
 
 // StatsOutput is the structured output of the `stats` tool — a
-// content-type histogram plus totals + the standard
-// partial-result fields (cancelled, cancellation_reason,
-// elapsed_seconds) shared with the search tool.
+// histogram + totals + the standard partial-result fields
+// (cancelled, cancellation_reason, elapsed_seconds) shared with
+// the search tool.
+//
+// Groups is the bucket list keyed by the resolved group_by;
+// ContentTypes is the legacy v0.20-shaped field, populated
+// alongside Groups only when group_by is "content_type" / unset
+// for back-compat with older agent integrations.
 type StatsOutput struct {
-	TotalCount         int64                      `json:"total_count"`
-	TotalSize          int64                      `json:"total_size"`
-	ContentTypes       []StatsContentTypeBucket   `json:"content_types"`
-	Cancelled          bool                       `json:"cancelled,omitempty"`
-	CancellationReason string                     `json:"cancellation_reason,omitempty"`
-	ElapsedSeconds     float64                    `json:"elapsed_seconds,omitempty"`
+	TotalCount         int64                    `json:"total_count"`
+	TotalSize          int64                    `json:"total_size"`
+	GroupBy            string                   `json:"group_by,omitempty"`
+	Groups             []StatsBucket            `json:"groups"`
+	ContentTypes       []StatsContentTypeBucket `json:"content_types,omitempty"`
+	Cancelled          bool                     `json:"cancelled,omitempty"`
+	CancellationReason string                   `json:"cancellation_reason,omitempty"`
+	ElapsedSeconds     float64                  `json:"elapsed_seconds,omitempty"`
 }
 
-// StatsContentTypeBucket is one row of the stats histogram.
-type StatsContentTypeBucket struct {
+// StatsBucket is one row of the stats histogram. ContentTypeBucket
+// is a back-compat alias for the same shape.
+type StatsBucket struct {
 	Name      string `json:"name"`
 	Count     int64  `json:"count"`
 	TotalSize int64  `json:"total_size"`
+}
+
+// StatsContentTypeBucket is the legacy bucket type kept for
+// back-compat. Same shape as StatsBucket.
+type StatsContentTypeBucket = StatsBucket
+
+// ReadLinesInput is the JSON-schema input for the `read_lines` tool.
+type ReadLinesInput struct {
+	Path      string `json:"path" jsonschema:"Filesystem path of the file to read. Absolute paths preferred; relative resolves against the server's working directory."`
+	StartLine int    `json:"start_line,omitempty" jsonschema:"First line to return (1-indexed, inclusive). Defaults to 1."`
+	EndLine   int    `json:"end_line,omitempty" jsonschema:"Last line to return (1-indexed, inclusive). 0 means 'to end of file'. Defaults to 0."`
+	MaxLines  int    `json:"max_lines,omitempty" jsonschema:"Cap on lines returned. Defaults to 1000. When the requested range exceeds the cap, truncated=true and only the first max_lines of the range are returned."`
+}
+
+// ReadLinesOutput is the structured output of `read_lines`. Lines
+// excludes trailing newlines; TotalLines is always populated so
+// agents can decide whether to fetch additional ranges.
+type ReadLinesOutput struct {
+	Path       string   `json:"path"`
+	StartLine  int      `json:"start_line"`
+	EndLine    int      `json:"end_line"`
+	TotalLines int      `json:"total_lines"`
+	Lines      []string `json:"lines"`
+	Truncated  bool     `json:"truncated,omitempty"`
 }
 
 // handlers wraps tool handlers so they can share an index reference
@@ -587,7 +622,8 @@ Recipe expressions:
 Tools:
   search           run a CEL expression against a directory; returns matches[] and count
   read_attributes  same SearchMatch shape for one path; use when you already have the file
-  stats            content-type histogram + totals for a directory tree
+  read_lines       print a specific line range from a file — for context around a search match
+  stats            histogram + totals for a directory tree, bucketed by any attribute via group_by
   list_attributes  full schema (every attribute, every built-in function); call when the recipes above don't cover what you need
   index_stats      cache hit/miss counters for this server process
 
@@ -599,7 +635,11 @@ Snippets: pass 'include_snippet': true to populate each match's 'snippet' field 
 
 Body-content filters: pass 'include_body': true to expose the full file body to the CEL expression as the 'body' string variable. CEL's built-in string methods then act as content filters — body.contains("transformer"), body.matches("\\bAPI\\b") (RE2 regex), body.startsWith("Once upon"), size(body) > 5000. Only text-based content types populate body; capped at body_max_bytes (default 1 MiB). EXPENSIVE — reads every candidate file, not just headers. Pair with a tight expr (e.g. 'is_markdown && body.contains(...)') so the type predicate prunes most candidates before the body read. Note: CEL's 'matches' uses RE2 (Google's regex syntax), the same engine Go's regexp/re2 package uses.
 
-Stats / reconnaissance: the 'stats' tool aggregates a content-type histogram + total counts + total sizes for a directory tree, optionally scoped by a CEL expr. Useful for "what's in this folder?" without retrieving every path. Same excludes / respect_gitignore / timeout_seconds semantics as search; returns cancelled=true on timeout with the partial histogram intact.
+Stats / reconnaissance: the 'stats' tool aggregates a histogram + total counts + total sizes for a directory tree, optionally scoped by a CEL expr. Default bucket is content_type; pass 'group_by' to bucket by another attribute — ext, dir, language, camera_make, camera_model, lens, artist, album, genre, kernel, binary_format, binary_type, frontmatter_format. Example: {expr:'is_image', group_by:'camera_make'} for photos-by-camera. Output's groups[] is the resolved histogram; content_types[] is populated alongside only for the default group_by (back-compat with v0.20 clients). Same excludes / respect_gitignore / timeout_seconds semantics as search; returns cancelled=true on timeout with the partial histogram intact.
+
+Multi-directory search: both 'search' and 'stats' accept 'dirs': []string. When non-empty it overrides 'dir' and walks all roots in one call (each root's .gitignore is honoured independently). Useful when an agent needs to search across, say, ~/Documents AND ~/Downloads without two round-trips.
+
+Read line ranges: the 'read_lines' tool returns lines [start_line, end_line] of a single file (1-indexed, inclusive). Useful as the second step after search — find matches via search, then call read_lines for context around each match without a separate read tool. max_lines caps the response (default 1000); the truncated flag tells you when the cap was hit.
 
 Excluding directories: pass 'excludes' to skip directories and files by basename glob. Common values: ['node_modules', '.git', 'target', 'dist', '__pycache__', '*.bak']. Matched directories are pruned (their entire subtree is skipped). For path-aware semantics like 'src/build', set 'respect_gitignore': true and the server will parse a .gitignore at the walk root.
 
@@ -655,8 +695,13 @@ func New(version string, idx index.Index, defaultTimeout time.Duration) *mcp.Ser
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "stats",
-		Description: "Aggregate content-type counts and total sizes for a directory tree. Quick reconnaissance — 'what is in this folder?' — without retrieving individual file paths. Accepts an optional CEL expr to scope the histogram (e.g. expr='is_markdown' for markdown-only counts). Honours the same excludes / respect_gitignore / timeout_seconds semantics as the search tool, including partial-result returns on cancellation (cancelled / cancellation_reason / elapsed_seconds). Output is a sorted list of {name, count, total_size} buckets plus aggregate totals.",
+		Description: "Aggregate counts and total sizes for a directory tree, bucketed by an attribute. Default bucket is content_type; pass group_by to bucket by ext, dir, language, camera_make, camera_model, lens, artist, album, genre, kernel, binary_format, binary_type, or frontmatter_format. Useful for 'what's in this folder?' and 'how many photos per camera?' style reconnaissance without retrieving individual paths. Accepts an optional CEL expr to scope the histogram (e.g. expr='is_image' + group_by='camera_make' for photos-by-camera). Multi-dir: pass 'dirs' to aggregate across multiple roots in one call. Honours the same excludes / respect_gitignore / timeout_seconds semantics as the search tool, including partial-result returns on cancellation. Output's `groups[]` is the histogram keyed by the resolved group_by; `content_types[]` is populated alongside only for the default group_by, kept for back-compat with older clients.",
 	}, h.statsHandler)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "read_lines",
+		Description: "Print a specific line range from a single file. Completes the search-then-inspect loop without a separate read tool — agent flow: search for matches, then call read_lines for context around each match. Inputs: path (required), start_line (1-indexed inclusive; default 1), end_line (1-indexed inclusive; 0 = end of file), max_lines (cap; default 1000). Returns lines[] (no trailing newlines), total_lines, and truncated:true when the requested range exceeds max_lines. Errors only on missing/unreadable files or invalid ranges (start_line > end_line); pathological lines (huge / non-UTF-8) are truncated at 64 KiB per line and the scan continues.",
+	}, h.readLinesHandler)
 
 	return s
 }
@@ -712,8 +757,11 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 	// notifications + cancellation handling still want streaming —
 	// so we feed the channel ourselves and sort/limit the collected
 	// matches post-stream using the same sortAndLimit helper.
+	// Multi-dir: in.Dirs wins when non-empty; else fall back to
+	// the single 'dir' field (with default "." applied above).
 	walkOpts := search.Options{
 		Root:              dir,
+		Roots:             in.Dirs,
 		Expr:              expr,
 		Workers:           in.Workers,
 		MaxLineBytes:      in.MaxLineBytes,
@@ -836,6 +884,41 @@ func (h *handlers) readAttributesHandler(ctx context.Context, _ *mcp.CallToolReq
 	}), nil
 }
 
+func (h *handlers) readLinesHandler(ctx context.Context, _ *mcp.CallToolRequest, in ReadLinesInput) (*mcp.CallToolResult, ReadLinesOutput, error) {
+	if in.Path == "" {
+		return nil, ReadLinesOutput{}, fmt.Errorf("path is required")
+	}
+	abs, err := filepath.Abs(in.Path)
+	if err != nil {
+		return nil, ReadLinesOutput{}, fmt.Errorf("resolve path: %w", err)
+	}
+	dir := filepath.Dir(abs)
+	base := filepath.Base(abs)
+
+	// Honour the server's default timeout so a pathological file
+	// (multi-gigabyte log) can't wedge the server. read_lines is
+	// bounded by max_lines too, but the line scanner can still
+	// take real time on huge files.
+	if h.defaultTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, h.defaultTimeout)
+		defer cancel()
+	}
+
+	res, err := search.ReadLines(ctx, os.DirFS(dir), base, in.StartLine, in.EndLine, in.MaxLines)
+	if err != nil {
+		return nil, ReadLinesOutput{}, fmt.Errorf("read lines: %w", err)
+	}
+	return nil, ReadLinesOutput{
+		Path:       abs,
+		StartLine:  res.StartLine,
+		EndLine:    res.EndLine,
+		TotalLines: res.TotalLines,
+		Lines:      res.Lines,
+		Truncated:  res.Truncated,
+	}, nil
+}
+
 func (h *handlers) statsHandler(ctx context.Context, _ *mcp.CallToolRequest, in StatsInput) (*mcp.CallToolResult, StatsOutput, error) {
 	expr := in.Expr
 	if expr == "" {
@@ -864,12 +947,14 @@ func (h *handlers) statsHandler(ctx context.Context, _ *mcp.CallToolRequest, in 
 	start := time.Now()
 	stats, err := search.ComputeStats(ctx, search.Options{
 		Root:             dir,
+		Roots:            in.Dirs,
 		Expr:             expr,
 		Workers:          in.Workers,
 		MaxLineBytes:     in.MaxLineBytes,
 		Index:            h.idx,
 		Excludes:         in.Excludes,
 		RespectGitignore: in.RespectGitignore,
+		GroupBy:          in.GroupBy,
 	}, content.DefaultRegistry())
 	elapsed := time.Since(start).Seconds()
 
@@ -883,14 +968,25 @@ func (h *handlers) statsHandler(ctx context.Context, _ *mcp.CallToolRequest, in 
 	if stats != nil {
 		out.TotalCount = stats.TotalCount
 		out.TotalSize = stats.TotalSize
+		out.GroupBy = stats.GroupBy
 		out.Cancelled = stats.Cancelled
 		out.CancellationReason = stats.CancellationReason
-		out.ContentTypes = make([]StatsContentTypeBucket, len(stats.ContentTypes))
-		for i, b := range stats.ContentTypes {
-			out.ContentTypes[i] = StatsContentTypeBucket{
+		out.Groups = make([]StatsBucket, len(stats.Groups))
+		for i, b := range stats.Groups {
+			out.Groups[i] = StatsBucket{
 				Name:      b.Name,
 				Count:     b.Count,
 				TotalSize: b.TotalSize,
+			}
+		}
+		if len(stats.ContentTypes) > 0 {
+			out.ContentTypes = make([]StatsContentTypeBucket, len(stats.ContentTypes))
+			for i, b := range stats.ContentTypes {
+				out.ContentTypes[i] = StatsContentTypeBucket{
+					Name:      b.Name,
+					Count:     b.Count,
+					TotalSize: b.TotalSize,
+				}
 			}
 		}
 	}

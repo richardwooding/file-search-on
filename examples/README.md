@@ -26,6 +26,8 @@ CEL expression recipes by content family, plus cross-cutting cookbook patterns.
 | [`exclude.md`](./exclude.md) | Pruning the walk — `--exclude` basename globs and `--respect-gitignore` for monorepos |
 | [`body-search.md`](./body-search.md) | Content filters — `--body` exposes file body to CEL; pair with `contains` / `matches` (RE2) / `startsWith` |
 | [`stats.md`](./stats.md) | Directory reconnaissance — `file-search-on stats` aggregates a content-type histogram with totals |
+| [`group-by.md`](./group-by.md) | Stats bucketed by any attribute — `--group-by camera_make`, `--group-by language`, etc. |
+| [`read-lines.md`](./read-lines.md) | Print a specific line range from a file — `file-search-on lines <path> --start N --end M` |
 
 Every recipe is a complete `file-search-on '<expr>'` invocation that you can paste and run. Most include a few variations and useful output-format snippets.
 
