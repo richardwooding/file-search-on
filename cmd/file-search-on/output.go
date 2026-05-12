@@ -755,6 +755,41 @@ func printStatsJSON(w io.Writer, s *search.Stats) error {
 	return enc.Encode(s)
 }
 
+// printDuplicatesTable renders a Duplicates result as a
+// human-readable table on stdout. One block per group, sorted by
+// wasted-bytes descending. Footer summarises the totals.
+func printDuplicatesTable(w io.Writer, d *search.Duplicates) {
+	if len(d.Duplicates) == 0 {
+		fp(w, "no duplicates found (%s files considered)\n", commafy(d.TotalFiles))
+		return
+	}
+	for i, g := range d.Duplicates {
+		if i > 0 {
+			fpn(w)
+		}
+		fp(w, "hash:  %s\n", g.Hash)
+		fp(w, "size:  %s bytes  (count=%d, wasted=%s B)\n",
+			commafy(g.Size), g.Count, commafy(g.WastedBytes))
+		for _, p := range g.Paths {
+			fp(w, "  %s\n", p)
+		}
+	}
+	fpn(w)
+	fp(w, "%s duplicate group(s), %s files considered, %s B wasted\n",
+		commafy(d.DuplicateGroups), commafy(d.TotalFiles), commafy(d.WastedBytes))
+	if d.Cancelled {
+		fp(w, "(partial — %s)\n", d.CancellationReason)
+	}
+}
+
+// printDuplicatesJSON writes the Duplicates object as a single
+// JSON document.
+func printDuplicatesJSON(w io.Writer, d *search.Duplicates) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(d)
+}
+
 // printLinesJSON renders the LinesResult plus the resolved path,
 // so callers can pipe the output to jq.
 func printLinesJSON(w io.Writer, path string, r *search.LinesResult) error {

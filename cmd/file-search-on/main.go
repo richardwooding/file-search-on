@@ -50,12 +50,13 @@ var (
 )
 
 var CLI struct {
-	Search  SearchCmd        `cmd:"" help:"Search for files matching a CEL expression." default:"withargs"`
-	Attrs   AttrsCmd         `cmd:"" name:"attrs" help:"Print attributes for a single file (no walk, no CEL)."`
-	Stats   StatsCmd         `cmd:"" name:"stats" help:"Aggregate content-type counts and total sizes for a directory tree."`
-	Lines   LinesCmd         `cmd:"" name:"lines" help:"Print a range of lines from a single file (no walk, no CEL)."`
-	MCP     MCPCmd           `cmd:"" name:"mcp" help:"Run as a Model Context Protocol server (stdio, http, or sse)."`
-	Version kong.VersionFlag `short:"V" help:"Print version and exit."`
+	Search     SearchCmd        `cmd:"" help:"Search for files matching a CEL expression." default:"withargs"`
+	Attrs      AttrsCmd         `cmd:"" name:"attrs" help:"Print attributes for a single file (no walk, no CEL)."`
+	Stats      StatsCmd         `cmd:"" name:"stats" help:"Aggregate content-type counts and total sizes for a directory tree."`
+	Lines      LinesCmd         `cmd:"" name:"lines" help:"Print a range of lines from a single file (no walk, no CEL)."`
+	Duplicates DuplicatesCmd    `cmd:"" name:"duplicates" help:"Find groups of byte-identical files by sha256 hash."`
+	MCP        MCPCmd           `cmd:"" name:"mcp" help:"Run as a Model Context Protocol server (stdio, http, or sse)."`
+	Version    kong.VersionFlag `short:"V" help:"Print version and exit."`
 }
 
 type AttrsCmd struct {
@@ -223,6 +224,82 @@ func (s *StatsCmd) Run(ctx context.Context) error {
 			return &exitCodeError{code: 130, msg: "interrupted"}
 		case s.Timeout > 0 && errors.Is(effectiveCtx.Err(), context.DeadlineExceeded):
 			fmt.Fprintf(os.Stderr, "stats timed out after %s; counts above may be incomplete\n", s.Timeout)
+			return &exitCodeError{code: 124, msg: "timeout"}
+		}
+	}
+	return nil
+}
+
+type DuplicatesCmd struct {
+	Dir              []string      `short:"d" help:"Directory to walk. Repeatable for multi-root duplicate detection." default:"."`
+	Expr             string        `arg:"" help:"Optional CEL expression to scope candidates (e.g. 'is_image' for photo dedup). Defaults to every file." optional:""`
+	Workers          int           `short:"w" help:"Parallel workers." default:"0"`
+	MaxLineBytes     int           `short:"L" name:"max-line-bytes" help:"Per-line scanner cap for text/CSV/HTML (bytes). 0 uses the 1 MiB default." default:"0"`
+	IndexPath        string        `name:"index-path" help:"Persistent attribute index file (bbolt). Caches sha256 hashes alongside other attributes; repeat runs on an unchanged tree don't re-read any bytes."`
+	Timeout          time.Duration `name:"timeout" help:"Maximum duration. On expiry, the partial result is still printed and the process exits 124."`
+	Exclude          []string      `name:"exclude" help:"Glob pattern matched against file/dir basenames; matches are skipped. Repeatable."`
+	RespectGitignore bool          `name:"respect-gitignore" help:"Parse a .gitignore at each walk root and skip matching paths."`
+	MinSize          int64         `name:"min-size" default:"0" help:"Skip files smaller than this many bytes. 0 considers every file; raise to e.g. 4096 to ignore tiny duplicates that aren't worth reclaiming."`
+	Output           string        `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table (default; human-readable) | json (machine-readable)."`
+}
+
+func (d *DuplicatesCmd) Run(ctx context.Context) error {
+	expr := d.Expr
+	if expr == "" {
+		expr = "true"
+	}
+
+	parentCtx := ctx
+	effectiveCtx := ctx
+	if d.Timeout > 0 {
+		var cancel context.CancelFunc
+		effectiveCtx, cancel = context.WithTimeout(ctx, d.Timeout)
+		defer cancel()
+	}
+
+	var idx index.Index
+	if d.IndexPath != "" {
+		var err error
+		idx, err = openIndex(d.IndexPath)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = idx.Close() }()
+	}
+
+	dups, err := search.FindDuplicates(effectiveCtx, search.Options{
+		Roots:            d.Dir,
+		Expr:             expr,
+		Workers:          d.Workers,
+		MaxLineBytes:     d.MaxLineBytes,
+		Index:            idx,
+		Excludes:         d.Exclude,
+		RespectGitignore: d.RespectGitignore,
+		MinSize:          d.MinSize,
+	}, contentpkg.DefaultRegistry())
+
+	// Print even on cancellation — FindDuplicates returns the
+	// partial set with Cancelled=true rather than nil.
+	if dups != nil {
+		if d.Output == "json" {
+			if err := printDuplicatesJSON(os.Stdout, dups); err != nil {
+				return err
+			}
+		} else {
+			printDuplicatesTable(os.Stdout, dups)
+		}
+	}
+
+	if err != nil && !isCancellation(err) {
+		return fmt.Errorf("duplicates failed: %w", err)
+	}
+	if dups != nil && dups.Cancelled {
+		switch {
+		case errors.Is(parentCtx.Err(), context.Canceled):
+			fmt.Fprintln(os.Stderr, "duplicates interrupted; results above may be incomplete")
+			return &exitCodeError{code: 130, msg: "interrupted"}
+		case d.Timeout > 0 && errors.Is(effectiveCtx.Err(), context.DeadlineExceeded):
+			fmt.Fprintf(os.Stderr, "duplicates timed out after %s; results above may be incomplete\n", d.Timeout)
 			return &exitCodeError{code: 124, msg: "timeout"}
 		}
 	}

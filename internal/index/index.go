@@ -34,6 +34,15 @@ type Entry struct {
 	ModTimeUnixNano int64
 	ContentType     string
 	Extra           map[string]any
+	// Hash is the sha256 hex digest of the file's content. Empty
+	// unless something asked for it (e.g. the duplicates tool).
+	// Cached alongside ContentType so repeat duplicate-detection
+	// passes don't have to re-read files. Hash is invariant under
+	// (size, mtime), the same validation tuple the rest of the
+	// entry uses, so a cache hit on a file is also a hash hit.
+	// gob handles the additive field gracefully — older cache
+	// files without this field decode with Hash="".
+	Hash string
 }
 
 // Stats counts cache events for diagnostic surfacing (CLI footer, MCP

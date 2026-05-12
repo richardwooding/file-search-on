@@ -15,8 +15,30 @@ The `stats` tool buckets by content type by default, but `--group-by` (CLI) / `g
 | `kernel` | Jupyter/Zeppelin notebook kernel. |
 | `binary_format`, `binary_type` | ELF/Mach-O/PE classification. |
 | `frontmatter_format` | `yaml`, `toml`, or `json` for markdown front-matter. |
+| `mtime_year`, `mtime_month`, `mtime_day` | File `mtime` formatted as `2006`, `2006-01`, or `2006-01-02`. |
+| `taken_at_year`, `taken_at_month`, `taken_at_day` | Image EXIF `taken_at` formatted similarly. |
+| `sent_at_year`, `sent_at_month`, `sent_at_day` | Email `sent_at`. |
+| `date_year`, `date_month`, `date_day` | Markdown front-matter `date`. |
+
+Time-bucket keys format the underlying timestamp via Go's `time.Format`. Files with zero or missing timestamps bucket as `"(no date)"` so they don't collide with `"1970-01-01"`.
 
 Unknown values fall back to `content_type` (rather than erroring) — the contract is "always return a histogram".
+
+## Time-bucket recipes
+
+```sh
+# Photos by year — answers "how active was I each year?"
+file-search-on stats 'is_image' --group-by taken_at_year -d ~/Pictures
+
+# Code commits by month (mtime)
+file-search-on stats 'is_source' --group-by mtime_month -d ~/Code -o json
+
+# Markdown posts by date (front-matter)
+file-search-on stats 'is_markdown && draft == false' --group-by date_month -d ~/blog
+
+# Email volume per month
+file-search-on stats 'is_email' --group-by sent_at_month -d ~/mail/archive
+```
 
 ## CLI
 
