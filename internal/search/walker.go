@@ -24,6 +24,12 @@ type Result struct {
 	// for this file, so callers can render verbose / JSON / template output
 	// without re-statting or re-parsing.
 	Attrs *celexpr.FileAttributes
+	// Snippet, when Options.IncludeSnippet is true and the file's content
+	// type is text-based (markdown / text / html / csv / json / xml /
+	// source/*), holds the first Options.SnippetLines lines of the file
+	// joined by "\n". Empty for non-text content types or when snippets
+	// are disabled.
+	Snippet string
 }
 
 // Options configures the search
@@ -49,13 +55,57 @@ type Options struct {
 	// (size, mtime) match a previous walk. The index handles its own
 	// concurrency; workers never block on it.
 	Index index.Index
+
+	// Sort, when non-empty, sorts the buffered Walk() result set by
+	// the named attribute. Recognised keys: size, name, path,
+	// mod_time, word_count, line_count, page_count, duration, bitrate,
+	// sample_rate, video_height, video_width, frame_rate, iso,
+	// focal_length, taken_at, sent_at, year, entry_count,
+	// uncompressed_size, loc, attachment_count, email_count.
+	// Streaming WalkStream() ignores Sort — sort happens post-collect.
+	Sort string
+	// Order: "asc" (default) or "desc". Ignored when Sort is empty.
+	Order string
+	// Limit caps the returned match count. 0 = unlimited. With Sort
+	// set, the limit is applied AFTER sorting (top-K). Without Sort,
+	// the buffered Walk() truncates collected matches; the streaming
+	// WalkStream() does NOT enforce Limit — callers stop early
+	// themselves if they want.
+	Limit int
+
+	// IncludeSnippet, when true, makes the walker read the first
+	// SnippetLines lines of each match's body and surface them via
+	// Result.Snippet. Only text-based content types (markdown, text,
+	// html, csv, json, xml, source/*) populate; binary families
+	// (image / audio / video / archive / binary / office / epub /
+	// email) leave Snippet empty.
+	IncludeSnippet bool
+	SnippetLines   int // default 10 when IncludeSnippet is true and this is <= 0
+
+	// Excludes is a list of glob patterns matched against each
+	// directory or file's BASENAME during walk (filepath.Match
+	// semantics). Matched directories are skipped via fs.SkipDir,
+	// pruning their entire subtree. Common patterns: "node_modules",
+	// ".git", "*.bak", "dist". Path-component matching (e.g.
+	// "src/build") is not supported here — use RespectGitignore for
+	// that.
+	Excludes []string
+
+	// RespectGitignore, when true, parses a .gitignore at the walk
+	// root (if present) and skips matching paths. Nested .gitignore
+	// files in subdirectories are NOT honoured in this version —
+	// only the root file is consulted. Patterns follow standard
+	// gitignore semantics including ** and negation.
+	RespectGitignore bool
 }
 
 // Walk walks the directory and returns every matching file. It is a
-// thin wrapper over WalkStream that drains the channel into a slice.
-// Use WalkStream directly when callers want to process matches as they
-// arrive (incremental output, MCP progress notifications, bounded
-// memory on huge result sets).
+// thin wrapper over WalkStream that drains the channel into a slice
+// and applies Options.Sort / Options.Order / Options.Limit
+// post-collection. Use WalkStream directly when callers want to
+// process matches as they arrive (incremental output, MCP progress
+// notifications, bounded memory on huge result sets); WalkStream
+// does NOT honour Sort/Limit.
 func Walk(ctx context.Context, opts Options, registry *content.Registry) ([]Result, error) {
 	out := make(chan Result, 64)
 	var results []Result
@@ -69,6 +119,12 @@ func Walk(ctx context.Context, opts Options, registry *content.Registry) ([]Resu
 		results = append(results, r)
 	}
 	<-done
+	// Sort + limit live in the buffered path because top-K and
+	// "ordered by attribute" semantics are incoherent with streaming.
+	// The CLI's bufferedSearch and the MCP search handler both flow
+	// through here (or apply the same helper on their collected
+	// matches — see mcpserver.searchHandler).
+	results = SortAndLimit(results, opts)
 	return results, walkErr
 }
 
@@ -108,6 +164,12 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 		fsys = os.DirFS(root)
 	}
 
+	// Build the excluder once, before any worker fires. nil when
+	// neither Excludes nor RespectGitignore is enabled — Match
+	// short-circuits on nil so the walker pays nothing in the common
+	// case.
+	exc := newExcluder(fsys, opts.Excludes, opts.RespectGitignore)
+
 	type job struct{ fsPath, displayPath string }
 	jobs := make(chan job, opts.Workers*2)
 	var wg sync.WaitGroup
@@ -141,6 +203,15 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 					if opts.IncludeAttributes {
 						r.Attrs = attrs
 					}
+					// Snippets are only meaningful for text content
+					// types — readSnippet returns ("", nil) on a
+					// missing file or unscannable input, so a binary
+					// match passes through with Snippet="" and the
+					// caller can treat absence as "not text".
+					if opts.IncludeSnippet && isTextContentType(attrs.ContentType) {
+						s, _ := readSnippet(ctx, fsys, j.fsPath, opts.SnippetLines)
+						r.Snippet = s
+					}
 					select {
 					case <-ctx.Done():
 						return
@@ -153,6 +224,16 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 
 	walkErr := fs.WalkDir(fsys, ".", func(fsPath string, d fs.DirEntry, err error) error {
 		if err != nil {
+			return nil
+		}
+		// Honour excludes before anything else. Matched directories
+		// return fs.SkipDir so their subtree is pruned — that's the
+		// whole point of "skip node_modules" vs. "filter
+		// node_modules out after walking it".
+		if fsPath != "." && exc.Match(fsPath, d.IsDir()) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
 			return nil
 		}
 		if d.IsDir() {

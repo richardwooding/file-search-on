@@ -115,6 +115,13 @@ file-search-on --list
 | `--format` | Custom Go `text/template` per match (e.g. `'{{.Path}}\t{{.Title}}'`). Takes precedence over `-o`. | |
 | `--index-path` | Persistent attribute index file (bbolt). When set, unchanged files (matched by absolute path + size + mtime) skip the per-file content-type parse, making repeat searches dramatically faster. | unset (no caching) |
 | `--timeout` | Maximum walk duration (Go duration string: `30s`, `2m`, `500ms`). On expiry, results collected so far are still printed and the process exits 124. Ctrl-C exits 130 with whatever was collected. | unset (no timeout) |
+| `--sort` | Sort matches by attribute (e.g. `size`, `taken_at`, `duration`, `word_count`, …). Files missing the attribute group at the end. Forces buffered mode. | unset (path-sorted default for buffered modes; walk order for streaming) |
+| `--order` | Sort direction: `asc` or `desc`. Ignored without `--sort`. | `asc` |
+| `--limit` | Cap the result set at N matches. With `--sort`, returns the top-N. Without `--sort`, returns the first N in walk order. | `0` (unlimited) |
+| `--snippet` | Include a snippet of each match's body in verbose/json/template output (first N lines, see `--snippet-lines`). Only text-based content types populate. | off |
+| `--snippet-lines` | Snippet length when `--snippet` is set. | `10` |
+| `--exclude` | Glob pattern matched against the basename of each file/directory; matches are skipped (dirs are pruned). Repeatable. | unset |
+| `--respect-gitignore` | Parse a `.gitignore` at the walk root and skip matching paths. Honours standard gitignore semantics (including `**` and negation). Nested `.gitignore` files in subdirectories are NOT honoured in this version. | off |
 
 Each matching file is printed as `<path>\t[<content-type>]\t<size> bytes`. The match count is written to stderr so it doesn't pollute pipelines.
 
@@ -148,6 +155,38 @@ How it works:
 - **GC is lazy.** Entries for deleted/moved files are simply never read; they cost a small amount of disk space until the file is recreated. There is no built-in vacuum step.
 
 In MCP server mode the cache is **on by default and lives for the process lifetime** (no flag needed). Pass `--index-path` to make the cache persist across restarts. See [MCP server mode](#mcp-server-mode).
+
+### Top-K queries, snippets, and excludes
+
+Three controls let agents (and shells) shape the result set without post-processing:
+
+**Sort + limit** for top-K queries — "the 5 longest videos", "10 most recent photos", "biggest archives":
+
+```sh
+file-search-on 'is_video' --sort duration --order desc --limit 5 -d ~/Movies
+file-search-on 'is_image' --sort taken_at --order desc --limit 10 -d ~/Pictures
+file-search-on 'is_archive' --sort uncompressed_size --order desc --limit 3 -d ~/Downloads
+```
+
+Recognised `--sort` keys: `size`, `name`, `path`, `mod_time`, `word_count`, `line_count`, `page_count`, `duration`, `bitrate`, `sample_rate`, `video_height`, `video_width`, `frame_rate`, `iso`, `focal_length`, `taken_at`, `sent_at`, `year`, `entry_count`, `uncompressed_size`, `loc`, `attachment_count`, `email_count`. Files missing the attribute (e.g. sorting by `duration` on a markdown file) group at the end. `--sort` forces buffered mode — top-K is incoherent with streaming. `--limit` without `--sort` returns the first N in walk order.
+
+**Snippets** for "what is this file about?" — include the first N lines of the body alongside the metadata:
+
+```sh
+file-search-on 'is_markdown && word_count > 500' --snippet --snippet-lines 5 -o verbose -d ~/notes
+file-search-on 'is_source && language == "go"' --snippet -o json -d . | jq -r '.path + "\n" + .snippet'
+```
+
+Snippets populate for text-based content types (markdown / text / html / csv / json / xml / source code in 18 languages) and stay empty for binary families.
+
+**Excludes** prune the walk before it visits a tree (much faster than filtering after the fact):
+
+```sh
+file-search-on 'is_source' -d . --exclude node_modules --exclude .git --exclude target
+file-search-on 'true' -d . --respect-gitignore
+```
+
+`--exclude` matches against the basename of each file/dir (`filepath.Match` semantics) — `--exclude node_modules` prunes any directory named `node_modules` anywhere in the tree, and `--exclude '*.bak'` skips backup files. `--respect-gitignore` parses a `.gitignore` at the walk root and honours its patterns (including `**` and negation); only the root file is consulted (no nested `.gitignore` traversal in this version).
 
 ### Timeouts and partial results
 
@@ -217,6 +256,9 @@ Focused recipe collections live under [`examples/`](./examples/):
 | [`examples/fuzzy-search.md`](./examples/fuzzy-search.md) | Fuzzy / phonetic / n-gram similarity matching — `levenshtein`, `soundex`, `ngrams`, `ngram_similarity` |
 | [`examples/indexing.md`](./examples/indexing.md) | Persistent attribute index (`--index-path`) — cold/warm CLI runs, MCP auto-on cache, refresh + inspection |
 | [`examples/timeouts.md`](./examples/timeouts.md) | Timeouts and partial results — CLI `--timeout`, MCP `timeout_seconds`, exit codes, cancellation semantics |
+| [`examples/top-k.md`](./examples/top-k.md) | Top-K queries — `--sort` + `--limit` for "biggest 5 videos", "10 most recent photos", etc. |
+| [`examples/snippets.md`](./examples/snippets.md) | Body previews — `--snippet` returns the first N lines of text files alongside metadata |
+| [`examples/exclude.md`](./examples/exclude.md) | Pruning the walk — `--exclude` basename globs and `--respect-gitignore` |
 
 A handful of representative one-liners:
 
@@ -502,7 +544,7 @@ Four tools are exposed:
 
 | Tool | Input | Output |
 | --- | --- | --- |
-| `search` | `expr`, `dir`, `workers`, `max_line_bytes`, `timeout_seconds` | `matches[]` (full attribute set per match), `count`, `cancelled`, `cancellation_reason`, `elapsed_seconds` |
+| `search` | `expr`, `dir`, `workers`, `max_line_bytes`, `timeout_seconds`, `sort_by`, `order`, `limit`, `include_snippet`, `snippet_lines`, `excludes`, `respect_gitignore` | `matches[]` (full attribute set per match — includes `snippet` when requested), `count`, `cancelled`, `cancellation_reason`, `elapsed_seconds` |
 | `read_attributes` | `path` | A single match — same shape as one `matches[]` entry from `search`. Use when the agent already has the path and wants metadata without walking. |
 | `list_attributes` | none | `schema` (common, type_specific, frontmatter, functions) and `content_types[]` |
 | `index_stats` | none | Cumulative cache counters for the running server: `hits`, `misses`, `puts`, `stales`, `errors`. Counters reset on server restart. |

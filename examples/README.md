@@ -20,6 +20,9 @@ CEL expression recipes by content family, plus cross-cutting cookbook patterns.
 | [`fuzzy-search.md`](./fuzzy-search.md) | Fuzzy / phonetic / n-gram similarity matching with `levenshtein`, `soundex`, `ngrams`, `ngram_similarity` |
 | [`indexing.md`](./indexing.md) | Persistent attribute index — `--index-path` for the CLI, auto-on cache for MCP, refresh and inspection |
 | [`timeouts.md`](./timeouts.md) | Timeouts and partial results — CLI `--timeout`, MCP `timeout_seconds`, exit codes, cancellation semantics |
+| [`top-k.md`](./top-k.md) | Top-K queries — `--sort` / `--limit` for "biggest 5 videos", "10 most recent photos", etc. |
+| [`snippets.md`](./snippets.md) | Body previews — `--snippet` returns the first N lines of text files alongside metadata |
+| [`exclude.md`](./exclude.md) | Pruning the walk — `--exclude` basename globs and `--respect-gitignore` for monorepos |
 
 Every recipe is a complete `file-search-on '<expr>'` invocation that you can paste and run. Most include a few variations and useful output-format snippets.
 

@@ -27,11 +27,18 @@ type ReadAttributesInput struct {
 
 // SearchInput is the JSON-schema input for the `search` tool.
 type SearchInput struct {
-	Expr           string   `json:"expr,omitempty" jsonschema:"CEL expression matched against file attributes. Boolean type predicates: is_markdown, is_pdf, is_html, is_xml, is_json, is_csv, is_text, is_image, is_audio, is_video, is_office, is_epub, is_archive, is_binary, is_email, is_source. Common attributes: size (int, bytes), name/path/dir/ext (string), word_count/line_count/page_count (int), title/author/language (string). Examples: 'is_markdown && word_count > 500'; 'is_pdf && page_count > 10'; 'is_image && iso > 1600'; 'is_audio && sample_rate >= 96000'; 'is_video && duration > 1800'; 'is_source && language == \"go\" && loc > 100'; 'size > 1000000 && !is_binary'. Empty means match all. Call list_attributes for the full schema."`
-	Dir            string   `json:"dir,omitempty" jsonschema:"Directory to search in. Defaults to '.'."`
-	Workers        int      `json:"workers,omitempty" jsonschema:"Number of parallel workers. Defaults to runtime.NumCPU()."`
-	MaxLineBytes   int      `json:"max_line_bytes,omitempty" jsonschema:"Per-line scanner buffer cap for text/CSV/HTML (bytes). 0 uses the 1 MiB default; raise for very long log lines."`
-	TimeoutSeconds *float64 `json:"timeout_seconds,omitempty" jsonschema:"Override the server's default per-call timeout for this invocation (in seconds; fractions allowed). Omit to use the server default (set when the MCP server was started). Pass 0 to disable the timeout for this call. On expiry the walk is cancelled and the partial result set is returned with cancelled=true."`
+	Expr             string   `json:"expr,omitempty" jsonschema:"CEL expression matched against file attributes. Boolean type predicates: is_markdown, is_pdf, is_html, is_xml, is_json, is_csv, is_text, is_image, is_audio, is_video, is_office, is_epub, is_archive, is_binary, is_email, is_source. Common attributes: size (int, bytes), name/path/dir/ext (string), word_count/line_count/page_count (int), title/author/language (string). Examples: 'is_markdown && word_count > 500'; 'is_pdf && page_count > 10'; 'is_image && iso > 1600'; 'is_audio && sample_rate >= 96000'; 'is_video && duration > 1800'; 'is_source && language == \"go\" && loc > 100'; 'size > 1000000 && !is_binary'. Empty means match all. Call list_attributes for the full schema."`
+	Dir              string   `json:"dir,omitempty" jsonschema:"Directory to search in. Defaults to '.'."`
+	Workers          int      `json:"workers,omitempty" jsonschema:"Number of parallel workers. Defaults to runtime.NumCPU()."`
+	MaxLineBytes     int      `json:"max_line_bytes,omitempty" jsonschema:"Per-line scanner buffer cap for text/CSV/HTML (bytes). 0 uses the 1 MiB default; raise for very long log lines."`
+	TimeoutSeconds   *float64 `json:"timeout_seconds,omitempty" jsonschema:"Override the server's default per-call timeout for this invocation (in seconds; fractions allowed). Omit to use the server default (set when the MCP server was started). Pass 0 to disable the timeout for this call. On expiry the walk is cancelled and the partial result set is returned with cancelled=true."`
+	SortBy           string   `json:"sort_by,omitempty" jsonschema:"Sort matches by attribute. Recognised keys: size, name, path, mod_time, word_count, line_count, page_count, duration, bitrate, sample_rate, video_height, video_width, frame_rate, iso, focal_length, taken_at, sent_at, year, entry_count, uncompressed_size, loc, attachment_count, email_count. Files missing the attribute group at the end. Sorting buffers the full result set (top-K is incoherent with streaming)."`
+	Order            string   `json:"order,omitempty" jsonschema:"Sort direction when sort_by is set: 'asc' (default) or 'desc'."`
+	Limit            int      `json:"limit,omitempty" jsonschema:"Cap the returned match count. With sort_by, returns the top-N (after sorting). Without sort_by, returns the first N in walk order. 0 = unlimited."`
+	IncludeSnippet   bool     `json:"include_snippet,omitempty" jsonschema:"When true, populate each match's 'snippet' field with the first N lines of the file body (see snippet_lines). Only text-based content types (markdown / text / html / csv / json / xml / source/*) populate; binary families leave snippet empty."`
+	SnippetLines     int      `json:"snippet_lines,omitempty" jsonschema:"How many lines to include per snippet (default 10). Ignored when include_snippet is false."`
+	Excludes         []string `json:"excludes,omitempty" jsonschema:"Glob patterns matched against the basename of each file/directory; matched directories are pruned. Example: ['node_modules', '.git', 'target', '*.bak']. Use respect_gitignore for path-aware patterns."`
+	RespectGitignore bool     `json:"respect_gitignore,omitempty" jsonschema:"When true, parse a .gitignore at the walk root (if present) and skip matching paths. Honours standard gitignore semantics. Nested .gitignore files in subdirectories are NOT honoured in this version."`
 }
 
 // SearchMatch is one match returned by the `search` tool. Beyond path /
@@ -151,6 +158,12 @@ type SearchMatch struct {
 	LOC        int64 `json:"loc,omitempty"`
 	CommentLOC int64 `json:"comment_loc,omitempty"`
 	BlankLOC   int64 `json:"blank_loc,omitempty"`
+
+	// Snippet is the first N lines of the file body when the search
+	// call had include_snippet=true and the content type is
+	// text-based. Empty otherwise. Lets an agent decide whether a
+	// match is relevant without a separate read_attributes round trip.
+	Snippet string `json:"snippet,omitempty"`
 }
 
 // matchFrom projects a search.Result (with Attrs populated) into a
@@ -160,6 +173,7 @@ func matchFrom(r search.Result) SearchMatch {
 		Path:        r.Path,
 		ContentType: r.ContentType,
 		Size:        r.Size,
+		Snippet:     r.Snippet,
 	}
 	if r.Attrs == nil {
 		return m
@@ -526,6 +540,12 @@ Tools:
 
 Performance: an attribute cache lives for the server's lifetime; repeated calls against the same files skip the per-file parse step. Empty 'expr' matches all files; empty 'dir' defaults to '.'.
 
+Top-K and pagination: pass 'sort_by' to order results by an attribute, and 'limit' to cap the response. Recognised sort keys: size, name, path, mod_time, word_count, line_count, page_count, duration, bitrate, sample_rate, video_height, video_width, frame_rate, iso, focal_length, taken_at, sent_at, year, entry_count, uncompressed_size, loc, attachment_count, email_count. 'order' is 'asc' (default) or 'desc'. Example for "10 most recent photos": {"expr": "is_image", "dir": "~/Pictures", "sort_by": "taken_at", "order": "desc", "limit": 10}. Without sort_by, limit returns the first N in walk order. With sort_by, the full result set is sorted then truncated to the top-K.
+
+Snippets: pass 'include_snippet': true to populate each match's 'snippet' field with the first N lines of the file body (controlled by snippet_lines, default 10). Only text-based content types (markdown / text / html / csv / json / xml / source/*) populate; binary families leave snippet empty. Useful for "show me what these files are about" without a follow-up read.
+
+Excluding directories: pass 'excludes' to skip directories and files by basename glob. Common values: ['node_modules', '.git', 'target', 'dist', '__pycache__', '*.bak']. Matched directories are pruned (their entire subtree is skipped). For path-aware semantics like 'src/build', set 'respect_gitignore': true and the server will parse a .gitignore at the walk root.
+
 Timeouts and partial results: every tool call is wrapped with a server-default timeout (typically 60s; configured at server startup via --timeout). The 'search' tool also accepts 'timeout_seconds' on input — pass a positive number to override, or 0 to disable for that call. On expiry, the search tool DOES NOT return an error; it returns the partial match set with cancelled=true, cancellation_reason="timeout" (or "client_cancel" for transport-side cancellation), and elapsed_seconds set. Always inspect 'cancelled' in the response — a partial result set may be exactly what you want, or you may want to retry with a tighter expression / larger timeout / smaller dir. read_attributes is bounded by the same default timeout but returns an error on cancellation (no partial-result semantics for one file).`
 
 // New builds an MCP server with file-search-on's tools registered. The
@@ -558,7 +578,7 @@ func New(version string, idx index.Index, defaultTimeout time.Duration) *mcp.Ser
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "search",
-		Description: "Recursively search a directory for files matching a CEL expression evaluated over file metadata and content-type-specific attributes. Boolean type predicates you can use directly in expr: is_markdown, is_pdf, is_html, is_xml, is_json, is_csv, is_text, is_image, is_audio, is_video, is_office, is_epub, is_archive, is_binary, is_email, is_source. Common scalar attributes: size (int bytes), name, path, dir, ext, content_type, title, author, language, word_count, line_count, page_count. Per-family attributes (image EXIF, audio tags, video codec, frontmatter, archive sizes, binary architectures, email headers, source-LOC) populate when the matching family fires — see list_attributes for the full schema. Built-in functions: levenshtein(a, b), soundex(s), ngrams(s, n), ngram_similarity(a, b, n) for fuzzy / phonetic matching; point_in_polygon(lat, lon, polygon) for GPS-bbox filtering. Example exprs: 'is_markdown && word_count > 500'; 'is_pdf && page_count > 10'; 'is_image && iso > 1600'; 'is_video && video_height >= 2160 && duration > 1800'; 'is_source && language == \"go\" && loc > 200'. Repeated searches reuse a per-process attribute cache so unchanged files skip the parse step (see index_stats). Timeouts: every call is bounded by the server's default timeout (set at startup via --timeout, typically 60s); pass timeout_seconds in the input to override (positive number = seconds, 0 = no timeout). On timeout the call DOES NOT error — it returns the partial match set with cancelled=true, cancellation_reason set, and elapsed_seconds populated. Always check 'cancelled' before treating the result as exhaustive.",
+		Description: "Recursively search a directory for files matching a CEL expression evaluated over file metadata and content-type-specific attributes. Boolean type predicates you can use directly in expr: is_markdown, is_pdf, is_html, is_xml, is_json, is_csv, is_text, is_image, is_audio, is_video, is_office, is_epub, is_archive, is_binary, is_email, is_source. Common scalar attributes: size (int bytes), name, path, dir, ext, content_type, title, author, language, word_count, line_count, page_count. Per-family attributes (image EXIF, audio tags, video codec, frontmatter, archive sizes, binary architectures, email headers, source-LOC) populate when the matching family fires — see list_attributes for the full schema. Built-in functions: levenshtein(a, b), soundex(s), ngrams(s, n), ngram_similarity(a, b, n) for fuzzy / phonetic matching; point_in_polygon(lat, lon, polygon) for GPS-bbox filtering. Example exprs: 'is_markdown && word_count > 500'; 'is_pdf && page_count > 10'; 'is_image && iso > 1600'; 'is_video && video_height >= 2160 && duration > 1800'; 'is_source && language == \"go\" && loc > 200'. Top-K queries: pass sort_by + limit, e.g. {expr:'is_video', sort_by:'duration', order:'desc', limit:5} for the 5 longest videos. Sort keys: size, name, path, mod_time, word_count, line_count, page_count, duration, bitrate, sample_rate, video_height, video_width, frame_rate, iso, focal_length, taken_at, sent_at, year, entry_count, uncompressed_size, loc, attachment_count, email_count. Snippets: pass include_snippet=true to populate match.snippet with the first N lines of body text (text content types only). Exclusions: pass excludes (basename globs like ['node_modules', '.git', '*.bak']) and/or respect_gitignore=true to prune the walk. Repeated searches reuse a per-process attribute cache so unchanged files skip the parse step (see index_stats). Timeouts: every call is bounded by the server's default timeout (set at startup via --timeout, typically 60s); pass timeout_seconds in the input to override (positive = seconds, 0 = no timeout). On timeout the call DOES NOT error — it returns the partial match set with cancelled=true, cancellation_reason set, and elapsed_seconds populated. Always check 'cancelled' before treating the result as exhaustive.",
 	}, h.searchHandler)
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -624,15 +644,29 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 	out := make(chan search.Result, 64)
 	var walkErr error
 	done := make(chan struct{})
+	// The MCP handler always buffers results (it sorts by path
+	// before returning) so we route sort/limit through search.Walk
+	// rather than re-implementing the post-sort here. But progress
+	// notifications + cancellation handling still want streaming —
+	// so we feed the channel ourselves and sort/limit the collected
+	// matches post-stream using the same sortAndLimit helper.
+	walkOpts := search.Options{
+		Root:              dir,
+		Expr:              expr,
+		Workers:           in.Workers,
+		MaxLineBytes:      in.MaxLineBytes,
+		IncludeAttributes: true,
+		Index:             h.idx,
+		SnippetLines:      in.SnippetLines,
+		IncludeSnippet:    in.IncludeSnippet,
+		Excludes:          in.Excludes,
+		RespectGitignore:  in.RespectGitignore,
+		// Sort, Order, Limit are applied via sortAndLimit AFTER we
+		// collect — see end of handler. We don't pass them to
+		// WalkStream because WalkStream doesn't honour them.
+	}
 	go func() {
-		walkErr = search.WalkStream(ctx, search.Options{
-			Root:              dir,
-			Expr:              expr,
-			Workers:           in.Workers,
-			MaxLineBytes:      in.MaxLineBytes,
-			IncludeAttributes: true,
-			Index:             h.idx,
-		}, content.DefaultRegistry(), out)
+		walkErr = search.WalkStream(ctx, walkOpts, content.DefaultRegistry(), out)
 		close(done)
 	}()
 
@@ -640,11 +674,16 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 	// every `progressNotifyStride` matches when the client passed a
 	// progressToken — the SDK's NotifyProgress is a no-op for clients
 	// that didn't request progress.
+	//
+	// We collect raw search.Results here (not the projected
+	// SearchMatch wire shape) so sort_by has access to the full
+	// FileAttributes for per-family scalar keys. Projection happens
+	// after the sort.
 	token := req.Params.GetProgressToken()
-	var matches []SearchMatch
+	var results []search.Result
 	processed := int64(0)
 	for r := range out {
-		matches = append(matches, matchFrom(r))
+		results = append(results, r)
 		processed++
 		if token != nil && processed%progressNotifyStride == 0 {
 			_ = req.Session.NotifyProgress(ctx, &mcp.ProgressNotificationParams{
@@ -663,9 +702,24 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 		return nil, SearchOutput{}, fmt.Errorf("walk: %w", walkErr)
 	}
 
-	// Final response is sorted by path — preserves the existing API
-	// contract regardless of walk order during the stream.
-	sort.Slice(matches, func(i, j int) bool { return matches[i].Path < matches[j].Path })
+	// Order: explicit sort_by > legacy path-sort default. Limit is
+	// applied AFTER sorting so the response respects top-K
+	// semantics. sortAndLimit lives in internal/search next to the
+	// type-aware compareByKey so this stays the single source of
+	// truth for sort/limit logic.
+	if in.SortBy != "" || in.Limit > 0 {
+		sortOpts := search.Options{Sort: in.SortBy, Order: in.Order, Limit: in.Limit}
+		results = search.SortAndLimit(results, sortOpts)
+	} else {
+		// Historical contract: matches sorted by path. Preserve it
+		// when the caller didn't request a specific sort.
+		sort.Slice(results, func(i, j int) bool { return results[i].Path < results[j].Path })
+	}
+
+	matches := make([]SearchMatch, len(results))
+	for i, r := range results {
+		matches[i] = matchFrom(r)
+	}
 
 	output := SearchOutput{
 		Matches:        matches,
