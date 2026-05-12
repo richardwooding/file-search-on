@@ -34,7 +34,7 @@ func (m *markdownType) Attributes(ctx context.Context, fsys fs.FS, path string) 
 	var title string
 	var wordCount int
 	scanner := bufio.NewScanner(bytes.NewReader(body))
-	scanner.Buffer(make([]byte, 1024*1024), 8*1024*1024)
+	scanner.Buffer(make([]byte, 64*1024), MaxLineBytes())
 	for scanner.Scan() {
 		if err := ctx.Err(); err != nil {
 			return nil, err
