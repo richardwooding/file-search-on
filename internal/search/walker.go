@@ -256,5 +256,19 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 	close(jobs)
 	wg.Wait()
 
+	// Workers exit on ctx.Done() without surfacing an error of their
+	// own, so a fast producer + tightly-deadlined ctx can leave
+	// walkErr=nil even though the walk was cancelled mid-flight:
+	// fs.WalkDir finished queueing 5 small files cleanly, workers
+	// drained ctx.Done() before ever processing them, and the
+	// "return nil" from the WalkDir callback travelled all the way
+	// back up. Surface ctx.Err() here so callers (CLI exit codes,
+	// MCP partial-result flags) reliably detect that the walk was
+	// cancelled rather than complete-but-empty.
+	if walkErr == nil {
+		if err := ctx.Err(); err != nil {
+			walkErr = err
+		}
+	}
 	return walkErr
 }
