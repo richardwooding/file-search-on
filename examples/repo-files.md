@@ -59,13 +59,24 @@ file-search-on 'is_dockerfile && base_image.contains("python:2")' -d ~/Code
 
 Multi-stage parsing (every FROM directive, exposed ports, ENV vars) is a follow-up.
 
-## Precedence — exact name beats extension
+## Precedence + cross-firing — exact name AND underlying format
 
-The detector tries exact basenames first, then extension matches. Practical consequences:
+The detector tries exact basenames first, then extension matches — so `content_type` is the most specific match (e.g. `manifest/node` for `package.json`, not generic `json`). But predicates aren't mutually exclusive: when an exact-name type is also a recognised syntactic format, **both predicates fire**. Mirrors the existing `is_image` / `is_jpeg`-style coexistence for image variants.
 
-- `package.json` → `content_type=manifest/node` (NOT generic `json`). It still has `is_json=false` and no `json_kind`. If you want generic JSON queries to include it, use `content_type == "manifest/node" || is_json` or filter on the body.
-- `Cargo.toml` → `content_type=manifest/cargo` (no separate `toml` content type exists; this is strictly an improvement).
-- `requirements.txt` → `content_type=manifest/python-reqs` (NOT `text`). Same body-filter approach applies if you want text-style queries.
+| File | `content_type` | All predicates that fire |
+|---|---|---|
+| `package.json` | `manifest/node` | `is_node_manifest`, `is_manifest`, `is_json` |
+| `package-lock.json` | `manifest/node` | `is_node_manifest`, `is_manifest`, `is_json` |
+| `Cargo.toml` | `manifest/cargo` | `is_cargo_manifest`, `is_manifest`, `is_toml` |
+| `Cargo.lock` | `manifest/cargo` | `is_cargo_manifest`, `is_manifest`, `is_toml` |
+| `requirements.txt` | `manifest/python-reqs` | `is_python_reqs`, `is_manifest`, `is_text` |
+| `LICENSE` | `repo/license` | `is_license`, `is_repo_meta`, `is_text` |
+| `CHANGELOG` | `repo/changelog` | `is_changelog`, `is_repo_meta`, `is_text` |
+| `CONTRIBUTING` | `repo/contributing` | `is_contributing`, `is_repo_meta`, `is_text` |
+
+So an agent looking for "any JSON file" via `is_json` picks up `package.json` automatically; "any plain-text file" via `is_text` picks up `LICENSE` and `requirements.txt`. The underlying-format-specific *attributes* (`json_kind`, `yaml_kind`) are NOT populated for exact-name types — `package.json` has `is_json=true` but `json_kind` stays empty. For a JSON-specific shape query, filter via `content_type == "manifest/node"` or `body.startsWith("{")` (with `--body`).
+
+`Pipfile` (TOML) / `Pipfile.lock` (JSON) are intentionally NOT cross-fired today — they share one content type but have different underlying formats. Splitting them is a follow-up if needed.
 
 ## Combine with body filtering
 

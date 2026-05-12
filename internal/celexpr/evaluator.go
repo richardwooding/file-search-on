@@ -41,6 +41,7 @@ type FileAttributes struct {
 	IsSource    bool
 	IsNotebook  bool
 	IsYAML      bool
+	IsTOML      bool
 
 	// Exact-name content types (PR #94). Per-type predicates fire for
 	// the matching content_type; family predicates (IsBuild,
@@ -109,6 +110,7 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("is_yaml", cel.BoolType),
 		cel.Variable("yaml_kind", cel.StringType),
 		cel.Variable("yaml_document_count", cel.IntType),
+		cel.Variable("is_toml", cel.BoolType),
 
 		// Exact-name content types (per-type predicates).
 		cel.Variable("is_dockerfile", cel.BoolType),
@@ -423,6 +425,8 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 		attrs.IsJSON = true
 	case "yaml":
 		attrs.IsYAML = true
+	case "toml":
+		attrs.IsTOML = true
 	case "xml":
 		attrs.IsXML = true
 	case "html":
@@ -448,10 +452,13 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 		attrs.IsRakefile = true
 	case "repo/license":
 		attrs.IsLicense = true
+		attrs.IsText = true // LICENSE/LICENCE/COPYING are plain text by convention
 	case "repo/changelog":
 		attrs.IsChangelog = true
+		attrs.IsText = true // bare CHANGELOG/HISTORY (the .md variants are caught by extension)
 	case "repo/contributing":
 		attrs.IsContributing = true
+		attrs.IsText = true // bare CONTRIBUTING (the .md variant is caught by extension)
 	case "repo/codeowners":
 		attrs.IsCodeowners = true
 	case "ignore/git":
@@ -462,12 +469,17 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 		attrs.IsGomod = true
 	case "manifest/node":
 		attrs.IsNodeManifest = true
+		attrs.IsJSON = true // package.json + package-lock.json are JSON
 	case "manifest/cargo":
 		attrs.IsCargoManifest = true
+		attrs.IsTOML = true // Cargo.toml + Cargo.lock are TOML
 	case "manifest/pipfile":
 		attrs.IsPipfile = true
+		// NOTE: Pipfile is TOML but Pipfile.lock is JSON — until the
+		// type splits, neither IsTOML nor IsJSON fires here.
 	case "manifest/python-reqs":
 		attrs.IsPythonReqs = true
+		attrs.IsText = true // requirements.txt is line-oriented plain text
 	case "manifest/gemfile":
 		attrs.IsGemfile = true
 	case "platform/procfile":
