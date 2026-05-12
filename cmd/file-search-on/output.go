@@ -724,15 +724,20 @@ func parseFormatTemplate(s string) (*template.Template, error) {
 }
 
 // printStatsTable renders a Stats histogram as a human-readable
-// table on stdout. Rows are sorted by ComputeStats (count desc,
-// name asc). The footer shows the totals.
+// table on stdout. The header column reflects the group_by — e.g.
+// "content_type", "language", "camera_make". Rows are sorted by
+// ComputeStats (count desc, name asc); the footer shows totals.
 func printStatsTable(w io.Writer, s *search.Stats) {
-	if len(s.ContentTypes) == 0 {
+	if len(s.Groups) == 0 {
 		fp(w, "no files matched\n")
 		return
 	}
-	fp(w, "%-30s %10s %15s\n", "content_type", "count", "total_size")
-	for _, b := range s.ContentTypes {
+	header := s.GroupBy
+	if header == "" {
+		header = "content_type"
+	}
+	fp(w, "%-30s %10s %15s\n", header, "count", "total_size")
+	for _, b := range s.Groups {
 		fp(w, "%-30s %10s %15s\n", b.Name, commafy(b.Count), commafy(b.TotalSize)+" B")
 	}
 	fp(w, "%-30s %10s %15s\n", "---", "---", "---")
@@ -748,6 +753,18 @@ func printStatsJSON(w io.Writer, s *search.Stats) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(s)
+}
+
+// printLinesJSON renders the LinesResult plus the resolved path,
+// so callers can pipe the output to jq.
+func printLinesJSON(w io.Writer, path string, r *search.LinesResult) error {
+	type out struct {
+		Path string `json:"path"`
+		*search.LinesResult
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(out{Path: path, LinesResult: r})
 }
 
 // commafy formats an int64 with thousands separators.

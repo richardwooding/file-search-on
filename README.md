@@ -108,7 +108,7 @@ file-search-on --list
 | Flag | Description | Default |
 | --- | --- | --- |
 | `EXPR` | CEL expression to match files against. | `true` (matches everything) |
-| `-d`, `--dir` | Directory to search. | `.` |
+| `-d`, `--dir` | Directory to search. Repeatable — pass `-d ./docs -d ./posts` to walk multiple roots in one call. | `.` |
 | `-w`, `--workers` | Number of parallel workers. | number of CPU cores |
 | `-l`, `--list` | List supported attributes and registered content types. | |
 | `-L`, `--max-line-bytes` | Per-line scanner cap for text/CSV/HTML in bytes. Raise for very long log lines. | 1 MiB |
@@ -215,33 +215,54 @@ Caveats:
 
 See [examples/body-search.md](./examples/body-search.md) for more recipes.
 
-### Stats — content-type histogram
+### Stats — histogram by any attribute
 
-The `stats` subcommand walks a tree and aggregates a content-type histogram with totals — quick reconnaissance without retrieving every path.
+The `stats` subcommand walks a tree and aggregates a histogram with totals — quick reconnaissance without retrieving every path. The default bucket is content type; pass `--group-by` to bucket by any other recognised attribute.
 
 ```sh
-# What's in this Downloads folder?
+# What's in this Downloads folder? (default: by content_type)
 file-search-on stats -d ~/Downloads
 
 # Markdown-only stats with a CEL filter
 file-search-on stats 'is_markdown && word_count > 500' -d ~/notes
 
-# Excludes + .gitignore work the same as search
-file-search-on stats -d . --exclude node_modules --respect-gitignore -o json
+# Bucket photos by camera_make
+file-search-on stats 'is_image' --group-by camera_make -d ~/Pictures
+
+# Count source files per language
+file-search-on stats 'is_source' --group-by language -d ./src
+
+# Aggregate across two roots
+file-search-on stats -d ~/Documents -d ~/Downloads
 ```
+
+Recognised `--group-by` keys: `content_type` (default), `ext`, `dir`, `language`, `camera_make`, `camera_model`, `lens`, `artist`, `album`, `genre`, `kernel`, `binary_format`, `binary_type`, `frontmatter_format`. Unknown values fall back to `content_type`.
 
 Output (table mode, default):
 
 ```
-content_type                   count      total_size
-markdown                          42        1,234,567 B
-image/jpeg                       100      45,000,000 B
-unknown                            5           20,480 B
+camera_make                    count      total_size
+SONY                              42      245,000,000 B
+Apple                             89      178,000,000 B
+unknown                           17        4,000,000 B
 ---                              ---             ---
-TOTAL                            147      46,255,047 B
+TOTAL                            148      427,000,000 B
 ```
 
-`-o json` writes the same data as a single JSON object for piping into `jq`. See [examples/stats.md](./examples/stats.md) for recipes; the MCP `stats` tool exposes the same shape.
+`-o json` writes the same data as a structured object: `{total_count, total_size, group_by, groups[], content_types[], …}`. See [examples/stats.md](./examples/stats.md) for recipes; the MCP `stats` tool exposes the same shape.
+
+### Read a range of lines
+
+The `lines` subcommand prints a specific line range from a single file — useful as a follow-up to `search`:
+
+```sh
+file-search-on lines main.go --start 1 --end 50          # first 50 lines
+file-search-on lines log.txt --start 1000 --end 1050     # an arbitrary window
+file-search-on lines big.csv --start 1 --max-lines 20    # first 20, capped
+file-search-on lines main.go --start 1 -o json           # machine-readable
+```
+
+The matching MCP `read_lines` tool returns `{path, start_line, end_line, total_lines, lines[], truncated}` — pair with `search` to fetch context around each match without leaving the MCP server.
 
 ### Timeouts and partial results
 
@@ -317,6 +338,8 @@ Focused recipe collections live under [`examples/`](./examples/):
 | [`examples/exclude.md`](./examples/exclude.md) | Pruning the walk — `--exclude` basename globs and `--respect-gitignore` |
 | [`examples/body-search.md`](./examples/body-search.md) | Content filters — `--body` exposes file body to CEL; pair with `contains` / `matches` (RE2) / `startsWith` |
 | [`examples/stats.md`](./examples/stats.md) | Directory reconnaissance — `file-search-on stats` aggregates a content-type histogram with totals |
+| [`examples/group-by.md`](./examples/group-by.md) | Stats bucketed by any attribute — `--group-by camera_make`, `--group-by language`, etc. |
+| [`examples/read-lines.md`](./examples/read-lines.md) | Print a specific line range from a file — pairs with `search` to fetch match context |
 
 A handful of representative one-liners:
 
@@ -618,9 +641,10 @@ Four tools are exposed:
 
 | Tool | Input | Output |
 | --- | --- | --- |
-| `search` | `expr`, `dir`, `workers`, `max_line_bytes`, `timeout_seconds`, `sort_by`, `order`, `limit`, `include_snippet`, `snippet_lines`, `include_body`, `body_max_bytes`, `excludes`, `respect_gitignore` | `matches[]` (full attribute set per match — includes `snippet` when requested), `count`, `cancelled`, `cancellation_reason`, `elapsed_seconds` |
+| `search` | `expr`, `dir`, `dirs[]`, `workers`, `max_line_bytes`, `timeout_seconds`, `sort_by`, `order`, `limit`, `include_snippet`, `snippet_lines`, `include_body`, `body_max_bytes`, `excludes`, `respect_gitignore` | `matches[]` (full attribute set per match — includes `snippet` when requested), `count`, `cancelled`, `cancellation_reason`, `elapsed_seconds` |
 | `read_attributes` | `path` | A single match — same shape as one `matches[]` entry from `search`. Use when the agent already has the path and wants metadata without walking. |
-| `stats` | `expr` (optional CEL scope), `dir`, `workers`, `max_line_bytes`, `timeout_seconds`, `excludes`, `respect_gitignore` | `total_count`, `total_size`, `content_types[]` (each `{name, count, total_size}`), `cancelled`, `cancellation_reason`, `elapsed_seconds`. Reconnaissance histogram without retrieving paths. |
+| `read_lines` | `path`, `start_line`, `end_line`, `max_lines` | `{path, start_line, end_line, total_lines, lines[], truncated}`. A specific line range from a file — pairs with `search` to fetch context around matches. |
+| `stats` | `expr` (optional CEL scope), `dir`, `dirs[]`, `group_by`, `workers`, `max_line_bytes`, `timeout_seconds`, `excludes`, `respect_gitignore` | `total_count`, `total_size`, `group_by`, `groups[]` (each `{name, count, total_size}`), `content_types[]` (populated for default group_by only — back-compat), `cancelled`, `cancellation_reason`, `elapsed_seconds`. Reconnaissance histogram, bucketed by any attribute. |
 | `list_attributes` | none | `schema` (common, type_specific, frontmatter, functions) and `content_types[]` |
 | `index_stats` | none | Cumulative cache counters for the running server: `hits`, `misses`, `puts`, `stales`, `errors`. Counters reset on server restart. |
 
