@@ -18,7 +18,7 @@ file-search-on 'is_image && soundex(camera_make) == soundex("Nikon")'           
 file-search-on 'is_markdown && ngram_similarity(title, "kubernetes", 2) > 0.6'    # substring-tolerant title match
 ```
 
-Across **54 file formats** organised into thirteen content-type families (documents, data, images, audio, video, office, ebooks, plain text, archives, compiled binaries, email, source code, notebooks), with format-specific metadata extraction.
+Across **55 file formats** organised into thirteen content-type families (documents, data, images, audio, video, office, ebooks, plain text, archives, compiled binaries, email, source code, notebooks), with format-specific metadata extraction.
 
 ## Features
 
@@ -29,7 +29,7 @@ Across **54 file formats** organised into thirteen content-type families (docume
   | --- | --- | --- |
   | **Documents** | PDF, EPUB | title, author, language, page_count |
   | **Markup** | Markdown, HTML, XML | title, word_count, frontmatter, language, root_element |
-  | **Data** | JSON, CSV, TSV | json_kind, column_count, csv_columns |
+  | **Data** | JSON, YAML, CSV, TSV | json_kind, yaml_kind, yaml_document_count, column_count, csv_columns |
   | **Plain text** | TXT, log, … | line_count, word_count |
   | **Images** | JPEG, PNG, GIF, WebP, TIFF, BMP, SVG, HEIC | dimensions + EXIF: camera, lens, GPS, ISO, focal_length, taken_at |
   | **Audio** | MP3, M4A, FLAC, OGG | tags (artist, album, genre, year, …) + duration, bitrate / nominal_bitrate, sample_rate, channels, bit_depth, ReplayGain |
@@ -435,7 +435,7 @@ Run `file-search-on --list` for the canonical, up-to-date listing. The summary t
 | `size` | int | File size in bytes |
 | `ext` | string | File extension (e.g. `.md`) |
 | `content_type` | string | Detected content type |
-| `is_markdown`, `is_json`, `is_xml`, `is_html`, `is_pdf`, `is_image`, `is_text`, `is_csv`, `is_epub`, `is_office`, `is_audio`, `is_video`, `is_archive`, `is_binary`, `is_email`, `is_source`, `is_notebook` | bool | Type predicates |
+| `is_markdown`, `is_json`, `is_yaml`, `is_xml`, `is_html`, `is_pdf`, `is_image`, `is_text`, `is_csv`, `is_epub`, `is_office`, `is_audio`, `is_video`, `is_archive`, `is_binary`, `is_email`, `is_source`, `is_notebook` | bool | Type predicates |
 
 ### Document / markup
 
@@ -455,6 +455,8 @@ Run `file-search-on --list` for the canonical, up-to-date listing. The summary t
 | --- | --- | --- |
 | `column_count`, `csv_columns` | int / `list<string>` | CSV/TSV header row |
 | `json_kind` | string | JSON top-level: `"object"` or `"array"` |
+| `yaml_kind` | string | YAML root node kind: `"object"` (mapping), `"array"` (sequence), or `"scalar"` |
+| `yaml_document_count` | int | Number of `---`-separated YAML documents (1 for single-doc; >1 for K8s manifest bundles) |
 | `root_element` | string | XML |
 
 ### Markdown front-matter (promoted)

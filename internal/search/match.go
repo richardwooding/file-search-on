@@ -24,6 +24,9 @@ type Match struct {
 	RootElement string   `json:"root_element,omitempty"`
 	JSONKind    string   `json:"json_kind,omitempty"`
 
+	YAMLKind          string `json:"yaml_kind,omitempty"`
+	YAMLDocumentCount int64  `json:"yaml_document_count,omitempty"`
+
 	ImgWidth  int64 `json:"img_width,omitempty"`
 	ImgHeight int64 `json:"img_height,omitempty"`
 
@@ -63,6 +66,7 @@ type Match struct {
 	IsEmail    bool `json:"is_email,omitempty"`
 	IsSource   bool `json:"is_source,omitempty"`
 	IsNotebook bool `json:"is_notebook,omitempty"`
+	IsYAML     bool `json:"is_yaml,omitempty"`
 
 	Artist      string `json:"artist,omitempty"`
 	Album       string `json:"album,omitempty"`
@@ -161,6 +165,7 @@ func MatchFrom(r Result) Match {
 	m.IsEmail = a.IsEmail
 	m.IsSource = a.IsSource
 	m.IsNotebook = a.IsNotebook
+	m.IsYAML = a.IsYAML
 
 	if a.Extra == nil {
 		return m
@@ -194,6 +199,12 @@ func MatchFrom(r Result) Match {
 	}
 	if v, ok := a.Extra["json_kind"].(string); ok {
 		m.JSONKind = v
+	}
+	if v, ok := a.Extra["yaml_kind"].(string); ok {
+		m.YAMLKind = v
+	}
+	if v, ok := a.Extra["yaml_document_count"].(int64); ok {
+		m.YAMLDocumentCount = v
 	}
 	if v, ok := a.Extra["img_width"].(int64); ok {
 		m.ImgWidth = v

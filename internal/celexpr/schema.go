@@ -55,6 +55,7 @@ func Schema() SchemaDoc {
 			{"is_email", "bool", "true if email message or mbox archive (.eml, .mbox — content_type starts with 'email/')"},
 			{"is_source", "bool", "true if source code (Go, Python, JS/TS, Rust, C/C++, Java, Ruby, Swift, Kotlin, Scala, Shell, Lua, Elixir, Clojure, Haskell, OCaml, Zig — content_type starts with 'source/')"},
 			{"is_notebook", "bool", "true if computational notebook (Jupyter .ipynb or Zeppelin .zpln — content_type starts with 'notebook/')"},
+			{"is_yaml", "bool", "true if YAML file (.yaml, .yml — covers CI configs, K8s manifests, GoReleaser, Docker Compose)"},
 		},
 		TypeSpecific: []AttributeDoc{
 			{"title", "string", "title (front-matter, markdown h1, HTML title, PDF title, EPUB, office, audio)"},
@@ -68,6 +69,8 @@ func Schema() SchemaDoc {
 			{"language", "string", "locale code (EPUB, HTML <html lang>, markdown front-matter, PDF /Lang or XMP, office) OR programming-language name for source files (`go`, `python`, `javascript`, `typescript`, `rust`, `c`, `cpp`, `java`, `ruby`, `swift`, `kotlin`, `shell`, `lua`, `elixir`, `clojure`, `haskell`, `ocaml`, `zig`). Locale codes are 2-letter ISO 639-1; programming names are word tokens — they don't overlap."},
 			{"root_element", "string", "root element name (XML)"},
 			{"json_kind", "string", "'object' or 'array' (JSON)"},
+			{"yaml_kind", "string", "'object' (mapping), 'array' (sequence), or 'scalar' — kind of the first YAML document's root node"},
+			{"yaml_document_count", "int", "number of `---`-separated YAML documents in the file (1 for single-doc; >1 for K8s manifest bundles, etc.)"},
 			{"img_width", "int", "image width in pixels"},
 			{"img_height", "int", "image height in pixels"},
 			{"camera_make", "string", "EXIF camera make (JPEG/TIFF/HEIC/PNG)"},

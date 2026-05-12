@@ -40,6 +40,7 @@ type FileAttributes struct {
 	IsEmail     bool
 	IsSource    bool
 	IsNotebook  bool
+	IsYAML      bool
 	Extra       content.Attributes
 }
 
@@ -75,6 +76,9 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("is_email", cel.BoolType),
 		cel.Variable("is_source", cel.BoolType),
 		cel.Variable("is_notebook", cel.BoolType),
+		cel.Variable("is_yaml", cel.BoolType),
+		cel.Variable("yaml_kind", cel.StringType),
+		cel.Variable("yaml_document_count", cel.IntType),
 		cel.Variable("title", cel.StringType),
 		cel.Variable("body", cel.StringType),
 		cel.Variable("word_count", cel.IntType),
@@ -294,14 +298,14 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	contentTypeName := ""
 	isMarkdown, isJSON, isXML, isHTML, isPDF, isImage := false, false, false, false, false, false
 	isText, isCSV, isEPUB, isOffice, isAudio, isVideo := false, false, false, false, false, false
-	var isArchive, isBinary, isEmail, isSource, isNotebook bool
+	var isArchive, isBinary, isEmail, isSource, isNotebook, isYAML bool
 
 	var extra content.Attributes
 	if ct != nil {
 		contentTypeName = ct.Name()
 		isMarkdown, isJSON, isXML, isHTML, isPDF, isImage,
 			isText, isCSV, isEPUB, isOffice, isAudio, isVideo,
-			isArchive, isBinary, isEmail, isSource, isNotebook = typeFlagsFor(contentTypeName)
+			isArchive, isBinary, isEmail, isSource, isNotebook, isYAML = typeFlagsFor(contentTypeName)
 		extra, err = ct.Attributes(ctx, fsys, fsPath)
 		if err != nil {
 			return nil, err
@@ -359,6 +363,7 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 		IsSource:    isSource,
 		IsNotebook:  isNotebook,
 		IsVideo:     isVideo,
+		IsYAML:      isYAML,
 		Extra:       extra,
 	}, nil
 }
@@ -368,12 +373,14 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 // BuildAttributes; factored out so cache-hit assembly can reuse it.
 func typeFlagsFor(name string) (isMarkdown, isJSON, isXML, isHTML, isPDF, isImage,
 	isText, isCSV, isEPUB, isOffice, isAudio, isVideo,
-	isArchive, isBinary, isEmail, isSource, isNotebook bool) {
+	isArchive, isBinary, isEmail, isSource, isNotebook, isYAML bool) {
 	switch {
 	case name == "markdown":
 		isMarkdown = true
 	case name == "json":
 		isJSON = true
+	case name == "yaml":
+		isYAML = true
 	case name == "xml":
 		isXML = true
 	case name == "html":
@@ -411,7 +418,7 @@ func typeFlagsFor(name string) (isMarkdown, isJSON, isXML, isHTML, isPDF, isImag
 func assembleFromCache(name, displayPath, dir, ext string, info fs.FileInfo, cached *index.Entry) *FileAttributes {
 	isMarkdown, isJSON, isXML, isHTML, isPDF, isImage,
 		isText, isCSV, isEPUB, isOffice, isAudio, isVideo,
-		isArchive, isBinary, isEmail, isSource, isNotebook := typeFlagsFor(cached.ContentType)
+		isArchive, isBinary, isEmail, isSource, isNotebook, isYAML := typeFlagsFor(cached.ContentType)
 	return &FileAttributes{
 		Name:        name,
 		Path:        displayPath,
@@ -437,6 +444,7 @@ func assembleFromCache(name, displayPath, dir, ext string, info fs.FileInfo, cac
 		IsSource:    isSource,
 		IsNotebook:  isNotebook,
 		IsVideo:     isVideo,
+		IsYAML:      isYAML,
 		Extra:       content.Attributes(cached.Extra),
 	}
 }

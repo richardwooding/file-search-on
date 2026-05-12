@@ -25,6 +25,37 @@ Empty / malformed JSON (`json_kind == "unknown"`):
 file-search-on 'is_json && json_kind == "unknown"'
 ```
 
+## YAML
+
+By root shape:
+
+```sh
+file-search-on 'is_yaml && yaml_kind == "object"'                # mapping at root (K8s manifests, CI configs, GoReleaser)
+file-search-on 'is_yaml && yaml_kind == "array"'                 # top-level list (some Ansible playbooks)
+```
+
+Multi-document files (`---`-separated, common in K8s manifest bundles):
+
+```sh
+file-search-on 'is_yaml && yaml_document_count > 1'              # multi-doc YAML
+file-search-on 'is_yaml && yaml_document_count == 1'             # single-doc YAML
+```
+
+Content-aware queries — combine with body filtering to find specific YAML shapes:
+
+```sh
+# All GitHub Actions workflows
+file-search-on 'is_yaml && body.contains("uses: actions/")' --body
+
+# Kubernetes Deployment manifests
+file-search-on 'is_yaml && body.contains("kind: Deployment")' --body
+
+# Docker Compose files with a "services:" top-level key
+file-search-on 'is_yaml && yaml_kind == "object" && body.startsWith("services:")' --body
+```
+
+YAML detection is extension-only (`.yaml`, `.yml`) — there's no canonical magic byte. The parser uses `gopkg.in/yaml.v3` and stream-decodes documents one at a time, so multi-megabyte K8s bundles stay cheap.
+
 ## CSV / TSV
 
 By column count:

@@ -76,6 +76,8 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.IsSource, true
 	case "is_notebook":
 		return a.attrs.IsNotebook, true
+	case "is_yaml":
+		return a.attrs.IsYAML, true
 	}
 	if v, ok := a.attrs.Extra[name]; ok {
 		return v, true
@@ -107,6 +109,8 @@ var zeroDefaults = map[string]any{
 	"author":                "",
 	"root_element":          "",
 	"json_kind":             "",
+	"yaml_kind":             "",
+	"yaml_document_count":   int64(0),
 	"img_width":             int64(0),
 	"img_height":            int64(0),
 	"camera_make":           "",
