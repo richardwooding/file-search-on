@@ -103,7 +103,7 @@ func TestPrintJSONLines(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("expected 2 JSON lines, got %d:\n%s", len(lines), buf.String())
 	}
-	var first Record
+	var first search.Match
 	if err := json.Unmarshal([]byte(lines[0]), &first); err != nil {
 		t.Fatalf("decode line 0: %v\n%s", err, lines[0])
 	}
@@ -115,7 +115,7 @@ func TestPrintJSONLines(t *testing.T) {
 		t.Errorf("expected IsCSV false on markdown row")
 	}
 	// CSV row should have csv_columns populated.
-	var second Record
+	var second search.Match
 	if err := json.Unmarshal([]byte(lines[1]), &second); err != nil {
 		t.Fatalf("decode line 1: %v\n%s", err, lines[1])
 	}
@@ -174,7 +174,7 @@ func TestPrintJSONStream(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("expected 2 NDJSON lines, got %d:\n%s", len(lines), buf.String())
 	}
-	var first Record
+	var first search.Match
 	if err := json.Unmarshal([]byte(lines[0]), &first); err != nil {
 		t.Fatalf("decode line 0: %v\n%s", err, lines[0])
 	}
@@ -237,7 +237,7 @@ func TestPrintTemplateStream(t *testing.T) {
 	}
 }
 
-func TestRecordFromHandlesDate(t *testing.T) {
+func TestMatchFromHandlesDate(t *testing.T) {
 	r := search.Result{
 		Path:        "post.md",
 		ContentType: "markdown",
@@ -248,7 +248,7 @@ func TestRecordFromHandlesDate(t *testing.T) {
 			},
 		},
 	}
-	rec := recordFrom(r)
+	rec := search.MatchFrom(r)
 	if rec.Date != "2026-05-03T12:00:00Z" {
 		t.Errorf("Date = %q, want RFC3339", rec.Date)
 	}

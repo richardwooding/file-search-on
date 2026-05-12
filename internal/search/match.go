@@ -1,15 +1,12 @@
-package main
+package search
 
-import (
-	"time"
+import "time"
 
-	"github.com/richardwooding/file-search-on/internal/search"
-)
-
-// Record is the JSON-friendly projection of a single search match. It is the
-// shape rendered by `-o json` and the data context for `--format` templates.
-// All zero-valued optional fields are omitted from JSON output.
-type Record struct {
+// Match is one match returned by the `search` tool. Beyond path /
+// content_type / size, every CEL-visible attribute is included when the
+// matched content type emits it; absent fields are omitted from the JSON
+// payload so simple consumers see a compact shape.
+type Match struct {
 	Path        string `json:"path"`
 	ContentType string `json:"content_type"`
 	Size        int64  `json:"size"`
@@ -18,7 +15,7 @@ type Record struct {
 	Author   string `json:"author,omitempty"`
 	Language string `json:"language,omitempty"`
 
-	WordCount   int64 `json:"word_count,omitempty"   yaml:"word_count,omitempty"`
+	WordCount   int64 `json:"word_count,omitempty"`
 	LineCount   int64 `json:"line_count,omitempty"`
 	PageCount   int64 `json:"page_count,omitempty"`
 	ColumnCount int64 `json:"column_count,omitempty"`
@@ -47,7 +44,7 @@ type Record struct {
 	Tags              []string       `json:"tags,omitempty"`
 	Categories        []string       `json:"categories,omitempty"`
 	Draft             bool           `json:"draft,omitempty"`
-	Date              string         `json:"date,omitempty"`
+	Date              string         `json:"date,omitempty"` // RFC3339 when set
 
 	IsMarkdown bool `json:"is_markdown,omitempty"`
 	IsJSON     bool `json:"is_json,omitempty"`
@@ -116,7 +113,7 @@ type Record struct {
 	EmailCc         []string `json:"email_cc,omitempty"`
 	EmailMessageID  string   `json:"email_message_id,omitempty"`
 	EmailInReplyTo  string   `json:"email_in_reply_to,omitempty"`
-	SentAt          string   `json:"sent_at,omitempty"`
+	SentAt          string   `json:"sent_at,omitempty"` // RFC3339 when set
 	AttachmentCount int64    `json:"attachment_count,omitempty"`
 	EmailCount      int64    `json:"email_count,omitempty"`
 
@@ -129,289 +126,284 @@ type Record struct {
 	MarkdownCellCount int64  `json:"markdown_cell_count,omitempty"`
 	Kernel            string `json:"kernel,omitempty"`
 
-	// Snippet is the first N lines of the file body, populated when
-	// `--snippet` is set and the content type is text-based. Empty
-	// otherwise; rendered inline by verbose mode and surfaced
-	// directly in json / template output.
+	// Snippet is the first N lines of the file body when the search
+	// call had include_snippet=true and the content type is
+	// text-based. Empty otherwise. Lets an agent decide whether a
+	// match is relevant without a separate read_attributes round trip.
 	Snippet string `json:"snippet,omitempty"`
 }
 
-// recordFrom projects a search.Result into the wire shape. Falls back to
-// a path-only record when r.Attrs is nil.
-func recordFrom(r search.Result) Record {
-	rec := Record{
+// MatchFrom projects a Result (with Attrs populated) into a Match
+// wire object. Empty ContentType is rewritten to "unknown" so
+// agents and verbose CLI output see a labelled bucket instead of
+// an empty string for files where detection failed.
+func MatchFrom(r Result) Match {
+	m := Match{
 		Path:        r.Path,
 		ContentType: r.ContentType,
 		Size:        r.Size,
 		Snippet:     r.Snippet,
 	}
-	if r.ContentType == "" {
-		rec.ContentType = "unknown"
+	if m.ContentType == "" {
+		m.ContentType = "unknown"
 	}
 	if r.Attrs == nil {
-		return rec
+		return m
 	}
 	a := r.Attrs
-	rec.IsMarkdown = a.IsMarkdown
-	rec.IsJSON = a.IsJSON
-	rec.IsXML = a.IsXML
-	rec.IsHTML = a.IsHTML
-	rec.IsPDF = a.IsPDF
-	rec.IsImage = a.IsImage
-	rec.IsText = a.IsText
-	rec.IsCSV = a.IsCSV
-	rec.IsEPUB = a.IsEPUB
-	rec.IsOffice = a.IsOffice
-	rec.IsAudio = a.IsAudio
-	rec.IsVideo = a.IsVideo
-	rec.IsArchive = a.IsArchive
-	rec.IsBinary = a.IsBinary
-	rec.IsEmail = a.IsEmail
-	rec.IsSource = a.IsSource
-	rec.IsNotebook = a.IsNotebook
+	m.IsMarkdown, m.IsJSON, m.IsXML, m.IsHTML = a.IsMarkdown, a.IsJSON, a.IsXML, a.IsHTML
+	m.IsPDF, m.IsImage = a.IsPDF, a.IsImage
+	m.IsText, m.IsCSV, m.IsEPUB, m.IsOffice = a.IsText, a.IsCSV, a.IsEPUB, a.IsOffice
+	m.IsAudio = a.IsAudio
+	m.IsVideo = a.IsVideo
+	m.IsArchive = a.IsArchive
+	m.IsBinary = a.IsBinary
+	m.IsEmail = a.IsEmail
+	m.IsSource = a.IsSource
+	m.IsNotebook = a.IsNotebook
 
 	if a.Extra == nil {
-		return rec
+		return m
 	}
 	if v, ok := a.Extra["title"].(string); ok {
-		rec.Title = v
+		m.Title = v
 	}
 	if v, ok := a.Extra["author"].(string); ok {
-		rec.Author = v
+		m.Author = v
 	}
 	if v, ok := a.Extra["language"].(string); ok {
-		rec.Language = v
+		m.Language = v
 	}
 	if v, ok := a.Extra["word_count"].(int64); ok {
-		rec.WordCount = v
+		m.WordCount = v
 	}
 	if v, ok := a.Extra["line_count"].(int64); ok {
-		rec.LineCount = v
+		m.LineCount = v
 	}
 	if v, ok := a.Extra["page_count"].(int64); ok {
-		rec.PageCount = v
+		m.PageCount = v
 	}
 	if v, ok := a.Extra["column_count"].(int64); ok {
-		rec.ColumnCount = v
+		m.ColumnCount = v
 	}
 	if v, ok := a.Extra["csv_columns"].([]string); ok {
-		rec.CSVColumns = v
+		m.CSVColumns = v
 	}
 	if v, ok := a.Extra["root_element"].(string); ok {
-		rec.RootElement = v
+		m.RootElement = v
 	}
 	if v, ok := a.Extra["json_kind"].(string); ok {
-		rec.JSONKind = v
+		m.JSONKind = v
 	}
 	if v, ok := a.Extra["img_width"].(int64); ok {
-		rec.ImgWidth = v
+		m.ImgWidth = v
 	}
 	if v, ok := a.Extra["img_height"].(int64); ok {
-		rec.ImgHeight = v
+		m.ImgHeight = v
 	}
 	if v, ok := a.Extra["camera_make"].(string); ok {
-		rec.CameraMake = v
+		m.CameraMake = v
 	}
 	if v, ok := a.Extra["camera_model"].(string); ok {
-		rec.CameraModel = v
+		m.CameraModel = v
 	}
 	if v, ok := a.Extra["lens"].(string); ok {
-		rec.Lens = v
+		m.Lens = v
 	}
 	if v, ok := a.Extra["taken_at"].(time.Time); ok && !v.IsZero() {
-		rec.TakenAt = v.Format(time.RFC3339)
+		m.TakenAt = v.Format(time.RFC3339)
 	}
 	if v, ok := a.Extra["orientation"].(int64); ok {
-		rec.Orientation = v
+		m.Orientation = v
 	}
 	if v, ok := a.Extra["gps_lat"].(float64); ok {
-		rec.GPSLat = v
+		m.GPSLat = v
 	}
 	if v, ok := a.Extra["gps_lon"].(float64); ok {
-		rec.GPSLon = v
+		m.GPSLon = v
 	}
 	if v, ok := a.Extra["iso"].(int64); ok {
-		rec.ISO = v
+		m.ISO = v
 	}
 	if v, ok := a.Extra["focal_length"].(float64); ok {
-		rec.FocalLength = v
+		m.FocalLength = v
 	}
 	if v, ok := a.Extra["f_stop"].(float64); ok {
-		rec.FStop = v
+		m.FStop = v
 	}
 	if v, ok := a.Extra["exposure_time"].(float64); ok {
-		rec.ExposureTime = v
+		m.ExposureTime = v
 	}
 	if v, ok := a.Extra["artist"].(string); ok {
-		rec.Artist = v
+		m.Artist = v
 	}
 	if v, ok := a.Extra["album"].(string); ok {
-		rec.Album = v
+		m.Album = v
 	}
 	if v, ok := a.Extra["album_artist"].(string); ok {
-		rec.AlbumArtist = v
+		m.AlbumArtist = v
 	}
 	if v, ok := a.Extra["composer"].(string); ok {
-		rec.Composer = v
+		m.Composer = v
 	}
 	if v, ok := a.Extra["year"].(int64); ok {
-		rec.Year = v
+		m.Year = v
 	}
 	if v, ok := a.Extra["track"].(int64); ok {
-		rec.Track = v
+		m.Track = v
 	}
 	if v, ok := a.Extra["genre"].(string); ok {
-		rec.Genre = v
+		m.Genre = v
 	}
 	if v, ok := a.Extra["duration"].(float64); ok {
-		rec.Duration = v
+		m.Duration = v
 	}
 	if v, ok := a.Extra["bitrate"].(int64); ok {
-		rec.Bitrate = v
+		m.Bitrate = v
 	}
 	if v, ok := a.Extra["sample_rate"].(int64); ok {
-		rec.SampleRate = v
+		m.SampleRate = v
 	}
 	if v, ok := a.Extra["channels"].(int64); ok {
-		rec.Channels = v
+		m.Channels = v
 	}
 	if v, ok := a.Extra["bit_depth"].(int64); ok {
-		rec.BitDepth = v
+		m.BitDepth = v
 	}
 	if v, ok := a.Extra["nominal_bitrate"].(int64); ok {
-		rec.NominalBitrate = v
+		m.NominalBitrate = v
 	}
 	if v, ok := a.Extra["video_codec"].(string); ok {
-		rec.VideoCodec = v
+		m.VideoCodec = v
 	}
 	if v, ok := a.Extra["audio_codec"].(string); ok {
-		rec.AudioCodec = v
+		m.AudioCodec = v
 	}
 	if v, ok := a.Extra["video_width"].(int64); ok {
-		rec.VideoWidth = v
+		m.VideoWidth = v
 	}
 	if v, ok := a.Extra["video_height"].(int64); ok {
-		rec.VideoHeight = v
+		m.VideoHeight = v
 	}
 	if v, ok := a.Extra["frame_rate"].(float64); ok {
-		rec.FrameRate = v
+		m.FrameRate = v
 	}
 	if v, ok := a.Extra["rotation"].(int64); ok {
-		rec.Rotation = v
+		m.Rotation = v
 	}
 	if v, ok := a.Extra["color_primaries"].(string); ok {
-		rec.ColorPrimaries = v
+		m.ColorPrimaries = v
 	}
 	if v, ok := a.Extra["color_transfer"].(string); ok {
-		rec.ColorTransfer = v
+		m.ColorTransfer = v
 	}
 	if v, ok := a.Extra["is_hdr"].(bool); ok {
-		rec.IsHDR = v
+		m.IsHDR = v
 	}
 	if v, ok := a.Extra["subtitles"].(bool); ok {
-		rec.Subtitles = v
+		m.Subtitles = v
 	}
 	if v, ok := a.Extra["subtitle_languages"].([]string); ok && len(v) > 0 {
-		rec.SubtitleLanguages = v
+		m.SubtitleLanguages = v
 	}
 	if v, ok := a.Extra["replaygain_track_gain"].(float64); ok {
-		rec.ReplayGainTrackGain = v
+		m.ReplayGainTrackGain = v
 	}
 	if v, ok := a.Extra["replaygain_album_gain"].(float64); ok {
-		rec.ReplayGainAlbumGain = v
+		m.ReplayGainAlbumGain = v
 	}
 	if v, ok := a.Extra["entry_count"].(int64); ok {
-		rec.EntryCount = v
+		m.EntryCount = v
 	}
 	if v, ok := a.Extra["uncompressed_size"].(int64); ok {
-		rec.UncompressedSize = v
+		m.UncompressedSize = v
 	}
 	if v, ok := a.Extra["top_level_entries"].([]string); ok && len(v) > 0 {
-		rec.TopLevelEntries = v
+		m.TopLevelEntries = v
 	}
 	if v, ok := a.Extra["has_root_dir"].(bool); ok {
-		rec.HasRootDir = v
+		m.HasRootDir = v
 	}
 	if v, ok := a.Extra["architectures"].([]string); ok && len(v) > 0 {
-		rec.Architectures = v
+		m.Architectures = v
 	}
 	if v, ok := a.Extra["bitness"].(int64); ok {
-		rec.Bitness = v
+		m.Bitness = v
 	}
 	if v, ok := a.Extra["binary_format"].(string); ok {
-		rec.BinaryFormat = v
+		m.BinaryFormat = v
 	}
 	if v, ok := a.Extra["binary_type"].(string); ok {
-		rec.BinaryType = v
+		m.BinaryType = v
 	}
 	if v, ok := a.Extra["is_dynamically_linked"].(bool); ok {
-		rec.IsDynamicallyLinked = v
+		m.IsDynamicallyLinked = v
 	}
 	if v, ok := a.Extra["is_stripped"].(bool); ok {
-		rec.IsStripped = v
+		m.IsStripped = v
 	}
 	if v, ok := a.Extra["entry_point"].(int64); ok {
-		rec.EntryPoint = v
+		m.EntryPoint = v
 	}
 	if v, ok := a.Extra["email_to"].([]string); ok && len(v) > 0 {
-		rec.EmailTo = v
+		m.EmailTo = v
 	}
 	if v, ok := a.Extra["email_cc"].([]string); ok && len(v) > 0 {
-		rec.EmailCc = v
+		m.EmailCc = v
 	}
 	if v, ok := a.Extra["email_message_id"].(string); ok {
-		rec.EmailMessageID = v
+		m.EmailMessageID = v
 	}
 	if v, ok := a.Extra["email_in_reply_to"].(string); ok {
-		rec.EmailInReplyTo = v
+		m.EmailInReplyTo = v
 	}
 	if v, ok := a.Extra["sent_at"].(time.Time); ok && !v.IsZero() {
-		rec.SentAt = v.Format(time.RFC3339)
+		m.SentAt = v.Format(time.RFC3339)
 	}
 	if v, ok := a.Extra["attachment_count"].(int64); ok {
-		rec.AttachmentCount = v
+		m.AttachmentCount = v
 	}
 	if v, ok := a.Extra["email_count"].(int64); ok {
-		rec.EmailCount = v
+		m.EmailCount = v
 	}
 	if v, ok := a.Extra["loc"].(int64); ok {
-		rec.LOC = v
+		m.LOC = v
 	}
 	if v, ok := a.Extra["comment_loc"].(int64); ok {
-		rec.CommentLOC = v
+		m.CommentLOC = v
 	}
 	if v, ok := a.Extra["blank_loc"].(int64); ok {
-		rec.BlankLOC = v
+		m.BlankLOC = v
 	}
 	if v, ok := a.Extra["cell_count"].(int64); ok {
-		rec.CellCount = v
+		m.CellCount = v
 	}
 	if v, ok := a.Extra["code_cell_count"].(int64); ok {
-		rec.CodeCellCount = v
+		m.CodeCellCount = v
 	}
 	if v, ok := a.Extra["markdown_cell_count"].(int64); ok {
-		rec.MarkdownCellCount = v
+		m.MarkdownCellCount = v
 	}
 	if v, ok := a.Extra["kernel"].(string); ok {
-		rec.Kernel = v
+		m.Kernel = v
 	}
 	if v, ok := a.Extra["frontmatter_format"].(string); ok {
-		rec.FrontmatterFormat = v
+		m.FrontmatterFormat = v
 	}
 	if v, ok := a.Extra["frontmatter"].(map[string]any); ok && len(v) > 0 {
-		rec.Frontmatter = v
+		m.Frontmatter = v
 	}
 	if v, ok := a.Extra["tags"].([]string); ok && len(v) > 0 {
-		rec.Tags = v
+		m.Tags = v
 	}
 	if v, ok := a.Extra["categories"].([]string); ok && len(v) > 0 {
-		rec.Categories = v
+		m.Categories = v
 	}
 	if v, ok := a.Extra["draft"].(bool); ok {
-		rec.Draft = v
+		m.Draft = v
 	}
 	if v, ok := a.Extra["date"].(time.Time); ok && !v.IsZero() {
-		rec.Date = v.Format(time.RFC3339)
+		m.Date = v.Format(time.RFC3339)
 	}
-	return rec
+	return m
 }

@@ -20,13 +20,13 @@ type ReadAttributesInput struct {
 	Path string `json:"path" jsonschema:"Filesystem path of a single file to extract attributes from. Absolute paths are preferred; relative paths resolve against the server's working directory."`
 }
 
-func (h *handlers) readAttributesHandler(ctx context.Context, _ *mcp.CallToolRequest, in ReadAttributesInput) (*mcp.CallToolResult, SearchMatch, error) {
+func (h *handlers) readAttributesHandler(ctx context.Context, _ *mcp.CallToolRequest, in ReadAttributesInput) (*mcp.CallToolResult, search.Match, error) {
 	if in.Path == "" {
-		return nil, SearchMatch{}, fmt.Errorf("path is required")
+		return nil, search.Match{}, fmt.Errorf("path is required")
 	}
 	abs, err := filepath.Abs(in.Path)
 	if err != nil {
-		return nil, SearchMatch{}, fmt.Errorf("resolve path: %w", err)
+		return nil, search.Match{}, fmt.Errorf("resolve path: %w", err)
 	}
 	dir := filepath.Dir(abs)
 	base := filepath.Base(abs)
@@ -41,9 +41,9 @@ func (h *handlers) readAttributesHandler(ctx context.Context, _ *mcp.CallToolReq
 
 	attrs, err := celexpr.BuildAttributesWith(ctx, os.DirFS(dir), base, abs, content.DefaultRegistry(), celexpr.BuildOptions{Index: h.idx})
 	if err != nil {
-		return nil, SearchMatch{}, fmt.Errorf("read attributes: %w", err)
+		return nil, search.Match{}, fmt.Errorf("read attributes: %w", err)
 	}
-	return nil, matchFrom(search.Result{
+	return nil, search.MatchFrom(search.Result{
 		Path:        abs,
 		ContentType: attrs.ContentType,
 		Size:        attrs.Size,

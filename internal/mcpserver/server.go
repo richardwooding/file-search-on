@@ -107,7 +107,7 @@ Recipe expressions:
 
 Tools:
   search           run a CEL expression against a directory; returns matches[] and count
-  read_attributes  same SearchMatch shape for one path; use when you already have the file
+  read_attributes  same Match shape for one path; use when you already have the file
   read_lines       print a specific line range from a file — for context around a search match
   stats            histogram + totals for a directory tree, bucketed by any attribute via group_by
   find_duplicates  groups of byte-identical files keyed by sha256 — "what's eating my disk?"
@@ -176,7 +176,7 @@ func New(version string, idx index.Index, defaultTimeout time.Duration) *mcp.Ser
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "read_attributes",
-		Description: "Extract content-type-specific attributes for a single file path. Use when the agent already knows the path and wants metadata without running a CEL filter or walking a directory. Returns the same SearchMatch shape as the search tool — title, author, EXIF, audio tags, video codec, frontmatter, etc., depending on the detected content type.",
+		Description: "Extract content-type-specific attributes for a single file path. Use when the agent already knows the path and wants metadata without running a CEL filter or walking a directory. Returns the same Match shape as the search tool — title, author, EXIF, audio tags, video codec, frontmatter, etc., depending on the detected content type.",
 	}, h.readAttributesHandler)
 
 	mcp.AddTool(s, &mcp.Tool{
