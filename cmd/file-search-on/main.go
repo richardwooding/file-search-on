@@ -153,16 +153,23 @@ func openIndex(path string) (index.Index, error) {
 }
 
 type SearchCmd struct {
-	Expr         string        `arg:"" help:"CEL expression to match files (e.g. 'is_json && size > 1024')." optional:""`
-	Dir          string        `short:"d" help:"Directory to search in." default:"."`
-	Workers      int           `short:"w" help:"Number of parallel workers." default:"0"`
-	List         bool          `short:"l" help:"List supported attributes and content types."`
-	MaxLineBytes int           `short:"L" name:"max-line-bytes" help:"Per-line scanner cap for text/CSV/HTML (bytes). 0 uses the 1 MiB default." default:"0"`
-	Output       string        `short:"o" name:"output" enum:"bare,default,verbose,json" default:"default" help:"Output format: bare | default | verbose | json."`
-	Format       string        `name:"format" help:"Custom Go text/template applied per match (e.g. '{{.Path}}\\t{{.Title}}'). When set, takes precedence over -o."`
-	Unsorted     bool          `name:"unsorted" help:"Stream matches in walk order instead of buffering+sorting. Default and verbose modes still emit the count footer; bare/json/template are streamed and unsorted regardless."`
-	IndexPath    string        `name:"index-path" help:"Persistent attribute index file (bbolt). When set, unchanged files (matched by absolute path + size + mtime) skip the per-file content-type parse, making repeat searches dramatically faster. The file is created on first use; delete it to force a full re-extraction."`
-	Timeout      time.Duration `name:"timeout" help:"Maximum walk duration (Go duration string: 30s, 2m, 500ms). Default unset = no timeout. On expiry, results collected so far are still printed and the process exits 124. Ctrl-C exits 130 with whatever was collected."`
+	Expr             string        `arg:"" help:"CEL expression to match files (e.g. 'is_json && size > 1024')." optional:""`
+	Dir              string        `short:"d" help:"Directory to search in." default:"."`
+	Workers          int           `short:"w" help:"Number of parallel workers." default:"0"`
+	List             bool          `short:"l" help:"List supported attributes and content types."`
+	MaxLineBytes     int           `short:"L" name:"max-line-bytes" help:"Per-line scanner cap for text/CSV/HTML (bytes). 0 uses the 1 MiB default." default:"0"`
+	Output           string        `short:"o" name:"output" enum:"bare,default,verbose,json" default:"default" help:"Output format: bare | default | verbose | json."`
+	Format           string        `name:"format" help:"Custom Go text/template applied per match (e.g. '{{.Path}}\\t{{.Title}}'). When set, takes precedence over -o."`
+	Unsorted         bool          `name:"unsorted" help:"Stream matches in walk order instead of buffering+sorting. Default and verbose modes still emit the count footer; bare/json/template are streamed and unsorted regardless. Ignored when --sort or --limit is set (those force buffered mode)."`
+	IndexPath        string        `name:"index-path" help:"Persistent attribute index file (bbolt). When set, unchanged files (matched by absolute path + size + mtime) skip the per-file content-type parse, making repeat searches dramatically faster. The file is created on first use; delete it to force a full re-extraction."`
+	Timeout          time.Duration `name:"timeout" help:"Maximum walk duration (Go duration string: 30s, 2m, 500ms). Default unset = no timeout. On expiry, results collected so far are still printed and the process exits 124. Ctrl-C exits 130 with whatever was collected."`
+	Sort             string        `name:"sort" help:"Sort matches by attribute. Recognised keys: size, name, path, mod_time, word_count, line_count, page_count, duration, bitrate, sample_rate, video_height, video_width, frame_rate, iso, focal_length, taken_at, sent_at, year, entry_count, uncompressed_size, loc, attachment_count, email_count. Files missing the attribute group at the end. Forces buffered mode."`
+	Order            string        `name:"order" enum:"asc,desc" default:"asc" help:"Sort direction. Ignored without --sort."`
+	Limit            int           `name:"limit" default:"0" help:"Cap the result set at N matches. With --sort, returns the top-N (after sorting). Without --sort, returns the first N in walk order. 0 = unlimited."`
+	Snippet          bool          `name:"snippet" help:"Read a snippet of each match's body (first N lines, see --snippet-lines) and include it in verbose/json/template output. Only text-based content types (markdown / text / html / csv / json / xml / source/*) populate; binary families leave the snippet empty."`
+	SnippetLines     int           `name:"snippet-lines" default:"10" help:"How many lines of body content to include per match when --snippet is set."`
+	Exclude          []string      `name:"exclude" help:"Glob pattern matched against the basename of each file/directory; matches are skipped (directories are pruned). Repeatable: --exclude node_modules --exclude '*.bak'."`
+	RespectGitignore bool          `name:"respect-gitignore" help:"Parse a .gitignore at the walk root (if present) and skip matching paths. Nested .gitignore files in subdirectories are NOT honoured in this version."`
 }
 
 func (s *SearchCmd) Run(ctx context.Context) error {
@@ -175,8 +182,11 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		s.Expr = "true"
 	}
 
-	// --format implies attribute access; same for verbose/json presets.
-	includeAttrs := s.Format != "" || s.Output == "verbose" || s.Output == "json"
+	// --format implies attribute access; same for verbose/json
+	// presets. --sort also needs Attrs (per-family sort keys live in
+	// FileAttributes.Extra), as does --snippet (rendered through the
+	// Record path which already requires attrs).
+	includeAttrs := s.Format != "" || s.Output == "verbose" || s.Output == "json" || s.Sort != "" || s.Snippet
 
 	// Parse the template up front so a bad template fails before we walk.
 	var tmpl *template.Template
@@ -221,18 +231,30 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		MaxLineBytes:      s.MaxLineBytes,
 		IncludeAttributes: includeAttrs,
 		Index:             idx,
+		Sort:              s.Sort,
+		Order:             s.Order,
+		Limit:             s.Limit,
+		IncludeSnippet:    s.Snippet,
+		SnippetLines:      s.SnippetLines,
+		Excludes:          s.Exclude,
+		RespectGitignore:  s.RespectGitignore,
 	}
 
+	// --sort and --limit both need the full result set in memory
+	// (sort, then truncate), so they force buffered mode regardless
+	// of --unsorted / -o bare / json / --format. Streaming +
+	// top-K is incoherent; bail to buffered.
+	forceBuffered := s.Sort != "" || s.Limit > 0
 	// Streaming-friendly modes (bare / json / template) always stream —
 	// first result lands on stdout immediately rather than waiting for
 	// the full walk. Default and verbose stream too when --unsorted is
 	// set; otherwise they buffer for sort+footer (the historical UX).
-	streaming := tmpl != nil || s.Output == "bare" || s.Output == "json" || s.Unsorted
+	streaming := !forceBuffered && (tmpl != nil || s.Output == "bare" || s.Output == "json" || s.Unsorted)
 	var runErr error
 	if streaming {
 		runErr = streamSearch(effectiveCtx, opts, tmpl, s.Output)
 	} else {
-		runErr = bufferedSearch(effectiveCtx, opts, s.Output)
+		runErr = bufferedSearch(effectiveCtx, opts, tmpl, s.Output)
 	}
 	// Close the index BEFORE reading Stats so the bbolt writer goroutine
 	// has flushed pending puts; otherwise the footer can show "0 stored"
@@ -305,26 +327,51 @@ func streamSearch(ctx context.Context, opts search.Options, tmpl *template.Templ
 	return printErr
 }
 
-// bufferedSearch keeps the historical Walk + sort + print + footer flow
-// for default and verbose modes, both of which emit a "N file(s) found"
-// footer that requires the full result set.
+// bufferedSearch keeps the historical Walk + sort + print + footer
+// flow. Used by default/verbose modes (which always emit a
+// "N file(s) found" footer requiring the full result set) and for
+// bare/json/template modes when --sort or --limit force buffered
+// mode — top-K is incoherent with streaming, so we collect.
 //
-// On context cancellation, search.Walk still returns the partial set in
-// the results slice; we sort+print it before bubbling the cancellation
-// up so the user sees what was collected.
-func bufferedSearch(ctx context.Context, opts search.Options, mode string) error {
+// search.Walk applies Options.Sort / Options.Order / Options.Limit
+// itself; we re-sort by path here only when no explicit Sort is set,
+// to preserve the long-standing "path-sorted by default" CLI UX.
+//
+// On context cancellation, search.Walk still returns the partial set
+// in the results slice; we sort+print it before bubbling the
+// cancellation up so the user sees what was collected.
+func bufferedSearch(ctx context.Context, opts search.Options, tmpl *template.Template, mode string) error {
 	results, err := search.Walk(ctx, opts, contentpkg.DefaultRegistry())
 
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Path < results[j].Path
-	})
+	// Path-sort default only when the user didn't ask for a specific
+	// ordering. With --sort set, results are already in the order
+	// Walk produced; re-sorting would defeat the flag.
+	if opts.Sort == "" {
+		sort.Slice(results, func(i, j int) bool {
+			return results[i].Path < results[j].Path
+		})
+	}
 
-	if mode == "verbose" {
+	var printErr error
+	switch {
+	case tmpl != nil:
+		printErr = printTemplate(os.Stdout, results, tmpl)
+	case mode == "json":
+		printErr = printJSON(os.Stdout, results)
+	case mode == "bare":
+		printBare(os.Stdout, results)
+	case mode == "verbose":
 		printVerbose(os.Stdout, results)
-	} else { // "" or "default"
+	default: // "" or "default"
 		printDefault(os.Stdout, results)
 	}
-	fmt.Fprintf(os.Stderr, "\n%d file(s) found\n", len(results))
+	// Footer on stderr — preserve historical UX for default/verbose,
+	// and surface a count for the json/template/bare modes too when
+	// the user asked for buffering (sort/limit) since the buffered
+	// path is no longer the "silent" choice.
+	if mode == "default" || mode == "verbose" || opts.Sort != "" || opts.Limit > 0 {
+		fmt.Fprintf(os.Stderr, "\n%d file(s) found\n", len(results))
+	}
 
 	if err != nil {
 		if isCancellation(err) {
@@ -332,7 +379,7 @@ func bufferedSearch(ctx context.Context, opts search.Options, mode string) error
 		}
 		return fmt.Errorf("search failed: %w", err)
 	}
-	return nil
+	return printErr
 }
 
 func printHelp() {

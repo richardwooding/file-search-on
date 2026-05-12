@@ -127,6 +127,12 @@ type Record struct {
 	LOC        int64 `json:"loc,omitempty"`
 	CommentLOC int64 `json:"comment_loc,omitempty"`
 	BlankLOC   int64 `json:"blank_loc,omitempty"`
+
+	// Snippet is the first N lines of the file body, populated when
+	// `--snippet` is set and the content type is text-based. Empty
+	// otherwise; rendered inline by verbose mode and surfaced
+	// directly in json / template output.
+	Snippet string `json:"snippet,omitempty"`
 }
 
 // recordFrom projects a search.Result into the wire shape. Falls back to
@@ -136,6 +142,7 @@ func recordFrom(r search.Result) Record {
 		Path:        r.Path,
 		ContentType: r.ContentType,
 		Size:        r.Size,
+		Snippet:     r.Snippet,
 	}
 	if r.ContentType == "" {
 		rec.ContentType = "unknown"
@@ -568,6 +575,16 @@ func writeVerboseRecord(w io.Writer, rec Record) {
 		fp(w, "  %-13s %s\n", "csv_columns", strings.Join(rec.CSVColumns, ", "))
 	}
 	printIfStr(w, "date", rec.Date)
+
+	// Snippet sits at the bottom because it can span many lines —
+	// keeping the scalar attributes aligned at the top makes the
+	// record scannable. Indent each line for readability.
+	if rec.Snippet != "" {
+		fp(w, "  snippet:\n")
+		for line := range strings.SplitSeq(rec.Snippet, "\n") {
+			fp(w, "    %s\n", line)
+		}
+	}
 }
 
 func printIfStr(w io.Writer, label, v string) {
