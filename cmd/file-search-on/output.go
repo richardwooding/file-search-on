@@ -7,6 +7,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/richardwooding/file-search-on/internal/projecttype"
 	"github.com/richardwooding/file-search-on/internal/search"
 )
 
@@ -382,6 +383,59 @@ func printDuplicatesJSON(w io.Writer, d *search.Duplicates) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(d)
+}
+
+// printDetectProject renders one directory's project-type matches as
+// a human-readable summary. Empty matches print a "no project type
+// detected" line so the user knows the call ran.
+func printDetectProject(w io.Writer, path string, matches []projecttype.Match) {
+	fp(w, "%s\n", path)
+	if len(matches) == 0 {
+		fp(w, "  (no project type detected)\n")
+		return
+	}
+	for _, m := range matches {
+		fp(w, "  %-16s  via %s\n", m.Type, m.Indicator)
+	}
+}
+
+func printDetectProjectJSON(w io.Writer, path string, matches []projecttype.Match) error {
+	types := make([]string, len(matches))
+	for i, m := range matches {
+		types[i] = m.Type
+	}
+	out := struct {
+		Path         string              `json:"path"`
+		ProjectTypes []string            `json:"project_types"`
+		Indicators   []projecttype.Match `json:"indicators"`
+	}{
+		Path:         path,
+		ProjectTypes: types,
+		Indicators:   matches,
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(out)
+}
+
+// printFindProjects renders the find-projects walk as a table —
+// path on the left, comma-separated types on the right.
+func printFindProjects(w io.Writer, r *projecttype.FindResult) {
+	for _, p := range r.Projects {
+		types := make([]string, len(p.Types))
+		for i, t := range p.Types {
+			types[i] = t.Type
+		}
+		fp(w, "%s\t[%s]\n", p.Path, strings.Join(types, ","))
+	}
+	fpn(w, "")
+	fp(w, "%d project(s) found in %.3fs\n", r.Count, r.ElapsedSeconds)
+}
+
+func printFindProjectsJSON(w io.Writer, r *projecttype.FindResult) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(r)
 }
 
 // printLinesJSON renders the LinesResult plus the resolved path,

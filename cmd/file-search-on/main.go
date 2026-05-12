@@ -17,6 +17,7 @@ import (
 	contentpkg "github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/mcpserver"
+	"github.com/richardwooding/file-search-on/internal/projecttype"
 	"github.com/richardwooding/file-search-on/internal/search"
 )
 
@@ -55,6 +56,8 @@ var CLI struct {
 	Stats      StatsCmd         `cmd:"" name:"stats" help:"Aggregate content-type counts and total sizes for a directory tree."`
 	Lines      LinesCmd         `cmd:"" name:"lines" help:"Print a range of lines from a single file (no walk, no CEL)."`
 	Duplicates DuplicatesCmd    `cmd:"" name:"duplicates" help:"Find groups of byte-identical files by sha256 hash."`
+	Detect     DetectProjectCmd `cmd:"" name:"detect-project" help:"Identify project type(s) (go / node / rust / …) for a directory by checking canonical indicator files."`
+	Projects   FindProjectsCmd  `cmd:"" name:"find-projects" help:"Walk a root and list every project subdirectory under it."`
 	MCP        MCPCmd           `cmd:"" name:"mcp" help:"Run as a Model Context Protocol server (stdio, http, or sse)."`
 	Version    kong.VersionFlag `short:"V" help:"Print version and exit."`
 }
@@ -300,6 +303,78 @@ func (d *DuplicatesCmd) Run(ctx context.Context) error {
 			return &exitCodeError{code: 130, msg: "interrupted"}
 		case d.Timeout > 0 && errors.Is(effectiveCtx.Err(), context.DeadlineExceeded):
 			fmt.Fprintf(os.Stderr, "duplicates timed out after %s; results above may be incomplete\n", d.Timeout)
+			return &exitCodeError{code: 124, msg: "timeout"}
+		}
+	}
+	return nil
+}
+
+// DetectProjectCmd inspects a single directory and prints which
+// project type(s) it matches. Non-recursive — only the directory's
+// own listing is read.
+type DetectProjectCmd struct {
+	Dir    string `arg:"" optional:"" help:"Directory to inspect. Defaults to '.'." default:"."`
+	Output string `short:"o" name:"output" enum:"default,json" default:"default" help:"Output format: default (human-readable) | json."`
+}
+
+func (d *DetectProjectCmd) Run(_ context.Context) error {
+	abs, err := filepath.Abs(d.Dir)
+	if err != nil {
+		return fmt.Errorf("resolve dir: %w", err)
+	}
+	matches := projecttype.Detect(nil, abs)
+	if d.Output == "json" {
+		return printDetectProjectJSON(os.Stdout, abs, matches)
+	}
+	printDetectProject(os.Stdout, abs, matches)
+	return nil
+}
+
+// FindProjectsCmd walks a root and prints every project subdirectory
+// it finds. Default behaviour: stop at the first match per branch
+// (the 'find me all my Go repos' shape). Pass --nested to also surface
+// sub-projects inside matched roots.
+type FindProjectsCmd struct {
+	Dir              string        `arg:"" optional:"" help:"Root directory to walk. Defaults to '.'." default:"."`
+	Type             []string      `name:"type" help:"Restrict to specific project types. Repeatable: --type go --type rust."`
+	Exclude          []string      `name:"exclude" help:"Basename glob pruned during the walk (e.g. node_modules, .git, target). Repeatable."`
+	RespectGitignore bool          `name:"respect-gitignore" help:"Parse .gitignore at the walk root and skip matching paths."`
+	Nested           bool          `name:"nested" help:"Keep descending into matched project roots so nested sub-projects are also reported."`
+	Timeout          time.Duration `name:"timeout" help:"Maximum duration. On expiry, the partial result is still printed and the process exits 124."`
+	Output           string        `short:"o" name:"output" enum:"default,json" default:"default" help:"Output format: default (human-readable) | json."`
+}
+
+func (f *FindProjectsCmd) Run(ctx context.Context) error {
+	abs, err := filepath.Abs(f.Dir)
+	if err != nil {
+		return fmt.Errorf("resolve dir: %w", err)
+	}
+	result, err := projecttype.Find(ctx, abs, projecttype.FindOptions{
+		Types:            f.Type,
+		Excludes:         f.Exclude,
+		RespectGitignore: f.RespectGitignore,
+		Nested:           f.Nested,
+		Timeout:          f.Timeout,
+	})
+	if err != nil && !isCancellation(err) {
+		return fmt.Errorf("find-projects failed: %w", err)
+	}
+	if result != nil {
+		if f.Output == "json" {
+			if err := printFindProjectsJSON(os.Stdout, result); err != nil {
+				return err
+			}
+		} else {
+			printFindProjects(os.Stdout, result)
+		}
+	}
+	if result != nil && result.Cancelled {
+		switch result.CancellationReason {
+		case "client_cancel":
+			fmt.Fprintln(os.Stderr, "find-projects interrupted; results above may be incomplete")
+			return &exitCodeError{code: 130, msg: "interrupted"}
+		case "timeout":
+			fmt.Fprintf(os.Stderr, "find-projects timed out after %s; results above may be incomplete\n", f.Timeout)
 			return &exitCodeError{code: 124, msg: "timeout"}
 		}
 	}
