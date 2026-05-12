@@ -698,6 +698,33 @@ func parseFormatTemplate(s string) (*template.Template, error) {
 	return template.New("format").Parse(expanded)
 }
 
+// printStatsTable renders a Stats histogram as a human-readable
+// table on stdout. Rows are sorted by ComputeStats (count desc,
+// name asc). The footer shows the totals.
+func printStatsTable(w io.Writer, s *search.Stats) {
+	if len(s.ContentTypes) == 0 {
+		fp(w, "no files matched\n")
+		return
+	}
+	fp(w, "%-30s %10s %15s\n", "content_type", "count", "total_size")
+	for _, b := range s.ContentTypes {
+		fp(w, "%-30s %10s %15s\n", b.Name, commafy(b.Count), commafy(b.TotalSize)+" B")
+	}
+	fp(w, "%-30s %10s %15s\n", "---", "---", "---")
+	fp(w, "%-30s %10s %15s\n", "TOTAL", commafy(s.TotalCount), commafy(s.TotalSize)+" B")
+	if s.Cancelled {
+		fp(w, "(partial — %s)\n", s.CancellationReason)
+	}
+}
+
+// printStatsJSON writes the Stats object as a single JSON document.
+// Useful for piping into jq / scripts.
+func printStatsJSON(w io.Writer, s *search.Stats) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(s)
+}
+
 // commafy formats an int64 with thousands separators.
 func commafy(n int64) string {
 	if n < 0 {

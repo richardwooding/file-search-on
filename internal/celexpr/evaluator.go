@@ -74,6 +74,7 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("is_email", cel.BoolType),
 		cel.Variable("is_source", cel.BoolType),
 		cel.Variable("title", cel.StringType),
+		cel.Variable("body", cel.StringType),
 		cel.Variable("word_count", cel.IntType),
 		cel.Variable("line_count", cel.IntType),
 		cel.Variable("column_count", cel.IntType),
@@ -196,6 +197,7 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 		"is_email":           attrs.IsEmail,
 		"is_source":          attrs.IsSource,
 		"title":              "",
+		"body":               "",
 		"word_count":         int64(0),
 		"line_count":         int64(0),
 		"column_count":       int64(0),
@@ -278,6 +280,8 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 			switch k {
 			case "title":
 				activation["title"] = v
+			case "body":
+				activation["body"] = v
 			case "word_count":
 				activation["word_count"] = v
 			case "line_count":
@@ -446,9 +450,32 @@ func (e *Evaluator) Evaluate(attrs *FileAttributes) (bool, error) {
 // ContentType.Attributes; a miss falls through to the existing
 // extraction path and stores the result for the next call. nil Index
 // disables caching.
+//
+// IncludeBody, when true, makes BuildAttributesWith read the file
+// body for text-based content types (markdown / text / html / csv /
+// json / xml / source/*) and surface it via the "body" CEL variable.
+// Bodies are capped at BodyMaxBytes (default 1 MiB when zero) to
+// bound memory and stop pathological inputs from blowing up the
+// search response. The cap is on the cached/returned body string,
+// not on the file read — files larger than the cap are truncated,
+// not skipped. Binary content types leave body empty regardless.
+//
+// The body read is gated by the IncludeBody flag rather than the
+// CEL expression's variable references because cel-go doesn't expose
+// "did the compiled program use this variable" cheaply. Callers
+// that want CEL filters like `body.contains("X")` or
+// `body.matches("...")` must opt in.
 type BuildOptions struct {
-	Index index.Index
+	Index        index.Index
+	IncludeBody  bool
+	BodyMaxBytes int
 }
+
+// defaultBodyMaxBytes caps the body string supplied to CEL when
+// IncludeBody is true and BuildOptions.BodyMaxBytes is unset. 1 MiB
+// is plenty for typical text files (markdown posts, source modules,
+// JSON manifests) and bounds the worst case on adversarial input.
+const defaultBodyMaxBytes = 1 << 20
 
 // BuildAttributes is the no-cache wrapper. New callers should use
 // BuildAttributesWith and pass an index.Index when caching is desired.
@@ -499,7 +526,21 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 
 	if opts.Index != nil && cacheKey != "" {
 		if cached, ok := opts.Index.Lookup(cacheKey, info.Size(), info.ModTime()); ok {
-			return assembleFromCache(name, displayPath, dir, ext, info, cached), nil
+			attrs := assembleFromCache(name, displayPath, dir, ext, info, cached)
+			// Body is intentionally NOT cached: bodies are large
+			// relative to the rest of an Entry, change semantics
+			// independently of (size, mtime), and CEL filters that
+			// need them want fresh reads. Re-read on cache hit
+			// when the caller asked for body.
+			if opts.IncludeBody && isTextForBody(cached.ContentType) {
+				if body, berr := readBody(ctx, fsys, fsPath, opts.BodyMaxBytes); berr == nil && body != "" {
+					if attrs.Extra == nil {
+						attrs.Extra = content.Attributes{}
+					}
+					attrs.Extra["body"] = body
+				}
+			}
+			return attrs, nil
 		}
 	}
 
@@ -522,7 +563,9 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	}
 
 	// Async store on miss. The implementation handles back-pressure;
-	// we never wait for the write.
+	// we never wait for the write. Body is NOT included in the cached
+	// Extra — it's read on demand per call (see cache-hit branch
+	// above) and would otherwise bloat the index file.
 	if opts.Index != nil && cacheKey != "" {
 		_ = opts.Index.Put(cacheKey, &index.Entry{
 			Size:            info.Size(),
@@ -530,6 +573,19 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 			ContentType:     contentTypeName,
 			Extra:           map[string]any(extra),
 		})
+	}
+
+	// Add body to the returned Extra (separately from the cached
+	// Extra above). CEL evaluation runs against this attrs, so the
+	// body needs to be present for `body.contains(...)` /
+	// `body.matches(...)` filters to fire.
+	if opts.IncludeBody && isTextForBody(contentTypeName) {
+		if body, berr := readBody(ctx, fsys, fsPath, opts.BodyMaxBytes); berr == nil && body != "" {
+			if extra == nil {
+				extra = content.Attributes{}
+			}
+			extra["body"] = body
+		}
 	}
 
 	return &FileAttributes{

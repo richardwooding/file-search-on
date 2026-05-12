@@ -37,6 +37,8 @@ type SearchInput struct {
 	Limit            int      `json:"limit,omitempty" jsonschema:"Cap the returned match count. With sort_by, returns the top-N (after sorting). Without sort_by, returns the first N in walk order. 0 = unlimited."`
 	IncludeSnippet   bool     `json:"include_snippet,omitempty" jsonschema:"When true, populate each match's 'snippet' field with the first N lines of the file body (see snippet_lines). Only text-based content types (markdown / text / html / csv / json / xml / source/*) populate; binary families leave snippet empty."`
 	SnippetLines     int      `json:"snippet_lines,omitempty" jsonschema:"How many lines to include per snippet (default 10). Ignored when include_snippet is false."`
+	IncludeBody      bool     `json:"include_body,omitempty" jsonschema:"When true, the full file body is exposed to the CEL expression as the 'body' string variable, so filters like body.contains(\"transformer\") or body.matches(\"\\\\bAPI\\\\b\") run at search time. Only text-based content types populate body; capped at body_max_bytes (default 1 MiB). Expensive: reads every candidate file's body, not just headers — pair with tight expr / excludes / timeout."`
+	BodyMaxBytes     int      `json:"body_max_bytes,omitempty" jsonschema:"Cap on the body string in bytes (default 1 MiB). Files larger than the cap are silently truncated; the prefix still participates in body.contains / body.matches. Ignored when include_body is false."`
 	Excludes         []string `json:"excludes,omitempty" jsonschema:"Glob patterns matched against the basename of each file/directory; matched directories are pruned. Example: ['node_modules', '.git', 'target', '*.bak']. Use respect_gitignore for path-aware patterns."`
 	RespectGitignore bool     `json:"respect_gitignore,omitempty" jsonschema:"When true, parse a .gitignore at the walk root (if present) and skip matching paths. Honours standard gitignore semantics. Nested .gitignore files in subdirectories are NOT honoured in this version."`
 }
@@ -462,6 +464,37 @@ type IndexStatsOutput struct {
 	Errors uint64 `json:"errors"`
 }
 
+// StatsInput is the JSON-schema input for the `stats` tool.
+type StatsInput struct {
+	Expr             string   `json:"expr,omitempty" jsonschema:"Optional CEL expression to scope the histogram (e.g. 'is_markdown' counts only markdown files). Empty means every file. Same CEL surface as the search tool."`
+	Dir              string   `json:"dir,omitempty" jsonschema:"Directory to walk. Defaults to '.'."`
+	Workers          int      `json:"workers,omitempty" jsonschema:"Parallel workers. Defaults to runtime.NumCPU()."`
+	MaxLineBytes     int      `json:"max_line_bytes,omitempty" jsonschema:"Per-line scanner buffer cap for text/CSV/HTML (bytes). 0 uses the 1 MiB default."`
+	TimeoutSeconds   *float64 `json:"timeout_seconds,omitempty" jsonschema:"Override the server's default per-call timeout. Same semantics as the search tool: positive = seconds, 0 = no timeout, omitted = server default. On timeout the partial histogram is returned with cancelled=true."`
+	Excludes         []string `json:"excludes,omitempty" jsonschema:"Glob patterns matched against file/dir basenames; matches are pruned. Same as the search tool."`
+	RespectGitignore bool     `json:"respect_gitignore,omitempty" jsonschema:"When true, parse a .gitignore at the walk root and skip matching paths."`
+}
+
+// StatsOutput is the structured output of the `stats` tool — a
+// content-type histogram plus totals + the standard
+// partial-result fields (cancelled, cancellation_reason,
+// elapsed_seconds) shared with the search tool.
+type StatsOutput struct {
+	TotalCount         int64                      `json:"total_count"`
+	TotalSize          int64                      `json:"total_size"`
+	ContentTypes       []StatsContentTypeBucket   `json:"content_types"`
+	Cancelled          bool                       `json:"cancelled,omitempty"`
+	CancellationReason string                     `json:"cancellation_reason,omitempty"`
+	ElapsedSeconds     float64                    `json:"elapsed_seconds,omitempty"`
+}
+
+// StatsContentTypeBucket is one row of the stats histogram.
+type StatsContentTypeBucket struct {
+	Name      string `json:"name"`
+	Count     int64  `json:"count"`
+	TotalSize int64  `json:"total_size"`
+}
+
 // handlers wraps tool handlers so they can share an index reference
 // and the server-level default timeout across the server's lifetime.
 // The MCP SDK requires plain functions for AddTool, so we use closures
@@ -535,6 +568,7 @@ Recipe expressions:
 Tools:
   search           run a CEL expression against a directory; returns matches[] and count
   read_attributes  same SearchMatch shape for one path; use when you already have the file
+  stats            content-type histogram + totals for a directory tree
   list_attributes  full schema (every attribute, every built-in function); call when the recipes above don't cover what you need
   index_stats      cache hit/miss counters for this server process
 
@@ -543,6 +577,10 @@ Performance: an attribute cache lives for the server's lifetime; repeated calls 
 Top-K and pagination: pass 'sort_by' to order results by an attribute, and 'limit' to cap the response. Recognised sort keys: size, name, path, mod_time, word_count, line_count, page_count, duration, bitrate, sample_rate, video_height, video_width, frame_rate, iso, focal_length, taken_at, sent_at, year, entry_count, uncompressed_size, loc, attachment_count, email_count. 'order' is 'asc' (default) or 'desc'. Example for "10 most recent photos": {"expr": "is_image", "dir": "~/Pictures", "sort_by": "taken_at", "order": "desc", "limit": 10}. Without sort_by, limit returns the first N in walk order. With sort_by, the full result set is sorted then truncated to the top-K.
 
 Snippets: pass 'include_snippet': true to populate each match's 'snippet' field with the first N lines of the file body (controlled by snippet_lines, default 10). Only text-based content types (markdown / text / html / csv / json / xml / source/*) populate; binary families leave snippet empty. Useful for "show me what these files are about" without a follow-up read.
+
+Body-content filters: pass 'include_body': true to expose the full file body to the CEL expression as the 'body' string variable. CEL's built-in string methods then act as content filters — body.contains("transformer"), body.matches("\\bAPI\\b") (RE2 regex), body.startsWith("Once upon"), size(body) > 5000. Only text-based content types populate body; capped at body_max_bytes (default 1 MiB). EXPENSIVE — reads every candidate file, not just headers. Pair with a tight expr (e.g. 'is_markdown && body.contains(...)') so the type predicate prunes most candidates before the body read. Note: CEL's 'matches' uses RE2 (Google's regex syntax), the same engine Go's regexp/re2 package uses.
+
+Stats / reconnaissance: the 'stats' tool aggregates a content-type histogram + total counts + total sizes for a directory tree, optionally scoped by a CEL expr. Useful for "what's in this folder?" without retrieving every path. Same excludes / respect_gitignore / timeout_seconds semantics as search; returns cancelled=true on timeout with the partial histogram intact.
 
 Excluding directories: pass 'excludes' to skip directories and files by basename glob. Common values: ['node_modules', '.git', 'target', 'dist', '__pycache__', '*.bak']. Matched directories are pruned (their entire subtree is skipped). For path-aware semantics like 'src/build', set 'respect_gitignore': true and the server will parse a .gitignore at the walk root.
 
@@ -578,7 +616,7 @@ func New(version string, idx index.Index, defaultTimeout time.Duration) *mcp.Ser
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "search",
-		Description: "Recursively search a directory for files matching a CEL expression evaluated over file metadata and content-type-specific attributes. Boolean type predicates you can use directly in expr: is_markdown, is_pdf, is_html, is_xml, is_json, is_csv, is_text, is_image, is_audio, is_video, is_office, is_epub, is_archive, is_binary, is_email, is_source. Common scalar attributes: size (int bytes), name, path, dir, ext, content_type, title, author, language, word_count, line_count, page_count. Per-family attributes (image EXIF, audio tags, video codec, frontmatter, archive sizes, binary architectures, email headers, source-LOC) populate when the matching family fires — see list_attributes for the full schema. Built-in functions: levenshtein(a, b), soundex(s), ngrams(s, n), ngram_similarity(a, b, n) for fuzzy / phonetic matching; point_in_polygon(lat, lon, polygon) for GPS-bbox filtering. Example exprs: 'is_markdown && word_count > 500'; 'is_pdf && page_count > 10'; 'is_image && iso > 1600'; 'is_video && video_height >= 2160 && duration > 1800'; 'is_source && language == \"go\" && loc > 200'. Top-K queries: pass sort_by + limit, e.g. {expr:'is_video', sort_by:'duration', order:'desc', limit:5} for the 5 longest videos. Sort keys: size, name, path, mod_time, word_count, line_count, page_count, duration, bitrate, sample_rate, video_height, video_width, frame_rate, iso, focal_length, taken_at, sent_at, year, entry_count, uncompressed_size, loc, attachment_count, email_count. Snippets: pass include_snippet=true to populate match.snippet with the first N lines of body text (text content types only). Exclusions: pass excludes (basename globs like ['node_modules', '.git', '*.bak']) and/or respect_gitignore=true to prune the walk. Repeated searches reuse a per-process attribute cache so unchanged files skip the parse step (see index_stats). Timeouts: every call is bounded by the server's default timeout (set at startup via --timeout, typically 60s); pass timeout_seconds in the input to override (positive = seconds, 0 = no timeout). On timeout the call DOES NOT error — it returns the partial match set with cancelled=true, cancellation_reason set, and elapsed_seconds populated. Always check 'cancelled' before treating the result as exhaustive.",
+		Description: "Recursively search a directory for files matching a CEL expression evaluated over file metadata and content-type-specific attributes. Boolean type predicates you can use directly in expr: is_markdown, is_pdf, is_html, is_xml, is_json, is_csv, is_text, is_image, is_audio, is_video, is_office, is_epub, is_archive, is_binary, is_email, is_source. Common scalar attributes: size (int bytes), name, path, dir, ext, content_type, title, author, language, word_count, line_count, page_count. Per-family attributes (image EXIF, audio tags, video codec, frontmatter, archive sizes, binary architectures, email headers, source-LOC) populate when the matching family fires — see list_attributes for the full schema. Built-in functions: levenshtein(a, b), soundex(s), ngrams(s, n), ngram_similarity(a, b, n) for fuzzy / phonetic matching; point_in_polygon(lat, lon, polygon) for GPS-bbox filtering. Example exprs: 'is_markdown && word_count > 500'; 'is_pdf && page_count > 10'; 'is_image && iso > 1600'; 'is_video && video_height >= 2160 && duration > 1800'; 'is_source && language == \"go\" && loc > 200'. Top-K queries: pass sort_by + limit, e.g. {expr:'is_video', sort_by:'duration', order:'desc', limit:5} for the 5 longest videos. Sort keys: size, name, path, mod_time, word_count, line_count, page_count, duration, bitrate, sample_rate, video_height, video_width, frame_rate, iso, focal_length, taken_at, sent_at, year, entry_count, uncompressed_size, loc, attachment_count, email_count. Snippets: pass include_snippet=true to populate match.snippet with the first N lines of body text (text content types only). Body filters: pass include_body=true to expose the full file body as the CEL 'body' variable, then use built-in string methods to filter: body.contains(\"X\"), body.matches(\"\\\\bX\\\\b\") (RE2 regex). Body reads every candidate file — pair with a tight type predicate (e.g. is_markdown). Exclusions: pass excludes (basename globs like ['node_modules', '.git', '*.bak']) and/or respect_gitignore=true to prune the walk. Repeated searches reuse a per-process attribute cache so unchanged files skip the parse step (see index_stats). Timeouts: every call is bounded by the server's default timeout (set at startup via --timeout, typically 60s); pass timeout_seconds in the input to override (positive = seconds, 0 = no timeout). On timeout the call DOES NOT error — it returns the partial match set with cancelled=true, cancellation_reason set, and elapsed_seconds populated. Always check 'cancelled' before treating the result as exhaustive.",
 	}, h.searchHandler)
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -595,6 +633,11 @@ func New(version string, idx index.Index, defaultTimeout time.Duration) *mcp.Ser
 		Name:        "index_stats",
 		Description: "Return cumulative attribute-cache counters (hits, misses, puts, stales, errors) for the running MCP server. Counters reset on server restart.",
 	}, h.indexStatsHandler)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "stats",
+		Description: "Aggregate content-type counts and total sizes for a directory tree. Quick reconnaissance — 'what is in this folder?' — without retrieving individual file paths. Accepts an optional CEL expr to scope the histogram (e.g. expr='is_markdown' for markdown-only counts). Honours the same excludes / respect_gitignore / timeout_seconds semantics as the search tool, including partial-result returns on cancellation (cancelled / cancellation_reason / elapsed_seconds). Output is a sorted list of {name, count, total_size} buckets plus aggregate totals.",
+	}, h.statsHandler)
 
 	return s
 }
@@ -659,6 +702,8 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 		Index:             h.idx,
 		SnippetLines:      in.SnippetLines,
 		IncludeSnippet:    in.IncludeSnippet,
+		IncludeBody:       in.IncludeBody,
+		BodyMaxBytes:      in.BodyMaxBytes,
 		Excludes:          in.Excludes,
 		RespectGitignore:  in.RespectGitignore,
 		// Sort, Order, Limit are applied via sortAndLimit AFTER we
@@ -770,6 +815,67 @@ func (h *handlers) readAttributesHandler(ctx context.Context, _ *mcp.CallToolReq
 		Size:        attrs.Size,
 		Attrs:       attrs,
 	}), nil
+}
+
+func (h *handlers) statsHandler(ctx context.Context, _ *mcp.CallToolRequest, in StatsInput) (*mcp.CallToolResult, StatsOutput, error) {
+	expr := in.Expr
+	if expr == "" {
+		expr = "true"
+	}
+	dir := in.Dir
+	if dir == "" {
+		dir = "."
+	}
+
+	// Same timeout resolution as searchHandler: per-call > server
+	// default > none. parentCtx separation isn't needed because
+	// ComputeStats itself surfaces cancelled=true via the Stats
+	// struct rather than via the ctx — we just need to apply the
+	// deadline.
+	timeout := h.defaultTimeout
+	if in.TimeoutSeconds != nil {
+		timeout = time.Duration(*in.TimeoutSeconds * float64(time.Second))
+	}
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
+	start := time.Now()
+	stats, err := search.ComputeStats(ctx, search.Options{
+		Root:             dir,
+		Expr:             expr,
+		Workers:          in.Workers,
+		MaxLineBytes:     in.MaxLineBytes,
+		Index:            h.idx,
+		Excludes:         in.Excludes,
+		RespectGitignore: in.RespectGitignore,
+	}, content.DefaultRegistry())
+	elapsed := time.Since(start).Seconds()
+
+	if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		return nil, StatsOutput{}, fmt.Errorf("stats: %w", err)
+	}
+
+	out := StatsOutput{
+		ElapsedSeconds: elapsed,
+	}
+	if stats != nil {
+		out.TotalCount = stats.TotalCount
+		out.TotalSize = stats.TotalSize
+		out.Cancelled = stats.Cancelled
+		out.CancellationReason = stats.CancellationReason
+		out.ContentTypes = make([]StatsContentTypeBucket, len(stats.ContentTypes))
+		for i, b := range stats.ContentTypes {
+			out.ContentTypes[i] = StatsContentTypeBucket{
+				Name:      b.Name,
+				Count:     b.Count,
+				TotalSize: b.TotalSize,
+			}
+		}
+	}
+	return nil, out, nil
 }
 
 func (h *handlers) indexStatsHandler(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, IndexStatsOutput, error) {

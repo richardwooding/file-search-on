@@ -122,6 +122,8 @@ file-search-on --list
 | `--snippet-lines` | Snippet length when `--snippet` is set. | `10` |
 | `--exclude` | Glob pattern matched against the basename of each file/directory; matches are skipped (dirs are pruned). Repeatable. | unset |
 | `--respect-gitignore` | Parse a `.gitignore` at the walk root and skip matching paths. Honours standard gitignore semantics (including `**` and negation). Nested `.gitignore` files in subdirectories are NOT honoured in this version. | off |
+| `--body` | Read each candidate file's full body (text content types only) and expose it to the CEL expression as the `body` string variable. Pair with CEL's built-in `contains` / `matches` / `startsWith` methods for content filtering. Expensive — reads every candidate, not just headers. | off |
+| `--body-max-bytes` | Cap on the body string in bytes. Files larger than the cap are silently truncated; the prefix still participates in the filter. | `0` (1 MiB) |
 
 Each matching file is printed as `<path>\t[<content-type>]\t<size> bytes`. The match count is written to stderr so it doesn't pollute pipelines.
 
@@ -187,6 +189,58 @@ file-search-on 'true' -d . --respect-gitignore
 ```
 
 `--exclude` matches against the basename of each file/dir (`filepath.Match` semantics) — `--exclude node_modules` prunes any directory named `node_modules` anywhere in the tree, and `--exclude '*.bak'` skips backup files. `--respect-gitignore` parses a `.gitignore` at the walk root and honours its patterns (including `**` and negation); only the root file is consulted (no nested `.gitignore` traversal in this version).
+
+### Body-content filters
+
+Most filters are metadata-only (size, content type, frontmatter, EXIF, …). For "find files mentioning X" queries, pass `--body` so the CEL expression sees the file contents as a `body` string variable, and combine with CEL's built-in string methods:
+
+```sh
+# Substring search (cheap)
+file-search-on 'is_markdown && body.contains("transformer")' -d ~/notes --body
+
+# Regex search via CEL's matches operator (RE2 syntax — same as Go's regexp/re2)
+file-search-on 'is_source && body.matches("(?i)\\bTODO\\b")' -d ./src --body
+
+# Combine with sort/limit for "5 biggest source files containing 'panic'"
+file-search-on 'is_source && body.contains("panic")' -d ./src --body --sort size --order desc --limit 5
+```
+
+CEL provides `contains`, `matches`, `startsWith`, `endsWith`, and `size()` as built-in string methods — no custom CEL functions needed. `matches` uses Google's [RE2](https://github.com/google/re2/wiki/Syntax), the same regex engine Go's standard `regexp` package uses.
+
+Caveats:
+- Only text-based content types populate `body` (markdown / text / html / csv / json / xml / source code). Binary families (PDF / image / audio / video / archive / binary / office / epub / email) get empty bodies — `body.contains(...)` on them is always false.
+- `--body` reads every candidate file, not just headers. Pair with a tight type predicate (`is_markdown && body.contains(...)`) so the cheap predicate prunes most files before the expensive read.
+- Bodies are capped at `--body-max-bytes` (default 1 MiB). Files larger than the cap have the prefix participating in the filter; the rest is invisible.
+
+See [examples/body-search.md](./examples/body-search.md) for more recipes.
+
+### Stats — content-type histogram
+
+The `stats` subcommand walks a tree and aggregates a content-type histogram with totals — quick reconnaissance without retrieving every path.
+
+```sh
+# What's in this Downloads folder?
+file-search-on stats -d ~/Downloads
+
+# Markdown-only stats with a CEL filter
+file-search-on stats 'is_markdown && word_count > 500' -d ~/notes
+
+# Excludes + .gitignore work the same as search
+file-search-on stats -d . --exclude node_modules --respect-gitignore -o json
+```
+
+Output (table mode, default):
+
+```
+content_type                   count      total_size
+markdown                          42        1,234,567 B
+image/jpeg                       100      45,000,000 B
+unknown                            5           20,480 B
+---                              ---             ---
+TOTAL                            147      46,255,047 B
+```
+
+`-o json` writes the same data as a single JSON object for piping into `jq`. See [examples/stats.md](./examples/stats.md) for recipes; the MCP `stats` tool exposes the same shape.
 
 ### Timeouts and partial results
 
@@ -259,6 +313,8 @@ Focused recipe collections live under [`examples/`](./examples/):
 | [`examples/top-k.md`](./examples/top-k.md) | Top-K queries — `--sort` + `--limit` for "biggest 5 videos", "10 most recent photos", etc. |
 | [`examples/snippets.md`](./examples/snippets.md) | Body previews — `--snippet` returns the first N lines of text files alongside metadata |
 | [`examples/exclude.md`](./examples/exclude.md) | Pruning the walk — `--exclude` basename globs and `--respect-gitignore` |
+| [`examples/body-search.md`](./examples/body-search.md) | Content filters — `--body` exposes file body to CEL; pair with `contains` / `matches` (RE2) / `startsWith` |
+| [`examples/stats.md`](./examples/stats.md) | Directory reconnaissance — `file-search-on stats` aggregates a content-type histogram with totals |
 
 A handful of representative one-liners:
 
@@ -313,6 +369,7 @@ Run `file-search-on --list` for the canonical, up-to-date listing. The summary t
 | Attribute | Type | Source |
 | --- | --- | --- |
 | `title` | string | Markdown front-matter / H1; HTML `<title>`; PDF `/Info`; EPUB `<dc:title>`; office `<dc:title>`; audio tags |
+| `body` | string | Full file body for text content types (markdown / text / html / csv / json / xml / source/*). Populated only when `--body` (CLI) or `include_body` (MCP) is set; capped at `--body-max-bytes` (default 1 MiB). Combine with CEL string methods: `body.contains("X")`, `body.matches("...")` (RE2 regex), `body.startsWith("...")`. |
 | `author` | string | Markdown front-matter, PDF `/Info`, EPUB / office `<dc:creator>` |
 | `language` | string | EPUB / office `<dc:language>`; HTML `<html lang>`; markdown front-matter; PDF `/Lang` (XMP fallback) |
 | `word_count` | int | Markdown body, plain text |
@@ -544,8 +601,9 @@ Four tools are exposed:
 
 | Tool | Input | Output |
 | --- | --- | --- |
-| `search` | `expr`, `dir`, `workers`, `max_line_bytes`, `timeout_seconds`, `sort_by`, `order`, `limit`, `include_snippet`, `snippet_lines`, `excludes`, `respect_gitignore` | `matches[]` (full attribute set per match — includes `snippet` when requested), `count`, `cancelled`, `cancellation_reason`, `elapsed_seconds` |
+| `search` | `expr`, `dir`, `workers`, `max_line_bytes`, `timeout_seconds`, `sort_by`, `order`, `limit`, `include_snippet`, `snippet_lines`, `include_body`, `body_max_bytes`, `excludes`, `respect_gitignore` | `matches[]` (full attribute set per match — includes `snippet` when requested), `count`, `cancelled`, `cancellation_reason`, `elapsed_seconds` |
 | `read_attributes` | `path` | A single match — same shape as one `matches[]` entry from `search`. Use when the agent already has the path and wants metadata without walking. |
+| `stats` | `expr` (optional CEL scope), `dir`, `workers`, `max_line_bytes`, `timeout_seconds`, `excludes`, `respect_gitignore` | `total_count`, `total_size`, `content_types[]` (each `{name, count, total_size}`), `cancelled`, `cancellation_reason`, `elapsed_seconds`. Reconnaissance histogram without retrieving paths. |
 | `list_attributes` | none | `schema` (common, type_specific, frontmatter, functions) and `content_types[]` |
 | `index_stats` | none | Cumulative cache counters for the running server: `hits`, `misses`, `puts`, `stales`, `errors`. Counters reset on server restart. |
 
