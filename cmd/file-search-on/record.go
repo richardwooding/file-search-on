@@ -200,13 +200,13 @@ func recordFrom(r search.Result) Record {
 	if v, ok := a.Extra["root_element"].(string); ok {
 		rec.RootElement = v
 	}
-	if v, ok := a.Extra["kind"].(string); ok {
+	if v, ok := a.Extra["json_kind"].(string); ok {
 		rec.JSONKind = v
 	}
-	if v, ok := a.Extra["width"].(int64); ok {
+	if v, ok := a.Extra["img_width"].(int64); ok {
 		rec.ImgWidth = v
 	}
-	if v, ok := a.Extra["height"].(int64); ok {
+	if v, ok := a.Extra["img_height"].(int64); ok {
 		rec.ImgHeight = v
 	}
 	if v, ok := a.Extra["camera_make"].(string); ok {

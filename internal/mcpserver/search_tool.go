@@ -217,13 +217,13 @@ func matchFrom(r search.Result) SearchMatch {
 	if v, ok := a.Extra["root_element"].(string); ok {
 		m.RootElement = v
 	}
-	if v, ok := a.Extra["kind"].(string); ok {
+	if v, ok := a.Extra["json_kind"].(string); ok {
 		m.JSONKind = v
 	}
-	if v, ok := a.Extra["width"].(int64); ok {
+	if v, ok := a.Extra["img_width"].(int64); ok {
 		m.ImgWidth = v
 	}
-	if v, ok := a.Extra["height"].(int64); ok {
+	if v, ok := a.Extra["img_height"].(int64); ok {
 		m.ImgHeight = v
 	}
 	if v, ok := a.Extra["camera_make"].(string); ok {
