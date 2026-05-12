@@ -25,6 +25,25 @@ type handlers struct {
 	defaultTimeout time.Duration
 }
 
+// resolveTimeout returns a child ctx bounded by the effective per-call
+// timeout, plus a cancel func the caller must defer. Precedence:
+// timeoutSeconds (positive) > h.defaultTimeout (positive) > none.
+// Passing &v with v <= 0 disables the timeout for this call (the
+// parent ctx still applies). Tools without a per-call override (e.g.
+// read_attributes, read_lines) pass nil to fall through to the server
+// default. When the resolved timeout is <= 0 the original ctx and a
+// no-op cancel are returned.
+func (h *handlers) resolveTimeout(ctx context.Context, timeoutSeconds *float64) (context.Context, context.CancelFunc) {
+	timeout := h.defaultTimeout
+	if timeoutSeconds != nil {
+		timeout = time.Duration(*timeoutSeconds * float64(time.Second))
+	}
+	if timeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
 // serverInstructions is the text sent to MCP clients during initialize
 // (via ServerOptions.Instructions). Clients like Claude Code surface
 // this as system context, so the agent knows the predicate vocabulary

@@ -466,22 +466,13 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 		dir = "."
 	}
 
-	// Resolve the effective timeout: per-call override > server default.
-	// A nil pointer inherits the default; an explicit 0 means "no
-	// timeout for this call" (the parent ctx still applies). We track
-	// the parent ctx separately so we can distinguish a server-level
-	// cancellation (transport close, parent ctx) from our own
-	// timeout firing.
+	// parentCtx is captured before the timeout wrap so we can later
+	// distinguish a server-level cancellation (transport close, parent
+	// ctx) from our own timeout firing.
 	parentCtx := ctx
-	timeout := h.defaultTimeout
-	if in.TimeoutSeconds != nil {
-		timeout = time.Duration(*in.TimeoutSeconds * float64(time.Second))
-	}
-	if timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
-	}
+	var cancel context.CancelFunc
+	ctx, cancel = h.resolveTimeout(ctx, in.TimeoutSeconds)
+	defer cancel()
 
 	start := time.Now()
 
