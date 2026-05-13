@@ -58,8 +58,9 @@ var CLI struct {
 	Stats      StatsCmd         `cmd:"" name:"stats" help:"Aggregate content-type counts and total sizes for a directory tree."`
 	Lines      LinesCmd         `cmd:"" name:"lines" help:"Print a range of lines from a single file (no walk, no CEL)."`
 	Duplicates DuplicatesCmd    `cmd:"" name:"duplicates" help:"Find groups of byte-identical files by sha256 hash."`
-	Detect     DetectProjectCmd `cmd:"" name:"detect-project" help:"Identify project type(s) (go / node / rust / …) for a directory by checking canonical indicator files."`
-	Projects   FindProjectsCmd  `cmd:"" name:"find-projects" help:"Walk a root and list every project subdirectory under it."`
+	Detect      DetectProjectCmd `cmd:"" name:"detect-project" help:"Identify project type(s) (go / node / rust / …) for a directory by checking canonical indicator files."`
+	Projects    FindProjectsCmd  `cmd:"" name:"find-projects" help:"Walk a root and list every project subdirectory under it."`
+	ConfigPaths ConfigPathsCmd   `cmd:"" name:"config-paths" help:"Print the project-type config search paths for this platform. Use to discover where to drop your user-wide config (mkdir -p \"$(file-search-on config-paths -o bare | head -1 | xargs dirname)\")."`
 	MCP        MCPCmd           `cmd:"" name:"mcp" help:"Run as a Model Context Protocol server (stdio, http, or sse)."`
 	Version    kong.VersionFlag `short:"V" help:"Print version and exit."`
 }
@@ -307,6 +308,31 @@ func (d *DuplicatesCmd) Run(ctx context.Context) error {
 			fmt.Fprintf(os.Stderr, "duplicates timed out after %s; results above may be incomplete\n", d.Timeout)
 			return &exitCodeError{code: 124, msg: "timeout"}
 		}
+	}
+	return nil
+}
+
+// ConfigPathsCmd prints the project-type config search paths for
+// the current platform. Pairs with PR #101's auto-discovery — users
+// can run this to find out where to drop a ~/Library/Application
+// Support/file-search-on/project-types.yaml (macOS) /
+// ~/.config/file-search-on/project-types.yaml (Linux) / %AppData%
+// equivalent without remembering platform conventions.
+type ConfigPathsCmd struct {
+	Output string `short:"o" name:"output" enum:"default,bare,json" default:"default" help:"Output format: default (path + scope + existence marker), bare (one path per line — shell-friendly), or json."`
+}
+
+func (c *ConfigPathsCmd) Run(_ context.Context) error {
+	entries := projecttype.DiscoveryEntries()
+	switch c.Output {
+	case "bare":
+		for _, e := range entries {
+			fpn(os.Stdout, e.Path)
+		}
+	case "json":
+		return printConfigPathsJSON(os.Stdout, entries)
+	default:
+		printConfigPaths(os.Stdout, entries)
 	}
 	return nil
 }

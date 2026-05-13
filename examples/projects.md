@@ -130,6 +130,16 @@ Two locations are searched, in this load order (later layers register on top of 
 
 Both are optional; missing files are silently skipped. Pass `--no-config-search` to disable auto-discovery for hermetic invocations (tests, CI).
 
+**Find your platform's paths** without remembering conventions:
+
+```sh
+$ file-search-on config-paths
+* user-wide     /Users/me/Library/Application Support/file-search-on/project-types.yaml
+  per-project   /Users/me/Code/foo/.file-search-on/project-types.yaml
+```
+
+`*` marks paths whose file exists; ` ` marks missing. `-o bare` prints paths only (shell-friendly: `mkdir -p "$(file-search-on config-paths -o bare | head -1 | xargs dirname)"`); `-o json` for tooling.
+
 ### CEL vocabulary
 
 CEL expressions evaluate against two list-of-string variables: `files` (basenames of files in the inspected dir) and `subdirs` (basenames of immediate subdirectories).

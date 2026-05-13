@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"text/template"
 
@@ -387,6 +388,39 @@ func printDuplicatesJSON(w io.Writer, d *search.Duplicates) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(d)
+}
+
+// printConfigPaths renders the project-type config search paths as
+// a human-readable table. Each entry shows existence (`*` for
+// present, ` ` for missing) so users can see whether their config
+// is in the right place at a glance.
+func printConfigPaths(w io.Writer, entries []projecttype.DiscoveryEntry) {
+	for _, e := range entries {
+		marker := " "
+		if _, err := os.Stat(e.Path); err == nil {
+			marker = "*"
+		}
+		fp(w, "%s %-12s  %s\n", marker, e.Scope, e.Path)
+	}
+	if len(entries) == 0 {
+		fp(w, "(no discovery paths resolvable on this platform)\n")
+	}
+}
+
+func printConfigPathsJSON(w io.Writer, entries []projecttype.DiscoveryEntry) error {
+	type entryJSON struct {
+		Scope  string `json:"scope"`
+		Path   string `json:"path"`
+		Exists bool   `json:"exists"`
+	}
+	out := make([]entryJSON, len(entries))
+	for i, e := range entries {
+		_, err := os.Stat(e.Path)
+		out[i] = entryJSON{Scope: e.Scope, Path: e.Path, Exists: err == nil}
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(out)
 }
 
 // printDetectProject renders one directory's project-type matches as
