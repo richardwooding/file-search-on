@@ -201,9 +201,38 @@ file-search-on 'size(project_types) > 1' --resolve-projects -d ~/Code
 
 Why opt-in? Resolution does extra I/O (one ReadDir per unique directory walked, cached). Tight CEL filters that don't reference project context shouldn't pay the cost.
 
+## Auto-prune build artefacts
+
+Pass `--prune-build-artefacts` (CLI) / `prune_build_artefacts: true` (MCP) on `search` to pre-walk the tree, identify every project root, and union the canonical build-artefact basenames from each detected project type into the basename excluder. Saves the boilerplate `--exclude node_modules --exclude vendor --exclude target …` list when searching monorepos.
+
+| Project type | Pruned basenames |
+|---|---|
+| `go` | `vendor` |
+| `node` | `node_modules` |
+| `rust` | `target` |
+| `python` | `__pycache__`, `.venv`, `venv`, `.tox`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache` |
+| `ruby` | `.bundle` |
+| `java-maven` | `target` |
+| `java-gradle` | `build`, `.gradle` |
+| `dotnet` | `bin`, `obj` |
+| `terraform` | `.terraform` |
+
+```sh
+# Walk a Code/ directory full of Go/Node/Rust/Python projects without
+# grovelling through node_modules / vendor / target / __pycache__.
+file-search-on 'is_source && body.contains("TODO")' --body \
+    --prune-build-artefacts -d ~/Code
+
+# Combine with --exclude — both lists union.
+file-search-on 'is_source' -d ~/Code \
+    --prune-build-artefacts --exclude generated --exclude .git
+```
+
+`--prune-build-artefacts` is unioned with the user's `--exclude`. The pre-walk cost is proportional to the tree size (one stat per directory looking for indicator files); for a 1000-project monorepo expect ~100 ms of pre-walk on warm caches. Use `--respect-gitignore` instead if all the artefact dirs are already listed in `.gitignore`.
+
 ## Out of scope (further follow-ups)
 
 - **Project attributes** beyond names — `primary_language`, `package_manager`, `language_version`, etc. per detected project.
 - **CEL helper functions** specific to directory context (`glob`, `has_file`, `has_subdir`) — covered by stdlib `exists` + string ops for MVP.
-- **Project-root-aware excludes** — auto-pruning `vendor/`, `node_modules/`, `target/` based on detected project type ([#99](https://github.com/richardwooding/file-search-on/issues/99)).
 - **Per-project walk-up discovery** — currently `./.file-search-on/project-types.yaml` is consulted only in CWD; a git-style walk-up to the nearest ancestor would help monorepo setups.
+- **YAML `build_excludes` for custom project types** — a user-defined CEL-driven project type can't declare its own excludes yet. Only built-in types contribute today.

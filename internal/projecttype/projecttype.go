@@ -40,6 +40,15 @@ type ProjectType struct {
 	// debuggability).
 	Indicators []Indicator
 
+	// BuildExcludes is the list of canonical build-artefact
+	// basenames typically present in this kind of project (e.g.
+	// "vendor" for Go, "node_modules" for Node, "target" for Rust).
+	// The walker unions these into its excludes when
+	// search.Options.PruneBuildArtefacts is set, so a search over a
+	// monorepo doesn't grovel through dependency caches by default.
+	// Empty for project types that have no canonical artefact dir.
+	BuildExcludes []string
+
 	// compiled holds the cel.Program for each Indicator that uses
 	// CELExpr. Same length as Indicators when set; nil entries for
 	// HasFile / HasGlob indicators. Built by Register() so the

@@ -2,21 +2,24 @@ package projecttype
 
 func init() {
 	Register(&ProjectType{
-		Name:        "go",
-		Description: "Go module (go.mod)",
-		Indicators:  []Indicator{{HasFile: "go.mod"}},
+		Name:          "go",
+		Description:   "Go module (go.mod)",
+		Indicators:    []Indicator{{HasFile: "go.mod"}},
+		BuildExcludes: []string{"vendor"},
 	})
 
 	Register(&ProjectType{
-		Name:        "node",
-		Description: "Node.js / npm / yarn / pnpm (package.json)",
-		Indicators:  []Indicator{{HasFile: "package.json"}},
+		Name:          "node",
+		Description:   "Node.js / npm / yarn / pnpm (package.json)",
+		Indicators:    []Indicator{{HasFile: "package.json"}},
+		BuildExcludes: []string{"node_modules"},
 	})
 
 	Register(&ProjectType{
-		Name:        "rust",
-		Description: "Rust crate (Cargo.toml)",
-		Indicators:  []Indicator{{HasFile: "Cargo.toml"}},
+		Name:          "rust",
+		Description:   "Rust crate (Cargo.toml)",
+		Indicators:    []Indicator{{HasFile: "Cargo.toml"}},
+		BuildExcludes: []string{"target"},
 	})
 
 	Register(&ProjectType{
@@ -29,18 +32,21 @@ func init() {
 			{HasFile: "setup.py"},
 			{HasFile: "setup.cfg"},
 		},
+		BuildExcludes: []string{"__pycache__", ".venv", "venv", ".tox", ".pytest_cache", ".mypy_cache", ".ruff_cache"},
 	})
 
 	Register(&ProjectType{
-		Name:        "ruby",
-		Description: "Ruby Bundler project (Gemfile)",
-		Indicators:  []Indicator{{HasFile: "Gemfile"}},
+		Name:          "ruby",
+		Description:   "Ruby Bundler project (Gemfile)",
+		Indicators:    []Indicator{{HasFile: "Gemfile"}},
+		BuildExcludes: []string{".bundle"},
 	})
 
 	Register(&ProjectType{
-		Name:        "java-maven",
-		Description: "Java Maven project (pom.xml)",
-		Indicators:  []Indicator{{HasFile: "pom.xml"}},
+		Name:          "java-maven",
+		Description:   "Java Maven project (pom.xml)",
+		Indicators:    []Indicator{{HasFile: "pom.xml"}},
+		BuildExcludes: []string{"target"},
 	})
 
 	Register(&ProjectType{
@@ -52,6 +58,7 @@ func init() {
 			{HasFile: "settings.gradle"},
 			{HasFile: "settings.gradle.kts"},
 		},
+		BuildExcludes: []string{"build", ".gradle"},
 	})
 
 	Register(&ProjectType{
@@ -63,12 +70,14 @@ func init() {
 			{HasGlob: "*.vbproj"},
 			{HasGlob: "*.sln"},
 		},
+		BuildExcludes: []string{"bin", "obj"},
 	})
 
 	Register(&ProjectType{
-		Name:        "terraform",
-		Description: "Terraform / OpenTofu (*.tf)",
-		Indicators:  []Indicator{{HasGlob: "*.tf"}},
+		Name:          "terraform",
+		Description:   "Terraform / OpenTofu (*.tf)",
+		Indicators:    []Indicator{{HasGlob: "*.tf"}},
+		BuildExcludes: []string{".terraform"},
 	})
 
 	Register(&ProjectType{
@@ -80,5 +89,6 @@ func init() {
 			{HasFile: "compose.yml"},
 			{HasFile: "compose.yaml"},
 		},
+		// docker-compose stacks don't have a canonical artefact dir.
 	})
 }

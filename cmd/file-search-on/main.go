@@ -447,6 +447,7 @@ type SearchCmd struct {
 	Exclude          []string      `name:"exclude" help:"Glob pattern matched against the basename of each file/directory; matches are skipped (directories are pruned). Repeatable: --exclude node_modules --exclude '*.bak'."`
 	RespectGitignore bool          `name:"respect-gitignore" help:"Parse a .gitignore at the walk root (if present) and skip matching paths. Nested .gitignore files in subdirectories are NOT honoured in this version."`
 	ResolveProjects  bool          `name:"resolve-projects" help:"Populate the 'project_types' (list<string>) and 'project_type' (string) CEL variables for each match by resolving the file's containing project root (go.mod, package.json, Cargo.toml, …). Enables filters like 'is_source && project_type == \"go\"'. Adds one ReadDir per unique directory walked (cached) — opt-in to avoid the cost when not needed."`
+	PruneArtefacts   bool          `name:"prune-build-artefacts" help:"Pre-walk the tree to find project roots and union their canonical build-artefact basenames (vendor for Go, node_modules for Node, target for Rust, __pycache__/.venv for Python, bin/obj for .NET, .terraform for Terraform, …) into --exclude. Saves the boilerplate exclude list when searching monorepos or ~/Code. Opt-in: pre-walk costs I/O proportional to tree size."`
 }
 
 func (s *SearchCmd) Run(ctx context.Context) error {
@@ -517,9 +518,10 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		SnippetLines:      s.SnippetLines,
 		IncludeBody:       s.Body,
 		BodyMaxBytes:      s.BodyMaxBytes,
-		Excludes:          s.Exclude,
-		RespectGitignore:  s.RespectGitignore,
-		ResolveProjects:   s.ResolveProjects,
+		Excludes:            s.Exclude,
+		RespectGitignore:    s.RespectGitignore,
+		ResolveProjects:     s.ResolveProjects,
+		PruneBuildArtefacts: s.PruneArtefacts,
 	}
 
 	// --sort and --limit both need the full result set in memory
