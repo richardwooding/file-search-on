@@ -51,7 +51,8 @@ var (
 )
 
 var CLI struct {
-	ProjectTypeConfig string           `name:"project-type-config" help:"Path to a YAML config registering custom project types (CEL-driven or file-based indicators). Loaded before any subcommand runs; the new types appear alongside built-ins in detect-project / find-projects / search results."`
+	ProjectTypeConfig string           `name:"project-type-config" help:"Path to a YAML config registering custom project types (CEL-driven or file-based indicators). Loaded LAST, after any auto-discovered configs. Loaded before any subcommand runs; the new types appear alongside built-ins in detect-project / find-projects / search results."`
+	NoConfigSearch    bool             `name:"no-config-search" help:"Skip automatic discovery of project-type configs at the standard search paths (user-wide UserConfigDir()/file-search-on/project-types.yaml and per-project ./.file-search-on/project-types.yaml). Use for hermetic invocations (tests, CI) where only the explicit --project-type-config should apply."`
 	Search     SearchCmd        `cmd:"" help:"Search for files matching a CEL expression." default:"withargs"`
 	Attrs      AttrsCmd         `cmd:"" name:"attrs" help:"Print attributes for a single file (no walk, no CEL)."`
 	Stats      StatsCmd         `cmd:"" name:"stats" help:"Aggregate content-type counts and total sizes for a directory tree."`
@@ -718,7 +719,17 @@ func main() {
 	// Load custom project types before the subcommand runs so they
 	// appear in every project-aware surface (detect-project,
 	// find-projects, --resolve-projects search, MCP tools when the
-	// mcp subcommand wires the same path).
+	// mcp subcommand wires the same path). Precedence (later layers
+	// register on top of earlier):
+	//   1. Auto-discovered configs from standard paths (gated by
+	//      --no-config-search; default on).
+	//   2. Explicit --project-type-config path.
+	if !CLI.NoConfigSearch {
+		if _, err := projecttype.LoadDiscovered(); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			os.Exit(1)
+		}
+	}
 	if CLI.ProjectTypeConfig != "" {
 		if _, err := projecttype.LoadFromFile(CLI.ProjectTypeConfig); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
