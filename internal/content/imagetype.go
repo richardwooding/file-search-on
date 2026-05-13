@@ -10,7 +10,7 @@ import (
 	"io/fs"
 
 	"github.com/evanoberholster/imagemeta"
-	"github.com/evanoberholster/imagemeta/exif2"
+	"github.com/evanoberholster/imagemeta/meta/exif"
 )
 
 func init() {
@@ -87,34 +87,33 @@ func supportsEXIF(name string) bool {
 
 // populateEXIF copies the curated set of EXIF fields onto attrs. Zero-value
 // fields are left out so callers see "absent" rather than "unset" defaults.
-func populateEXIF(attrs Attributes, e exif2.Exif) {
-	if e.ImageWidth > 0 {
-		attrs["img_width"] = int64(e.ImageWidth)
+//
+// imagemeta v1.0.0 splits the flat exif2.Exif into nested IFD0 / ExifIFD / GPS
+// sub-structs (see meta/exif/model.go); the field mapping below preserves the
+// v0.3.1 attribute set against the new shape.
+func populateEXIF(attrs Attributes, e exif.Exif) {
+	if e.IFD0.ImageWidth > 0 {
+		attrs["img_width"] = int64(e.IFD0.ImageWidth)
 	}
-	if e.ImageHeight > 0 {
-		attrs["img_height"] = int64(e.ImageHeight)
+	if e.IFD0.ImageHeight > 0 {
+		attrs["img_height"] = int64(e.IFD0.ImageHeight)
 	}
-	if e.Make != "" {
-		attrs["camera_make"] = e.Make
+	if e.IFD0.Make != "" {
+		attrs["camera_make"] = e.IFD0.Make
 	}
-	if e.Model != "" {
-		attrs["camera_model"] = e.Model
+	if e.IFD0.Model != "" {
+		attrs["camera_model"] = e.IFD0.Model
 	}
-	if e.LensModel != "" {
-		attrs["lens"] = e.LensModel
+	if e.ExifIFD.LensModel != "" {
+		attrs["lens"] = e.ExifIFD.LensModel
 	}
-	// Prefer DateTimeOriginal (capture time); fall back to CreateDate, then
-	// ModifyDate. Real photos usually set all three identically; scanned or
-	// edited images may carry only ModifyDate.
-	if t := e.DateTimeOriginal(); !t.IsZero() {
+	// SelectedDate prefers DateTimeOriginal, then CreateDate, then ModifyDate
+	// — same precedence as the v0.3.1 manual fallback.
+	if t := e.SelectedDate(); !t.IsZero() {
 		attrs["taken_at"] = t
-	} else if t := e.CreateDate(); !t.IsZero() {
-		attrs["taken_at"] = t
-	} else if t := e.ModifyDate(); !t.IsZero() {
-		attrs["taken_at"] = t
 	}
-	if e.Orientation > 0 {
-		attrs["orientation"] = int64(e.Orientation)
+	if e.IFD0.Orientation > 0 {
+		attrs["orientation"] = int64(e.IFD0.Orientation)
 	}
 	if lat := e.GPS.Latitude(); lat != 0 {
 		attrs["gps_lat"] = lat
@@ -122,18 +121,16 @@ func populateEXIF(attrs Attributes, e exif2.Exif) {
 	if lon := e.GPS.Longitude(); lon != 0 {
 		attrs["gps_lon"] = lon
 	}
-	if e.ISOSpeed > 0 {
-		attrs["iso"] = int64(e.ISOSpeed)
-	} else if e.ISO > 0 {
-		attrs["iso"] = int64(e.ISO)
+	if e.ExifIFD.ISOSpeedRatings > 0 {
+		attrs["iso"] = int64(e.ExifIFD.ISOSpeedRatings)
 	}
-	if e.FocalLength > 0 {
-		attrs["focal_length"] = float64(e.FocalLength)
+	if e.ExifIFD.FocalLength > 0 {
+		attrs["focal_length"] = float64(e.ExifIFD.FocalLength)
 	}
-	if e.FNumber > 0 {
-		attrs["f_stop"] = float64(e.FNumber)
+	if e.ExifIFD.FNumber > 0 {
+		attrs["f_stop"] = float64(e.ExifIFD.FNumber)
 	}
-	if e.ExposureTime > 0 {
-		attrs["exposure_time"] = float64(e.ExposureTime)
+	if e.ExifIFD.ExposureTime > 0 {
+		attrs["exposure_time"] = float64(e.ExifIFD.ExposureTime)
 	}
 }
