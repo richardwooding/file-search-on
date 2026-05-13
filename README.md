@@ -362,20 +362,20 @@ Built on [`github.com/modelcontextprotocol/go-sdk`](https://github.com/modelcont
 
 ## Contributing
 
-The project is small enough to read in an afternoon and welcoming to first-time contributors. A few places to start:
+The project is small enough to read in an afternoon and welcoming to first-time contributors. See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup, branch/commit conventions, the local CI matrix, and PR expectations. A few quick entry points:
 
 - Open issues filtered by [`good first issue`](https://github.com/richardwooding/file-search-on/labels/good%20first%20issue), [`help wanted`](https://github.com/richardwooding/file-search-on/labels/help%20wanted), [`enhancement`](https://github.com/richardwooding/file-search-on/labels/enhancement).
-- New content type or CEL function? [CLAUDE.md](./CLAUDE.md) has step-by-step recipes for both — search the file for "Adding a new content type" and "Adding a CEL function".
-- Bug reports and feature requests are appreciated whether or not you have a fix in mind. No PR template gating; describe what you want and we'll figure it out together.
+- New content type or CEL function? [CLAUDE.md](./CLAUDE.md) has step-by-step recipes — search for "Adding a new content type" and "Adding a CEL function".
+- Security issue? Please don't open a public issue — see [SECURITY.md](./SECURITY.md) for the private reporting channel.
 
-### Local development
+Local CI matrix:
 
 ```sh
 go build ./...
 go test -race ./...
 go vet ./...
 golangci-lint run
-go fix -diff ./...   # preview Go 1.26 modernizer suggestions (CI enforces empty diff)
+go fix -diff ./...   # CI enforces empty diff
 ```
 
 That's the whole CI matrix locally. Tests run in under 10 seconds; the race detector is on by default.
@@ -384,18 +384,7 @@ That's the whole CI matrix locally. Tests run in under 10 seconds; the race dete
 
 [CLAUDE.md](./CLAUDE.md) is the canonical architecture map — five internal packages, the CEL evaluator's data shape, the walker's cancellation contract, the MCP server's tool surface, the release pipeline, and where every gotcha is documented. Written for both human and LLM contributors; either audience should find it readable.
 
-### Skills (templated recipes)
-
-The repo ships with [`.claude/skills/`](./.claude/skills/) — step-by-step templates for the repetitive contributions: adding a content type, extending the CEL schema, adding an MCP tool, cutting a release. Useful whether you're working solo or pairing with an LLM agent.
-
-### Fuzz testing
-
-High-risk parsers (frontmatter, MP3, MKV, MP4, CEL compile, gob decoder) have native [Go fuzz targets](https://go.dev/doc/security/fuzz). Seed corpora run on every CI build; a scheduled workflow runs each target for 5 minutes nightly to find new failures. Crashes get committed back to `testdata/fuzz/` as regression coverage. Run locally:
-
-```sh
-go test -run=FuzzSplitFrontmatter ./internal/content/                # seed corpus only (fast)
-go test -fuzz=FuzzSplitFrontmatter -fuzztime=30s ./internal/content/ # mutate for 30 seconds
-```
+The repo also ships with [`.claude/skills/`](./.claude/skills/) — step-by-step templates for the repetitive contributions: adding a content type, extending the CEL schema, adding an MCP tool, cutting a release. Useful whether you're working solo or pairing with an LLM agent.
 
 ### Releases
 

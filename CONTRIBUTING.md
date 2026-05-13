@@ -2,7 +2,7 @@
 
 Thanks for considering a contribution! The project is small enough to read in an afternoon and welcoming to first-time contributors. This document covers how to set up the project, the conventions for branches and commits, and how PRs get reviewed.
 
-By participating, you agree to abide by the [Code of Conduct](CODE_OF_CONDUCT.md).
+Be respectful, assume good intent, and help others learn. Disagreements about technical direction are healthy — disrespect isn't.
 
 ## Reporting bugs
 
