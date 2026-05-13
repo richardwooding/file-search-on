@@ -27,25 +27,47 @@ const ConfigDirName = "file-search-on"
 // directory only — git-style ancestor walk-up is a follow-up.
 const PerProjectDirName = ".file-search-on"
 
-// DiscoveryPaths returns the project-type config paths to search,
-// in load order (later layers register on top of earlier ones).
-//
-//  1. User-wide: os.UserConfigDir() / file-search-on / project-types.yaml
-//  2. Per-project (CWD only): ./.file-search-on/project-types.yaml
-//
-// Both are optional. Missing files are skipped silently by
-// LoadDiscovered. Paths whose anchor can't be resolved
-// (UserConfigDir unset, Getwd fails) are omitted entirely so the
-// caller never sees an empty / suspicious entry.
-func DiscoveryPaths() []string {
-	var paths []string
+// DiscoveryEntry annotates a single discovery path with its scope
+// ("user-wide" or "per-project") so consumers can label / order
+// without re-deriving the meaning from the path itself.
+type DiscoveryEntry struct {
+	Scope string // "user-wide" | "per-project"
+	Path  string
+}
+
+// DiscoveryEntries returns the project-type config search locations
+// in load order (later layers register on top of earlier), each
+// annotated with its scope. Paths whose anchor can't be resolved
+// (UserConfigDir unset, Getwd fails) are omitted so the caller
+// never sees an empty / suspicious entry.
+func DiscoveryEntries() []DiscoveryEntry {
+	var out []DiscoveryEntry
 	if cfgDir, err := os.UserConfigDir(); err == nil {
-		paths = append(paths, filepath.Join(cfgDir, ConfigDirName, ConfigFileName))
+		out = append(out, DiscoveryEntry{
+			Scope: "user-wide",
+			Path:  filepath.Join(cfgDir, ConfigDirName, ConfigFileName),
+		})
 	}
 	if cwd, err := os.Getwd(); err == nil {
-		paths = append(paths, filepath.Join(cwd, PerProjectDirName, ConfigFileName))
+		out = append(out, DiscoveryEntry{
+			Scope: "per-project",
+			Path:  filepath.Join(cwd, PerProjectDirName, ConfigFileName),
+		})
 	}
-	return paths
+	return out
+}
+
+// DiscoveryPaths is the legacy plain-paths shortcut over
+// DiscoveryEntries — kept because LoadDiscovered (and external
+// callers) only need the path strings. New code that wants scope
+// labels should call DiscoveryEntries directly.
+func DiscoveryPaths() []string {
+	entries := DiscoveryEntries()
+	out := make([]string, len(entries))
+	for i, e := range entries {
+		out[i] = e.Path
+	}
+	return out
 }
 
 // LoadDiscovered loads every project-type config found via
