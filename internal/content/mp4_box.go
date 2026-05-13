@@ -58,7 +58,11 @@ func walkBoxes(r io.ReadSeeker, start, end int64, path []string, cb func(end int
 			return err
 		}
 		next := pos + size
-		if size == 0 {
+		if size == 0 || next > end {
+			// size==0 means "extends to EOF" (per ISO/IEC 14496-12);
+			// next > end means an adversarial header claims a box
+			// larger than the parent — clamp so child walkers see
+			// the real bound, not the pretend one.
 			next = end
 		}
 		if len(path) > 0 && name == path[0] {
@@ -96,7 +100,7 @@ func descendBoxes(r io.ReadSeeker, end int64, path []string, cb func(end int64) 
 			return err
 		}
 		next := cur + size
-		if size == 0 {
+		if size == 0 || next > end {
 			next = end
 		}
 		if name == path[0] {

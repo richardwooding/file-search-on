@@ -89,6 +89,15 @@ func videoScanMOOV(r io.ReadSeeker, end int64, info *videoInfo) error {
 			contentLen = end - pos - 8
 		}
 		next := pos + size
+		// Mirror the walker primitive's clamp: size==0 means
+		// "box extends to EOF"; an adversarial input with size
+		// crafted to 0 would otherwise pin `next` to `pos` and
+		// loop forever. Also clamp pretend-huge sizes (e.g.
+		// claimed 808 MiB on a 16-byte file) to `end` so the
+		// `pos >= end` exit condition still fires.
+		if size == 0 || next > end {
+			next = end
+		}
 		switch name {
 		case "mvhd":
 			if err := readVideoMVHD(r, contentLen, info); err != nil {
@@ -151,6 +160,9 @@ func videoScanTRAK(r io.ReadSeeker, trakStart, trakEnd int64, info *videoInfo) e
 			return err
 		}
 		next := pos + size
+		if size == 0 || next > mdiaEnd {
+			next = mdiaEnd
+		}
 		switch name {
 		case "hdlr":
 			// 1 version + 3 flags + 4 pre_defined + 4 handler_type + ...
@@ -200,6 +212,9 @@ func videoScanTRAK(r io.ReadSeeker, trakStart, trakEnd int64, info *videoInfo) e
 				return err
 			}
 			next := pos + size
+			if size == 0 || next > stblEnd {
+				next = stblEnd
+			}
 			switch name {
 			case "stsd":
 				if err := readVideoSTSD(r, next, trackType, info); err != nil {
@@ -248,6 +263,9 @@ func readMP4Tkhd(r io.ReadSeeker, trakStart, trakEnd int64) int64 {
 			return 0
 		}
 		next := pos + size
+		if size == 0 || next > trakEnd {
+			next = trakEnd
+		}
 		if name == "tkhd" {
 			rotation = decodeTkhdRotation(r, contentLen)
 		}
