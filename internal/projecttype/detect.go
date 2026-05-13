@@ -14,17 +14,12 @@ import (
 // (e.g. a Go module with a docker-compose.yml). Returns an empty
 // slice when no project type fires.
 //
-// Reads the directory's listing once (non-recursive); indicators run
-// against basenames only. fsys is the filesystem rooted at the
-// parent of dir — typically os.DirFS(parentOf(dir)) with dir as the
-// last path segment, but Detect also accepts fsys=os.DirFS("/") +
-// absolute dir paths.
-//
-// The empty-string fsys argument shortcut: Detect(nil, absDir) uses
-// os.DirFS internally, so callers don't have to construct one for
-// every call.
+// Reads the directory's listing once (non-recursive); HasFile /
+// HasGlob indicators run against file basenames; CELExpr indicators
+// see both `files` and `subdirs` lists. fsys=nil uses os.ReadDir for
+// the production filesystem path.
 func (r *Registry) Detect(fsys fs.FS, dir string) []Match {
-	listing, err := readListing(fsys, dir)
+	files, subdirs, err := readListing(fsys, dir)
 	if err != nil {
 		return nil
 	}
@@ -35,7 +30,7 @@ func (r *Registry) Detect(fsys fs.FS, dir string) []Match {
 
 	var matches []Match
 	for _, t := range types {
-		if ind, ok := t.match(listing); ok {
+		if ind, ok := t.match(files, subdirs); ok {
 			matches = append(matches, Match{Type: t.Name, Indicator: ind.String()})
 		}
 	}
@@ -169,30 +164,30 @@ func Find(ctx context.Context, root string, opts FindOptions) (*FindResult, erro
 	return defaultRegistry.Find(ctx, root, opts)
 }
 
-// readListing returns the basenames of immediate children of dir.
-// fsys may be nil to read the OS filesystem directly (so callers
-// don't have to build os.DirFS for every Detect call).
-func readListing(fsys fs.FS, dir string) ([]string, error) {
+// readListing returns the basenames of immediate children of dir,
+// split into files and subdirs. fsys may be nil to read the OS
+// filesystem directly (so callers don't have to build os.DirFS for
+// every Detect call). HasFile / HasGlob indicators consult only the
+// files slice; CELExpr indicators get both via the `files` /
+// `subdirs` variables in the directory CEL env.
+func readListing(fsys fs.FS, dir string) (files, subdirs []string, err error) {
 	var entries []fs.DirEntry
-	var err error
 	if fsys == nil {
 		entries, err = readOSDir(dir)
 	} else {
 		entries, err = fs.ReadDir(fsys, dir)
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	names := make([]string, 0, len(entries))
 	for _, e := range entries {
-		// Skip directories — indicators are file-level. (A future
-		// HasSubdir indicator type would consult these separately.)
 		if e.IsDir() {
-			continue
+			subdirs = append(subdirs, e.Name())
+		} else {
+			files = append(files, e.Name())
 		}
-		names = append(names, e.Name())
 	}
-	return names, nil
+	return files, subdirs, nil
 }
 
 func filterTypes(matches []Match, want map[string]struct{}) []Match {

@@ -112,8 +112,71 @@ file-search-on find-projects ~/Code -o json | jq -r '.projects[].types[].type' |
 file-search-on find-projects ./infra --type terraform
 ```
 
-## Out of scope (today)
+## Custom project types via CEL
 
-- **CEL-driven custom project types.** Future PR will accept user-registered project types defined as CEL expressions over directory contents (`has("foo.yaml") && has_subdir("services")`).
-- **Project attributes.** Beyond `type`, future PRs may surface `primary_language`, `package_manager`, `language_version`, etc. per detected project.
-- **File-level integration.** Filtering file-search queries by the containing project type (e.g. `is_source && language == "go" && project_type == "go"`) requires the walker to resolve each file's nearest project root — non-trivial, deferred.
+Register your own project types in YAML and load them with `--project-type-config <path>`. CEL expressions evaluate against two list-of-string variables: `files` (basenames of files in the inspected dir) and `subdirs` (basenames of immediate subdirectories).
+
+```yaml
+# ~/projects.yaml
+project_types:
+  - name: helm-chart
+    description: Helm chart directory
+    indicators:
+      - cel: '"Chart.yaml" in files && "values.yaml" in files'
+  - name: my-app
+    description: Internal Foo app
+    indicators:
+      - cel: '"services" in subdirs && "foo.yaml" in files'
+  - name: tf-stack
+    indicators:
+      - has_glob: "*.tf"
+      - cel: '"main.tf" in files'   # any indicator firing counts
+```
+
+```sh
+file-search-on --project-type-config ~/projects.yaml detect-project ./my-app
+file-search-on --project-type-config ~/projects.yaml find-projects ~/Code --type helm-chart
+```
+
+Indicators are OR'd within a project type — any matching indicator counts. Custom types coexist with the 10 built-ins. CEL compile errors fail the config load with the offending entry's name surfaced.
+
+The CEL surface is intentionally minimal for MVP — standard CEL operators (`in`, `exists`, `endsWith`, `startsWith`, `matches`, `size`) cover the vocabulary:
+
+```cel
+"Cargo.toml" in files                              // file presence
+"src" in subdirs                                   // subdir presence
+files.exists(f, f.endsWith(".tf"))                 // glob-like via stdlib
+size(files) > 50                                   // many files
+"Dockerfile" in files && "docker-compose.yml" in files
+```
+
+## Project-aware file search
+
+Pass `--resolve-projects` (CLI) / `resolve_projects: true` (MCP) on the file `search` to populate two new CEL variables for every match:
+
+- `project_types` — `list<string>` — names of every project type the containing project matches
+- `project_type` — `string` — first (sorted) match; ergonomic for `==` queries
+
+The walker resolves each file's nearest project ancestor by walking up the directory chain (cached per-dir, one ReadDir per unique directory visited).
+
+```sh
+# Find Go source files inside actual Go modules (excludes loose .go scripts)
+file-search-on 'is_source && language == "go" && project_type == "go"' \
+    --resolve-projects -d ~/Code
+
+# Find Rust source NOT inside a Cargo project (e.g. ad-hoc scripts)
+file-search-on 'is_source && language == "rust" && project_type == ""' \
+    --resolve-projects -d ~/Code
+
+# Find files inside multiple project types
+file-search-on 'size(project_types) > 1' --resolve-projects -d ~/Code
+```
+
+Why opt-in? Resolution does extra I/O (one ReadDir per unique directory walked, cached). Tight CEL filters that don't reference project context shouldn't pay the cost.
+
+## Out of scope (further follow-ups)
+
+- **Project attributes** beyond names — `primary_language`, `package_manager`, `language_version`, etc. per detected project.
+- **CEL helper functions** specific to directory context (`glob`, `has_file`, `has_subdir`) — covered by stdlib `exists` + string ops for MVP.
+- **Standard config search paths** (`~/.config/file-search-on/project-types.yaml` auto-load) — explicit `--project-type-config` flag only.
+- **Project-root-aware excludes** — auto-pruning `vendor/`, `node_modules/`, `target/` based on detected project type.

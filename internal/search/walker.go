@@ -12,6 +12,7 @@ import (
 	"github.com/richardwooding/file-search-on/internal/celexpr"
 	"github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/index"
+	"github.com/richardwooding/file-search-on/internal/projecttype"
 )
 
 // Result represents a matching file
@@ -99,6 +100,16 @@ type Options struct {
 	// filter; snippet is for the caller to see.
 	IncludeBody  bool
 	BodyMaxBytes int // hard cap on the body string in bytes; 0 → 1 MiB default
+
+	// ResolveProjects, when true, makes BuildAttributesWith populate
+	// each match's `project_types` (list<string>) and `project_type`
+	// (string — first match) CEL variables by walking up from the
+	// file's directory to the nearest project-root indicator. Opt-in
+	// because resolution does extra I/O (one ReadDir per unique dir
+	// walked, cached). Without this flag both variables stay at their
+	// zero values and CEL expressions referencing them just see
+	// "no match".
+	ResolveProjects bool
 
 	// Excludes is a list of glob patterns matched against each
 	// directory or file's BASENAME during walk (filepath.Match
@@ -190,11 +201,18 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 	// precedence; falling back to opts.Root preserves the
 	// single-root (and opts.FS-override) test path.
 	type rootSpec struct {
-		root string
-		fsys fs.FS
-		exc  *excluder
+		root     string
+		fsys     fs.FS
+		exc      *excluder
+		resolver *projecttype.ProjectResolver
 	}
 	var specs []rootSpec
+	makeResolver := func(r string) *projecttype.ProjectResolver {
+		if !opts.ResolveProjects {
+			return nil
+		}
+		return projecttype.NewResolver(r, nil)
+	}
 	if len(opts.Roots) > 0 {
 		// Multi-root: ignore opts.FS (it can't represent multiple
 		// roots) and build a per-root os.DirFS + excluder so each
@@ -202,9 +220,10 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 		for _, r := range opts.Roots {
 			rfs := os.DirFS(r)
 			specs = append(specs, rootSpec{
-				root: r,
-				fsys: rfs,
-				exc:  newExcluder(rfs, opts.Excludes, opts.RespectGitignore),
+				root:     r,
+				fsys:     rfs,
+				exc:      newExcluder(rfs, opts.Excludes, opts.RespectGitignore),
+				resolver: makeResolver(r),
 			})
 		}
 	} else {
@@ -217,19 +236,22 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 			fsys = os.DirFS(root)
 		}
 		specs = append(specs, rootSpec{
-			root: root,
-			fsys: fsys,
-			exc:  newExcluder(fsys, opts.Excludes, opts.RespectGitignore),
+			root:     root,
+			fsys:     fsys,
+			exc:      newExcluder(fsys, opts.Excludes, opts.RespectGitignore),
+			resolver: makeResolver(root),
 		})
 	}
 
 	// Jobs carry their own fsys + root so workers know which
 	// filesystem to read from (multi-root walks have different
-	// fs.FS per match).
+	// fs.FS per match). Resolver is per-root for the same reason —
+	// projects don't span roots.
 	type job struct {
 		fsys        fs.FS
 		fsPath      string
 		displayPath string
+		resolver    *projecttype.ProjectResolver
 	}
 	jobs := make(chan job, opts.Workers*2)
 	var wg sync.WaitGroup
@@ -245,9 +267,10 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 						return
 					}
 					attrs, err := celexpr.BuildAttributesWith(ctx, j.fsys, j.fsPath, j.displayPath, registry, celexpr.BuildOptions{
-						Index:        opts.Index,
-						IncludeBody:  opts.IncludeBody,
-						BodyMaxBytes: opts.BodyMaxBytes,
+						Index:           opts.Index,
+						IncludeBody:     opts.IncludeBody,
+						BodyMaxBytes:    opts.BodyMaxBytes,
+						ProjectResolver: j.resolver,
 					})
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 						return
@@ -317,7 +340,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case jobs <- job{fsys: spec.fsys, fsPath: fsPath, displayPath: displayPath}:
+			case jobs <- job{fsys: spec.fsys, fsPath: fsPath, displayPath: displayPath, resolver: spec.resolver}:
 			}
 			return nil
 		})

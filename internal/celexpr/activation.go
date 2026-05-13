@@ -162,6 +162,8 @@ var zeroDefaults = map[string]any{
 	"module":                "",
 	"go_version":            "",
 	"base_image":            "",
+	"project_types":         []string{},
+	"project_type":          "",
 	"img_width":             int64(0),
 	"img_height":            int64(0),
 	"camera_make":           "",

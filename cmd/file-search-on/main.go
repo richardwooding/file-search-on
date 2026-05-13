@@ -51,6 +51,7 @@ var (
 )
 
 var CLI struct {
+	ProjectTypeConfig string           `name:"project-type-config" help:"Path to a YAML config registering custom project types (CEL-driven or file-based indicators). Loaded before any subcommand runs; the new types appear alongside built-ins in detect-project / find-projects / search results."`
 	Search     SearchCmd        `cmd:"" help:"Search for files matching a CEL expression." default:"withargs"`
 	Attrs      AttrsCmd         `cmd:"" name:"attrs" help:"Print attributes for a single file (no walk, no CEL)."`
 	Stats      StatsCmd         `cmd:"" name:"stats" help:"Aggregate content-type counts and total sizes for a directory tree."`
@@ -444,6 +445,7 @@ type SearchCmd struct {
 	BodyMaxBytes     int           `name:"body-max-bytes" default:"0" help:"Cap on the body string read per file in bytes. 0 uses the 1 MiB default. Files larger than the cap are silently truncated; the prefix still participates in the CEL filter."`
 	Exclude          []string      `name:"exclude" help:"Glob pattern matched against the basename of each file/directory; matches are skipped (directories are pruned). Repeatable: --exclude node_modules --exclude '*.bak'."`
 	RespectGitignore bool          `name:"respect-gitignore" help:"Parse a .gitignore at the walk root (if present) and skip matching paths. Nested .gitignore files in subdirectories are NOT honoured in this version."`
+	ResolveProjects  bool          `name:"resolve-projects" help:"Populate the 'project_types' (list<string>) and 'project_type' (string) CEL variables for each match by resolving the file's containing project root (go.mod, package.json, Cargo.toml, …). Enables filters like 'is_source && project_type == \"go\"'. Adds one ReadDir per unique directory walked (cached) — opt-in to avoid the cost when not needed."`
 }
 
 func (s *SearchCmd) Run(ctx context.Context) error {
@@ -516,6 +518,7 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		BodyMaxBytes:      s.BodyMaxBytes,
 		Excludes:          s.Exclude,
 		RespectGitignore:  s.RespectGitignore,
+		ResolveProjects:   s.ResolveProjects,
 	}
 
 	// --sort and --limit both need the full result set in memory
@@ -712,6 +715,16 @@ func main() {
 		kong.Vars{"version": fmt.Sprintf("file-search-on %s (commit %s, built %s)", version, commit, date)},
 		kong.BindTo(ctx, (*context.Context)(nil)),
 	)
+	// Load custom project types before the subcommand runs so they
+	// appear in every project-aware surface (detect-project,
+	// find-projects, --resolve-projects search, MCP tools when the
+	// mcp subcommand wires the same path).
+	if CLI.ProjectTypeConfig != "" {
+		if _, err := projecttype.LoadFromFile(CLI.ProjectTypeConfig); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			os.Exit(1)
+		}
+	}
 	if err := kctx.Run(); err != nil {
 		var ece *exitCodeError
 		if errors.As(err, &ece) {
