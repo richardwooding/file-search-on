@@ -71,7 +71,7 @@ jobs:
             ${{ matrix.target.pkg }}
       - name: Upload crash corpus on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           # Go writes failing seeds to testdata/fuzz/<FuzzName>/.
           # Capture the whole testdata tree so we don't have to
