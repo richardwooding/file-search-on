@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/richardwooding/file-search-on/security/policy
+    about: Please report security issues privately, not as a public GitHub issue. See SECURITY.md for details.
+  - name: Question or usage help
+    url: https://github.com/richardwooding/file-search-on/discussions
+    about: For questions about CEL syntax, attribute coverage, MCP integration, or recipes — Discussions is the better forum than Issues.

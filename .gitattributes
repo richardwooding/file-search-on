@@ -1,0 +1,25 @@
+# Normalise line endings on commit; check out as-is so test fixtures
+# (which intentionally include CRLF / mixed endings) round-trip cleanly.
+* text=auto eol=lf
+
+# Always LF, regardless of platform.
+*.go         text eol=lf
+*.md         text eol=lf
+*.yaml       text eol=lf
+*.yml        text eol=lf
+*.sh         text eol=lf
+*.toml       text eol=lf
+Dockerfile   text eol=lf
+
+# Test fixtures: keep bytes exactly as committed (some intentionally
+# carry CRLF, BOM, embedded NULs, or specific byte patterns). The walker
+# parses them; git shouldn't massage them.
+internal/content/testdata/** binary
+internal/index/testdata/**   binary
+
+# Generated artefacts shouldn't show up in PR diffs by default.
+go.sum       linguist-generated=true
+
+# Mark documentation files for GitHub Linguist.
+*.md         linguist-documentation=true
+CLAUDE.md    linguist-documentation=true
