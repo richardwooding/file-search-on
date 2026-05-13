@@ -141,6 +141,7 @@ Tools:
   read_lines       print a specific line range from a file — for context around a search match
   stats            histogram + totals for a directory tree, bucketed by any attribute via group_by
   find_duplicates  groups of byte-identical files keyed by sha256 — "what's eating my disk?"
+  find_matches     scan text files for a regex; returns line-level hits with context — "find references to X"
   detect_project   what kind of project (go / node / rust / python / …) is THIS directory
   find_projects    walk a root and identify every project subdirectory under it
   list_attributes  full schema (every attribute, every built-in function); call when the recipes above don't cover what you need
@@ -240,6 +241,11 @@ func New(version string, idx index.Index, defaultTimeout time.Duration) *mcp.Ser
 		Name:        "find_projects",
 		Description: "Walk a root directory and return every project root found. A project root is a directory whose contents match a registered project-type indicator. By default the walker stops at the first match per branch (the 'find me all my Go repos' shape) — pass nested=true to also surface sub-projects inside matched roots (monorepo workspaces, vendored deps). Filter to specific types with 'types': ['go','rust',…]. Prune the walk with 'excludes' (basename globs like ['node_modules', '.git', 'target']) or respect_gitignore. Honours the same timeout / cancellation contract as the search tool — on expiry the partial result set is returned with cancelled=true, never an error.",
 	}, h.findProjectsHandler)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "find_matches",
+		Description: "Scan a directory tree for lines matching an RE2 regex, with optional context windows. Combines a CEL pre-prune (type predicates + typed attributes, same vocabulary as the search tool) with a line-level regex scan: 'expr' picks the candidate files cheaply (e.g. is_source && language == \"go\"), then 'pattern' runs against each line and reports every hit with its line number and the requested before/after context. Returns line-level matches sorted by (path, line). Only text content types participate (markdown / text / html / csv / json / xml / source/*); binary families are filtered out. Inputs: pattern (required, RE2), expr (optional CEL pre-prune), context_before / context_after (surrounding lines per hit), max_matches_per_file (cap; the scanner keeps reading past the cap until pending After windows are filled). Same dir / dirs / excludes / respect_gitignore / timeout_seconds / cancellation contract as search. Use when an agent needs 'find references to X' or 'show every TODO with context' — replaces the two-call search-then-read_lines dance with one call.",
+	}, h.findMatchesHandler)
 
 	return s
 }

@@ -29,6 +29,7 @@ CEL expression recipes by content family, plus cross-cutting cookbook patterns.
 | [`group-by.md`](./group-by.md) | Stats bucketed by any attribute — `--group-by camera_make`, `--group-by language`, `--group-by taken_at_year`, etc. |
 | [`read-lines.md`](./read-lines.md) | Print a specific line range from a file — `file-search-on lines <path> --start N --end M` |
 | [`duplicates.md`](./duplicates.md) | Find byte-identical files via sha256 — `file-search-on duplicates [--min-size N] [-d DIR ...]` |
+| [`find-matches.md`](./find-matches.md) | Line-level regex matching with context — `file-search-on find-matches '<re>' --expr 'is_source' -C 2` |
 
 Every recipe is a complete `file-search-on '<expr>'` invocation that you can paste and run. Most include a few variations and useful output-format snippets.
 

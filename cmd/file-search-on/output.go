@@ -390,6 +390,76 @@ func printDuplicatesJSON(w io.Writer, d *search.Duplicates) error {
 	return enc.Encode(d)
 }
 
+// printFindMatches renders a FindMatchesResult as grep-style output.
+// Each match line is "path:line:text". Context lines (when present)
+// use "path-line-text" — same convention as ripgrep / grep -C, so the
+// dash vs colon distinguishes context from match. Matches are
+// separated by a blank line (and a "--" marker, ripgrep-style) only
+// when context is non-empty; without context the output is dense.
+func printFindMatches(w io.Writer, r *search.FindMatchesResult) {
+	if len(r.Matches) == 0 {
+		fp(w, "no matches (%d file(s) scanned)\n", r.FilesScanned)
+		if r.Cancelled {
+			fp(w, "(partial — %s)\n", r.CancellationReason)
+		}
+		return
+	}
+	hasContext := false
+	for _, m := range r.Matches {
+		if len(m.Before) > 0 || len(m.After) > 0 {
+			hasContext = true
+			break
+		}
+	}
+	prevPath := ""
+	for i, m := range r.Matches {
+		// Inter-match separator: only when context was attached. ripgrep
+		// uses "--" between context blocks; emulate.
+		if hasContext && i > 0 {
+			fp(w, "--\n")
+		}
+		// Header line per file when path changes. Without context this
+		// would be noise; only emit when context is present.
+		if hasContext && m.Path != prevPath {
+			fp(w, "%s\n", m.Path)
+			prevPath = m.Path
+		}
+		// Before-context lines: numbered if we know the start.
+		startBefore := m.Line - len(m.Before)
+		for j, line := range m.Before {
+			lineNo := startBefore + j
+			if hasContext {
+				fp(w, "%d-%s\n", lineNo, line)
+			}
+		}
+		// The match itself.
+		if hasContext {
+			fp(w, "%d:%s\n", m.Line, m.Text)
+		} else {
+			fp(w, "%s:%d:%s\n", m.Path, m.Line, m.Text)
+		}
+		// After-context lines.
+		for j, line := range m.After {
+			fp(w, "%d-%s\n", m.Line+1+j, line)
+		}
+	}
+	fpn(w)
+	fp(w, "%d match(es) across %d file(s) (%d file(s) scanned)\n",
+		r.Count, r.FilesWithMatches, r.FilesScanned)
+	if r.Cancelled {
+		fp(w, "(partial — %s)\n", r.CancellationReason)
+	}
+}
+
+// printFindMatchesJSON writes the full FindMatchesResult as a single
+// JSON document. The wire shape is identical to the MCP tool so
+// downstream tooling can consume either output.
+func printFindMatchesJSON(w io.Writer, r *search.FindMatchesResult) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(r)
+}
+
 // printConfigPaths renders the project-type config search paths as
 // a human-readable table. Each entry shows existence (`*` for
 // present, ` ` for missing) so users can see whether their config
