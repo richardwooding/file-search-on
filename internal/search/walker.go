@@ -150,6 +150,24 @@ type Options struct {
 	// by Walk/WalkStream and ComputeStats — only FindDuplicates
 	// consults it.
 	MinSize int64
+
+	// Pattern is the RE2 regex FindMatches scans each candidate
+	// file for, line-by-line. Empty means FindMatches returns
+	// ErrEmptyPattern. Ignored by every other entry point.
+	Pattern string
+	// ContextBefore is the number of lines of leading context to
+	// attach to each FindMatches hit. 0 means no Before window.
+	// Ignored outside FindMatches.
+	ContextBefore int
+	// ContextAfter is the number of lines of trailing context to
+	// attach to each FindMatches hit. 0 means no After window.
+	// Ignored outside FindMatches.
+	ContextAfter int
+	// MaxMatchesPerFile caps FindMatches hits per file. 0 = no
+	// cap. The scan keeps reading past the cap until every pending
+	// After window is filled, so the last few matches still carry
+	// the requested trailing context.
+	MaxMatchesPerFile int
 }
 
 // Walk walks the directory and returns every matching file. It is a
