@@ -114,7 +114,25 @@ file-search-on find-projects ./infra --type terraform
 
 ## Custom project types via CEL
 
-Register your own project types in YAML and load them with `--project-type-config <path>`. CEL expressions evaluate against two list-of-string variables: `files` (basenames of files in the inspected dir) and `subdirs` (basenames of immediate subdirectories).
+Register your own project types in YAML. Two loading mechanisms:
+
+1. **Auto-discovered** (default) from standard paths — drop a YAML once and every invocation picks it up.
+2. **Explicit** `--project-type-config <path>` flag — overrides any auto-discovered config.
+
+### Auto-discovery — drop a config and forget it
+
+Two locations are searched, in this load order (later layers register on top of earlier):
+
+| Path | Scope |
+|---|---|
+| `$XDG_CONFIG_HOME/file-search-on/project-types.yaml` (Linux)<br>`~/Library/Application Support/file-search-on/project-types.yaml` (macOS)<br>`%APPDATA%\file-search-on\project-types.yaml` (Windows) | User-wide |
+| `./.file-search-on/project-types.yaml` (in CWD only — no walk-up) | Per-project |
+
+Both are optional; missing files are silently skipped. Pass `--no-config-search` to disable auto-discovery for hermetic invocations (tests, CI).
+
+### CEL vocabulary
+
+CEL expressions evaluate against two list-of-string variables: `files` (basenames of files in the inspected dir) and `subdirs` (basenames of immediate subdirectories).
 
 ```yaml
 # ~/projects.yaml
@@ -134,8 +152,17 @@ project_types:
 ```
 
 ```sh
+# Same YAML dropped at the user-wide path → all invocations see it
+mkdir -p ~/Library/Application\ Support/file-search-on   # macOS; Linux: ~/.config/file-search-on
+cp my-types.yaml ~/Library/Application\ Support/file-search-on/project-types.yaml
+file-search-on detect-project ./my-app
+file-search-on find-projects ~/Code --type helm-chart
+
+# Or pass it explicitly for one invocation:
 file-search-on --project-type-config ~/projects.yaml detect-project ./my-app
-file-search-on --project-type-config ~/projects.yaml find-projects ~/Code --type helm-chart
+
+# Disable auto-discovery (tests, CI):
+file-search-on --no-config-search find-projects ~/Code
 ```
 
 Indicators are OR'd within a project type — any matching indicator counts. Custom types coexist with the 10 built-ins. CEL compile errors fail the config load with the offending entry's name surfaced.
@@ -178,5 +205,5 @@ Why opt-in? Resolution does extra I/O (one ReadDir per unique directory walked, 
 
 - **Project attributes** beyond names — `primary_language`, `package_manager`, `language_version`, etc. per detected project.
 - **CEL helper functions** specific to directory context (`glob`, `has_file`, `has_subdir`) — covered by stdlib `exists` + string ops for MVP.
-- **Standard config search paths** (`~/.config/file-search-on/project-types.yaml` auto-load) — explicit `--project-type-config` flag only.
-- **Project-root-aware excludes** — auto-pruning `vendor/`, `node_modules/`, `target/` based on detected project type.
+- **Project-root-aware excludes** — auto-pruning `vendor/`, `node_modules/`, `target/` based on detected project type ([#99](https://github.com/richardwooding/file-search-on/issues/99)).
+- **Per-project walk-up discovery** — currently `./.file-search-on/project-types.yaml` is consulted only in CWD; a git-style walk-up to the nearest ancestor would help monorepo setups.
