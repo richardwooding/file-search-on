@@ -111,6 +111,17 @@ type Options struct {
 	// "no match".
 	ResolveProjects bool
 
+	// PruneBuildArtefacts, when true, pre-walks each root to
+	// discover every project subdirectory and unions the canonical
+	// build-artefact basenames (`vendor`, `node_modules`, `target`,
+	// `__pycache__`, `.venv`, `target`, `bin`, `obj`, `.terraform`,
+	// …) from every detected project type into the basename
+	// excluder. Saves users from passing `--exclude node_modules
+	// --exclude vendor --exclude target …` manually when walking
+	// monorepos or `~/Code`. Opt-in because the pre-walk adds I/O
+	// proportional to the directory tree's size.
+	PruneBuildArtefacts bool
+
 	// Excludes is a list of glob patterns matched against each
 	// directory or file's BASENAME during walk (filepath.Match
 	// semantics). Matched directories are skipped via fs.SkipDir,
@@ -213,6 +224,25 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 		}
 		return projecttype.NewResolver(r, nil)
 	}
+	// excludesFor returns the user's --exclude list plus any
+	// project-aware build-artefact excludes collected from r's
+	// subtree. When PruneBuildArtefacts is off this is a no-op
+	// returning opts.Excludes as-is. Errors from the pre-walk are
+	// swallowed: a broken filesystem during pre-walk shouldn't
+	// hard-fail the search; we just skip the auto-prune.
+	excludesFor := func(r string) []string {
+		if !opts.PruneBuildArtefacts {
+			return opts.Excludes
+		}
+		extra, err := projecttype.CollectBuildExcludes(ctx, r)
+		if err != nil || len(extra) == 0 {
+			return opts.Excludes
+		}
+		merged := make([]string, 0, len(opts.Excludes)+len(extra))
+		merged = append(merged, opts.Excludes...)
+		merged = append(merged, extra...)
+		return merged
+	}
 	if len(opts.Roots) > 0 {
 		// Multi-root: ignore opts.FS (it can't represent multiple
 		// roots) and build a per-root os.DirFS + excluder so each
@@ -222,7 +252,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 			specs = append(specs, rootSpec{
 				root:     r,
 				fsys:     rfs,
-				exc:      newExcluder(rfs, opts.Excludes, opts.RespectGitignore),
+				exc:      newExcluder(rfs, excludesFor(r), opts.RespectGitignore),
 				resolver: makeResolver(r),
 			})
 		}
@@ -238,7 +268,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 		specs = append(specs, rootSpec{
 			root:     root,
 			fsys:     fsys,
-			exc:      newExcluder(fsys, opts.Excludes, opts.RespectGitignore),
+			exc:      newExcluder(fsys, excludesFor(root), opts.RespectGitignore),
 			resolver: makeResolver(root),
 		})
 	}

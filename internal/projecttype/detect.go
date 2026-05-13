@@ -164,6 +164,58 @@ func Find(ctx context.Context, root string, opts FindOptions) (*FindResult, erro
 	return defaultRegistry.Find(ctx, root, opts)
 }
 
+// CollectBuildExcludes walks root and returns the sorted, deduped
+// union of BuildExcludes from every project type detected at or
+// below root (Nested-style — every project, not just outer roots).
+// Used by the search walker when Options.PruneBuildArtefacts is set
+// to pre-populate the basename excluder before the main walk
+// starts, so e.g. `vendor/` inside a Go module is pruned even when
+// the file-search walker would have visited it before recognising
+// the project.
+//
+// Cheap: only directories that contain at least one project
+// indicator contribute. Empty result when no projects are detected
+// (or the registry has no built-ins with BuildExcludes set).
+func (r *Registry) CollectBuildExcludes(ctx context.Context, root string) ([]string, error) {
+	res, err := r.Find(ctx, root, FindOptions{Nested: true})
+	if err != nil {
+		return nil, err
+	}
+	// Walk the matched projects, look up each Type by name, union
+	// its BuildExcludes. Build a set so duplicates (vendor for go +
+	// vendor for some custom type) collapse.
+	r.mu.RLock()
+	byName := make(map[string]*ProjectType, len(r.types))
+	for _, t := range r.types {
+		byName[t.Name] = t
+	}
+	r.mu.RUnlock()
+	seen := map[string]struct{}{}
+	for _, p := range res.Projects {
+		for _, m := range p.Types {
+			t, ok := byName[m.Type]
+			if !ok {
+				continue
+			}
+			for _, ex := range t.BuildExcludes {
+				seen[ex] = struct{}{}
+			}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for ex := range seen {
+		out = append(out, ex)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// CollectBuildExcludes is the package-level shortcut over
+// DefaultRegistry.
+func CollectBuildExcludes(ctx context.Context, root string) ([]string, error) {
+	return defaultRegistry.CollectBuildExcludes(ctx, root)
+}
+
 // readListing returns the basenames of immediate children of dir,
 // split into files and subdirs. fsys may be nil to read the OS
 // filesystem directly (so callers don't have to build os.DirFS for

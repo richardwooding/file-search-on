@@ -31,6 +31,7 @@ type SearchInput struct {
 	Excludes         []string `json:"excludes,omitempty" jsonschema:"Glob patterns matched against the basename of each file/directory; matched directories are pruned. Example: ['node_modules', '.git', 'target', '*.bak']. Use respect_gitignore for path-aware patterns."`
 	RespectGitignore bool     `json:"respect_gitignore,omitempty" jsonschema:"When true, parse a .gitignore at the walk root (if present) and skip matching paths. Honours standard gitignore semantics. Nested .gitignore files in subdirectories are NOT honoured in this version."`
 	ResolveProjects  bool     `json:"resolve_projects,omitempty" jsonschema:"When true, populate each match's 'project_types' (list<string>) and 'project_type' (string — first match) CEL variables by resolving the file's nearest project-root ancestor (go.mod, package.json, Cargo.toml, etc.). Enables queries like 'is_source && project_type == \"go\"' to find Go source inside actual Go modules. Opt-in: adds one ReadDir per unique dir walked (cached), so default-off avoids the cost when not needed."`
+	PruneBuildArtefacts bool  `json:"prune_build_artefacts,omitempty" jsonschema:"When true, pre-walks each search root to discover project subdirectories and prunes the canonical build-artefact basenames for every detected project type — vendor (Go), node_modules (Node), target (Rust / Java Maven), __pycache__/.venv/.tox (Python), bin/obj (.NET), .terraform (Terraform), etc. Unioned with 'excludes'. Saves the boilerplate exclude list when searching monorepos or large multi-project trees. Opt-in: pre-walk I/O is proportional to tree size."`
 }
 
 // SearchOutput is the structured output of the `search` tool.
@@ -100,8 +101,9 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 		IncludeBody:       in.IncludeBody,
 		BodyMaxBytes:      in.BodyMaxBytes,
 		Excludes:          in.Excludes,
-		RespectGitignore:  in.RespectGitignore,
-		ResolveProjects:   in.ResolveProjects,
+		RespectGitignore:    in.RespectGitignore,
+		ResolveProjects:     in.ResolveProjects,
+		PruneBuildArtefacts: in.PruneBuildArtefacts,
 		// Sort, Order, Limit are applied via sortAndLimit AFTER we
 		// collect — see end of handler. We don't pass them to
 		// WalkStream because WalkStream doesn't honour them.
