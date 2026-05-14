@@ -80,11 +80,33 @@ file-search-on 'is_office && content_type == "office/xlsx"' --format '{{.Path}}\
 file-search-on 'is_office' -o json | jq -r '.author // "(unknown)"' | sort | uniq -c | sort -rn
 ```
 
+## Body-content search
+
+Office documents support the `body` CEL variable when you pass `--body` (CLI) / `include_body: true` (MCP). The extractor walks the ZIP envelope and pulls plain text out of the format's content XML — `word/document.xml` for DOCX, `xl/sharedStrings.xml` + inline-string cells from `xl/worksheets/sheet*.xml` for XLSX, `ppt/slides/slide*.xml` for PPTX, `content.xml` for ODT — strips styling, joins with newlines, and surfaces the result as the `body` string.
+
+```sh
+# Every spreadsheet that mentions "Q3 revenue" in a cell
+file-search-on 'is_office && content_type == "office/xlsx" && body.contains("Q3 revenue")' --body -d ~/Documents
+
+# DOCX drafts mentioning a competitor
+file-search-on 'is_office && content_type == "office/docx" && body.matches("(?i)competitor")' --body
+
+# PPTX decks containing a specific phrase
+file-search-on 'is_office && content_type == "office/pptx" && body.contains("user research")' --body
+
+# Cross-format search across an entire Documents tree
+file-search-on 'is_office && body.contains("invoice")' --body -d ~/Documents
+```
+
+The body cap (default 1 MiB, override via `--body-max-bytes`) applies to the EXTRACTED text, not the raw file size — a 50 MB PPTX with sparse text still reads cheaply.
+
 ## What's NOT covered
 
-- **DOCX / PPTX content search** (text inside slides or paragraphs) — out of scope for v1; this is metadata-only.
-- **XLSX cell content** — same.
-- **Track changes / revisions** — not parsed.
+- **PDF text extraction** — different code path; tracked separately.
+- **Track changes / revisions** — not surfaced.
 - **Custom document properties** (the `app.xml` / custom properties beyond core.xml) — not surfaced.
+- **Embedded images / OLE objects** — only text content is extracted.
+- **DOCX comments / footnotes / endnotes** — only the body paragraphs are walked today. Add `word/comments.xml` to the entry list in `internal/content/body.go` if needed.
+- **ODT `<text:h>` (heading) elements** — only `<text:p>` is walked today; headings extract empty. Real documents have headings inside paragraphs OR `<text:h>` standalone. Trade-off for code simplicity; address if real corpora need it.
 
-For full-text search of office documents, pipe the matched paths to a tool like `ripgrep-all` (`rga`) or `pandoc`.
+For richer text extraction (PDFs, embedded archives, OCR'd images), pipe the matched paths to `ripgrep-all` (`rga`) or `pandoc`.
