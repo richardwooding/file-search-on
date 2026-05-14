@@ -61,6 +61,7 @@ var CLI struct {
 	FindMatches FindMatchesCmd  `cmd:"" name:"find-matches" help:"Scan text files for an RE2 regex; report line-level hits with optional context windows (combines CEL type-pruning with grep-style output)."`
 	Detect      DetectProjectCmd `cmd:"" name:"detect-project" help:"Identify project type(s) (go / node / rust / …) for a directory by checking canonical indicator files."`
 	Projects    FindProjectsCmd  `cmd:"" name:"find-projects" help:"Walk a root and list every project subdirectory under it."`
+	WhichProject WhichProjectCmd `cmd:"" name:"which-project" help:"Given a file or directory path, walk up the chain and identify the nearest enclosing project root and type(s)."`
 	ConfigPaths ConfigPathsCmd   `cmd:"" name:"config-paths" help:"Print the project-type config search paths for this platform. Use to discover where to drop your user-wide config (mkdir -p \"$(file-search-on config-paths -o bare | head -1 | xargs dirname)\")."`
 	MCP        MCPCmd           `cmd:"" name:"mcp" help:"Run as a Model Context Protocol server (stdio, http, or sse)."`
 	Version    kong.VersionFlag `short:"V" help:"Print version and exit."`
@@ -451,6 +452,41 @@ func (d *DetectProjectCmd) Run(_ context.Context) error {
 		return printDetectProjectJSON(os.Stdout, abs, matches)
 	}
 	printDetectProject(os.Stdout, abs, matches)
+	return nil
+}
+
+// WhichProjectCmd is the path-anchored counterpart to DetectProjectCmd
+// and FindProjectsCmd. Given a file (or directory) path it walks up
+// the directory chain and reports the nearest enclosing project root.
+// Mirrors the MCP `resolve_project_for_path` tool.
+type WhichProjectCmd struct {
+	Path   string `arg:"" help:"File or directory to anchor on. The walk-up climbs from this path's parent (when a file) or itself (when a directory) until a project root or the filesystem root is reached."`
+	Output string `short:"o" name:"output" enum:"default,json" default:"default" help:"Output format: default (human-readable) | json (same wire shape as the MCP resolve_project_for_path tool)."`
+}
+
+func (w *WhichProjectCmd) Run(_ context.Context) error {
+	abs, err := filepath.Abs(w.Path)
+	if err != nil {
+		return fmt.Errorf("resolve path: %w", err)
+	}
+	// ResolveForPath walks from Dir(abs). When the caller hands us a
+	// directory we want the walk to start AT that directory, not its
+	// parent — pretend the caller asked about a sentinel file inside it.
+	probe := abs
+	if info, statErr := os.Stat(abs); statErr == nil && info.IsDir() {
+		probe = filepath.Join(abs, ".")
+	}
+	root, matches := projecttype.ResolveForPath(probe, nil)
+	if w.Output == "json" {
+		if err := printWhichProjectJSON(os.Stdout, abs, root, matches); err != nil {
+			return err
+		}
+	} else {
+		printWhichProject(os.Stdout, abs, root, matches)
+	}
+	if len(matches) == 0 {
+		return &exitCodeError{code: 1}
+	}
 	return nil
 }
 

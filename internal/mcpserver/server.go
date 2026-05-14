@@ -144,6 +144,7 @@ Tools:
   find_matches     scan text files for a regex; returns line-level hits with context — "find references to X"
   detect_project   what kind of project (go / node / rust / python / …) is THIS directory
   find_projects    walk a root and identify every project subdirectory under it
+  resolve_project_for_path  given an arbitrary path, walk up and return the nearest project root + types
   list_attributes  full schema (every attribute, every built-in function); call when the recipes above don't cover what you need
   index_stats      cache hit/miss counters for this server process
 
@@ -248,6 +249,11 @@ func New(version string, idx index.Index, defaultTimeout time.Duration) *mcp.Ser
 		Name:        "find_matches",
 		Description: "Scan a directory tree for lines matching an RE2 regex, with optional context windows. Combines a CEL pre-prune (type predicates + typed attributes, same vocabulary as the search tool) with a line-level regex scan: 'expr' picks the candidate files cheaply (e.g. is_source && language == \"go\"), then 'pattern' runs against each line and reports every hit with its line number and the requested before/after context. Returns line-level matches sorted by (path, line). Only text content types participate (markdown / text / html / csv / json / xml / source/*); binary families are filtered out. Inputs: pattern (required, RE2), expr (optional CEL pre-prune), context_before / context_after (surrounding lines per hit), max_matches_per_file (cap; the scanner keeps reading past the cap until pending After windows are filled). Same dir / dirs / excludes / respect_gitignore / timeout_seconds / cancellation contract as search. Use when an agent needs 'find references to X' or 'show every TODO with context' — replaces the two-call search-then-read_lines dance with one call.",
 	}, h.findMatchesHandler)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "resolve_project_for_path",
+		Description: "Given an arbitrary file or directory path, walk up the directory chain (unbounded — terminates at the filesystem root) and return the nearest ancestor that matches a registered project type (go.mod → go, package.json → node, Cargo.toml → rust, pyproject.toml/requirements.txt/Pipfile → python, Gemfile → ruby, pom.xml → java-maven, build.gradle → java-gradle, *.csproj → dotnet, *.tf → terraform, docker-compose.yml → docker-compose). The MIDDLE question between detect_project (single-dir, what is THIS dir?) and find_projects (recursive, what's under this tree?): given a file path, what project owns it? Returns project_root (matched directory; empty when no ancestor matches), project_types (all matching types — a Go module that also ships docker-compose.yml hits both), and the indicators that fired. Use when an agent has a path from elsewhere and needs the project context — e.g. to scope a follow-up search or decide which language-specific tool to invoke.",
+	}, h.resolveProjectForPathHandler)
 
 	return s
 }
