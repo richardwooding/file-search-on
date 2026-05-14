@@ -63,6 +63,20 @@ func TestExtractBody_Fixtures(t *testing.T) {
 			// the chapter body text.
 			[]string{"Sample Office Fixture", "content-type test suite"},
 		},
+		{
+			"sample.eml", "email/rfc822",
+			// Single multipart/mixed message — text/plain body is
+			// extracted, base64 attachment skipped. (Line wrapping
+			// from the original message is preserved in the output,
+			// so test for substrings within a single physical line.)
+			[]string{"file-search-on", "email fixture"},
+		},
+		{
+			"sample.mbox", "email/mbox",
+			// 3-message archive — body extractor concatenates across
+			// all messages so an agent can grep the whole inbox.
+			[]string{"First message", "Second message", "Third message", "distinct thread"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.fileName, func(t *testing.T) {
@@ -79,6 +93,31 @@ func TestExtractBody_Fixtures(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestExtractBody_EmailSkipsAttachments verifies the eml extractor
+// returns the text/plain body but NOT the base64-encoded attachment
+// payload. sample.eml's attachment is the base64 of "hello world\n";
+// neither the encoded form nor the decoded form should leak into the
+// body output (attachments are skipped entirely).
+func TestExtractBody_EmailSkipsAttachments(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fsys := os.DirFS(filepath.Join(wd, "testdata", "fixtures"))
+	body, err := content.ExtractBody(t.Context(), "email/rfc822", fsys, "sample.eml", 1<<20)
+	if err != nil {
+		t.Fatalf("ExtractBody: %v", err)
+	}
+	for _, leaked := range []string{
+		"aGVsbG8gd29ybGQK", // base64 form
+		"hello world",      // decoded form
+	} {
+		if strings.Contains(body, leaked) {
+			t.Errorf("attachment content %q leaked into body: %q", leaked, body)
+		}
 	}
 }
 

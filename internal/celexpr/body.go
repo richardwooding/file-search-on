@@ -29,14 +29,18 @@ func isTextForBody(name string) bool {
 }
 
 // isStructuredBody reports whether the given content type's body is
-// best surfaced via a format-specific extractor (ZIP + XML walk)
-// rather than a raw byte read. Office documents (DOCX / XLSX / PPTX /
-// ODT) and EPUB qualify — every byte on disk is XML / ZIP metadata,
-// but agents searching the file want the human-readable text content.
-// Routed through content.ExtractBody at read time.
+// best surfaced via a format-specific extractor rather than a raw byte
+// read. Office documents (DOCX / XLSX / PPTX / ODT) and EPUB are ZIP
+// envelopes with body text buried in XML; .eml / .mbox are RFC 5322
+// messages with the body buried under MIME headers + transfer-encoding
+// + multipart boundaries. Agents searching these files want the
+// human-readable text, not the wire envelope. Routed through
+// content.ExtractBody at read time.
 func isStructuredBody(name string) bool {
 	switch name {
-	case "office/docx", "office/xlsx", "office/pptx", "office/odt", "epub":
+	case "office/docx", "office/xlsx", "office/pptx", "office/odt",
+		"epub",
+		"email/rfc822", "email/mbox":
 		return true
 	}
 	return false

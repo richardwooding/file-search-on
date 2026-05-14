@@ -2,8 +2,8 @@ name: Fuzz
 
 # Native Go fuzzing — go.dev/doc/security/fuzz — discovers panics
 # and timeouts in parsers (frontmatter, MP3 headers, EBML, MP4
-# boxes, office/EPUB body extractors, CEL expressions, gob decoder)
-# by mutating seed corpora.
+# boxes, office/EPUB body extractors, email MIME body extractor,
+# CEL expressions, gob decoder) by mutating seed corpora.
 #
 # This workflow runs each target for a few minutes nightly. Found
 # crashes land in testdata/fuzz/<FuzzName>/ inside the failed run's
@@ -57,6 +57,9 @@ jobs:
           - name: ExtractHTMLText
             pkg: ./internal/content/
             func: FuzzExtractHTMLText
+          - name: ExtractEmailBody
+            pkg: ./internal/content/
+            func: FuzzExtractEmailBody
           - name: CELCompile
             pkg: ./internal/celexpr/
             func: FuzzCELCompile
