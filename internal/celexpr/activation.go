@@ -126,6 +126,24 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.IsManifest, true
 	case "is_platform":
 		return a.attrs.IsPlatform, true
+	case "is_ds_store":
+		return a.attrs.IsDSStore, true
+	case "is_localized":
+		return a.attrs.IsLocalized, true
+	case "is_thumbs_db":
+		return a.attrs.IsThumbsDB, true
+	case "is_desktop_ini":
+		return a.attrs.IsDesktopIni, true
+	case "is_kde_directory":
+		return a.attrs.IsKDEDirectory, true
+	case "is_macos_metadata":
+		return a.attrs.IsMacOSMetadata, true
+	case "is_windows_metadata":
+		return a.attrs.IsWindowsMetadata, true
+	case "is_linux_metadata":
+		return a.attrs.IsLinuxMetadata, true
+	case "is_system_metadata":
+		return a.attrs.IsSystemMetadata, true
 	}
 	if v, ok := a.attrs.Extra[name]; ok {
 		return v, true

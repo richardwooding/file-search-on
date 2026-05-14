@@ -93,6 +93,34 @@ file-search-on 'is_dockerfile && body.contains("npm install")' --body
 file-search-on 'is_gomod && body.contains("github.com/spf13/cobra")' --body
 ```
 
+## OS-generated metadata files
+
+`.DS_Store`, `.localized` (macOS), `Thumbs.db` / `ehthumbs.db` / `ehthumbs_vista.db` / `Desktop.ini` (Windows), and `.directory` (KDE) are first-class types under the `system/*` family. Detection only — the binary formats (`.DS_Store`, `Thumbs.db`) and INI formats (`Desktop.ini`, `.directory`) are not parsed for attributes today.
+
+```sh
+# Find every macOS leftover under ~/Code
+file-search-on 'is_macos_metadata' -d ~/Code
+
+# Find every Windows thumbnail cache under a shared drive
+file-search-on 'is_thumbs_db' -d /mnt/shared
+
+# Find every OS-cruft file across a tree (macOS + Windows + Linux)
+file-search-on 'is_system_metadata' -d ~/Downloads
+
+# Bulk delete with xargs (read-only tool itself; deletion via shell)
+file-search-on 'is_system_metadata' -d ~/Downloads -o bare | xargs rm -i
+```
+
+| Filename(s) | Content type | Predicates that fire |
+|---|---|---|
+| `.DS_Store` | `system/macos-ds-store` | `is_ds_store`, `is_macos_metadata`, `is_system_metadata` |
+| `.localized` | `system/macos-localized` | `is_localized`, `is_macos_metadata`, `is_system_metadata` |
+| `Thumbs.db`, `ehthumbs.db`, `ehthumbs_vista.db` | `system/windows-thumbs-db` | `is_thumbs_db`, `is_windows_metadata`, `is_system_metadata` |
+| `Desktop.ini` | `system/windows-desktop-ini` | `is_desktop_ini`, `is_windows_metadata`, `is_system_metadata` |
+| `.directory` | `system/linux-directory` | `is_kde_directory`, `is_linux_metadata`, `is_system_metadata` |
+
+Each OS-specific family (`is_macos_metadata` / `is_windows_metadata` / `is_linux_metadata`) AND the cross-OS `is_system_metadata` both fire — the family-prefix block in `setTypeFlags` evaluates them independently. `is_kde_directory` is named that way (rather than `is_directory`) to avoid the misleading "is this a directory" reading; `.directory` is the KDE Dolphin folder-properties file.
+
 ## Out of scope (today)
 
 - LICENSE SPDX detection (e.g. "is this MIT?" via content fuzzy-match against known license texts)
@@ -101,3 +129,5 @@ file-search-on 'is_gomod && body.contains("github.com/spf13/cobra")' --body
 - package.json `name` / `version` / `scripts` / `dependencies`
 - Cargo.toml package metadata
 - Pipfile / Gemfile / requirements.txt parsed package list
+- Parsing the binary `.DS_Store` and `Thumbs.db` formats (proprietary Apple / Microsoft layouts)
+- Parsing the INI-shaped `Desktop.ini` / `.directory` (IconResource, [.ShellClassInfo], etc.) for attributes

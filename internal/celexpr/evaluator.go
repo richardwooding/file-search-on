@@ -108,6 +108,23 @@ type FileAttributes struct {
 	IsVagrantfile    bool
 	IsPlatform       bool
 
+	// OS-generated system metadata files. Per-type flags
+	// (IsDSStore, IsLocalized, IsThumbsDB, IsDesktopIni,
+	// IsKDEDirectory) match exact content_type names; family flags
+	// (IsMacOSMetadata, IsWindowsMetadata, IsLinuxMetadata,
+	// IsSystemMetadata) match content_type prefixes. The OS-specific
+	// family AND IsSystemMetadata both fire for any system/<os>-*
+	// file — see the family-prefix `if` chain in setTypeFlags.
+	IsDSStore         bool
+	IsLocalized       bool
+	IsThumbsDB        bool
+	IsDesktopIni      bool
+	IsKDEDirectory    bool
+	IsMacOSMetadata   bool
+	IsWindowsMetadata bool
+	IsLinuxMetadata   bool
+	IsSystemMetadata  bool
+
 	Extra content.Attributes
 }
 
@@ -185,6 +202,19 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("is_ignore", cel.BoolType),
 		cel.Variable("is_manifest", cel.BoolType),
 		cel.Variable("is_platform", cel.BoolType),
+
+		// OS-generated metadata files (system/*). Per-type and
+		// family predicates — for any matched file the OS-specific
+		// family AND is_system_metadata both fire.
+		cel.Variable("is_ds_store", cel.BoolType),
+		cel.Variable("is_localized", cel.BoolType),
+		cel.Variable("is_thumbs_db", cel.BoolType),
+		cel.Variable("is_desktop_ini", cel.BoolType),
+		cel.Variable("is_kde_directory", cel.BoolType),
+		cel.Variable("is_macos_metadata", cel.BoolType),
+		cel.Variable("is_windows_metadata", cel.BoolType),
+		cel.Variable("is_linux_metadata", cel.BoolType),
+		cel.Variable("is_system_metadata", cel.BoolType),
 
 		// Attributes parsed from exact-name types.
 		cel.Variable("module", cel.StringType),
@@ -579,39 +609,84 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 		attrs.IsProcfile = true
 	case "platform/vagrant":
 		attrs.IsVagrantfile = true
+
+	// OS-generated system metadata files (system/<os>-*). Both the
+	// OS-specific family flag AND IsSystemMetadata fire — see the
+	// independent prefix `if` blocks below.
+	case "system/macos-ds-store":
+		attrs.IsDSStore = true
+	case "system/macos-localized":
+		attrs.IsLocalized = true
+	case "system/windows-thumbs-db":
+		attrs.IsThumbsDB = true
+	case "system/windows-desktop-ini":
+		attrs.IsDesktopIni = true
+	case "system/linux-directory":
+		attrs.IsKDEDirectory = true
 	}
 
-	// Family prefix flags. Existing image/office/audio/etc. plus the
-	// five new families (build, repo, ignore, manifest, platform).
-	switch {
-	case strings.HasPrefix(name, "image/"):
+	// Family prefix flags. Independent `if` blocks rather than a
+	// switch so multiple prefixes can fire for one content type —
+	// e.g. system/macos-ds-store sets both IsMacOSMetadata and
+	// IsSystemMetadata. The 14 original family prefixes (image,
+	// office, audio, video, archive, binary, email, source, notebook,
+	// build, repo, ignore, manifest, platform) are mutually
+	// non-overlapping, so the refactor from switch is behaviour-
+	// preserving for them; the new system/* family is the reason it
+	// was needed.
+	if strings.HasPrefix(name, "image/") {
 		attrs.IsImage = true
-	case strings.HasPrefix(name, "office/"):
+	}
+	if strings.HasPrefix(name, "office/") {
 		attrs.IsOffice = true
-	case strings.HasPrefix(name, "audio/"):
+	}
+	if strings.HasPrefix(name, "audio/") {
 		attrs.IsAudio = true
-	case strings.HasPrefix(name, "video/"):
+	}
+	if strings.HasPrefix(name, "video/") {
 		attrs.IsVideo = true
-	case strings.HasPrefix(name, "archive/"):
+	}
+	if strings.HasPrefix(name, "archive/") {
 		attrs.IsArchive = true
-	case strings.HasPrefix(name, "binary/"):
+	}
+	if strings.HasPrefix(name, "binary/") {
 		attrs.IsBinary = true
-	case strings.HasPrefix(name, "email/"):
+	}
+	if strings.HasPrefix(name, "email/") {
 		attrs.IsEmail = true
-	case strings.HasPrefix(name, "source/"):
+	}
+	if strings.HasPrefix(name, "source/") {
 		attrs.IsSource = true
-	case strings.HasPrefix(name, "notebook/"):
+	}
+	if strings.HasPrefix(name, "notebook/") {
 		attrs.IsNotebook = true
-	case strings.HasPrefix(name, "build/"):
+	}
+	if strings.HasPrefix(name, "build/") {
 		attrs.IsBuild = true
-	case strings.HasPrefix(name, "repo/"):
+	}
+	if strings.HasPrefix(name, "repo/") {
 		attrs.IsRepoMeta = true
-	case strings.HasPrefix(name, "ignore/"):
+	}
+	if strings.HasPrefix(name, "ignore/") {
 		attrs.IsIgnore = true
-	case strings.HasPrefix(name, "manifest/"):
+	}
+	if strings.HasPrefix(name, "manifest/") {
 		attrs.IsManifest = true
-	case strings.HasPrefix(name, "platform/"):
+	}
+	if strings.HasPrefix(name, "platform/") {
 		attrs.IsPlatform = true
+	}
+	if strings.HasPrefix(name, "system/macos-") {
+		attrs.IsMacOSMetadata = true
+	}
+	if strings.HasPrefix(name, "system/windows-") {
+		attrs.IsWindowsMetadata = true
+	}
+	if strings.HasPrefix(name, "system/linux-") {
+		attrs.IsLinuxMetadata = true
+	}
+	if strings.HasPrefix(name, "system/") {
+		attrs.IsSystemMetadata = true
 	}
 }
 

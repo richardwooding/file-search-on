@@ -110,6 +110,18 @@ type Match struct {
 	IsManifest      bool `json:"is_manifest,omitempty"`
 	IsPlatform      bool `json:"is_platform,omitempty"`
 
+	// OS-generated system metadata files. Per-type plus OS-specific
+	// family plus the cross-OS IsSystemMetadata family.
+	IsDSStore         bool `json:"is_ds_store,omitempty"`
+	IsLocalized       bool `json:"is_localized,omitempty"`
+	IsThumbsDB        bool `json:"is_thumbs_db,omitempty"`
+	IsDesktopIni      bool `json:"is_desktop_ini,omitempty"`
+	IsKDEDirectory    bool `json:"is_kde_directory,omitempty"`
+	IsMacOSMetadata   bool `json:"is_macos_metadata,omitempty"`
+	IsWindowsMetadata bool `json:"is_windows_metadata,omitempty"`
+	IsLinuxMetadata   bool `json:"is_linux_metadata,omitempty"`
+	IsSystemMetadata  bool `json:"is_system_metadata,omitempty"`
+
 	Module    string `json:"module,omitempty"`
 	GoVersion string `json:"go_version,omitempty"`
 	BaseImage string `json:"base_image,omitempty"`
@@ -220,6 +232,8 @@ func MatchFrom(r Result) Match {
 	m.IsPipfile, m.IsPythonReqs, m.IsGemfile = a.IsPipfile, a.IsPythonReqs, a.IsGemfile
 	m.IsProcfile, m.IsVagrantfile = a.IsProcfile, a.IsVagrantfile
 	m.IsBuild, m.IsRepoMeta, m.IsIgnore, m.IsManifest, m.IsPlatform = a.IsBuild, a.IsRepoMeta, a.IsIgnore, a.IsManifest, a.IsPlatform
+	m.IsDSStore, m.IsLocalized, m.IsThumbsDB, m.IsDesktopIni, m.IsKDEDirectory = a.IsDSStore, a.IsLocalized, a.IsThumbsDB, a.IsDesktopIni, a.IsKDEDirectory
+	m.IsMacOSMetadata, m.IsWindowsMetadata, m.IsLinuxMetadata, m.IsSystemMetadata = a.IsMacOSMetadata, a.IsWindowsMetadata, a.IsLinuxMetadata, a.IsSystemMetadata
 
 	if a.Extra == nil {
 		return m

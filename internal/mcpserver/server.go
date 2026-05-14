@@ -99,6 +99,11 @@ matches:
   is_gemfile / is_manifest    Gemfile, Gemfile.lock
   is_procfile / is_platform   Procfile
   is_vagrantfile / is_platform      Vagrantfile
+  is_ds_store / is_macos_metadata / is_system_metadata        .DS_Store (macOS Finder window state)
+  is_localized / is_macos_metadata / is_system_metadata       .localized (macOS Finder localization marker)
+  is_thumbs_db / is_windows_metadata / is_system_metadata     Thumbs.db, ehthumbs.db, ehthumbs_vista.db (Windows thumbnail cache)
+  is_desktop_ini / is_windows_metadata / is_system_metadata   Desktop.ini (Windows folder customisation)
+  is_kde_directory / is_linux_metadata / is_system_metadata   .directory (KDE Dolphin folder properties)
 
 Common attributes available on every file: name, path, dir, ext, size (bytes, int), content_type. Per-family attributes the parser populates when the file matches:
 
