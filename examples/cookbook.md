@@ -140,6 +140,28 @@ The MCP `search` tool returns the same attribute set as `-o json` — see [`list
 
 The `list_attributes` payload also includes the four built-in fuzzy functions (`levenshtein`, `soundex`, `ngrams`, `ngram_similarity`) with their signatures and examples — agents pick them up via the MCP handshake without prior knowledge.
 
+### Saving response tokens with `fields`
+
+Both the MCP `search` and `read_attributes` tools accept an optional `fields: []string` to project responses to only the listed attributes. `path`, `content_type`, and `size` stay on always; everything else is opt-in:
+
+```json
+{
+  "name": "search",
+  "arguments": {
+    "expr": "is_image",
+    "dir": "/Users/me/Pictures",
+    "sort_by": "taken_at",
+    "order": "desc",
+    "limit": 50,
+    "fields": ["taken_at", "camera_model"]
+  }
+}
+```
+
+Saves the ~12 EXIF fields per match that the caller didn't ask for. The sort key (`taken_at` here) is honoured even when it's in `fields` — sort happens before projection, so it works for keys NOT in `fields` too. Unknown field names error at request validation, before the walk runs — call `list_attributes` for the canonical set. Omit `fields` to keep the existing behaviour (every populated attribute).
+
+The CLI equivalent is `--format` (Go `text/template`) — agents on the MCP side use `fields` instead.
+
 ## Fuzzy / phonetic matching across families
 
 ```sh
