@@ -65,8 +65,15 @@ func (h *handlers) findMatchesHandler(ctx context.Context, _ *mcp.CallToolReques
 	if expr == "" {
 		expr = "true"
 	}
-	dir := in.Dir
-	if dir == "" && len(in.Dirs) == 0 {
+	dir, err := expandHomeDir(in.Dir)
+	if err != nil {
+		return nil, FindMatchesOutput{}, fmt.Errorf("expand dir: %w", err)
+	}
+	dirs, err := expandHomeDirs(in.Dirs)
+	if err != nil {
+		return nil, FindMatchesOutput{}, fmt.Errorf("expand dirs: %w", err)
+	}
+	if dir == "" && len(dirs) == 0 {
 		dir = "."
 	}
 
@@ -76,7 +83,7 @@ func (h *handlers) findMatchesHandler(ctx context.Context, _ *mcp.CallToolReques
 
 	res, err := search.FindMatches(ctx, search.Options{
 		Root:                dir,
-		Roots:               in.Dirs,
+		Roots:               dirs,
 		Expr:                expr,
 		Workers:             in.Workers,
 		MaxLineBytes:        in.MaxLineBytes,

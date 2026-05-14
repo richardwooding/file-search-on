@@ -62,7 +62,14 @@ func (h *handlers) statsHandler(ctx context.Context, _ *mcp.CallToolRequest, in 
 	if expr == "" {
 		expr = "true"
 	}
-	dir := in.Dir
+	dir, err := expandHomeDir(in.Dir)
+	if err != nil {
+		return nil, StatsOutput{}, fmt.Errorf("expand dir: %w", err)
+	}
+	dirs, err := expandHomeDirs(in.Dirs)
+	if err != nil {
+		return nil, StatsOutput{}, fmt.Errorf("expand dirs: %w", err)
+	}
 	if dir == "" {
 		dir = "."
 	}
@@ -77,7 +84,7 @@ func (h *handlers) statsHandler(ctx context.Context, _ *mcp.CallToolRequest, in 
 	start := time.Now()
 	stats, err := search.ComputeStats(ctx, search.Options{
 		Root:             dir,
-		Roots:            in.Dirs,
+		Roots:            dirs,
 		Expr:             expr,
 		Workers:          in.Workers,
 		MaxLineBytes:     in.MaxLineBytes,

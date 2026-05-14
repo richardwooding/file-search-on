@@ -37,7 +37,11 @@ func (h *handlers) findProjectsHandler(ctx context.Context, _ *mcp.CallToolReque
 	if in.Dir == "" {
 		return nil, FindProjectsOutput{}, fmt.Errorf("dir is required")
 	}
-	abs, err := filepath.Abs(in.Dir)
+	dir, err := expandHomeDir(in.Dir)
+	if err != nil {
+		return nil, FindProjectsOutput{}, fmt.Errorf("expand dir: %w", err)
+	}
+	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, FindProjectsOutput{}, fmt.Errorf("resolve dir: %w", err)
 	}

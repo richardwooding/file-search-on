@@ -32,7 +32,11 @@ func (h *handlers) resolveProjectForPathHandler(ctx context.Context, _ *mcp.Call
 	if in.Path == "" {
 		return nil, ResolveProjectForPathOutput{}, fmt.Errorf("path is required")
 	}
-	abs, err := filepath.Abs(in.Path)
+	path, err := expandHomeDir(in.Path)
+	if err != nil {
+		return nil, ResolveProjectForPathOutput{}, fmt.Errorf("expand path: %w", err)
+	}
+	abs, err := filepath.Abs(path)
 	if err != nil {
 		return nil, ResolveProjectForPathOutput{}, fmt.Errorf("resolve path: %w", err)
 	}

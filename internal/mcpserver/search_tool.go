@@ -71,7 +71,14 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 	if expr == "" {
 		expr = "true"
 	}
-	dir := in.Dir
+	dir, err := expandHomeDir(in.Dir)
+	if err != nil {
+		return nil, SearchOutput{}, fmt.Errorf("expand dir: %w", err)
+	}
+	dirs, err := expandHomeDirs(in.Dirs)
+	if err != nil {
+		return nil, SearchOutput{}, fmt.Errorf("expand dirs: %w", err)
+	}
 	if dir == "" {
 		dir = "."
 	}
@@ -99,7 +106,7 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 	// the single 'dir' field (with default "." applied above).
 	walkOpts := search.Options{
 		Root:              dir,
-		Roots:             in.Dirs,
+		Roots:             dirs,
 		Expr:              expr,
 		Workers:           in.Workers,
 		MaxLineBytes:      in.MaxLineBytes,
