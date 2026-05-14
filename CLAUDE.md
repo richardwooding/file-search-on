@@ -48,7 +48,7 @@ If `Expr` is empty it defaults to `"true"` (matches all files). Worker count def
 
 ### Fuzz testing
 
-The high-risk parsers — frontmatter (YAML/TOML/JSON), MP3 ID3v2 + Xing/Info, MKV EBML, MP4 box walker, CEL expression compile, and the index's gob decoder — have native Go [fuzz targets](https://go.dev/doc/security/fuzz) (`FuzzXxx` functions in `*_fuzz_test.go`).
+The high-risk parsers — frontmatter (YAML/TOML/JSON), MP3 ID3v2 + Xing/Info, MKV EBML, MP4 box walker, office/EPUB body extractors (XML + permissive HTML), CEL expression compile, and the index's gob decoder — have native Go [fuzz targets](https://go.dev/doc/security/fuzz) (`FuzzXxx` functions in `*_fuzz_test.go`).
 
 Workflows:
 
