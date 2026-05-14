@@ -22,8 +22,16 @@ Three surfaces:
 | `dotnet` | `*.csproj`, `*.fsproj`, `*.vbproj`, `*.sln` (any) |
 | `terraform` | `*.tf` |
 | `docker-compose` | `docker-compose.yml`, `docker-compose.yaml`, `compose.yml`, `compose.yaml` (any) |
+| `hugo` | `hugo.toml`, `hugo.yaml`, `hugo.yml` (any) |
+| `jekyll` | `_config.yml`, `_config.yaml` (any) |
+| `eleventy` | `.eleventy.js`, `eleventy.config.js`, `eleventy.config.cjs`, `eleventy.config.mjs`, `eleventy.config.ts` (any) |
+| `astro` | `astro.config.mjs`, `astro.config.cjs`, `astro.config.js`, `astro.config.ts` (any) |
+| `gatsby` | `gatsby-config.js`, `gatsby-config.ts`, `gatsby-config.mjs` (any) |
+| `mkdocs` | `mkdocs.yml`, `mkdocs.yaml` (any) |
+| `docusaurus` | `docusaurus.config.js`, `docusaurus.config.ts`, `docusaurus.config.mjs` (any) |
+| `pelican` | `pelicanconf.py` |
 
-Multiple types can match a single directory simultaneously — a Go module that also ships `docker-compose.yml` fires both `go` and `docker-compose`. Mirrors the cross-firing semantics for file content types (PR #95).
+Multiple types can match a single directory simultaneously — a Go module that also ships `docker-compose.yml` fires both `go` and `docker-compose`. Mirrors the cross-firing semantics for file content types (PR #95). Static-site generators that ship a `package.json` (Astro / Gatsby / Docusaurus / Eleventy) also fire `node` / `is_node_manifest` — same cross-firing.
 
 ## detect-project — what is this directory?
 
@@ -283,6 +291,14 @@ Pass `--prune-build-artefacts` (CLI) / `prune_build_artefacts: true` (MCP) on `s
 | `java-gradle` | `build`, `.gradle` |
 | `dotnet` | `bin`, `obj` |
 | `terraform` | `.terraform` |
+| `hugo` | `public`, `resources` |
+| `jekyll` | `_site`, `.jekyll-cache`, `.sass-cache` |
+| `eleventy` | `_site` |
+| `astro` | `dist`, `.astro` |
+| `gatsby` | `public`, `.cache`, `.gatsby` |
+| `mkdocs` | `site` |
+| `docusaurus` | `build`, `.docusaurus` |
+| `pelican` | `output` |
 
 ```sh
 # Walk a Code/ directory full of Go/Node/Rust/Python projects without
@@ -296,6 +312,32 @@ file-search-on 'is_source' -d ~/Code \
 ```
 
 `--prune-build-artefacts` is unioned with the user's `--exclude`. The pre-walk cost is proportional to the tree size (one stat per directory looking for indicator files); for a 1000-project monorepo expect ~100 ms of pre-walk on warm caches. Use `--respect-gitignore` instead if all the artefact dirs are already listed in `.gitignore`.
+
+## Static-site generators
+
+`hugo`, `jekyll`, `eleventy`, `astro`, `gatsby`, `mkdocs`, `docusaurus`, `pelican` are first-class project types alongside Go / Node / Rust / etc. A convenience CEL predicate `is_static_site` fires when the file's resolved project type is any of these — so an agent can address SSGs as a group OR by exact name without enumerating.
+
+```sh
+# Find every SSG project under ~/Code
+file-search-on find-projects ~/Code \
+    --type hugo --type jekyll --type eleventy --type astro \
+    --type gatsby --type mkdocs --type docusaurus --type pelican
+
+# Same intent via the family predicate — search for any file under any SSG
+file-search-on 'is_static_site' -d ~/Code --resolve-projects
+
+# Just Hugo posts with frontmatter draft=true
+file-search-on 'is_static_site && project_type == "hugo" && is_markdown && draft' \
+    -d ~/Code --resolve-projects
+
+# All non-generated content in any SSG repo (skip public / _site / dist etc.)
+file-search-on 'is_static_site && is_markdown' \
+    -d ~/Code --resolve-projects --prune-build-artefacts
+```
+
+The `is_static_site` variable requires `--resolve-projects` (CLI) / `resolve_projects: true` (MCP) — without it, the file's project context isn't walked, so the predicate is always false. Same opt-in contract as `project_type` / `project_types`.
+
+Hugo's older `config.toml` filename isn't a default indicator because it collides with too many other tools; legacy Hugo sites that don't ship `hugo.{toml,yaml,yml}` can add a custom YAML entry that requires both `config.toml` AND a `content/` subdir.
 
 ## Out of scope (further follow-ups)
 

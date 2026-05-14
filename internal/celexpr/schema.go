@@ -100,6 +100,7 @@ func Schema() SchemaDoc {
 			{"base_image", "string", "first `FROM <image>` directive in a Dockerfile / Containerfile"},
 			{"project_types", "list<str>", "names of every project type the containing project matches (e.g. ['go', 'docker-compose']). Empty unless --resolve-projects (CLI) / resolve_projects=true (MCP) is set."},
 			{"project_type", "string", "the first (alphabetically-sorted) match from project_types — convenience for `project_type == \"go\"` queries. Empty unless --resolve-projects is set."},
+			{"is_static_site", "bool", "true when the file's resolved project type is a recognised static-site generator (`hugo`, `jekyll`, `eleventy`, `astro`, `gatsby`, `mkdocs`, `docusaurus`, `pelican`). Requires --resolve-projects."},
 			{"img_width", "int", "image width in pixels"},
 			{"img_height", "int", "image height in pixels"},
 			{"camera_make", "string", "EXIF camera make (JPEG/TIFF/HEIC/PNG)"},

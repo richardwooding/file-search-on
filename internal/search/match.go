@@ -75,6 +75,12 @@ type Match struct {
 	// root or when resolution wasn't requested.
 	ProjectTypes []string `json:"project_types,omitempty"`
 	ProjectType  string   `json:"project_type,omitempty"`
+	// IsStaticSite fires when the resolved project_type is one of the
+	// recognised static-site generators (hugo / jekyll / eleventy /
+	// astro / gatsby / mkdocs / docusaurus / pelican). Same opt-in
+	// semantics as ProjectType — requires the walker's
+	// ResolveProjects flag.
+	IsStaticSite bool `json:"is_static_site,omitempty"`
 
 	// Exact-name content types (PR #94). Per-type predicates plus
 	// family predicates (IsBuild, IsRepoMeta, IsIgnore, IsManifest,
@@ -268,6 +274,9 @@ func MatchFrom(r Result) Match {
 	}
 	if v, ok := a.Extra["project_type"].(string); ok {
 		m.ProjectType = v
+	}
+	if v, ok := a.Extra["is_static_site"].(bool); ok {
+		m.IsStaticSite = v
 	}
 	if v, ok := a.Extra["img_width"].(int64); ok {
 		m.ImgWidth = v

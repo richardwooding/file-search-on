@@ -26,6 +26,18 @@ func TestDetect_SingleType(t *testing.T) {
 		{"java-maven", "pom.xml", "java-maven"},
 		{"java-gradle", "build.gradle.kts", "java-gradle"},
 		{"docker-compose", "compose.yaml", "docker-compose"},
+		// Static-site generators.
+		{"hugo-toml", "hugo.toml", "hugo"},
+		{"hugo-yaml", "hugo.yaml", "hugo"},
+		{"jekyll", "_config.yml", "jekyll"},
+		{"eleventy-dotjs", ".eleventy.js", "eleventy"},
+		{"eleventy-config", "eleventy.config.mjs", "eleventy"},
+		{"astro-mjs", "astro.config.mjs", "astro"},
+		{"astro-ts", "astro.config.ts", "astro"},
+		{"gatsby", "gatsby-config.js", "gatsby"},
+		{"mkdocs", "mkdocs.yml", "mkdocs"},
+		{"docusaurus", "docusaurus.config.js", "docusaurus"},
+		{"pelican", "pelicanconf.py", "pelican"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -178,8 +190,8 @@ func TestFind_Excludes(t *testing.T) {
 
 func TestRegistry_Types(t *testing.T) {
 	types := projecttype.DefaultRegistry().Types()
-	if len(types) < 10 {
-		t.Errorf("registered types = %d, want at least 10 built-ins", len(types))
+	if len(types) < 18 {
+		t.Errorf("registered types = %d, want at least 18 built-ins (10 original + 8 SSGs)", len(types))
 	}
 	// Verify sorted by Name.
 	for i := 1; i < len(types); i++ {
