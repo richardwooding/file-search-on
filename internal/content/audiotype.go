@@ -86,11 +86,12 @@ func (a *audioType) Attributes(ctx context.Context, fsys fs.FS, path string) (At
 	// Tag-read failure isn't fatal — playback metadata still flows through
 	// the per-format parsers below.
 
-	// Playback metadata via per-format binary parsing. Each parser is bounded
-	// (header + at most a 64 KiB tail for OGG); they don't take ctx because
-	// the entry-point check at the top covers cancellation between files.
+	// Playback metadata via per-format binary parsing. Most parsers are
+	// header-bounded (FLAC / MP3 / OGG); the MP4 path walks the atom tree
+	// which can be unbounded on huge audiobooks, so ctx threads through it
+	// (mp4_box.go's walkBoxes / descendBoxes check ctx.Err() per iteration).
 	_, _ = rs.Seek(0, io.SeekStart)
-	if info, err := readAudioInfo(a.name, rs, fileSize); err == nil {
+	if info, err := readAudioInfo(ctx, a.name, rs, fileSize); err == nil {
 		if info.Duration > 0 {
 			attrs["duration"] = info.Duration
 			if br := int64(float64(fileSize) * 8 / info.Duration / 1000); br > 0 {
@@ -114,7 +115,7 @@ func (a *audioType) Attributes(ctx context.Context, fsys fs.FS, path string) (At
 }
 
 // readAudioInfo dispatches to the format-specific parser by content-type name.
-func readAudioInfo(name string, r io.ReadSeeker, fileSize int64) (audioInfo, error) {
+func readAudioInfo(ctx context.Context, name string, r io.ReadSeeker, fileSize int64) (audioInfo, error) {
 	switch name {
 	case "audio/flac":
 		return readFLACInfo(r)
@@ -123,7 +124,7 @@ func readAudioInfo(name string, r io.ReadSeeker, fileSize int64) (audioInfo, err
 	case "audio/ogg":
 		return readOGGInfo(r, fileSize)
 	case "audio/mp4":
-		return readMP4Info(r, fileSize)
+		return readMP4Info(ctx, r, fileSize)
 	}
 	return audioInfo{}, errors.New("unsupported audio format")
 }

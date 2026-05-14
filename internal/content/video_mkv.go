@@ -1,6 +1,7 @@
 package content
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -38,7 +39,7 @@ var (
 // for both element IDs and sizes; we hand-roll the basics.
 //
 // References: https://www.matroska.org/technical/elements.html
-func readMKVInfo(r io.ReadSeeker, fileSize int64) (videoInfo, error) {
+func readMKVInfo(ctx context.Context, r io.ReadSeeker, fileSize int64) (videoInfo, error) {
 	if _, err := r.Seek(0, io.SeekStart); err != nil {
 		return videoInfo{}, err
 	}
@@ -75,10 +76,10 @@ func readMKVInfo(r io.ReadSeeker, fileSize int64) (videoInfo, error) {
 	var timecodeScale uint64 = 1_000_000 // default per spec: 1 ms = 1_000_000 ns
 	var rawDuration float64
 
-	if err := walkEBML(r, segStart, segEnd, func(id []byte, end int64) error {
+	if err := walkEBML(ctx, r, segStart, segEnd, func(id []byte, end int64) error {
 		switch {
 		case idEquals(id, mkvIDInfo):
-			return walkEBML(r, mustPos(r), end, func(id []byte, end int64) error {
+			return walkEBML(ctx, r, mustPos(r), end, func(id []byte, end int64) error {
 				switch {
 				case idEquals(id, mkvIDTimecodeScale):
 					if v, err := readEBMLUint(r, end); err == nil {
@@ -92,9 +93,9 @@ func readMKVInfo(r io.ReadSeeker, fileSize int64) (videoInfo, error) {
 				return nil
 			})
 		case idEquals(id, mkvIDTracks):
-			return walkEBML(r, mustPos(r), end, func(id []byte, end int64) error {
+			return walkEBML(ctx, r, mustPos(r), end, func(id []byte, end int64) error {
 				if idEquals(id, mkvIDTrackEntry) {
-					return readMKVTrackEntry(r, end, &info)
+					return readMKVTrackEntry(ctx, r, end, &info)
 				}
 				return nil
 			})
@@ -110,7 +111,7 @@ func readMKVInfo(r io.ReadSeeker, fileSize int64) (videoInfo, error) {
 	return info, nil
 }
 
-func readMKVTrackEntry(r io.ReadSeeker, end int64, info *videoInfo) error {
+func readMKVTrackEntry(ctx context.Context, r io.ReadSeeker, end int64, info *videoInfo) error {
 	var trackType uint64
 	var codecID string
 	var defaultDur uint64
@@ -120,7 +121,7 @@ func readMKVTrackEntry(r io.ReadSeeker, end int64, info *videoInfo) error {
 	var bitrate uint64 // bits per second (TrackEntry/Bitrate)
 	var language string
 
-	if err := walkEBML(r, mustPos(r), end, func(id []byte, end int64) error {
+	if err := walkEBML(ctx, r, mustPos(r), end, func(id []byte, end int64) error {
 		switch {
 		case idEquals(id, mkvIDTrackType):
 			if v, err := readEBMLUint(r, end); err == nil {
@@ -143,7 +144,7 @@ func readMKVTrackEntry(r io.ReadSeeker, end int64, info *videoInfo) error {
 				language = v
 			}
 		case idEquals(id, mkvIDVideo):
-			return walkEBML(r, mustPos(r), end, func(id []byte, end int64) error {
+			return walkEBML(ctx, r, mustPos(r), end, func(id []byte, end int64) error {
 				switch {
 				case idEquals(id, mkvIDPixelWidth):
 					if v, err := readEBMLUint(r, end); err == nil {
@@ -154,7 +155,7 @@ func readMKVTrackEntry(r io.ReadSeeker, end int64, info *videoInfo) error {
 						height = v
 					}
 				case idEquals(id, mkvIDColour):
-					return walkEBML(r, mustPos(r), end, func(id []byte, end int64) error {
+					return walkEBML(ctx, r, mustPos(r), end, func(id []byte, end int64) error {
 						switch {
 						case idEquals(id, mkvIDColPrimaries):
 							if v, err := readEBMLUint(r, end); err == nil {
@@ -172,7 +173,7 @@ func readMKVTrackEntry(r io.ReadSeeker, end int64, info *videoInfo) error {
 				return nil
 			})
 		case idEquals(id, mkvIDAudio):
-			return walkEBML(r, mustPos(r), end, func(id []byte, end int64) error {
+			return walkEBML(ctx, r, mustPos(r), end, func(id []byte, end int64) error {
 				switch {
 				case idEquals(id, mkvIDSampleRate):
 					if v, err := readEBMLFloat(r, end); err == nil {
@@ -233,12 +234,17 @@ func readMKVTrackEntry(r io.ReadSeeker, end int64, info *videoInfo) error {
 
 // walkEBML iterates the children of a container element, invoking cb with
 // each child's ID and end offset. cb may seek freely; on return, walkEBML
-// re-seeks past the child before continuing.
-func walkEBML(r io.ReadSeeker, start, end int64, cb func(id []byte, end int64) error) error {
+// re-seeks past the child before continuing. ctx is checked at the top of
+// every iteration so a multi-GB MKV that's mid-walk surrenders to a
+// cancelled context within one element's worth of work.
+func walkEBML(ctx context.Context, r io.ReadSeeker, start, end int64, cb func(id []byte, end int64) error) error {
 	if _, err := r.Seek(start, io.SeekStart); err != nil {
 		return err
 	}
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		pos, _ := r.Seek(0, io.SeekCurrent)
 		if pos >= end {
 			return nil

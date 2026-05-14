@@ -44,7 +44,7 @@ func (v *videoType) Attributes(ctx context.Context, fsys fs.FS, path string) (At
 		return attrs, nil
 	}
 
-	info, err := readVideoInfo(v.name, rs, fileSize)
+	info, err := readVideoInfo(ctx, v.name, rs, fileSize)
 	if err != nil {
 		return attrs, nil
 	}
@@ -103,14 +103,14 @@ func (v *videoType) Attributes(ctx context.Context, fsys fs.FS, path string) (At
 	return attrs, nil
 }
 
-func readVideoInfo(name string, r io.ReadSeeker, fileSize int64) (videoInfo, error) {
+func readVideoInfo(ctx context.Context, name string, r io.ReadSeeker, fileSize int64) (videoInfo, error) {
 	switch name {
 	case "video/mp4", "video/quicktime":
-		return readMP4VideoInfo(r, fileSize)
+		return readMP4VideoInfo(ctx, r, fileSize)
 	case "video/x-matroska", "video/webm":
-		return readMKVInfo(r, fileSize)
+		return readMKVInfo(ctx, r, fileSize)
 	case "video/x-msvideo":
-		return readAVIInfo(r, fileSize)
+		return readAVIInfo(ctx, r, fileSize)
 	}
 	return videoInfo{}, errors.New("unsupported video format")
 }

@@ -1,6 +1,7 @@
 package content
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -18,7 +19,7 @@ import (
 //     with fccType ('vids' / 'auds') and fccHandler (codec FOURCC)
 //
 // References: AVI RIFF File Reference (Microsoft).
-func readAVIInfo(r io.ReadSeeker, fileSize int64) (videoInfo, error) {
+func readAVIInfo(ctx context.Context, r io.ReadSeeker, fileSize int64) (videoInfo, error) {
 	if _, err := r.Seek(0, io.SeekStart); err != nil {
 		return videoInfo{}, err
 	}
@@ -34,6 +35,9 @@ func readAVIInfo(r io.ReadSeeker, fileSize int64) (videoInfo, error) {
 	var info videoInfo
 	end := fileSize
 	for {
+		if err := ctx.Err(); err != nil {
+			return info, err
+		}
 		pos, _ := r.Seek(0, io.SeekCurrent)
 		if pos+8 > end {
 			return info, nil
@@ -55,7 +59,7 @@ func readAVIInfo(r io.ReadSeeker, fileSize int64) (videoInfo, error) {
 				return info, nil
 			}
 			if string(listType[:]) == "hdrl" {
-				if err := readAVIHDRL(r, pos+8+size, &info); err != nil {
+				if err := readAVIHDRL(ctx, r, pos+8+size, &info); err != nil {
 					return info, err
 				}
 			}
@@ -68,8 +72,11 @@ func readAVIInfo(r io.ReadSeeker, fileSize int64) (videoInfo, error) {
 
 // readAVIHDRL walks an hdrl LIST looking for the avih main header and
 // strl LISTs. The reader is positioned just after the "hdrl" type tag.
-func readAVIHDRL(r io.ReadSeeker, end int64, info *videoInfo) error {
+func readAVIHDRL(ctx context.Context, r io.ReadSeeker, end int64, info *videoInfo) error {
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		pos, _ := r.Seek(0, io.SeekCurrent)
 		if pos+8 > end {
 			return nil
@@ -92,7 +99,7 @@ func readAVIHDRL(r io.ReadSeeker, end int64, info *videoInfo) error {
 				return nil
 			}
 			if string(listType[:]) == "strl" {
-				if err := readAVISTRL(r, pos+8+size, info); err != nil {
+				if err := readAVISTRL(ctx, r, pos+8+size, info); err != nil {
 					return err
 				}
 			}
@@ -150,9 +157,12 @@ func readAVIH(r io.ReadSeeker, size int64, info *videoInfo) {
 // tag. fccType from strh is remembered so the immediately-following strf
 // is parsed with the right struct (BITMAPINFOHEADER for vids,
 // WAVEFORMATEX for auds).
-func readAVISTRL(r io.ReadSeeker, end int64, info *videoInfo) error {
+func readAVISTRL(ctx context.Context, r io.ReadSeeker, end int64, info *videoInfo) error {
 	var fccType string
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		pos, _ := r.Seek(0, io.SeekCurrent)
 		if pos+8 > end {
 			return nil

@@ -96,6 +96,46 @@ func ValidGroupBys() []string {
 	return out
 }
 
+// detectorOnlyGroupBys are the group_by keys whose bucket value can be
+// read straight off the search.Result without parsing per-format
+// attributes. content_type / ext / dir come from Result fields; mtime_*
+// reads Result.Attrs.ModTime (populated by the walker's stat call, not
+// by ContentType.Attributes). For these keys ComputeStats can short-
+// circuit the expensive Attributes() parse via SkipAttributesParse —
+// turning /Applications-scale stats from minutes into seconds.
+var detectorOnlyGroupBys = map[string]struct{}{
+	"content_type": {},
+	"ext":          {},
+	"dir":          {},
+	"mtime_year":   {},
+	"mtime_month":  {},
+	"mtime_day":    {},
+}
+
+// groupByNeedsAttributes reports whether the named bucket key requires
+// the per-format ContentType.Attributes() parse to be run. Detector-
+// only keys (see detectorOnlyGroupBys) return false; everything else
+// returns true.
+func groupByNeedsAttributes(groupBy string) bool {
+	_, ok := detectorOnlyGroupBys[groupBy]
+	return !ok
+}
+
+// exprIsTrivial reports whether the CEL expression doesn't need any
+// per-format attributes — i.e. it's empty or the literal "true".
+// Anything else might filter on title / word_count / camera_make /
+// etc. and must keep the parse on. The CEL evaluator already short-
+// circuits "true" without inspecting attrs, so when both expr is
+// trivial AND group_by is detector-only, the Attributes() call is
+// pure waste.
+func exprIsTrivial(expr string) bool {
+	switch strings.TrimSpace(expr) {
+	case "", "true":
+		return true
+	}
+	return false
+}
+
 // ComputeStats walks the directory tree(s) and tallies counts +
 // sizes per bucket. Bucketing key is opts.GroupBy when set (and
 // recognised); otherwise content_type. Reuses the standard Walk
@@ -110,6 +150,11 @@ func ComputeStats(ctx context.Context, opts Options, registry *content.Registry)
 	opts.Sort = ""
 	opts.Order = ""
 	opts.Limit = 0
+	// Default empty expr → "true" so library callers don't need to do
+	// it themselves. Mirrors the CLI / MCP handler convention.
+	if opts.Expr == "" {
+		opts.Expr = "true"
+	}
 
 	groupBy := opts.GroupBy
 	if groupBy == "" {
@@ -122,6 +167,17 @@ func ComputeStats(ctx context.Context, opts Options, registry *content.Registry)
 	// the CLI's --help) rather than a runtime error.
 	if _, ok := validGroupBys[groupBy]; !ok {
 		groupBy = "content_type"
+	}
+
+	// Fast path: when the bucket key can be read straight off
+	// Result (detector-only) AND the CEL expression doesn't need
+	// per-format attributes, skip the expensive ContentType.
+	// Attributes() parse. Cuts /Applications-scale stats from
+	// minutes (parsing every Mach-O / image / archive on disk) to
+	// seconds (just stat + detect). Falls back to the full parse
+	// for any non-trivial expr or attribute-derived group_by key.
+	if !groupByNeedsAttributes(groupBy) && exprIsTrivial(opts.Expr) {
+		opts.SkipAttributesParse = true
 	}
 
 	results, walkErr := Walk(ctx, opts, registry)

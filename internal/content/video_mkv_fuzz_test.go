@@ -2,6 +2,7 @@ package content
 
 import (
 	"bytes"
+	"context"
 	"testing"
 )
 
@@ -24,6 +25,6 @@ func FuzzReadMKVInfo(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		r := bytes.NewReader(data)
-		_, _ = readMKVInfo(r, int64(len(data)))
+		_, _ = readMKVInfo(context.Background(), r, int64(len(data)))
 	})
 }

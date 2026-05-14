@@ -105,10 +105,17 @@ The CLI is typically run interactively from a shell. If the user wants to give u
 
 ## Cancellation propagation
 
-The walker, the per-file content-type parsers, the CEL evaluator, and the bbolt index writer all honour `context.Done()` — when the deadline fires, an in-flight file finishes its current scan loop iteration and exits cleanly. Partial results that already landed in the channel are surfaced; in-flight work is dropped.
+The walker, the per-file content-type parsers, the CEL evaluator, and the bbolt index writer all honour `context.Done()` — when the deadline fires, an in-flight file finishes its current scan-loop iteration and exits cleanly. Partial results that already landed in the channel are surfaced; in-flight work is dropped.
+
+The hand-rolled binary parsers (MP4 / MKV / AVI / audio-MP4 / TAR / ZIP / Mach-O / PDF XMP) check `ctx.Err()` inside their inner `for` loops AND inside the shared box/EBML walkers, so a multi-GB Xcode `.app`'s embedded video mid-parse surrenders to a cancelled context within one box's / entry's / EBML element's worth of work — bounded ~milliseconds, not file-EOF. Before file-search-on v0.27.x this only worked at the walker level, so a tight 30s timeout against `/Applications` could blow past its budget by minutes while workers finished their in-flight Mach-O / video parses.
+
+## The fast path for stats
+
+When `stats` (CLI subcommand or MCP tool) is called with the default `group_by="content_type"` (also `ext`, `dir`, `mtime_year/month/day`) AND an empty or `"true"` filter expression, the walker skips the expensive per-format `ContentType.Attributes()` parse. Only `registry.Detect` (extension + magic-byte sniff) and `setTypeFlags` run per file. This cuts `/Applications`-scale stats from minutes (parsing 30K files of binary / image / archive content) to under two seconds. Any attribute-derived `group_by` (`language` / `camera_make` / etc.) or non-trivial expr falls back to the full parse.
 
 Practical implications:
 
 - Cancelling at any time is safe — no corrupted index, no half-written files, no leaked goroutines.
 - A file that was being parsed when the deadline fired won't be in the result set even if some partial attributes were extracted; we don't surface "half-extracted" attributes.
 - Repeated calls after a partial run still benefit from the index: files that **completed** before the deadline are cached; files that were mid-scan are not.
+- The fast-path stats skips the index entirely (Lookup and Put both bypassed) — an entry with empty Extra would poison the cache for later calls that DO want attributes.

@@ -2,6 +2,7 @@ package content
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"io"
 	"testing"
@@ -53,7 +54,7 @@ func TestReadVisualSampleEntryChildren_ColrNclx(t *testing.T) {
 			children := boxBytes("colr", payload)
 			r := bytes.NewReader(children)
 			var info videoInfo
-			readVisualSampleEntryChildren(io.ReadSeeker(r), int64(len(children)), &info)
+			readVisualSampleEntryChildren(context.Background(), io.ReadSeeker(r), int64(len(children)), &info)
 			if info.ColourPrimaries != tc.wantPrimaries {
 				t.Errorf("ColourPrimaries = %q; want %q", info.ColourPrimaries, tc.wantPrimaries)
 			}
@@ -74,7 +75,7 @@ func TestReadVisualSampleEntryChildren_NonNclxColrSkipped(t *testing.T) {
 	children := boxBytes("colr", payload)
 	r := bytes.NewReader(children)
 	var info videoInfo
-	readVisualSampleEntryChildren(r, int64(len(children)), &info)
+	readVisualSampleEntryChildren(context.Background(), r, int64(len(children)), &info)
 	if info.ColourPrimaries != "" || info.ColourTransfer != "" || info.IsHDR {
 		t.Errorf("rICC colr leaked fields: primaries=%q transfer=%q hdr=%v",
 			info.ColourPrimaries, info.ColourTransfer, info.IsHDR)

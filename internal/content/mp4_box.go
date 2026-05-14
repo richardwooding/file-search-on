@@ -1,6 +1,7 @@
 package content
 
 import (
+	"context"
 	"encoding/binary"
 	"io"
 )
@@ -43,12 +44,17 @@ func readBoxHeader(r io.ReadSeeker) (size int64, name string, contentLen int64, 
 
 // walkBoxes scans a container looking for the first child whose name matches
 // path[0], then recurses into it with path[1:]. When path is empty the
-// callback is invoked with the end offset of the matched box.
-func walkBoxes(r io.ReadSeeker, start, end int64, path []string, cb func(end int64) error) error {
+// callback is invoked with the end offset of the matched box. ctx is checked
+// at the top of every iteration so a multi-GB MP4 mid-walk surrenders to a
+// cancelled context within one box's worth of work.
+func walkBoxes(ctx context.Context, r io.ReadSeeker, start, end int64, path []string, cb func(end int64) error) error {
 	if _, err := r.Seek(start, io.SeekStart); err != nil {
 		return err
 	}
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		pos, _ := r.Seek(0, io.SeekCurrent)
 		if pos >= end {
 			return nil
@@ -72,7 +78,7 @@ func walkBoxes(r io.ReadSeeker, start, end int64, path []string, cb func(end int
 					return err
 				}
 			} else {
-				if err := walkBoxes(r, contentStart, next, path[1:], cb); err != nil {
+				if err := walkBoxes(ctx, r, contentStart, next, path[1:], cb); err != nil {
 					return err
 				}
 			}
@@ -85,12 +91,16 @@ func walkBoxes(r io.ReadSeeker, start, end int64, path []string, cb func(end int
 
 // descendBoxes walks a path of single-child boxes and invokes cb at the
 // leaf. Used for trak → mdia → minf → stbl → stsd, where each level has
-// exactly one box of the given name we care about.
-func descendBoxes(r io.ReadSeeker, end int64, path []string, cb func(end int64) error) error {
+// exactly one box of the given name we care about. ctx-checked per
+// iteration like walkBoxes.
+func descendBoxes(ctx context.Context, r io.ReadSeeker, end int64, path []string, cb func(end int64) error) error {
 	if len(path) == 0 {
 		return cb(end)
 	}
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		cur, _ := r.Seek(0, io.SeekCurrent)
 		if cur >= end {
 			return nil
@@ -104,7 +114,7 @@ func descendBoxes(r io.ReadSeeker, end int64, path []string, cb func(end int64) 
 			next = end
 		}
 		if name == path[0] {
-			err := descendBoxes(r, next, path[1:], cb)
+			err := descendBoxes(ctx, r, next, path[1:], cb)
 			if _, e := r.Seek(next, io.SeekStart); e != nil {
 				return e
 			}

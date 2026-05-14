@@ -367,6 +367,22 @@ type BuildOptions struct {
 	// walker when search.Options.ResolveProjects is true (one per
 	// walk root for multi-root walks).
 	ProjectResolver *projecttype.ProjectResolver
+	// SkipAttributesParse, when true, makes BuildAttributesWith
+	// detect the file's content type and run setTypeFlags (so per-
+	// type and family bools fire) BUT skip the expensive
+	// ContentType.Attributes(ctx, fsys, path) parse. The returned
+	// FileAttributes has Path / Size / ModTime / ContentType /
+	// per-type bools populated and an empty Extra map.
+	//
+	// Used by ComputeStats when GroupBy is a detector-only key
+	// (content_type / ext / dir / mtime_*) AND the CEL expression
+	// doesn't need attribute fields. Cuts /Applications-style stats
+	// from minutes to seconds.
+	//
+	// When set, the index cache is bypassed for both Lookup and Put
+	// — empty Extras would otherwise poison the cache for later
+	// calls that DO want attributes.
+	SkipAttributesParse bool
 }
 
 // defaultBodyMaxBytes caps the body string supplied to CEL when
@@ -415,8 +431,11 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	// keys (typical only in tests with an in-memory fs.FS and no Root)
 	// degrade to "no caching" — Lookup returns miss and Put silently
 	// drops via the implementation's filepath.IsAbs guard.
+	//
+	// SkipAttributesParse bypasses the cache entirely — an entry with
+	// no parsed Extra would poison later calls that do want them.
 	var cacheKey string
-	if opts.Index != nil {
+	if opts.Index != nil && !opts.SkipAttributesParse {
 		if abs, absErr := filepath.Abs(displayPath); absErr == nil {
 			cacheKey = filepath.Clean(abs)
 		}
@@ -465,9 +484,15 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	var extra content.Attributes
 	if ct != nil {
 		contentTypeName = ct.Name()
-		extra, err = ct.Attributes(ctx, fsys, fsPath)
-		if err != nil {
-			return nil, err
+		// SkipAttributesParse: detect the content-type name only (cheap —
+		// extension + magic bytes from the registry) and skip the
+		// per-format Attributes parse. Used by ComputeStats when the
+		// group_by key is detector-only.
+		if !opts.SkipAttributesParse {
+			extra, err = ct.Attributes(ctx, fsys, fsPath)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
