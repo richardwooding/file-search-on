@@ -449,8 +449,8 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 			// independently of (size, mtime), and CEL filters that
 			// need them want fresh reads. Re-read on cache hit
 			// when the caller asked for body.
-			if opts.IncludeBody && isTextForBody(cached.ContentType) {
-				if body, berr := readBody(ctx, fsys, fsPath, opts.BodyMaxBytes); berr == nil && body != "" {
+			if opts.IncludeBody && canExtractBody(cached.ContentType) {
+				if body, berr := readBody(ctx, fsys, fsPath, cached.ContentType, opts.BodyMaxBytes); berr == nil && body != "" {
 					if attrs.Extra == nil {
 						attrs.Extra = content.Attributes{}
 					}
@@ -513,8 +513,8 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	// Extra above). CEL evaluation runs against this attrs, so the
 	// body needs to be present for `body.contains(...)` /
 	// `body.matches(...)` filters to fire.
-	if opts.IncludeBody && isTextForBody(contentTypeName) {
-		if body, berr := readBody(ctx, fsys, fsPath, opts.BodyMaxBytes); berr == nil && body != "" {
+	if opts.IncludeBody && canExtractBody(contentTypeName) {
+		if body, berr := readBody(ctx, fsys, fsPath, contentTypeName, opts.BodyMaxBytes); berr == nil && body != "" {
 			if extra == nil {
 				extra = content.Attributes{}
 			}

@@ -76,11 +76,29 @@ file-search-on 'is_epub' -o json | jq '{title, author, language, size}'
 file-search-on 'is_epub' -o json | jq -r '.language // "(unset)"' | sort | uniq -c | sort -rn
 ```
 
+## Body-content search
+
+Pass `--body` (CLI) / `include_body: true` (MCP) and the `body` CEL variable carries the extracted chapter text. The extractor walks `META-INF/container.xml` → the OPF rootfile → spine order, opens each (X)HTML chapter, strips tags / `<script>` / `<style>`, and joins with paragraph breaks.
+
+```sh
+# Books mentioning "improbability drive" anywhere in their chapters
+file-search-on 'is_epub && body.contains("improbability drive")' --body -d ~/Books
+
+# Books that quote a specific phrase
+file-search-on 'is_epub && body.matches("(?i)\\bDouglas Adams\\b")' --body
+
+# Combine with metadata — only English-language sci-fi mentioning a theme
+file-search-on 'is_epub && language.startsWith("en") && body.contains("dystop")' --body
+```
+
+The 1 MiB body cap (override via `--body-max-bytes`) applies to extracted text; the extractor stops mid-spine when the cap is reached, so an enormous ebook still reads cheaply.
+
 ## What's NOT covered
 
-- **Body text search** — out of scope; metadata-only.
 - **Series / volume metadata** (Calibre custom columns) — sometimes in the OPF but not standardised; not parsed.
 - **Cover art** — not extracted (the OPF references it but we don't surface a path).
 - **Reading progress** — that's a reader-side concept, not in the EPUB itself.
+- **EPUB3 fixed-layout / SVG-only chapters** — text extractor returns empty for those; they're meant to be viewed, not searched.
+- **DRM'd EPUBs** — out of scope; the ZIP is encrypted at the entry level for ADE/Adobe-DRM books, so the extractor sees garbage.
 
-For full-text search inside EPUBs, pipe the matched paths to `pandoc` (which can convert EPUB to plain text) and grep the output.
+For text inside DRM-protected ebooks or other niche formats, an external converter (`pandoc`, Calibre's `ebook-convert`) remains the right tool.
