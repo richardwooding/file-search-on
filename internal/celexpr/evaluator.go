@@ -125,6 +125,21 @@ type FileAttributes struct {
 	IsLinuxMetadata   bool
 	IsSystemMetadata  bool
 
+	// Disk-image content types. Per-type flags fire on the matched
+	// content_type (one of disk-image/dmg, disk-image/iso9660,
+	// disk-image/vhd, disk-image/vhdx, disk-image/vmdk,
+	// disk-image/qcow2, disk-image/wim); IsDiskImage is the umbrella
+	// family flag, set via the disk-image/ prefix block in
+	// setTypeFlags.
+	IsDMG       bool
+	IsISO       bool
+	IsVHD       bool
+	IsVHDX      bool
+	IsVMDK      bool
+	IsQCOW2     bool
+	IsWIM       bool
+	IsDiskImage bool
+
 	Extra content.Attributes
 }
 
@@ -215,6 +230,24 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("is_windows_metadata", cel.BoolType),
 		cel.Variable("is_linux_metadata", cel.BoolType),
 		cel.Variable("is_system_metadata", cel.BoolType),
+
+		// Disk-image content types (per-type + family predicates).
+		cel.Variable("is_dmg", cel.BoolType),
+		cel.Variable("is_iso", cel.BoolType),
+		cel.Variable("is_vhd", cel.BoolType),
+		cel.Variable("is_vhdx", cel.BoolType),
+		cel.Variable("is_vmdk", cel.BoolType),
+		cel.Variable("is_qcow2", cel.BoolType),
+		cel.Variable("is_wim", cel.BoolType),
+		cel.Variable("is_disk_image", cel.BoolType),
+		cel.Variable("disk_image_format", cel.StringType),
+		cel.Variable("virtual_size", cel.IntType),
+		cel.Variable("disk_type", cel.StringType),
+		cel.Variable("volume_label", cel.StringType),
+		cel.Variable("created_at", cel.TimestampType),
+		cel.Variable("cluster_bits", cel.IntType),
+		cel.Variable("is_encrypted", cel.BoolType),
+		cel.Variable("image_count", cel.IntType),
 
 		// Attributes parsed from exact-name types.
 		cel.Variable("module", cel.StringType),
@@ -648,6 +681,23 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 		attrs.IsDesktopIni = true
 	case "system/linux-directory":
 		attrs.IsKDEDirectory = true
+
+	// Disk-image content types. Per-type flag fires here; family flag
+	// IsDiskImage fires via the disk-image/ prefix block below.
+	case "disk-image/dmg":
+		attrs.IsDMG = true
+	case "disk-image/iso9660":
+		attrs.IsISO = true
+	case "disk-image/vhd":
+		attrs.IsVHD = true
+	case "disk-image/vhdx":
+		attrs.IsVHDX = true
+	case "disk-image/vmdk":
+		attrs.IsVMDK = true
+	case "disk-image/qcow2":
+		attrs.IsQCOW2 = true
+	case "disk-image/wim":
+		attrs.IsWIM = true
 	}
 
 	// Family prefix flags. Independent `if` blocks rather than a
@@ -712,6 +762,9 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 	}
 	if strings.HasPrefix(name, "system/") {
 		attrs.IsSystemMetadata = true
+	}
+	if strings.HasPrefix(name, "disk-image/") {
+		attrs.IsDiskImage = true
 	}
 }
 

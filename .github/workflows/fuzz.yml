@@ -63,6 +63,15 @@ jobs:
           - name: ExtractPDFBody
             pkg: ./internal/content/
             func: FuzzExtractPDFBody
+          - name: ReadDMGTrailer
+            pkg: ./internal/content/
+            func: FuzzReadDMGTrailer
+          - name: ReadQCOW2Header
+            pkg: ./internal/content/
+            func: FuzzReadQCOW2Header
+          - name: ReadVHDXMetadata
+            pkg: ./internal/content/
+            func: FuzzReadVHDXMetadata
           - name: CELCompile
             pkg: ./internal/celexpr/
             func: FuzzCELCompile

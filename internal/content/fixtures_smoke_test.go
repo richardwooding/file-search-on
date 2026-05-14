@@ -56,6 +56,14 @@ var expectedTypes = map[string]string{
 	"sample.go":    "source/go",
 	"sample.py":    "source/python",
 	"sample.rs":    "source/rust",
+
+	"sample.dmg":   "disk-image/dmg",
+	"sample.iso":   "disk-image/iso9660",
+	"sample.vhd":   "disk-image/vhd",
+	"sample.vhdx":  "disk-image/vhdx",
+	"sample.vmdk":  "disk-image/vmdk",
+	"sample.qcow2": "disk-image/qcow2",
+	"sample.wim":   "disk-image/wim",
 }
 
 // TestFixturesDetect walks the embedded fixture bank and asserts every
