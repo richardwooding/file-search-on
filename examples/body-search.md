@@ -79,12 +79,19 @@ For regex:
 
 ## Which content types populate
 
-Only text-based families:
+Text-based families read raw bytes via `io.LimitReader`:
 
 - `markdown`, `text`, `html`, `csv`, `json`, `xml`
 - All 18 `source/*` languages (Go, Python, JS, TS, Rust, C, C++, Java, Ruby, Swift, Kotlin, Shell, Lua, Elixir, Clojure, Haskell, OCaml, Zig)
 
-Binary families (PDF, image, audio, video, archive, binary, office, epub, email) leave `body` empty — `body.contains(...)` on them is always false. For PDF / office bodies, use the per-family attributes (`title`, `author`, `language`, `page_count`) which the parsers extract; full text extraction from those formats is out of scope.
+Structured-document families run through a format-specific extractor that strips the wire envelope (ZIP / MIME / PDF content streams) and returns the human-readable text:
+
+- `office/docx`, `office/xlsx`, `office/pptx`, `office/odt` (OOXML + ODT)
+- `epub`
+- `email/rfc822`, `email/mbox`
+- `pdf` — linear per-page text extraction. **Caveats**: image-only / scanned PDFs return empty body (no OCR — use `is_pdf && size(body) == 0` to surface candidates for external OCR). Encrypted PDFs also return empty body. CJK / complex-script fidelity varies per file; `(cid:N)` glyph fallbacks are stripped automatically. See [`pdf.md`](pdf.md) for recipes.
+
+Truly opaque binary families (image, audio, video, archive, binary) leave `body` empty — `body.contains(...)` on them is always false. Use the per-family attributes (`camera_model`, `artist`, `video_codec`, `architectures`, …) instead.
 
 ## Combining with snippets
 

@@ -197,3 +197,61 @@ func FuzzExtractEmailBody(f *testing.F) {
 	})
 }
 
+// FuzzExtractPDFBody targets the PDF body extractor — the highest-risk
+// surface added in this round. PDF is a binary container with indirect
+// objects, a cross-reference table, encrypted-stream support, font
+// dictionaries with their own ToUnicode CMaps, and per-page content
+// streams that are themselves a tokeniser-based mini-language. The
+// underlying parser (ledongthuc/pdf) self-documents as "incomplete"
+// and panics on many adversarial inputs.
+//
+// Risk model: malformed cross-reference tables, gigantic claimed
+// object counts, recursive object references, malformed font
+// dictionaries, broken ToUnicode CMaps, and content-stream operands
+// that drive the tokeniser into unbounded loops are all in scope for
+// mutation. The contract:
+//
+//   - never panic — the pdfBody defer/recover catches library panics
+//   - output never exceeds 2 × maxBytes (single-byte cap slack)
+//
+// We don't assert content equality — random bytes legitimately yield
+// empty output. The contract is "doesn't crash, doesn't run forever".
+func FuzzExtractPDFBody(f *testing.F) {
+	seeds := [][]byte{
+		[]byte(""),
+		[]byte("not a PDF"),
+		// Just the header.
+		[]byte("%PDF-1.4\n"),
+		// Header + binary signature + something resembling a trivial
+		// catalog. Real PDFs prefix four non-ASCII bytes to flag the
+		// file as binary; ledongthuc/pdf parses that prefix during
+		// header sniffing.
+		[]byte("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"),
+		// Header + catalog + pages but no actual page object — pages
+		// count claims 1 but Page(1) won't resolve.
+		[]byte("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n"),
+		// Truncated cross-reference section.
+		[]byte("%PDF-1.4\nxref\n0 999999\n"),
+		// Claimed-encrypted PDF — has an /Encrypt entry in the trailer
+		// dict. ledongthuc/pdf's encrypted-PDF support is documented
+		// as weak; the parser should error or return empty.
+		[]byte("%PDF-1.4\ntrailer << /Encrypt 1 0 R >>\nstartxref\n0\n%%EOF"),
+		// Pathological content-stream payload — operators that look
+		// real but with nonsense operands.
+		[]byte("%PDF-1.4\n%\xe2\xe3\xcf\xd3\nq BT /F1 12 Tf (cid:99999) Tj ET Q\n"),
+	}
+	for _, s := range seeds {
+		f.Add(s)
+	}
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		const maxBytes = 4096
+		ctx := context.Background()
+		fsys := fstest.MapFS{"x.pdf": &fstest.MapFile{Data: data}}
+
+		out, _ := pdfBody(ctx, fsys, "x.pdf", maxBytes)
+		if len(out) > 2*maxBytes {
+			t.Fatalf("pdf output %d bytes exceeds 2× cap (%d)", len(out), maxBytes)
+		}
+	})
+}

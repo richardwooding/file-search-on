@@ -33,14 +33,16 @@ func isTextForBody(name string) bool {
 // read. Office documents (DOCX / XLSX / PPTX / ODT) and EPUB are ZIP
 // envelopes with body text buried in XML; .eml / .mbox are RFC 5322
 // messages with the body buried under MIME headers + transfer-encoding
-// + multipart boundaries. Agents searching these files want the
-// human-readable text, not the wire envelope. Routed through
+// + multipart boundaries; PDF carries body text inside content streams
+// behind font / encoding indirection. Agents searching these files
+// want the human-readable text, not the wire envelope. Routed through
 // content.ExtractBody at read time.
 func isStructuredBody(name string) bool {
 	switch name {
 	case "office/docx", "office/xlsx", "office/pptx", "office/odt",
 		"epub",
-		"email/rfc822", "email/mbox":
+		"email/rfc822", "email/mbox",
+		"pdf":
 		return true
 	}
 	return false

@@ -60,6 +60,9 @@ jobs:
           - name: ExtractEmailBody
             pkg: ./internal/content/
             func: FuzzExtractEmailBody
+          - name: ExtractPDFBody
+            pkg: ./internal/content/
+            func: FuzzExtractPDFBody
           - name: CELCompile
             pkg: ./internal/celexpr/
             func: FuzzCELCompile
