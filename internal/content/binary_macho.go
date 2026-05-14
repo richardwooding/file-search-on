@@ -1,6 +1,7 @@
 package content
 
 import (
+	"context"
 	"debug/macho"
 	"io/fs"
 )
@@ -9,8 +10,14 @@ import (
 // binary attribute surface. Tries fat first via NewFatFile (handles the
 // 0xCAFEBABE universal-binary header); falls back to thin Mach-O on
 // FormatError. For fat files the architectures slice carries every
-// slice's CPU; bitness reflects the first slice.
-func readMachoInfo(fsys fs.FS, path string) (Attributes, error) {
+// slice's CPU; bitness reflects the first slice. ctx is checked at
+// entry; debug/macho itself isn't cancellable mid-parse but the
+// /Applications scan can have many of these, and checking ctx between
+// files lets a worker abandon a queue of macho files promptly.
+func readMachoInfo(ctx context.Context, fsys fs.FS, path string) (Attributes, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	ra, _, closer, err := openReaderAt(fsys, path)
 	if err != nil {
 		return nil, err

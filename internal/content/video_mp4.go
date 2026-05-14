@@ -1,6 +1,7 @@
 package content
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -61,22 +62,28 @@ type videoInfo struct {
 }
 
 // readMP4VideoInfo walks an MP4/MOV/M4V atom tree extracting playback +
-// video-track metadata. Reuses the box walkers in mp4_box.go.
-func readMP4VideoInfo(r io.ReadSeeker, fileSize int64) (videoInfo, error) {
+// video-track metadata. Reuses the box walkers in mp4_box.go. ctx is
+// honoured by walkBoxes and threaded through the per-track scan so a
+// multi-GB Xcode .app's embedded video surrenders to a cancelled context
+// mid-walk rather than running to file-EOF.
+func readMP4VideoInfo(ctx context.Context, r io.ReadSeeker, fileSize int64) (videoInfo, error) {
 	if _, err := r.Seek(0, io.SeekStart); err != nil {
 		return videoInfo{}, err
 	}
 	var info videoInfo
-	if err := walkBoxes(r, 0, fileSize, []string{"moov"}, func(end int64) error {
-		return videoScanMOOV(r, end, &info)
+	if err := walkBoxes(ctx, r, 0, fileSize, []string{"moov"}, func(end int64) error {
+		return videoScanMOOV(ctx, r, end, &info)
 	}); err != nil {
 		return info, err
 	}
 	return info, nil
 }
 
-func videoScanMOOV(r io.ReadSeeker, end int64, info *videoInfo) error {
+func videoScanMOOV(ctx context.Context, r io.ReadSeeker, end int64, info *videoInfo) error {
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		pos, _ := r.Seek(0, io.SeekCurrent)
 		if pos >= end {
 			return nil
@@ -105,7 +112,7 @@ func videoScanMOOV(r io.ReadSeeker, end int64, info *videoInfo) error {
 			}
 		case "trak":
 			trakContentStart, _ := r.Seek(0, io.SeekCurrent)
-			if err := videoScanTRAK(r, trakContentStart, next, info); err != nil {
+			if err := videoScanTRAK(ctx, r, trakContentStart, next, info); err != nil {
 				return err
 			}
 		}
@@ -121,10 +128,10 @@ func videoScanMOOV(r io.ReadSeeker, end int64, info *videoInfo) error {
 //
 // Two passes because hdlr and minf can appear in either order in the file,
 // and we need both pieces of info before we can correctly interpret stsd.
-func videoScanTRAK(r io.ReadSeeker, trakStart, trakEnd int64, info *videoInfo) error {
+func videoScanTRAK(ctx context.Context, r io.ReadSeeker, trakStart, trakEnd int64, info *videoInfo) error {
 	// Find mdia bounds + tkhd contents inside trak.
 	var mdiaStart, mdiaEnd int64 = -1, -1
-	if err := walkBoxes(r, trakStart, trakEnd, []string{"mdia"}, func(end int64) error {
+	if err := walkBoxes(ctx, r, trakStart, trakEnd, []string{"mdia"}, func(end int64) error {
 		cur, _ := r.Seek(0, io.SeekCurrent)
 		mdiaStart = cur
 		mdiaEnd = end
@@ -139,7 +146,7 @@ func videoScanTRAK(r io.ReadSeeker, trakStart, trakEnd int64, info *videoInfo) e
 	// tracks (we don't know trackType yet here, but the matrix lives in
 	// every tkhd — so scan unconditionally and only assign Rotation
 	// later when the track is identified as video).
-	if rotation := readMP4Tkhd(r, trakStart, trakEnd); rotation != 0 && info.Rotation == 0 {
+	if rotation := readMP4Tkhd(ctx, r, trakStart, trakEnd); rotation != 0 && info.Rotation == 0 {
 		info.Rotation = rotation
 	}
 
@@ -151,6 +158,9 @@ func videoScanTRAK(r io.ReadSeeker, trakStart, trakEnd int64, info *videoInfo) e
 		return err
 	}
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		pos, _ := r.Seek(0, io.SeekCurrent)
 		if pos >= mdiaEnd {
 			break
@@ -197,12 +207,15 @@ func videoScanTRAK(r io.ReadSeeker, trakStart, trakEnd int64, info *videoInfo) e
 	}
 
 	// Pass 2: walk minf for stbl, then stbl children for stsd + stts.
-	return walkBoxes(r, minfStart, minfEnd, []string{"stbl"}, func(stblEnd int64) error {
+	return walkBoxes(ctx, r, minfStart, minfEnd, []string{"stbl"}, func(stblEnd int64) error {
 		stblStart, _ := r.Seek(0, io.SeekCurrent)
 		if _, err := r.Seek(stblStart, io.SeekStart); err != nil {
 			return err
 		}
 		for {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			pos, _ := r.Seek(0, io.SeekCurrent)
 			if pos >= stblEnd {
 				return nil
@@ -217,7 +230,7 @@ func videoScanTRAK(r io.ReadSeeker, trakStart, trakEnd int64, info *videoInfo) e
 			}
 			switch name {
 			case "stsd":
-				if err := readVideoSTSD(r, next, trackType, info); err != nil {
+				if err := readVideoSTSD(ctx, r, next, trackType, info); err != nil {
 					return err
 				}
 			case "stts":
@@ -248,12 +261,15 @@ func videoScanTRAK(r io.ReadSeeker, trakStart, trakEnd int64, info *videoInfo) e
 //	(0, -1, 1, 0)  → 270°
 //
 // Stored as 32-bit fixed-point so 1.0 = 0x00010000, -1.0 = -0x00010000.
-func readMP4Tkhd(r io.ReadSeeker, trakStart, trakEnd int64) int64 {
+func readMP4Tkhd(ctx context.Context, r io.ReadSeeker, trakStart, trakEnd int64) int64 {
 	if _, err := r.Seek(trakStart, io.SeekStart); err != nil {
 		return 0
 	}
 	var rotation int64
 	for {
+		if ctx.Err() != nil {
+			return rotation
+		}
 		pos, _ := r.Seek(0, io.SeekCurrent)
 		if pos >= trakEnd {
 			break
@@ -325,8 +341,11 @@ func decodeTkhdRotation(r io.ReadSeeker, contentLen int64) int64 {
 //
 // The reader is positioned just past the 78-byte VisualSampleEntry body;
 // `end` is the end of the parent sample-entry box.
-func readVisualSampleEntryChildren(r io.ReadSeeker, end int64, info *videoInfo) {
+func readVisualSampleEntryChildren(ctx context.Context, r io.ReadSeeker, end int64, info *videoInfo) {
 	for {
+		if ctx.Err() != nil {
+			return
+		}
 		pos, _ := r.Seek(0, io.SeekCurrent)
 		if pos >= end {
 			return
@@ -510,12 +529,15 @@ func isSubtitleTrack(t string) bool {
 // readVideoSTSD parses stsd. For video tracks we read VisualSampleEntry
 // fields (codec name, width, height). For audio tracks, we capture only
 // the codec name.
-func readVideoSTSD(r io.ReadSeeker, end int64, trackType string, info *videoInfo) error {
+func readVideoSTSD(ctx context.Context, r io.ReadSeeker, end int64, trackType string, info *videoInfo) error {
 	var preamble [8]byte
 	if _, err := io.ReadFull(r, preamble[:]); err != nil {
 		return err
 	}
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		pos, _ := r.Seek(0, io.SeekCurrent)
 		if pos >= end {
 			return nil
@@ -539,7 +561,7 @@ func readVideoSTSD(r io.ReadSeeker, end int64, trackType string, info *videoInfo
 			// Walk remaining children of the visual sample entry for the
 			// btrt box (codec-stored avg bitrate). Children may include
 			// avcC / hvcC / colr / btrt / pasp / etc. — we only consume btrt.
-			readVisualSampleEntryChildren(r, next, info)
+			readVisualSampleEntryChildren(ctx, r, next, info)
 			return nil
 		case "soun":
 			info.AudioCodec = mp4AudioCodecName(name)

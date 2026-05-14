@@ -168,6 +168,19 @@ type Options struct {
 	// After window is filled, so the last few matches still carry
 	// the requested trailing context.
 	MaxMatchesPerFile int
+
+	// SkipAttributesParse, when true, makes BuildAttributesWith detect
+	// the file's content type and run setTypeFlags but skip the
+	// expensive ContentType.Attributes() parse. The walker still
+	// emits a Result with Path/ContentType/Size populated and the
+	// per-type / family bools on attrs set, but Extra is empty.
+	//
+	// Used by ComputeStats when the GroupBy key is detector-only
+	// (content_type / ext / dir / mtime_*) AND the CEL expression
+	// doesn't need attribute fields. Don't set this directly from
+	// search.Walk callers — the search and find_matches tools
+	// always need the parse.
+	SkipAttributesParse bool
 }
 
 // Walk walks the directory and returns every matching file. It is a
@@ -315,10 +328,11 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 						return
 					}
 					attrs, err := celexpr.BuildAttributesWith(ctx, j.fsys, j.fsPath, j.displayPath, registry, celexpr.BuildOptions{
-						Index:           opts.Index,
-						IncludeBody:     opts.IncludeBody,
-						BodyMaxBytes:    opts.BodyMaxBytes,
-						ProjectResolver: j.resolver,
+						Index:               opts.Index,
+						IncludeBody:         opts.IncludeBody,
+						BodyMaxBytes:        opts.BodyMaxBytes,
+						ProjectResolver:     j.resolver,
+						SkipAttributesParse: opts.SkipAttributesParse,
 					})
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 						return

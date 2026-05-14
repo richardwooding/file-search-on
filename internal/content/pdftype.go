@@ -68,7 +68,7 @@ func (p *pdfType) Attributes(ctx context.Context, fsys fs.FS, path string) (Attr
 	}
 	if lang := strings.TrimSpace(root.Key("Lang").Text()); lang != "" {
 		attrs["language"] = lang
-	} else if lang := readPDFXMPLanguage(root.Key("Metadata")); lang != "" {
+	} else if lang := readPDFXMPLanguage(ctx, root.Key("Metadata")); lang != "" {
 		attrs["language"] = lang
 	}
 
@@ -83,7 +83,10 @@ func (p *pdfType) Attributes(ctx context.Context, fsys fs.FS, path string) (Attr
 //	<dc:language><rdf:Bag><rdf:li>en</rdf:li></rdf:Bag></dc:language>
 //
 // Returns "" if metadata is not a stream or no language is found.
-func readPDFXMPLanguage(metadata pdf.Value) string {
+// ctx is checked at the top of every outer XML token loop so a
+// pathological XMP payload (huge metadata stream, deeply nested
+// language elements) surrenders to a cancelled context.
+func readPDFXMPLanguage(ctx context.Context, metadata pdf.Value) string {
 	if metadata.Kind() != pdf.Stream {
 		return ""
 	}
@@ -93,6 +96,9 @@ func readPDFXMPLanguage(metadata pdf.Value) string {
 	dec := xml.NewDecoder(rc)
 	dec.Strict = false
 	for {
+		if ctx.Err() != nil {
+			return ""
+		}
 		tok, err := dec.Token()
 		if err == io.EOF || err != nil {
 			return ""

@@ -2,6 +2,7 @@ package content
 
 import (
 	"bytes"
+	"context"
 	"testing"
 )
 
@@ -29,6 +30,6 @@ func FuzzReadMP4VideoInfo(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		r := bytes.NewReader(data)
-		_, _ = readMP4VideoInfo(r, int64(len(data)))
+		_, _ = readMP4VideoInfo(context.Background(), r, int64(len(data)))
 	})
 }

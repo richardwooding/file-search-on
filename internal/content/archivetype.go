@@ -28,19 +28,20 @@ func (a *archiveType) MagicBytes() [][]byte { return a.magic }
 // Attributes dispatches to a per-format archive parser. All parsers
 // produce the same surface — entry_count, uncompressed_size,
 // top_level_entries, has_root_dir — so callers can filter without
-// knowing the format. ctx is honoured at entry; per-entry walks are
-// short on real archives so no inner ctx checks.
+// knowing the format. ctx is honoured at entry AND inside the TAR
+// walker's per-entry loop (huge multi-GB tarballs are the worst case
+// for unbounded mid-parse work).
 func (a *archiveType) Attributes(ctx context.Context, fsys fs.FS, path string) (Attributes, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	switch a.name {
 	case "archive/zip":
-		return readZIPArchive(fsys, path)
+		return readZIPArchive(ctx, fsys, path)
 	case "archive/tar":
-		return readTARArchive(fsys, path, false)
+		return readTARArchive(ctx, fsys, path, false)
 	case "archive/tar+gzip":
-		return readTARArchive(fsys, path, true)
+		return readTARArchive(ctx, fsys, path, true)
 	case "archive/gzip":
 		return readGZIPArchive(fsys, path)
 	}

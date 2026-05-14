@@ -3,6 +3,7 @@ package content
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"io"
 	"io/fs"
 )
@@ -15,7 +16,9 @@ import (
 //
 // gz=true wraps the file in compress/gzip first. A standalone .gz
 // (single file, no tar inside) is handled by readGZIPArchive instead.
-func readTARArchive(fsys fs.FS, path string, gz bool) (Attributes, error) {
+// ctx is checked between every header so a multi-GB archive surrenders
+// to a cancelled context within one entry's worth of work.
+func readTARArchive(ctx context.Context, fsys fs.FS, path string, gz bool) (Attributes, error) {
 	f, err := fsys.Open(path)
 	if err != nil {
 		return nil, err
@@ -36,6 +39,9 @@ func readTARArchive(fsys fs.FS, path string, gz bool) (Attributes, error) {
 	var entryCount, uncompressed int64
 	tops := map[string]struct{}{}
 	for {
+		if err := ctx.Err(); err != nil {
+			return archiveAttrs(entryCount, uncompressed, tops), err
+		}
 		hdr, err := tr.Next()
 		if err == io.EOF {
 			break

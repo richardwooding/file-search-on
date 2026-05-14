@@ -51,7 +51,7 @@ func (b *binaryType) Attributes(ctx context.Context, fsys fs.FS, path string) (A
 	case "binary/elf":
 		return readELFInfo(fsys, path)
 	case "binary/mach-o":
-		return readMachoInfo(fsys, path)
+		return readMachoInfo(ctx, fsys, path)
 	case "binary/pe":
 		return readPEInfo(fsys, path)
 	}

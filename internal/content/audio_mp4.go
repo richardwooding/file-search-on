@@ -1,6 +1,7 @@
 package content
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -14,13 +15,13 @@ import (
 // Box-walking primitives live in mp4_box.go and are shared with video_mp4.go.
 //
 // References: ISO/IEC 14496-12 (Box structure), 14496-14 (MP4 file format).
-func readMP4Info(r io.ReadSeeker, fileSize int64) (audioInfo, error) {
+func readMP4Info(ctx context.Context, r io.ReadSeeker, fileSize int64) (audioInfo, error) {
 	if _, err := r.Seek(0, io.SeekStart); err != nil {
 		return audioInfo{}, err
 	}
 	var info audioInfo
-	if err := walkBoxes(r, 0, fileSize, []string{"moov"}, func(end int64) error {
-		return audioScanMOOV(r, end, &info)
+	if err := walkBoxes(ctx, r, 0, fileSize, []string{"moov"}, func(end int64) error {
+		return audioScanMOOV(ctx, r, end, &info)
 	}); err != nil {
 		return info, err
 	}
@@ -28,9 +29,13 @@ func readMP4Info(r io.ReadSeeker, fileSize int64) (audioInfo, error) {
 }
 
 // audioScanMOOV walks moov children looking for mvhd (duration) and trak
-// (recurses to stsd for sample_rate + channels).
-func audioScanMOOV(r io.ReadSeeker, end int64, info *audioInfo) error {
+// (recurses to stsd for sample_rate + channels). ctx-checked per
+// iteration so multi-GB audiobooks surrender to a cancelled context.
+func audioScanMOOV(ctx context.Context, r io.ReadSeeker, end int64, info *audioInfo) error {
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		pos, _ := r.Seek(0, io.SeekCurrent)
 		if pos >= end {
 			return nil
@@ -49,8 +54,8 @@ func audioScanMOOV(r io.ReadSeeker, end int64, info *audioInfo) error {
 				return err
 			}
 		case "trak":
-			if err := descendBoxes(r, next, []string{"mdia", "minf", "stbl", "stsd"}, func(stsdEnd int64) error {
-				return readAudioSTSD(r, stsdEnd, info)
+			if err := descendBoxes(ctx, r, next, []string{"mdia", "minf", "stbl", "stsd"}, func(stsdEnd int64) error {
+				return readAudioSTSD(ctx, r, stsdEnd, info)
 			}); err != nil {
 				return err
 			}
@@ -97,12 +102,15 @@ func readMVHD(r io.ReadSeeker, contentLen int64, info *audioInfo) error {
 // sample_size (bits per sample) at +18 (uint16), and sample_rate at +24
 // (uint16, fixed-point — only the integer part). Children (esds for AAC)
 // follow the preamble and end at the sample-entry box's `next` offset.
-func readAudioSTSD(r io.ReadSeeker, end int64, info *audioInfo) error {
+func readAudioSTSD(ctx context.Context, r io.ReadSeeker, end int64, info *audioInfo) error {
 	var preamble [8]byte
 	if _, err := io.ReadFull(r, preamble[:]); err != nil {
 		return err
 	}
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		pos, _ := r.Seek(0, io.SeekCurrent)
 		if pos >= end {
 			return nil
@@ -122,7 +130,7 @@ func readAudioSTSD(r io.ReadSeeker, end int64, info *audioInfo) error {
 			info.SampleRate = int64(binary.BigEndian.Uint16(body[24:26]))
 			// Walk children of the audio sample entry for esds (AAC
 			// Elementary Stream Descriptor) carrying maxBitrate / avgBitrate.
-			readAudioSampleEntryChildren(r, next, info)
+			readAudioSampleEntryChildren(ctx, r, next, info)
 			return nil
 		}
 		if _, err := r.Seek(next, io.SeekStart); err != nil {
@@ -137,8 +145,11 @@ func readAudioSTSD(r io.ReadSeeker, end int64, info *audioInfo) error {
 // box. esds carries codec-stored avg / max bitrate inside the MPEG-4
 // Elementary Stream Descriptor (ES_DescrTag = 0x03) →
 // DecoderConfigDescriptor (tag 0x04) chain.
-func readAudioSampleEntryChildren(r io.ReadSeeker, end int64, info *audioInfo) {
+func readAudioSampleEntryChildren(ctx context.Context, r io.ReadSeeker, end int64, info *audioInfo) {
 	for {
+		if ctx.Err() != nil {
+			return
+		}
 		pos, _ := r.Seek(0, io.SeekCurrent)
 		if pos >= end {
 			return
