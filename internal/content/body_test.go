@@ -1,10 +1,12 @@
 package content_test
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/richardwooding/file-search-on/internal/content"
 )
@@ -77,6 +79,15 @@ func TestExtractBody_Fixtures(t *testing.T) {
 			// all messages so an agent can grep the whole inbox.
 			[]string{"First message", "Second message", "Third message", "distinct thread"},
 		},
+		{
+			"sample.pdf", "pdf",
+			// 1-page ReportLab-generated fixture: pdftype_test.go
+			// already verifies title/author/language metadata. The
+			// canonical body line "Sample PDF Fixture" plus the
+			// fixture's "content-type test suite" sentence both surface
+			// through the linear per-page extractor.
+			[]string{"Sample PDF Fixture", "content-type test suite"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.fileName, func(t *testing.T) {
@@ -118,6 +129,35 @@ func TestExtractBody_EmailSkipsAttachments(t *testing.T) {
 		if strings.Contains(body, leaked) {
 			t.Errorf("attachment content %q leaked into body: %q", leaked, body)
 		}
+	}
+}
+
+// TestExtractBody_PDFCorrupted verifies the pdf extractor degrades
+// gracefully on a file that's labelled "pdf" but isn't one — random
+// bytes with a "%PDF-" prefix, truncated headers, etc. The contract
+// is "", nil: the walker should keep going, not surface a parse error
+// and not panic. ledongthuc/pdf's parser is documented as incomplete
+// and panics on many adversarial inputs; the defer/recover guard in
+// pdfBody is what makes this test pass.
+func TestExtractBody_PDFCorrupted(t *testing.T) {
+	cases := map[string][]byte{
+		"empty":              {},
+		"header-only":        []byte("%PDF-1.4\n"),
+		"junk-after-magic":   []byte("%PDF-junk and then some random bytes"),
+		"truncated-xref":     []byte("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n1 0 obj\n<< /Type /Catalog >>\nendobj\nxref\n0 1\n"),
+		"random-bytes":       bytes.Repeat([]byte{0xff, 0x00, 0xa5, 0x5a}, 64),
+	}
+	for name, data := range cases {
+		t.Run(name, func(t *testing.T) {
+			fsys := fstest.MapFS{"x.pdf": &fstest.MapFile{Data: data}}
+			body, err := content.ExtractBody(t.Context(), "pdf", fsys, "x.pdf", 4096)
+			if err != nil {
+				t.Errorf("err=%v want nil for corrupted PDF", err)
+			}
+			if body != "" {
+				t.Errorf("body=%q want empty for corrupted PDF", body)
+			}
+		})
 	}
 }
 

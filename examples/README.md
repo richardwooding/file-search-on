@@ -10,6 +10,7 @@ CEL expression recipes by content family, plus cross-cutting cookbook patterns.
 | [`video.md`](./video.md) | Codec, resolution, frame rate, duration, MKV vs MP4 |
 | [`office.md`](./office.md) | DOCX / XLSX / PPTX / ODT — title, author, language |
 | [`epub.md`](./epub.md) | EPUB ebooks — title, author, language |
+| [`pdf.md`](./pdf.md) | PDF — title, author, language, page_count, plus body-content search with caveats |
 | [`data.md`](./data.md) | JSON / CSV / TSV / XML — `csv_columns`, `json_kind`, `root_element` |
 | [`text.md`](./text.md) | Plain text and HTML — `line_count`, `word_count`, long-line caps |
 | [`archives.md`](./archives.md) | ZIP / TAR / TAR.GZ / GZIP — Downloads triage, ZIP-bomb detection, compression ratios |
