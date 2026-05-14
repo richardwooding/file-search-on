@@ -17,12 +17,16 @@ import (
 // tool. Path can be absolute or relative to the server's working
 // directory; agents should prefer absolute paths.
 type ReadAttributesInput struct {
-	Path string `json:"path" jsonschema:"Filesystem path of a single file to extract attributes from. Absolute paths are preferred; relative paths resolve against the server's working directory."`
+	Path   string   `json:"path" jsonschema:"Filesystem path of a single file to extract attributes from. Absolute paths are preferred; relative paths resolve against the server's working directory."`
+	Fields []string `json:"fields,omitempty" jsonschema:"Project the response to only the listed attribute names — saves tokens when only a few attributes matter. 'path', 'content_type', and 'size' are always included regardless. Empty / omitted returns every populated attribute. Same field-name vocabulary as the search tool's 'fields' input; unknown names error at request validation time."`
 }
 
 func (h *handlers) readAttributesHandler(ctx context.Context, _ *mcp.CallToolRequest, in ReadAttributesInput) (*mcp.CallToolResult, search.Match, error) {
 	if in.Path == "" {
 		return nil, search.Match{}, fmt.Errorf("path is required")
+	}
+	if err := search.ValidateFields(in.Fields); err != nil {
+		return nil, search.Match{}, fmt.Errorf("fields: %w", err)
 	}
 	abs, err := filepath.Abs(in.Path)
 	if err != nil {
@@ -43,10 +47,11 @@ func (h *handlers) readAttributesHandler(ctx context.Context, _ *mcp.CallToolReq
 	if err != nil {
 		return nil, search.Match{}, fmt.Errorf("read attributes: %w", err)
 	}
-	return nil, search.MatchFrom(search.Result{
+	m := search.MatchFrom(search.Result{
 		Path:        abs,
 		ContentType: attrs.ContentType,
 		Size:        attrs.Size,
 		Attrs:       attrs,
-	}), nil
+	})
+	return nil, search.ProjectMatch(m, in.Fields), nil
 }

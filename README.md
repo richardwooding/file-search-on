@@ -325,8 +325,8 @@ Ten tools are exposed:
 
 | Tool | What it does |
 | --- | --- |
-| `search` | CEL expression over a directory tree. Supports `sort_by` / `limit` (top-K), `include_body` (full body filter), `include_snippet` (preview), `resolve_projects` (`project_type` per match), `prune_build_artefacts`. Returns matches with the full attribute set + partial-result fields. |
-| `read_attributes` | Attributes for a single path — same shape as one `search` match. |
+| `search` | CEL expression over a directory tree. Supports `sort_by` / `limit` (top-K), `include_body` (full body filter), `include_snippet` (preview), `resolve_projects` (`project_type` per match), `prune_build_artefacts`, `fields` (project response to a subset of attributes; path / content_type / size always-on). Returns matches with the full attribute set + partial-result fields. |
+| `read_attributes` | Attributes for a single path — same shape as one `search` match. Accepts `fields` for the same token-saving projection. |
 | `read_lines` | A specific line range of a file — pairs with `search` for context around matches. |
 | `stats` | Histogram + totals for a directory tree, bucketed by `group_by` (default `content_type`; full set documented in [Usage § Stats](#stats-and-reconnaissance)). |
 | `find_duplicates` | Byte-identical files keyed by sha256 — two-pass (size-bucket then hash). Sorted by `wasted_bytes` desc. |
