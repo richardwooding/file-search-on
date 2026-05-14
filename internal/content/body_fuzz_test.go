@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"testing"
+	"testing/fstest"
 )
+
 
 // FuzzExtractXMLText targets the shared XML walker that DOCX / XLSX /
 // PPTX / ODT all funnel through. The walker takes (paraElem, textElem)
@@ -117,3 +119,81 @@ func FuzzExtractHTMLText(f *testing.F) {
 		}
 	})
 }
+
+// FuzzExtractEmailBody targets the email body extractor — both forms.
+// The fuzzer mutates raw bytes which we route through both the
+// single-message (.eml) and mbox extractors via an in-memory fs.FS.
+// The eml extractor exercises mail.ReadMessage + MIME header parsing
+// + mime/multipart + mime/quotedprintable + encoding/base64 — every
+// one of those parsers is a historical CVE source. The mbox extractor
+// adds the "From " separator splitter on top.
+//
+// Risk model: adversarial RFC 5322 input can carry malformed MIME
+// boundaries, recursive multipart structures, oversized headers,
+// invalid quoted-printable / base64 streams, and "From " lines that
+// look like separators but aren't. The contract:
+//
+//   - never panic, even on truncated / random / deeply-nested input
+//   - output never exceeds 2 × maxBytes
+//
+// Seeds cover well-formed eml + mbox shapes plus pathological MIME.
+func FuzzExtractEmailBody(f *testing.F) {
+	seeds := [][]byte{
+		[]byte(""),
+		[]byte("not an email"),
+		// Header-only message (no body, no Content-Type).
+		[]byte("Subject: test\r\nFrom: a@example.com\r\n\r\n"),
+		// Minimal text/plain message.
+		[]byte("Content-Type: text/plain\r\n\r\nhello\r\n"),
+		// Minimal multipart/mixed.
+		[]byte("Content-Type: multipart/mixed; boundary=\"x\"\r\n\r\n--x\r\nContent-Type: text/plain\r\n\r\nbody\r\n--x--\r\n"),
+		// multipart/alternative — should prefer text/plain.
+		[]byte("Content-Type: multipart/alternative; boundary=\"y\"\r\n\r\n--y\r\nContent-Type: text/plain\r\n\r\nplain version\r\n--y\r\nContent-Type: text/html\r\n\r\n<p>html version</p>\r\n--y--\r\n"),
+		// Quoted-printable encoded.
+		[]byte("Content-Type: text/plain\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nHello=20world=\r\n"),
+		// base64 encoded.
+		[]byte("Content-Type: text/plain\r\nContent-Transfer-Encoding: base64\r\n\r\naGVsbG8K\r\n"),
+		// Adversarial: claimed multipart with bogus boundary.
+		[]byte("Content-Type: multipart/mixed; boundary=\"\"\r\n\r\nbody\r\n"),
+		// mbox shape — two messages.
+		[]byte("From alice@example.com Tue Apr 14 09:30:00 2026\r\nSubject: one\r\n\r\nfirst\r\nFrom bob@example.com Tue Apr 14 10:30:00 2026\r\nSubject: two\r\n\r\nsecond\r\n"),
+		// mbox with body line that looks like a separator (no @).
+		[]byte("From alice@example.com Tue Apr 14 09:30:00 2026\r\nSubject: tricky\r\n\r\nFrom the look of things, this isn't a separator.\r\n"),
+		// Deeply-nested multipart (boundary recursion risk).
+		[]byte("Content-Type: multipart/mixed; boundary=\"a\"\r\n\r\n--a\r\nContent-Type: multipart/mixed; boundary=\"b\"\r\n\r\n--b\r\nContent-Type: multipart/mixed; boundary=\"c\"\r\n\r\n--c\r\nContent-Type: text/plain\r\n\r\ndeep\r\n--c--\r\n--b--\r\n--a--\r\n"),
+		// Truncated mid-body.
+		[]byte("Content-Type: text/plain\r\n\r\nhello"),
+	}
+	for _, s := range seeds {
+		f.Add(s)
+	}
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		const maxBytes = 4096
+		ctx := context.Background()
+		fsys := fstest.MapFS{"msg": &fstest.MapFile{Data: data}}
+
+		// eml extractor (single message).
+		out, _ := emlBody(ctx, fsys, "msg", maxBytes)
+		if len(out) > 2*maxBytes {
+			t.Fatalf("eml output %d bytes exceeds 2× cap (%d)", len(out), maxBytes)
+		}
+
+		// mbox extractor (cross-message). Only valid mbox bodies start
+		// with "From ", but the contract is that ARBITRARY bytes don't
+		// panic — adversarial input here is the whole point of the
+		// fuzz.
+		out, _ = mboxBody(ctx, fsys, "msg", maxBytes)
+		if len(out) > 2*maxBytes {
+			t.Fatalf("mbox output %d bytes exceeds 2× cap (%d)", len(out), maxBytes)
+		}
+
+		// Also exercise the in-memory variant (mboxBody recurses into
+		// it once per message) for shapes the wrapper might gate out.
+		out, _ = emlBodyFromReader(ctx, bytes.NewReader(data), maxBytes)
+		if len(out) > 2*maxBytes {
+			t.Fatalf("emlBodyFromReader output %d bytes exceeds 2× cap (%d)", len(out), maxBytes)
+		}
+	})
+}
+

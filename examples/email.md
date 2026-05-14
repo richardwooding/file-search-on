@@ -2,7 +2,7 @@
 
 Email content types: `email/rfc822` (single RFC 5322 message — `.eml`, `.email`), `email/mbox` (Unix mbox archive — `.mbox`). Umbrella boolean `is_email`.
 
-Hand-rolled on top of stdlib `net/mail` (headers, address parsing) and `mime/multipart` (attachment counting). No third-party libs. Out of scope for v1: Outlook `.msg`, body-text extraction, encoded-attachment decoding, DKIM/PGP verification.
+Hand-rolled on top of stdlib `net/mail` (headers, address parsing), `mime/multipart` (boundary walks), `mime/quotedprintable` + `encoding/base64` (Content-Transfer-Encoding decoders). No third-party libs. Out of scope: Outlook `.msg`, encoded-attachment text extraction, DKIM/PGP signature verification.
 
 ## All-email triage
 
@@ -126,3 +126,30 @@ file-search-on 'is_email' -d ~/Mail -o json |
 file-search-on 'is_email && sent_at < timestamp("2025-05-05T00:00:00Z")' -d ~/Mail/Archive -o bare \
   | xargs -I {} echo rm -f {}   # drop the `echo` to actually delete
 ```
+
+## Body-content search
+
+Pass `--body` (CLI) / `include_body: true` (MCP) and the `body` CEL variable carries the extracted message text. The extractor walks the MIME tree:
+
+- **multipart/alternative**: prefers `text/plain` over `text/html` (typical for marketing email — the plain version is what an agent wants to grep).
+- **multipart/mixed** / **related** / **signed**: concatenates every non-attachment text part.
+- **text/plain** / **text/html**: decodes Content-Transfer-Encoding (`quoted-printable` / `base64` / `7bit` / `8bit`) and, for HTML, strips tags via the same permissive XHTML reader the EPUB extractor uses.
+- **mbox archives**: every message's body is concatenated with a blank-line separator, so `body.contains("invoice")` searches the whole inbox.
+
+Headers (Subject / From / etc.) deliberately don't appear in the body — those already surface as `title` / `author` / `email_to` / `email_message_id` / `sent_at`. Attachments are skipped entirely (binary payloads, encoded text inside attachments, etc.).
+
+```sh
+# Find every email that mentions a specific invoice number
+file-search-on 'is_email && body.contains("INV-2025-0042")' --body -d ~/Mail
+
+# Receipts from a specific vendor — combine header + body
+file-search-on 'is_email && author.contains("@stripe.com") && body.matches("(?i)\\$[0-9]+\\.[0-9]{2}")' --body
+
+# Across an entire mbox archive
+file-search-on 'content_type == "email/mbox" && body.contains("password reset")' --body -d ~/Mail/Archives
+
+# Combine with find-matches for line-level grep + context
+file-search-on find-matches '(?i)\bunsubscribe\b' --expr 'is_email' -d ~/Mail -C 2
+```
+
+The 1 MiB body cap (`--body-max-bytes`) applies to extracted text, not raw bytes — a 50 MB mbox with sparse text still reads cheaply. For mbox archives the extractor stops mid-archive once the cap is reached.
