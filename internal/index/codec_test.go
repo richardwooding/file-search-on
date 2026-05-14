@@ -93,3 +93,65 @@ func TestCodecRejectsOversize(t *testing.T) {
 		t.Fatalf("expected encodeEntry to reject oversize payload")
 	}
 }
+
+// TestCodecDecodeBudgetCancelled verifies that adversarial inputs known
+// to push gob.Decode into a multi-second compile path are bounded by
+// decodeTimeout. The committed regression seed (testdata/fuzz/
+// FuzzDecodeEntry/13d945203058feae) is the same shape that hung the
+// fuzz workflow before the goroutine + select-on-time.After guard
+// landed in #100. This test re-runs that input directly via
+// decodeEntry and asserts the call returns within a generous window —
+// the goroutine is allowed to keep running afterwards, but the caller
+// must unblock.
+func TestCodecDecodeBudgetCancelled(t *testing.T) {
+	// Bytes copied from testdata/fuzz/FuzzDecodeEntry/13d945203058feae.
+	// Keep in sync with that seed; it's the canonical "slow input".
+	slow := []byte("S\x7f\x03\x01\x01\x0500000\x01\xff0\x00\x01\x05\x01\x040000\x01\x04\x00\x01\x0f000000000000000\x01\x04\x00\x01\v00000000000\x01\f\x00\x01\x05Extra\x01\xff\x82\x00\x01\x040000\x01\f\x00\x00\x00'\xff\x81\x04\x01\x01\x1700000000000000000000000\x01\xff0\x00\x01\f\x01\x10\x00\x000\xff\x80\x03\n0000000000\x01\xfa\x00\x00\xfa000000\t0000000000000000000000")
+
+	start := time.Now()
+	_, err := decodeEntry(slow)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Errorf("decodeEntry should have errored on the known-adversarial seed; got success")
+	}
+	// Allow up to 3x the timeout for slack (CI runners, GC).
+	if elapsed > 3*decodeTimeout {
+		t.Errorf("decodeEntry blocked %v, want < %v (timeout=%v)", elapsed, 3*decodeTimeout, decodeTimeout)
+	}
+}
+
+// TestCodecDecodeOverloaded verifies the concurrent-decode cap rejects
+// excess callers when the semaphore is full. Defends against the
+// fuzz-OOM scenario where zombie goroutines would otherwise accumulate.
+//
+// Earlier tests in this package may have spawned still-running zombie
+// gob.Decode goroutines that hold semaphore slots; acquire
+// non-blockingly so we don't deadlock waiting for them.
+func TestCodecDecodeOverloaded(t *testing.T) {
+	held := 0
+	for range concurrentDecodeLimit {
+		select {
+		case decodeSem <- struct{}{}:
+			held++
+		default:
+			// Slot already held by an earlier test's zombie — fine,
+			// we just need the semaphore full overall.
+		}
+	}
+	defer func() {
+		for range held {
+			<-decodeSem
+		}
+	}()
+
+	// Any non-oversize input will do; the call should fast-fail on
+	// the semaphore before hitting gob at all.
+	_, err := decodeEntry([]byte{0x01, 0x02, 0x03})
+	if err == nil {
+		t.Fatal("expected errDecodeOverloaded, got nil")
+	}
+	if err != errDecodeOverloaded {
+		t.Errorf("err=%v, want errDecodeOverloaded", err)
+	}
+}
