@@ -28,7 +28,11 @@ func (h *handlers) readAttributesHandler(ctx context.Context, _ *mcp.CallToolReq
 	if err := search.ValidateFields(in.Fields); err != nil {
 		return nil, search.Match{}, fmt.Errorf("fields: %w", err)
 	}
-	abs, err := filepath.Abs(in.Path)
+	path, err := expandHomeDir(in.Path)
+	if err != nil {
+		return nil, search.Match{}, fmt.Errorf("expand path: %w", err)
+	}
+	abs, err := filepath.Abs(path)
 	if err != nil {
 		return nil, search.Match{}, fmt.Errorf("resolve path: %w", err)
 	}
