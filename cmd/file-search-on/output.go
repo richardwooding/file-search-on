@@ -526,6 +526,45 @@ func printDetectProjectJSON(w io.Writer, path string, matches []projecttype.Matc
 	return enc.Encode(out)
 }
 
+// printWhichProject renders a ResolveForPath result. Prints the
+// queried path, the matched project root (or "(none)" when empty),
+// and the matched types with their indicators.
+func printWhichProject(w io.Writer, path, root string, matches []projecttype.Match) {
+	fp(w, "%s\n", path)
+	if len(matches) == 0 {
+		fp(w, "  project_root: (none)\n")
+		return
+	}
+	fp(w, "  project_root: %s\n", root)
+	for _, m := range matches {
+		fp(w, "  %-16s  via %s\n", m.Type, m.Indicator)
+	}
+}
+
+// printWhichProjectJSON writes the same wire shape as the MCP
+// resolve_project_for_path tool. project_root is the empty string
+// when no ancestor matches.
+func printWhichProjectJSON(w io.Writer, path, root string, matches []projecttype.Match) error {
+	types := make([]string, len(matches))
+	for i, m := range matches {
+		types[i] = m.Type
+	}
+	out := struct {
+		Path         string              `json:"path"`
+		ProjectRoot  string              `json:"project_root"`
+		ProjectTypes []string            `json:"project_types"`
+		Indicators   []projecttype.Match `json:"indicators,omitempty"`
+	}{
+		Path:         path,
+		ProjectRoot:  root,
+		ProjectTypes: types,
+		Indicators:   matches,
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(out)
+}
+
 // printFindProjects renders the find-projects walk as a table —
 // path on the left, comma-separated types on the right.
 func printFindProjects(w io.Writer, r *projecttype.FindResult) {

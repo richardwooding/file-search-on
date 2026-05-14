@@ -51,7 +51,7 @@ Built in the open — issues, PRs, and feature requests warmly welcomed. See [Co
 - **CEL expressions** — the full Common Expression Language: comparisons, `&&`/`||`, string functions, list membership, timestamp arithmetic. Composes naturally with structural attributes.
 - **Fuzzy, phonetic, and geographic matching** — built-in `levenshtein`, `soundex`, `ngrams`, `ngram_similarity`, and `point_in_polygon` (for GPS bboxes / city outlines) let you write typo-tolerant and "sounds-like" queries against any string attribute. EXIF camera make in `Nikkon` instead of `Nikon`? Artist tag mistyped as `Radiohad`? Same query catches all of them. See [examples/fuzzy-search.md](./examples/fuzzy-search.md).
 - **Multiple output formats** — `bare` (paths only), `default`, `verbose` (multi-line), `json` (NDJSON), or a Go `text/template` via `--format`.
-- **MCP server mode** — same binary doubles as a [Model Context Protocol](https://modelcontextprotocol.io) server (stdio, HTTP, or SSE). Ten tools exposed: `search`, `read_attributes`, `read_lines`, `stats`, `find_duplicates`, `find_matches`, `detect_project`, `find_projects`, `list_attributes`, `index_stats`.
+- **MCP server mode** — same binary doubles as a [Model Context Protocol](https://modelcontextprotocol.io) server (stdio, HTTP, or SSE). Eleven tools exposed: `search`, `read_attributes`, `read_lines`, `stats`, `find_duplicates`, `find_matches`, `detect_project`, `find_projects`, `resolve_project_for_path`, `list_attributes`, `index_stats`.
 - **Pure Go, no CGO** — cross-compiles cleanly to all six release targets. No image/audio/video decoder dependencies.
 - **Parallel walking** — files are evaluated across a worker pool (defaults to `NumCPU`).
 
@@ -125,6 +125,7 @@ file-search-on -d .                                   # empty expression matches
 | `lines <path> --start --end` | Print a line range | [examples/read-lines.md](./examples/read-lines.md) |
 | `detect-project [dir]` | Identify project type(s) of a directory | [examples/projects.md](./examples/projects.md) |
 | `find-projects [root]` | Walk a tree listing every project subdirectory | [examples/projects.md](./examples/projects.md) |
+| `which-project <path>` | Walk UP from a file/dir to its nearest enclosing project root | [examples/projects.md](./examples/projects.md) |
 | `config-paths` | Print platform-specific project-type config paths | [examples/projects.md](./examples/projects.md) |
 | `mcp` | Run as a Model Context Protocol server | [MCP server mode](#mcp-server-mode) |
 
@@ -321,7 +322,7 @@ file-search-on mcp --timeout 90s                         # raise the per-call de
 
 For HTTP and SSE, `--addr` (default `:8080`) is the bind address and `--path` (default `/`) is the URL prefix. `--timeout` (default `60s`) sets the per-tool-call deadline; per-call `timeout_seconds` on the `search` tool input overrides it.
 
-Ten tools are exposed:
+Eleven tools are exposed:
 
 | Tool | What it does |
 | --- | --- |
@@ -333,6 +334,7 @@ Ten tools are exposed:
 | `find_matches` | Line-level regex (RE2) hits across a tree with `context_before` / `context_after` windows. CEL pre-prune (e.g. `is_source && language == "go"`) keeps the regex pass narrow. Replaces the search-then-`read_lines` dance with one call. |
 | `detect_project` | Project type(s) of one directory. |
 | `find_projects` | Walk a tree, list every project subdirectory. |
+| `resolve_project_for_path` | Walk UP from a file/dir path to the nearest enclosing project root. Useful when an agent has a stray path and needs to know the project context. |
 | `list_attributes` | The full canonical schema (`common`, `type_specific`, `frontmatter`, `functions`) plus registered content types. |
 | `index_stats` | Cache counters for the running server (hits, misses, puts, stales, errors). |
 

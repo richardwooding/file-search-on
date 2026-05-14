@@ -73,3 +73,34 @@ func (r *ProjectResolver) detectCached(dir string) []Match {
 	actual, _ := r.cache.LoadOrStore(dir, matches)
 	return actual.([]Match)
 }
+
+// ResolveForPath is the single-shot, no-cache, unbounded-walk-up
+// counterpart to ProjectResolver.Resolve. Given an absolute file path,
+// it walks up the directory chain (no root limit — terminates at the
+// filesystem root) and returns the first ancestor that matches a
+// registered project type plus the matched types.
+//
+// Returns ("", nil) when no ancestor matches. Use this for one-off
+// "which project does this file belong to?" lookups (e.g. the MCP
+// resolve_project_for_path tool, the CLI which-project subcommand).
+// For batch walks where multiple files share an ancestor, prefer
+// ProjectResolver — it caches per-directory.
+//
+// reg may be nil; nil means DefaultRegistry().
+func ResolveForPath(filePath string, reg *Registry) (string, []Match) {
+	if reg == nil {
+		reg = defaultRegistry
+	}
+	dir := filepath.Dir(filePath)
+	for {
+		matches := reg.Detect(nil, dir)
+		if len(matches) > 0 {
+			return dir, matches
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", nil
+		}
+		dir = parent
+	}
+}

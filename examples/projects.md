@@ -2,10 +2,11 @@
 
 file-search-on identifies what *kind* of project lives in a directory based on canonical indicator files (`go.mod` → Go, `package.json` → Node, `Cargo.toml` → Rust, `*.tf` → Terraform, etc.). Mirrors the content-type concept up one level — content types classify *files*, project types classify *directories*.
 
-Two surfaces:
+Three surfaces:
 
 - **`detect-project <dir>`** — what is THIS directory?
 - **`find-projects <root>`** — find all projects under a root.
+- **`which-project <path>`** — given a file/dir, what project does it belong to? (walks UP)
 
 ## Built-in project types
 
@@ -72,6 +73,62 @@ Example output:
 ```
 
 By default the walker stops at each matched project root — so a Go workspace with vendored Go submodules surfaces ONCE as the outer project. Pass `--nested` to also walk into matched roots; useful for monorepos with multiple workspaces.
+
+## which-project — what project does this file belong to?
+
+The middle question between `detect-project` (single-dir, what is THIS dir?) and `find-projects` (recursive, what's under this tree?): given an arbitrary file or directory path, walk UP the directory chain and report the nearest enclosing project root and type(s).
+
+```sh
+# Anchor on a file — walks up from its parent
+file-search-on which-project ./internal/search/findmatches.go
+
+# Anchor on a directory — walks up from that directory
+file-search-on which-project ~/Code/monorepo/services/billing
+
+# JSON output (same wire shape as the MCP resolve_project_for_path tool)
+file-search-on which-project ./Cargo.toml -o json
+```
+
+Example output:
+
+```
+/Users/me/Code/file-search-on/internal/search/findmatches.go
+  project_root: /Users/me/Code/file-search-on
+  go                via go.mod
+```
+
+When no ancestor matches (file lives outside any project), the output is:
+
+```
+/tmp/loose.txt
+  project_root: (none)
+```
+
+…and the process exits with status `1`, grep-style — useful in scripts that want to branch on "is this inside a project?". Polyglot directories (a Go module that also ships `docker-compose.yml`) fire both types in `project_types`.
+
+## MCP
+
+```json
+{
+  "name": "resolve_project_for_path",
+  "arguments": {
+    "path": "/Users/me/Code/monorepo/services/billing/main.go"
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "path": "/Users/me/Code/monorepo/services/billing/main.go",
+  "project_root": "/Users/me/Code/monorepo/services/billing",
+  "project_types": ["go"],
+  "indicators": [{"type": "go", "indicator": "go.mod"}]
+}
+```
+
+Use `resolve_project_for_path` when an agent has a stray file path (from search output, an error trace, a user message) and needs to know what kind of project owns it — typically before scoping a follow-up `search` to that root, or deciding which language-specific tooling to invoke.
 
 ## MCP
 
