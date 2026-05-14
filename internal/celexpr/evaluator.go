@@ -15,6 +15,41 @@ import (
 	"github.com/richardwooding/file-search-on/internal/projecttype"
 )
 
+// staticSiteTypes is the set of registered project-type names that
+// constitute a static-site generator for the purposes of the
+// is_static_site CEL family predicate. Mirrors how setTypeFlags
+// populates is_image / is_audio from a content-type prefix, but the
+// match is against the file's resolved project_type rather than its
+// content_type. Opt-in via search.Options.ResolveProjects — without
+// it, project_types is empty and the predicate stays false.
+//
+// Adding a new SSG project type in internal/projecttype/builtins.go
+// requires adding its name here too. The four-place invariant
+// (cel.Variable + activation default + Extra population + schema doc)
+// applies — see .claude/skills/extend-cel-schema for the audit.
+var staticSiteTypes = map[string]struct{}{
+	"hugo":       {},
+	"jekyll":     {},
+	"eleventy":   {},
+	"astro":      {},
+	"gatsby":     {},
+	"mkdocs":     {},
+	"docusaurus": {},
+	"pelican":    {},
+}
+
+// anyStaticSite reports whether any name in matches is a recognised
+// static-site generator type. Caller passes the resolved
+// project-type names from ProjectResolver.Resolve.
+func anyStaticSite(matches []string) bool {
+	for _, m := range matches {
+		if _, ok := staticSiteTypes[m]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 // FileAttributes holds all attributes available in CEL expressions
 type FileAttributes struct {
 	Name        string
@@ -117,6 +152,12 @@ func New(expr string) (*Evaluator, error) {
 		// walker via Options.ResolveProjects = true; empty otherwise.
 		cel.Variable("project_types", cel.ListType(cel.StringType)),
 		cel.Variable("project_type", cel.StringType),
+		// is_static_site fires when the resolved project_type is one
+		// of the registered static-site generators (Hugo / Jekyll /
+		// Eleventy / Astro / Gatsby / MkDocs / Docusaurus / Pelican).
+		// Same opt-in semantics as project_type / project_types —
+		// requires ResolveProjects to be enabled.
+		cel.Variable("is_static_site", cel.BoolType),
 
 		// Exact-name content types (per-type predicates).
 		cel.Variable("is_dockerfile", cel.BoolType),
@@ -380,6 +421,9 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 					}
 					attrs.Extra["project_types"] = names
 					attrs.Extra["project_type"] = names[0]
+					if anyStaticSite(names) {
+						attrs.Extra["is_static_site"] = true
+					}
 				}
 			}
 			return attrs, nil
@@ -438,6 +482,9 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 			}
 			extra["project_types"] = names
 			extra["project_type"] = names[0]
+			if anyStaticSite(names) {
+				extra["is_static_site"] = true
+			}
 		}
 	}
 
