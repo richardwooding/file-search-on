@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"testing/fstest"
 	"time"
 
 	"github.com/richardwooding/file-search-on/internal/celexpr"
@@ -218,21 +217,18 @@ func WalkArchiveEntries(ctx context.Context, archivePath string, opts ArchiveWal
 		buf, _ := io.ReadAll(io.LimitReader(rc, cap))
 		_ = rc.Close()
 
-		// Synthetic MapFS — one file at the entry's name with the
-		// read bytes. ModTime / Mode preserved so per-content-type
-		// parsers that care about timestamps see real values.
-		mapFS := fstest.MapFS{
-			e.Name: &fstest.MapFile{
-				Data:    buf,
-				ModTime: e.ModTime,
-				Mode:    e.Mode,
-			},
-		}
+		// Single-file synthetic fs.FS exposing the entry's bytes at
+		// e.Name. Lets us reuse the existing fs.FS-shaped Detect +
+		// Attributes pipeline (which knows nothing about archives)
+		// without depending on testing/fstest from production code.
+		// ModTime / Mode preserved so per-content-type parsers that
+		// care about timestamps see real values.
+		entryFS := content.NewSingleFileFS(e.Name, buf, e.ModTime, e.Mode)
 		displayPath := archivePath + ArchiveSeparator + e.Name
 
 		// Cache disabled (Index: nil) for the per-entry call — the
 		// archive-walk cache is at the outer archive layer.
-		attrs, err := celexpr.BuildAttributesWith(ctx, mapFS, e.Name, displayPath, registry, celexpr.BuildOptions{
+		attrs, err := celexpr.BuildAttributesWith(ctx, entryFS, e.Name, displayPath, registry, celexpr.BuildOptions{
 			IncludeBody: opts.IncludeBody,
 		})
 		if err != nil {

@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"testing/fstest"
 	"time"
 
 	"github.com/richardwooding/file-search-on/internal/celexpr"
@@ -90,20 +89,14 @@ func ReadFileInArchive(ctx context.Context, archivePath, entryPath string, maxBy
 			buf = buf[:maxBytes]
 		}
 
-		// Build attributes for this entry via the same MapFS path
+		// Build attributes for this entry via the same single-file FS
 		// the walker uses, so content_type detection and per-format
 		// Attributes fire consistently.
-		mapFS := fstest.MapFS{
-			e.Name: &fstest.MapFile{
-				Data:    buf,
-				ModTime: e.ModTime,
-				Mode:    e.Mode,
-			},
-		}
+		entryFS := content.NewSingleFileFS(e.Name, buf, e.ModTime, e.Mode)
 		displayPath := archivePath + ArchiveSeparator + e.Name
 		var attrMap map[string]any
 		var contentType string
-		if attrs, aerr := celexpr.BuildAttributesWith(ctx, mapFS, e.Name, displayPath, registry, celexpr.BuildOptions{}); aerr == nil && attrs != nil {
+		if attrs, aerr := celexpr.BuildAttributesWith(ctx, entryFS, e.Name, displayPath, registry, celexpr.BuildOptions{}); aerr == nil && attrs != nil {
 			contentType = attrs.ContentType
 			if attrs.Extra != nil {
 				attrMap = sanitiseExtraForWire(attrs.Extra)
