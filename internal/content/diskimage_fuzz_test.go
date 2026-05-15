@@ -120,15 +120,15 @@ func FuzzReadVHDXMetadata(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// findVHDXMetadataRegion — input is a region-table sized
-		// buffer; if shorter, the function should reject.
-		off, length := findVHDXMetadataRegion(data)
+		// buffer; if shorter, the function should reject. The length
+		// it returns is the value the file claims; the walker is
+		// responsible for bounds-checking before reading. A large
+		// uint32 length is a legitimate value, not corruption — we
+		// only assert against negative offsets here (which would
+		// indicate the parser dropped its int64(uint64) guard).
+		off, _ := findVHDXMetadataRegion(data)
 		if off < 0 {
 			t.Fatalf("findVHDXMetadataRegion returned negative offset: %d", off)
-		}
-		if length > 1<<30 {
-			// Length is a uint32 — sanity-check that no logic
-			// returns an absurdly large value despite truncation.
-			t.Fatalf("findVHDXMetadataRegion length = %d looks corrupt", length)
 		}
 
 		// findVHDXVirtualDiskSize — feed the same bytes; the walker
