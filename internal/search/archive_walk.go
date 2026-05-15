@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,7 +62,9 @@ type ArchiveWalkOptions struct {
 	IncludeBody bool
 	// EntryReadCap caps the per-entry bytes read into the synthetic
 	// fs.FS (controls memory usage). Zero means the package default
-	// (1 MiB).
+	// (8 MiB — enough to fit typical PDF / DOCX / EPUB / email
+	// bodies). Raise for archives containing huge documents; lower
+	// if memory pressure matters on large tree walks.
 	EntryReadCap int64
 	// MaxEntries caps the number of matching entries returned. Zero
 	// means unlimited. Truncated=true in the result tells callers
@@ -96,8 +99,15 @@ type ArchiveWalkResult struct {
 const ArchiveCacheMaxEntries = 10_000
 
 // defaultEntryReadCap is the per-entry byte cap when none is set.
-// Matches the top-level body reader's default (1 MiB).
-const defaultEntryReadCap = 1 << 20
+// 8 MiB — enough to fit typical PDF / DOCX / EPUB / email fixtures
+// in memory so the structured-document body extractors have
+// something to chew on. The top-level body reader uses 1 MiB
+// because text-shaped types rarely benefit from more, but
+// structured documents need their full ZIP / PDF envelope to
+// extract meaningful body text. Memory cost per walk is bounded
+// by this × (1 archive at a time × 1 entry at a time) — sequential
+// reading keeps peak RSS modest.
+const defaultEntryReadCap = 8 << 20
 
 // WalkArchiveEntries opens archivePath, dispatches to the right
 // archive iterator based on detected content type, and emits an
@@ -107,7 +117,11 @@ const defaultEntryReadCap = 1 << 20
 // Per-entry attribute extraction works by:
 //  1. Reading up to opts.EntryReadCap bytes of the entry's content
 //     into memory.
-//  2. Wrapping that buffer in fstest.MapFS{entryName: {Data}}.
+//  2. Wrapping that buffer in content.NewSingleFileFS — a 1-file
+//     fs.FS whose embedded *bytes.Reader satisfies io.ReaderAt, so
+//     openReaderAt and the structured-document body extractors
+//     (pdfBody / ooxmlBody / epubBody / emlBody) all work against
+//     it without modification.
 //  3. Calling celexpr.BuildAttributesWith with cache disabled — the
 //     attribute index keys on absolute OS paths and an
 //     "archive#entry" pseudo-path would silently collide with no
@@ -116,10 +130,11 @@ const defaultEntryReadCap = 1 << 20
 //  4. Evaluating the optional CEL expression against the resulting
 //     FileAttributes.
 //
-// The synthetic MapFS approach reuses every existing content-type
-// parser (markdown, json, xml, source/*, etc.) without needing a
-// Detect-from-bytes API. Structured-document body extraction inside
-// archives (PDF/office/EPUB-inside-ZIP) is deferred to #133.
+// The singleFileFS approach reuses every existing content-type
+// parser (markdown, json, xml, source/*, pdf, office/*, epub,
+// email/*, etc.) without needing a Detect-from-bytes API. Body
+// extraction inside archives is supported for every type the
+// top-level walker supports.
 func WalkArchiveEntries(ctx context.Context, archivePath string, opts ArchiveWalkOptions, registry *content.Registry) (*ArchiveWalkResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -391,16 +406,16 @@ func stripBodyFromExtra(extra content.Attributes) map[string]any {
 // serialisation. The Extra map can contain time.Time values (which
 // serialise as RFC3339), []string (which serialise as JSON arrays),
 // and map[string]any (which serialise as nested objects). All Go
-// values that the standard json encoder handles correctly. Body is
-// stripped — it's typically large and not what callers want in a
-// list response.
+// values that the standard json encoder handles correctly.
+//
+// Body is preserved — callers reach this function only when they've
+// explicitly asked for include_attributes, and they typically also
+// want to see what their body.contains/body.matches filters matched
+// against. The cache layer strips body separately (see
+// stripBodyFromExtra) — that's the right place for the "bodies are
+// never cached" rule.
 func sanitiseExtraForWire(extra content.Attributes) map[string]any {
 	out := make(map[string]any, len(extra))
-	for k, v := range extra {
-		if k == "body" {
-			continue
-		}
-		out[k] = v
-	}
+	maps.Copy(out, extra)
 	return out
 }

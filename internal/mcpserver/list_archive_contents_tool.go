@@ -20,7 +20,7 @@ type ListArchiveContentsInput struct {
 	Glob              string   `json:"glob,omitempty" jsonschema:"Optional filepath.Match basename pattern applied BEFORE the CEL filter as a cheap pre-prune (e.g. '*.go')."`
 	IncludeAttributes bool     `json:"include_attributes,omitempty" jsonschema:"When true, populate each entry's 'attributes' map with the full per-format attribute set. Off by default for terse listings."`
 	IncludeBody       bool     `json:"include_body,omitempty" jsonschema:"When true, read entry bodies into memory so body.contains() / body.matches() CEL filters fire. Bypasses the entry-list cache (bodies aren't cached). Capped at entry_read_cap."`
-	EntryReadCap      int64    `json:"entry_read_cap,omitempty" jsonschema:"Cap on per-entry bytes read into memory for detection and body evaluation. Zero uses the 1 MiB default."`
+	EntryReadCap      int64    `json:"entry_read_cap,omitempty" jsonschema:"Cap on per-entry bytes read into memory for detection and body evaluation. Zero uses the 8 MiB default — enough for typical PDF / DOCX / EPUB / email bodies. Raise for archives containing huge documents; lower if memory pressure matters."`
 	MaxEntries        int      `json:"max_entries,omitempty" jsonschema:"Cap on entries returned. Zero = unlimited. truncated=true in the response when hit."`
 	TimeoutSeconds    *float64 `json:"timeout_seconds,omitempty" jsonschema:"Override the server's default per-call timeout. Same semantics as the search tool — partial results return on expiry with cancelled=true."`
 }

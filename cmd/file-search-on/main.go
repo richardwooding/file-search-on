@@ -407,7 +407,7 @@ type ArchiveContentsCmd struct {
 	Glob              string        `name:"glob" help:"Optional filepath.Match basename pattern applied BEFORE the CEL filter as a cheap pre-prune (e.g. '*.go')."`
 	IncludeAttributes bool          `name:"include-attributes" help:"Include the full per-entry attribute map in the output. Off by default for terse listings."`
 	Body              bool          `name:"body" help:"Read entry bodies so body.contains() / body.matches() CEL filters fire. Capped at --entry-read-cap. Bypasses the entry-list cache (bodies aren't cached)."`
-	EntryReadCap      int64         `name:"entry-read-cap" default:"0" help:"Cap on per-entry bytes read into memory for detection and body evaluation (bytes). 0 uses the 1 MiB default."`
+	EntryReadCap      int64         `name:"entry-read-cap" default:"0" help:"Cap on per-entry bytes read into memory for detection and body evaluation (bytes). 0 uses the 8 MiB default — enough for typical PDF / DOCX / EPUB / email bodies inside archives. Raise for archives containing huge documents; lower if memory pressure matters on large collections."`
 	MaxEntries        int           `name:"max" default:"0" help:"Cap on entries returned. 0 = unlimited."`
 	IndexPath         string        `name:"index-path" help:"Persistent attribute index file (bbolt). When set, per-archive entry-list cache is consulted before each walk and populated on miss."`
 	Timeout           time.Duration `name:"timeout" help:"Maximum walk duration. On expiry the partial set is still printed and the process exits 124."`

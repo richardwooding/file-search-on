@@ -37,20 +37,28 @@ file-search-on archive-contents ./node.zip --expr 'is_node_manifest'   # finds p
 
 ### Filter by content (body)
 
-Pass `--body` and the per-entry CEL gets the body string. Works for every text-shaped content type (markdown / text / html / csv / json / xml / source/*).
+Pass `--body` and the per-entry CEL gets the body string. Body extraction is supported for:
+
+- **Text-shaped**: markdown, text, html, csv, json, xml, source/* (raw `io.LimitReader` read)
+- **Structured-document**: PDF, DOCX, XLSX, PPTX, ODT, EPUB, RFC 5322 email (`.eml`), Unix mbox (`.mbox`) — each format's existing extractor runs against the in-memory entry bytes via the same singleFileFS the walker uses
 
 ```sh
 # Find every Python file in any tarball mentioning "TODO"
 file-search-on archive-contents ./src.tar.gz --expr 'is_source && language == "python" && body.contains("TODO")' --body
 
-# Markdown files inside an EPUB mentioning a specific term
-file-search-on archive-contents ./book.epub --expr 'body.contains("Hitchhiker")' --body
+# Find every PDF inside a tarball mentioning a topic
+file-search-on archive-contents ./papers.tar.gz --expr 'is_pdf && body.contains("transformer")' --body
 
-# Find every Dockerfile inside a tarball that uses Alpine
-file-search-on archive-contents ./release.tar.gz --expr 'is_dockerfile && body.contains("FROM alpine")' --body
+# Find every DOCX inside a release ZIP mentioning competitor names
+file-search-on archive-contents ./reports.zip --expr 'content_type == "office/docx" && body.matches("(?i)\\b(competitor1|competitor2)\\b")' --body
+
+# Find emails inside an mbox-in-archive mentioning a specific invoice
+file-search-on archive-contents ./mail-backup.tar.gz --expr 'is_email && body.contains("INV-2026-0042")' --body
 ```
 
 `--body` **bypasses the entry-list cache** — bodies are large and aren't cached by design. Use it only when you need body content; metadata-only filters (`is_X`, `loc`, `language`, etc.) hit the cache on repeat calls.
+
+The per-entry byte cap (`--entry-read-cap`, default 8 MiB) limits how much of each entry is loaded into memory. Structured-document bodies need their full file to extract — raise the cap for archives with large PDFs / office docs; lower for memory pressure on giant tree walks. Combine with `--include-attributes` to see the extracted body alongside the rest of the per-format attributes.
 
 ### Filter by per-family attributes
 
@@ -139,7 +147,7 @@ Returns `{content, size, truncated, content_type, attributes, ...}`. UTF-8 entri
 
 - **Read-only.** Neither tool modifies archives — there's no "write entry into archive" surface.
 - **No nested-archive recursion.** A ZIP inside a TAR doesn't get walked transitively. Caller chains two `archive-contents` calls explicitly.
-- **Structured-document body extraction is deferred.** PDF / office / EPUB / email entries inside an archive surface with `content_type` set but `body` empty (their bodies need a ZIP envelope walker that v1 doesn't wire). Tracked in [#133](https://github.com/richardwooding/file-search-on/issues/133).
+- **Default `--entry-read-cap` is 8 MiB.** PDF / DOCX / EPUB / email bodies inside archives are extracted via the same per-format pipeline real-filesystem files use, but the entry's bytes need to fit in the cap. Raise the cap for archives containing huge documents; lower for memory pressure on large collections.
 - **Project-type resolution doesn't fire inside archives.** "Which project does `package.json` inside this tarball belong to?" is meaningless without a filesystem layout.
 - **TAR is sequential.** The walker reads entries in archive order; random access (`archive-read foo.tar bar.txt` when `bar.txt` is at the end) is O(n) over the archive's entries. ZIP / TAR.GZ behave the same way for the iteration walker. For repeat `archive-read` calls on the same archive, the entry-list cache helps but the per-entry seek doesn't.
 - **7Z / RAR / BZIP2 / XZ are unsupported.** Each needs a third-party library — out of scope.
