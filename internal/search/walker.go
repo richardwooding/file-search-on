@@ -152,6 +152,13 @@ type Options struct {
 	// the OS. Best avoided unless you know the tree is acyclic.
 	FollowSymlinks bool
 
+	// SimilarityThreshold is consumed by FindNearDuplicates: the
+	// minimum SimHash similarity (0..1) at which two files are
+	// considered near-duplicates. 0.85 by default (≈ 9 bits Hamming
+	// distance on a 64-bit fingerprint). Ignored by the regular
+	// Walk path.
+	SimilarityThreshold float64
+
 	// GroupBy controls the bucketing key used by ComputeStats. See
 	// stats.go ValidGroupBys for the recognised set. Ignored by
 	// Walk/WalkStream — it only affects ComputeStats's aggregation.

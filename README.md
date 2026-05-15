@@ -54,7 +54,7 @@ Built in the open — issues, PRs, and feature requests warmly welcomed. See [Co
 - **CEL expressions** — the full Common Expression Language: comparisons, `&&`/`||`, string functions, list membership, timestamp arithmetic. Composes naturally with structural attributes.
 - **Fuzzy, phonetic, and geographic matching** — built-in `levenshtein`, `soundex`, `ngrams`, `ngram_similarity`, and `point_in_polygon` (for GPS bboxes / city outlines) let you write typo-tolerant and "sounds-like" queries against any string attribute. EXIF camera make in `Nikkon` instead of `Nikon`? Artist tag mistyped as `Radiohad`? Same query catches all of them. See [examples/fuzzy-search.md](./examples/fuzzy-search.md).
 - **Multiple output formats** — `bare` (paths only), `default`, `verbose` (multi-line), `json` (NDJSON), or a Go `text/template` via `--format`.
-- **MCP server mode** — same binary doubles as a [Model Context Protocol](https://modelcontextprotocol.io) server (stdio, HTTP, or SSE). Eleven tools exposed: `search`, `read_attributes`, `read_lines`, `stats`, `find_duplicates`, `find_matches`, `detect_project`, `find_projects`, `resolve_project_for_path`, `list_attributes`, `index_stats`.
+- **MCP server mode** — same binary doubles as a [Model Context Protocol](https://modelcontextprotocol.io) server (stdio, HTTP, or SSE). Twelve tools exposed: `search`, `read_attributes`, `read_lines`, `stats`, `find_duplicates`, `find_near_duplicates`, `find_matches`, `detect_project`, `find_projects`, `resolve_project_for_path`, `list_attributes`, `index_stats`.
 - **Pure Go, no CGO** — cross-compiles cleanly to all six release targets. No image/audio/video decoder dependencies.
 - **Parallel walking** — files are evaluated across a worker pool (defaults to `NumCPU`).
 
@@ -124,6 +124,7 @@ file-search-on -d .                                   # empty expression matches
 | `attrs <path>` | Print attributes for one file (no walk, no CEL) | [examples/cookbook.md](./examples/cookbook.md) |
 | `stats [expr]` | Histogram + totals, bucketed by `group_by` | [examples/group-by.md](./examples/group-by.md) |
 | `duplicates [expr]` | Byte-identical files by sha256 | [examples/duplicates.md](./examples/duplicates.md) |
+| `near-duplicates [expr]` | Similar files by SimHash fingerprint of extracted body | [examples/near-duplicates.md](./examples/near-duplicates.md) |
 | `find-matches <re> --expr <cel> -C N` | Line-level regex hits with context | [examples/find-matches.md](./examples/find-matches.md) |
 | `lines <path> --start --end` | Print a line range | [examples/read-lines.md](./examples/read-lines.md) |
 | `detect-project [dir]` | Identify project type(s) of a directory | [examples/projects.md](./examples/projects.md) |
@@ -191,6 +192,16 @@ file-search-on duplicates -d ~/Downloads -o json
 
 Two-pass: files with unique sizes are skipped before any hashing. With `--index-path`, hashes are cached alongside `(size, mtime)` so repeat runs are free.
 
+For SIMILAR (not identical) files — catching typo edits, regenerated headers, template copies that exact-hash dedup misses — use the SimHash-based `near-duplicates` subcommand:
+
+```sh
+file-search-on near-duplicates -d ~/notes                          # 0.85 similarity default
+file-search-on near-duplicates 'is_markdown' -d ~/notes --threshold 0.95   # whitespace/typo only
+file-search-on near-duplicates 'is_source && language == "go"' -d ./src --threshold 0.75
+```
+
+Fingerprints cache via `--index-path` alongside the exact hash; repeat runs skip body extraction AND SimHash compute. See [examples/near-duplicates.md](./examples/near-duplicates.md).
+
 ### Common flags
 
 `-d <dir>` (repeatable for multi-root walks), `--exclude <glob>` (basename, repeatable), `--respect-gitignore`, `--timeout 30s` (partial results returned on expiry), `--workers N`, `--index-path <file.db>` (persistent attribute cache — see [examples/indexing.md](./examples/indexing.md)).
@@ -223,6 +234,7 @@ Focused recipe collections live under [`examples/`](./examples/):
 | [`examples/group-by.md`](./examples/group-by.md) | Stats bucketed by any attribute — `--group-by camera_make`, `--group-by language`, `--group-by taken_at_year`, etc. |
 | [`examples/read-lines.md`](./examples/read-lines.md) | Print a specific line range from a file — pairs with `search` to fetch match context |
 | [`examples/duplicates.md`](./examples/duplicates.md) | Find byte-identical files by sha256 — `file-search-on duplicates [--min-size N]` |
+| [`examples/near-duplicates.md`](./examples/near-duplicates.md) | Find SIMILAR files by SimHash fingerprint — `file-search-on near-duplicates --threshold 0.85` |
 
 A handful of representative one-liners:
 
@@ -338,6 +350,7 @@ Eleven tools are exposed:
 | `read_lines` | A specific line range of a file — pairs with `search` for context around matches. |
 | `stats` | Histogram + totals for a directory tree, bucketed by `group_by` (default `content_type`; full set documented in [Usage § Stats](#stats-and-reconnaissance)). |
 | `find_duplicates` | Byte-identical files keyed by sha256 — two-pass (size-bucket then hash). Sorted by `wasted_bytes` desc. |
+| `find_near_duplicates` | Similar files by SimHash fingerprint of extracted body. Catches typo edits, regenerated headers, template copies. Configurable similarity threshold (default 0.85). |
 | `find_matches` | Line-level regex (RE2) hits across a tree with `context_before` / `context_after` windows. CEL pre-prune (e.g. `is_source && language == "go"`) keeps the regex pass narrow. Replaces the search-then-`read_lines` dance with one call. |
 | `detect_project` | Project type(s) of one directory. |
 | `find_projects` | Walk a tree, list every project subdirectory. |
@@ -345,7 +358,7 @@ Eleven tools are exposed:
 | `list_attributes` | The full canonical schema (`common`, `type_specific`, `frontmatter`, `functions`) plus registered content types. |
 | `index_stats` | Cache counters for the running server (hits, misses, puts, stales, errors). |
 
-Every walking tool (`search`, `stats`, `find_duplicates`, `find_matches`, `find_projects`) honours the same partial-result contract: on timeout the call returns `cancelled=true` with the results gathered so far, never an error. Agents inspect the flag rather than catching exceptions.
+Every walking tool (`search`, `stats`, `find_duplicates`, `find_near_duplicates`, `find_matches`, `find_projects`) honours the same partial-result contract: on timeout the call returns `cancelled=true` with the results gathered so far, never an error. Agents inspect the flag rather than catching exceptions.
 
 The MCP server keeps an attribute cache for its process lifetime — repeated `search` / `read_attributes` calls against the same files skip the parse step on the second and later invocations. Pass `--index-path` to persist the cache across restarts:
 

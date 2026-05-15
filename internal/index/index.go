@@ -43,6 +43,15 @@ type Entry struct {
 	// gob handles the additive field gracefully — older cache
 	// files without this field decode with Hash="".
 	Hash string
+	// Fingerprint is the 64-bit Charikar SimHash of the file's
+	// extracted body, computed by internal/fingerprint. Zero unless
+	// the near-duplicates pipeline asked for it. Like Hash, it's
+	// invariant under (size, mtime) — the cached fingerprint stays
+	// valid for as long as the entry validates. gob-additive: older
+	// caches without this field decode with Fingerprint=0, which
+	// the near-duplicates path treats as "not fingerprinted yet"
+	// and re-computes on the next access.
+	Fingerprint uint64
 }
 
 // Stats counts cache events for diagnostic surfacing (CLI footer, MCP

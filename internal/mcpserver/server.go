@@ -165,6 +165,7 @@ Tools:
   read_lines       print a specific line range from a file — for context around a search match
   stats            histogram + totals for a directory tree, bucketed by any attribute via group_by
   find_duplicates  groups of byte-identical files keyed by sha256 — "what's eating my disk?"
+  find_near_duplicates  groups of SIMILAR files via SimHash fingerprint — catches typo edits, regenerated headers, template copies that find_duplicates misses
   find_matches     scan text files for a regex; returns line-level hits with context — "find references to X"
   detect_project   what kind of project (go / node / rust / python / …) is THIS directory
   find_projects    walk a root and identify every project subdirectory under it
@@ -189,6 +190,8 @@ Path expansion: every path-shaped input (dir, dirs, path) is tilde-expanded at t
 Read line ranges: the 'read_lines' tool returns lines [start_line, end_line] of a single file (1-indexed, inclusive). Useful as the second step after search — find matches via search, then call read_lines for context around each match without a separate read tool. max_lines caps the response (default 1000); the truncated flag tells you when the cap was hit.
 
 Duplicate detection: 'find_duplicates' returns groups of byte-identical files keyed by sha256. Useful for 'what's eating my disk?' and 'find redundant copies' workflows. Two-pass for performance: files with unique sizes are skipped entirely (cheaper than computing their hash). Pair with expr to scope (e.g. expr='is_image' for photo dedup) and min_size to skip tiny duplicates. Hashes are cached in the attribute index alongside (size, mtime) — first run on a large tree can be slow (every candidate file is read in full), but subsequent runs are free for unchanged files. Output: duplicates[] sorted by wasted_bytes descending — biggest reclamation candidates first.
+
+Near-duplicate detection: 'find_near_duplicates' returns groups of files whose bodies are SIMILAR (not identical) via Charikar SimHash. Complements find_duplicates for the "is this a fork of X?" / "did I save two versions of this note?" workflow — catches trailing-newline edits, regenerated headers, typo fixes, template copies. Configurable similarity threshold (default 0.85 ≈ 9-bit Hamming distance on a 64-bit fingerprint; raise to 0.95 for near-byte-identical, lower to 0.75 for significant overlap). Fingerprints only fire for text-shaped (markdown / text / html / csv / json / xml / source/*) and structured-document (pdf / office / epub / email) types — binary families return zero fingerprints and are excluded. Fingerprints cache alongside the per-file hash; repeat runs on unchanged trees skip body extraction AND SimHash compute. Output: groups[] sorted by member count desc; each group has a representative (largest file in the group), a fingerprint (hex), and members[] sorted by similarity desc.
 
 Time-bucket aggregation: 'stats' group_by accepts mtime_year, mtime_month, mtime_day, taken_at_year/month/day, sent_at_year/month/day, and date_year/month/day in addition to the string-attribute keys. Files with zero timestamps bucket as "(no date)" so they don't collide with "1970-01-01". Example: {expr:'is_image', group_by:'taken_at_year'} for "photos per year".
 
@@ -262,6 +265,11 @@ func New(version string, idx index.Index, defaultTimeout time.Duration) *mcp.Ser
 		Name:        "find_duplicates",
 		Description: "Find groups of byte-identical files keyed by sha256. Useful for 'what's eating my disk?' and 'find redundant copies' workflows. Two-pass for performance: files with unique sizes are skipped entirely (cheaper than computing their hash). Pair with expr to scope (e.g. expr='is_image' for photo dedup) and min_size to skip tiny duplicates. Hashes are cached in the attribute index alongside (size, mtime) — first run on a large tree can be slow (every candidate file is read in full), but subsequent runs are free for unchanged files. Output: duplicates[] sorted by wasted_bytes descending — biggest reclamation candidates first.",
 	}, h.findDuplicatesHandler)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "find_near_duplicates",
+		Description: "Find groups of SIMILAR (not identical) files via SimHash fingerprint of their extracted body. Complements 'find_duplicates' for fuzzy matching — catches files with trailing-newline edits, regenerated headers, typo fixes, template copies, and minor revisions that exact-hash dedup misses. Algorithm: 64-bit Charikar SimHash over tokenized body text → pairwise Hamming distance → union-find groups files within the similarity threshold. Inputs: expr (optional CEL pre-prune; e.g. is_markdown to limit to docs), threshold (0..1, default 0.85 ≈ 9-bit Hamming distance; 0.95 ≈ 3 bits for whitespace/typo-only edits; 0.75 ≈ 16 bits for significant structural overlap), min_size (skip tiny files), the usual dir / dirs / excludes / timeout_seconds. Only text-shaped and structured-document types fingerprint (markdown / text / html / csv / json / xml / source/* / pdf / office / epub / email); binary families return zero fingerprints and are excluded. Fingerprints cache in the attribute index alongside hash; repeat runs on unchanged trees skip body extraction AND SimHash compute. Output: groups[] sorted by member count desc — biggest near-duplicate clusters first. Similarity = 1.0 means identical body text (which would also surface via find_duplicates).",
+	}, h.findNearDuplicatesHandler)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "detect_project",

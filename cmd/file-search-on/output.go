@@ -390,6 +390,45 @@ func printDuplicatesJSON(w io.Writer, d *search.Duplicates) error {
 	return enc.Encode(d)
 }
 
+// printNearDuplicatesTable renders a NearDuplicates result as a
+// human-readable block. One block per group, sorted by count desc
+// then by representative size desc. Members within a group are
+// listed similarity-desc so the canonical representative leads.
+func printNearDuplicatesTable(w io.Writer, d *search.NearDuplicates) {
+	if len(d.Groups) == 0 {
+		fp(w, "no near-duplicates found (%s files fingerprinted at threshold %.2f)\n",
+			commafy(d.FingerPrinted), d.Threshold)
+		if d.Cancelled {
+			fp(w, "(partial — %s)\n", d.CancellationReason)
+		}
+		return
+	}
+	for i, g := range d.Groups {
+		if i > 0 {
+			fpn(w)
+		}
+		fp(w, "fingerprint: %s  (count=%d)\n", g.Fingerprint, g.Count)
+		fp(w, "representative: %s\n", g.Representative)
+		for _, m := range g.Members {
+			fp(w, "  %.3f  %s  (%s B)\n", m.Similarity, m.Path, commafy(m.Size))
+		}
+	}
+	fpn(w)
+	fp(w, "%s near-duplicate group(s) at threshold %.2f, %s files fingerprinted (%s total considered)\n",
+		commafy(d.GroupCount), d.Threshold, commafy(d.FingerPrinted), commafy(d.TotalFiles))
+	if d.Cancelled {
+		fp(w, "(partial — %s)\n", d.CancellationReason)
+	}
+}
+
+// printNearDuplicatesJSON writes the NearDuplicates object as a
+// single JSON document.
+func printNearDuplicatesJSON(w io.Writer, d *search.NearDuplicates) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(d)
+}
+
 // printFindMatches renders a FindMatchesResult as grep-style output.
 // Each match line is "path:line:text". Context lines (when present)
 // use "path-line-text" — same convention as ripgrep / grep -C, so the
