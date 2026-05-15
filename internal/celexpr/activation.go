@@ -170,6 +170,10 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.IsAppImage, true
 	case "is_install_package":
 		return a.attrs.IsInstallPackage, true
+	case "is_symlink":
+		return a.attrs.IsSymlink, true
+	case "is_broken_symlink":
+		return a.attrs.IsBrokenSymlink, true
 	}
 	if v, ok := a.attrs.Extra[name]; ok {
 		return v, true
@@ -302,4 +306,7 @@ var zeroDefaults = map[string]any{
 	// License + test-file detection.
 	"license_id":   "",
 	"is_test_file": false,
+
+	// Symlink awareness — populated by BuildAttributesWith via Lstat.
+	"target_path": "",
 }

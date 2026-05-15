@@ -22,6 +22,7 @@ type StatsInput struct {
 	TimeoutSeconds   *float64 `json:"timeout_seconds,omitempty" jsonschema:"Override the server's default per-call timeout. Same semantics as the search tool: positive = seconds, 0 = no timeout, omitted = server default. On timeout the partial histogram is returned with cancelled=true."`
 	Excludes         []string `json:"excludes,omitempty" jsonschema:"Glob patterns matched against file/dir basenames; matches are pruned. Same as the search tool."`
 	RespectGitignore bool     `json:"respect_gitignore,omitempty" jsonschema:"When true, parse a .gitignore at the walk root and skip matching paths."`
+	FollowSymlinks   bool     `json:"follow_symlinks,omitempty" jsonschema:"When true, descend through symbolic links to directories. Off by default; symlinks-to-dirs surface as is_symlink=true leaf entries."`
 	GroupBy          string   `json:"group_by,omitempty" jsonschema:"Bucket key. Default 'content_type'. Recognised: content_type, ext, dir, language, camera_make, camera_model, lens, artist, album, genre, kernel, binary_format, binary_type, frontmatter_format. Unknown values fall back to content_type. Use group_by=ext to histogram by file extension, group_by=language to count source files per language, group_by=camera_make to bucket photos by camera, etc."`
 }
 
@@ -91,6 +92,7 @@ func (h *handlers) statsHandler(ctx context.Context, _ *mcp.CallToolRequest, in 
 		Index:            h.idx,
 		Excludes:         in.Excludes,
 		RespectGitignore: in.RespectGitignore,
+		FollowSymlinks:   in.FollowSymlinks,
 		GroupBy:          in.GroupBy,
 	}, content.DefaultRegistry())
 	elapsed := time.Since(start).Seconds()

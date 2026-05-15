@@ -169,6 +169,7 @@ type StatsCmd struct {
 	Timeout          time.Duration `name:"timeout" help:"Maximum walk duration. On expiry, the partial histogram is still printed and the process exits 124."`
 	Exclude          []string      `name:"exclude" help:"Glob pattern matched against file/dir basenames; matches are skipped. Repeatable."`
 	RespectGitignore bool          `name:"respect-gitignore" help:"Parse a .gitignore at the walk root and skip matching paths."`
+	FollowSymlinks   bool          `name:"follow-symlinks" help:"Descend through symbolic links to directories. Off by default; symlinks-to-dirs surface as is_symlink=true leaf entries."`
 	GroupBy          string        `name:"group-by" help:"Attribute to bucket by. Default 'content_type'. Recognised: content_type, ext, dir, language, camera_make, camera_model, lens, artist, album, genre, kernel, binary_format, binary_type, frontmatter_format. Unknown values fall back to content_type."`
 	Output           string        `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table (default; human-readable) | json (machine-readable)."`
 }
@@ -205,6 +206,7 @@ func (s *StatsCmd) Run(ctx context.Context) error {
 		Index:            idx,
 		Excludes:         s.Exclude,
 		RespectGitignore: s.RespectGitignore,
+		FollowSymlinks:   s.FollowSymlinks,
 		GroupBy:          s.GroupBy,
 	}, contentpkg.DefaultRegistry())
 
@@ -247,6 +249,7 @@ type DuplicatesCmd struct {
 	Timeout          time.Duration `name:"timeout" help:"Maximum duration. On expiry, the partial result is still printed and the process exits 124."`
 	Exclude          []string      `name:"exclude" help:"Glob pattern matched against file/dir basenames; matches are skipped. Repeatable."`
 	RespectGitignore bool          `name:"respect-gitignore" help:"Parse a .gitignore at each walk root and skip matching paths."`
+	FollowSymlinks   bool          `name:"follow-symlinks" help:"Descend through symbolic links to directories. Off by default; symlinks-to-dirs surface as is_symlink=true leaf entries. Useful for duplicates audits where symlinked copies should be deduplicated."`
 	MinSize          int64         `name:"min-size" default:"0" help:"Skip files smaller than this many bytes. 0 considers every file; raise to e.g. 4096 to ignore tiny duplicates that aren't worth reclaiming."`
 	Output           string        `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table (default; human-readable) | json (machine-readable)."`
 }
@@ -283,6 +286,7 @@ func (d *DuplicatesCmd) Run(ctx context.Context) error {
 		Index:            idx,
 		Excludes:         d.Exclude,
 		RespectGitignore: d.RespectGitignore,
+		FollowSymlinks:   d.FollowSymlinks,
 		MinSize:          d.MinSize,
 	}, contentpkg.DefaultRegistry())
 
@@ -326,6 +330,7 @@ type FindMatchesCmd struct {
 	MaxMatchesPerFile   int           `name:"max-matches-per-file" help:"Cap on matches reported per file. 0 = unlimited." default:"0"`
 	Exclude             []string      `name:"exclude" help:"Basename glob pruned during the walk (e.g. node_modules, .git, target). Repeatable."`
 	RespectGitignore    bool          `name:"respect-gitignore" help:"Parse a .gitignore at each walk root and skip matching paths."`
+	FollowSymlinks      bool          `name:"follow-symlinks" help:"Descend through symbolic links to directories. Off by default."`
 	PruneArtefacts      bool          `name:"prune-build-artefacts" help:"Pre-walk and prune canonical build-artefact basenames (vendor / node_modules / target / __pycache__ / …)."`
 	IndexPath           string        `name:"index-path" help:"Persistent attribute index file (bbolt). Speeds up the walk-stage content-type detection on unchanged files."`
 	Timeout             time.Duration `name:"timeout" help:"Maximum duration (Go duration: 30s, 2m). On expiry, partial results are still printed and the process exits 124."`
@@ -370,6 +375,7 @@ func (f *FindMatchesCmd) Run(ctx context.Context) error {
 		Index:               idx,
 		Excludes:            f.Exclude,
 		RespectGitignore:    f.RespectGitignore,
+		FollowSymlinks:      f.FollowSymlinks,
 		PruneBuildArtefacts: f.PruneArtefacts,
 		Pattern:             f.Pattern,
 		ContextBefore:       before,
@@ -604,6 +610,7 @@ type SearchCmd struct {
 	BodyMaxBytes     int           `name:"body-max-bytes" default:"0" help:"Cap on the body string read per file in bytes. 0 uses the 1 MiB default. Files larger than the cap are silently truncated; the prefix still participates in the CEL filter."`
 	Exclude          []string      `name:"exclude" help:"Glob pattern matched against the basename of each file/directory; matches are skipped (directories are pruned). Repeatable: --exclude node_modules --exclude '*.bak'."`
 	RespectGitignore bool          `name:"respect-gitignore" help:"Parse a .gitignore at the walk root (if present) and skip matching paths. Nested .gitignore files in subdirectories are NOT honoured in this version."`
+	FollowSymlinks   bool          `name:"follow-symlinks" help:"Descend through symbolic links to directories during the walk. Off by default — symlinks-to-dirs surface as leaf entries with is_symlink=true. The is_symlink / target_path / is_broken_symlink CEL attributes are populated regardless of this flag. No loop detection."`
 	ResolveProjects  bool          `name:"resolve-projects" help:"Populate the 'project_types' (list<string>) and 'project_type' (string) CEL variables for each match by resolving the file's containing project root (go.mod, package.json, Cargo.toml, …). Enables filters like 'is_source && project_type == \"go\"'. Adds one ReadDir per unique directory walked (cached) — opt-in to avoid the cost when not needed."`
 	PruneArtefacts   bool          `name:"prune-build-artefacts" help:"Pre-walk the tree to find project roots and union their canonical build-artefact basenames (vendor for Go, node_modules for Node, target for Rust, __pycache__/.venv for Python, bin/obj for .NET, .terraform for Terraform, …) into --exclude. Saves the boilerplate exclude list when searching monorepos or ~/Code. Opt-in: pre-walk costs I/O proportional to tree size."`
 }
@@ -678,6 +685,7 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		BodyMaxBytes:      s.BodyMaxBytes,
 		Excludes:            s.Exclude,
 		RespectGitignore:    s.RespectGitignore,
+		FollowSymlinks:      s.FollowSymlinks,
 		ResolveProjects:     s.ResolveProjects,
 		PruneBuildArtefacts: s.PruneArtefacts,
 	}
