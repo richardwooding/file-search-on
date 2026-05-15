@@ -429,6 +429,58 @@ func printNearDuplicatesJSON(w io.Writer, d *search.NearDuplicates) error {
 	return enc.Encode(d)
 }
 
+// printArchiveContentsTable renders an ArchiveWalkResult as a tabular
+// listing — one row per entry with name, size, and content_type.
+func printArchiveContentsTable(w io.Writer, r *search.ArchiveWalkResult) {
+	if len(r.Entries) == 0 {
+		fp(w, "no entries matched (%s scanned)\n", commafy(r.ScannedEntries))
+		if r.CacheHit {
+			fp(w, "(cache hit)\n")
+		}
+		if r.Cancelled {
+			fp(w, "(partial — %s)\n", r.CancellationReason)
+		}
+		return
+	}
+	for _, e := range r.Entries {
+		ct := e.ContentType
+		if ct == "" {
+			ct = "unknown"
+		}
+		fp(w, "%s\t[%s]\t%s bytes\n", e.Name, ct, commafy(e.Size))
+	}
+	fpn(w)
+	fp(w, "%s entries matched (%s scanned)",
+		commafy(int64(len(r.Entries))), commafy(r.ScannedEntries))
+	if r.Truncated {
+		fp(w, " — truncated")
+	}
+	if r.CacheHit {
+		fp(w, " — cache hit")
+	}
+	fpn(w)
+	if r.Cancelled {
+		fp(w, "(partial — %s)\n", r.CancellationReason)
+	}
+}
+
+// printArchiveContentsJSON writes the ArchiveWalkResult as a single
+// JSON document.
+func printArchiveContentsJSON(w io.Writer, r *search.ArchiveWalkResult) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(r)
+}
+
+// printArchiveReadJSON writes the ArchiveFileResult as a single JSON
+// document. Used by --output=json; the default --output=raw streams
+// just the entry bytes to stdout.
+func printArchiveReadJSON(w io.Writer, r *search.ArchiveFileResult) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(r)
+}
+
 // printFindMatches renders a FindMatchesResult as grep-style output.
 // Each match line is "path:line:text". Context lines (when present)
 // use "path-line-text" — same convention as ripgrep / grep -C, so the

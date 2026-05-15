@@ -52,6 +52,29 @@ type Entry struct {
 	// the near-duplicates path treats as "not fingerprinted yet"
 	// and re-computes on the next access.
 	Fingerprint uint64
+	// EntryAttributes carries the per-entry attribute records for an
+	// archive file's contents, used by the find-in-archive tools to
+	// avoid re-walking and re-detecting on repeat queries. Nil
+	// unless something populated it (the regular search and
+	// find_duplicates paths don't touch this field). Validated
+	// against the OUTER archive's (size, mtime) — any change to the
+	// archive invalidates the entire entry list. Archives with more
+	// than archiveCacheMaxEntries entries skip this cache because
+	// the encoded slice would blow past the 256 KiB soft cap.
+	// gob-additive: older caches decode with EntryAttributes=nil.
+	EntryAttributes []EntryRecord
+}
+
+// EntryRecord caches one archive entry's identity and attributes.
+// Used by index.Entry.EntryAttributes. The ContentType + Extra
+// fields are what celexpr's CEL evaluator needs to evaluate a
+// filter against a cached entry without re-reading the archive.
+type EntryRecord struct {
+	Name            string
+	Size            int64
+	ModTimeUnixNano int64
+	ContentType     string
+	Extra           map[string]any
 }
 
 // Stats counts cache events for diagnostic surfacing (CLI footer, MCP

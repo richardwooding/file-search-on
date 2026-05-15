@@ -166,6 +166,8 @@ Tools:
   stats            histogram + totals for a directory tree, bucketed by any attribute via group_by
   find_duplicates  groups of byte-identical files keyed by sha256 — "what's eating my disk?"
   find_near_duplicates  groups of SIMILAR files via SimHash fingerprint — catches typo edits, regenerated headers, template copies that find_duplicates misses
+  list_archive_contents  list or filter entries inside a ZIP / TAR / TAR.GZ / GZIP archive without extracting — full CEL vocabulary on per-entry attributes
+  read_file_in_archive   read a single named file's bytes out of an archive — useful for "pull pyproject.toml from source.tar.gz"
   find_matches     scan text files for a regex; returns line-level hits with context — "find references to X"
   detect_project   what kind of project (go / node / rust / python / …) is THIS directory
   find_projects    walk a root and identify every project subdirectory under it
@@ -270,6 +272,16 @@ func New(version string, idx index.Index, defaultTimeout time.Duration) *mcp.Ser
 		Name:        "find_near_duplicates",
 		Description: "Find groups of SIMILAR (not identical) files via SimHash fingerprint of their extracted body. Complements 'find_duplicates' for fuzzy matching — catches files with trailing-newline edits, regenerated headers, typo fixes, template copies, and minor revisions that exact-hash dedup misses. Algorithm: 64-bit Charikar SimHash over tokenized body text → pairwise Hamming distance → union-find groups files within the similarity threshold. Inputs: expr (optional CEL pre-prune; e.g. is_markdown to limit to docs), threshold (0..1, default 0.85 ≈ 9-bit Hamming distance; 0.95 ≈ 3 bits for whitespace/typo-only edits; 0.75 ≈ 16 bits for significant structural overlap), min_size (skip tiny files), the usual dir / dirs / excludes / timeout_seconds. Only text-shaped and structured-document types fingerprint (markdown / text / html / csv / json / xml / source/* / pdf / office / epub / email); binary families return zero fingerprints and are excluded. Fingerprints cache in the attribute index alongside hash; repeat runs on unchanged trees skip body extraction AND SimHash compute. Output: groups[] sorted by member count desc — biggest near-duplicate clusters first. Similarity = 1.0 means identical body text (which would also surface via find_duplicates).",
 	}, h.findNearDuplicatesHandler)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "list_archive_contents",
+		Description: "List or filter entries inside a ZIP / TAR / TAR.GZ / GZIP archive without extracting. Per-entry CEL evaluation against the SAME vocabulary the top-level search uses — every is_X predicate (is_source, is_dockerfile, is_pdf, …) and per-family attribute (loc, language, page_count, frontmatter, …) works inside archives. Detection runs on the entry's bytes (first 512 sniffed against a synthetic in-memory FS), so 'src/main.go' inside a tarball detects as source/go and surfaces loc / comment_loc just like a real file. Inputs: path (required), expr (optional CEL filter), glob (basename pattern applied BEFORE the CEL pass), include_attributes (off by default — terse listing of name/size/content_type only), include_body (read entry bodies so body.contains / body.matches fire; bypasses the entry-list cache), max_entries (cap), timeout_seconds. The entry-list cache uses the existing attribute index: hit path filters cached records by glob + expr without opening the archive; miss path walks + populates the cache asynchronously. Archives with > 10000 entries skip the cache (too large to encode). Output: entries[] sorted by walk order; cache_hit=true when the response came from cache. Use when an agent needs to answer 'does this tarball contain Dockerfile?' or 'find every Go file with loc > 200 inside any tarball' without extracting first.",
+	}, h.listArchiveContentsHandler)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "read_file_in_archive",
+		Description: "Read a single named file's bytes out of a ZIP / TAR / TAR.GZ / GZIP archive without extracting. entry_path must match an entry exactly (not a glob). Returns content as UTF-8 text when valid (content field) or base64-encoded raw bytes when not (content_base64). Capped at max_bytes (default 1 MiB) with truncated=true when the entry exceeds the cap. Also surfaces detected content_type + per-format attributes so callers don't need a separate list_archive_contents to know what they're looking at. Useful for agent flows like 'pull pyproject.toml out of source.tar.gz to check the Python version' or 'read the .github/workflows/ci.yml from a release archive'. Errors with entry-not-found when entry_path doesn't match any archive entry.",
+	}, h.readFileInArchiveHandler)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "detect_project",

@@ -54,7 +54,7 @@ Built in the open — issues, PRs, and feature requests warmly welcomed. See [Co
 - **CEL expressions** — the full Common Expression Language: comparisons, `&&`/`||`, string functions, list membership, timestamp arithmetic. Composes naturally with structural attributes.
 - **Fuzzy, phonetic, and geographic matching** — built-in `levenshtein`, `soundex`, `ngrams`, `ngram_similarity`, and `point_in_polygon` (for GPS bboxes / city outlines) let you write typo-tolerant and "sounds-like" queries against any string attribute. EXIF camera make in `Nikkon` instead of `Nikon`? Artist tag mistyped as `Radiohad`? Same query catches all of them. See [examples/fuzzy-search.md](./examples/fuzzy-search.md).
 - **Multiple output formats** — `bare` (paths only), `default`, `verbose` (multi-line), `json` (NDJSON), or a Go `text/template` via `--format`.
-- **MCP server mode** — same binary doubles as a [Model Context Protocol](https://modelcontextprotocol.io) server (stdio, HTTP, or SSE). Twelve tools exposed: `search`, `read_attributes`, `read_lines`, `stats`, `find_duplicates`, `find_near_duplicates`, `find_matches`, `detect_project`, `find_projects`, `resolve_project_for_path`, `list_attributes`, `index_stats`.
+- **MCP server mode** — same binary doubles as a [Model Context Protocol](https://modelcontextprotocol.io) server (stdio, HTTP, or SSE). Fourteen tools exposed: `search`, `read_attributes`, `read_lines`, `stats`, `find_duplicates`, `find_near_duplicates`, `find_matches`, `list_archive_contents`, `read_file_in_archive`, `detect_project`, `find_projects`, `resolve_project_for_path`, `list_attributes`, `index_stats`.
 - **Pure Go, no CGO** — cross-compiles cleanly to all six release targets. No image/audio/video decoder dependencies.
 - **Parallel walking** — files are evaluated across a worker pool (defaults to `NumCPU`).
 
@@ -125,6 +125,8 @@ file-search-on -d .                                   # empty expression matches
 | `stats [expr]` | Histogram + totals, bucketed by `group_by` | [examples/group-by.md](./examples/group-by.md) |
 | `duplicates [expr]` | Byte-identical files by sha256 | [examples/duplicates.md](./examples/duplicates.md) |
 | `near-duplicates [expr]` | Similar files by SimHash fingerprint of extracted body | [examples/near-duplicates.md](./examples/near-duplicates.md) |
+| `archive-contents <path> [--expr]` | List or filter entries inside ZIP / TAR / TAR.GZ / GZIP — full CEL vocabulary on per-entry attributes | [examples/archive-search.md](./examples/archive-search.md) |
+| `archive-read <path> <entry>` | Read a single entry's bytes out of an archive without extracting | [examples/archive-search.md](./examples/archive-search.md) |
 | `find-matches <re> --expr <cel> -C N` | Line-level regex hits with context | [examples/find-matches.md](./examples/find-matches.md) |
 | `lines <path> --start --end` | Print a line range | [examples/read-lines.md](./examples/read-lines.md) |
 | `detect-project [dir]` | Identify project type(s) of a directory | [examples/projects.md](./examples/projects.md) |
@@ -351,6 +353,8 @@ Eleven tools are exposed:
 | `stats` | Histogram + totals for a directory tree, bucketed by `group_by` (default `content_type`; full set documented in [Usage § Stats](#stats-and-reconnaissance)). |
 | `find_duplicates` | Byte-identical files keyed by sha256 — two-pass (size-bucket then hash). Sorted by `wasted_bytes` desc. |
 | `find_near_duplicates` | Similar files by SimHash fingerprint of extracted body. Catches typo edits, regenerated headers, template copies. Configurable similarity threshold (default 0.85). |
+| `list_archive_contents` | Per-entry CEL filtering inside ZIP / TAR / TAR.GZ / GZIP without extracting. Same vocabulary as top-level search; cache-aware. |
+| `read_file_in_archive` | Read one named entry's bytes out of an archive. Returns content + content_type + attributes. |
 | `find_matches` | Line-level regex (RE2) hits across a tree with `context_before` / `context_after` windows. CEL pre-prune (e.g. `is_source && language == "go"`) keeps the regex pass narrow. Replaces the search-then-`read_lines` dance with one call. |
 | `detect_project` | Project type(s) of one directory. |
 | `find_projects` | Walk a tree, list every project subdirectory. |

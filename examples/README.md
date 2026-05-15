@@ -34,6 +34,7 @@ CEL expression recipes by content family, plus cross-cutting cookbook patterns.
 | [`read-lines.md`](./read-lines.md) | Print a specific line range from a file — `file-search-on lines <path> --start N --end M` |
 | [`duplicates.md`](./duplicates.md) | Find byte-identical files via sha256 — `file-search-on duplicates [--min-size N] [-d DIR ...]` |
 | [`near-duplicates.md`](./near-duplicates.md) | Find SIMILAR files via SimHash fingerprint — catches typo edits, regenerated headers, template copies. `file-search-on near-duplicates [--threshold 0.85]` |
+| [`archive-search.md`](./archive-search.md) | List or read entries inside ZIP / TAR / TAR.GZ / GZIP without extracting — `file-search-on archive-contents <archive> [--expr]` and `file-search-on archive-read <archive> <entry>` |
 | [`find-matches.md`](./find-matches.md) | Line-level regex matching with context — `file-search-on find-matches '<re>' --expr 'is_source' -C 2` |
 
 Every recipe is a complete `file-search-on '<expr>'` invocation that you can paste and run. Most include a few variations and useful output-format snippets.

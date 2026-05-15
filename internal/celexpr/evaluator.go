@@ -946,16 +946,30 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 }
 
 func assembleFromCache(name, displayPath, dir, ext string, info fs.FileInfo, cached *index.Entry) *FileAttributes {
+	return AssembleAttributes(name, displayPath, dir, ext, cached.ContentType,
+		info.Size(), info.ModTime(), content.Attributes(cached.Extra))
+}
+
+// AssembleAttributes builds a *FileAttributes from a previously
+// computed (contentType, extra) record + the file's identity
+// metadata. Used by archive-walk on cache hits to evaluate CEL
+// against cached entry records without re-walking the archive or
+// re-running content-type detection.
+//
+// The returned *FileAttributes has its typed is_* fields set via
+// setTypeFlags(contentType), so all the standard CEL predicates
+// (is_markdown, is_pdf, …) fire correctly.
+func AssembleAttributes(name, displayPath, dir, ext, contentType string, size int64, modTime time.Time, extra content.Attributes) *FileAttributes {
 	attrs := &FileAttributes{
 		Name:        name,
 		Path:        displayPath,
 		Dir:         dir,
-		Size:        info.Size(),
+		Size:        size,
 		Ext:         ext,
-		ModTime:     info.ModTime(),
-		ContentType: cached.ContentType,
-		Extra:       content.Attributes(cached.Extra),
+		ModTime:     modTime,
+		ContentType: contentType,
+		Extra:       extra,
 	}
-	setTypeFlags(attrs, cached.ContentType)
+	setTypeFlags(attrs, contentType)
 	return attrs
 }
