@@ -64,6 +64,11 @@ var expectedTypes = map[string]string{
 	"sample.vmdk":  "disk-image/vmdk",
 	"sample.qcow2": "disk-image/qcow2",
 	"sample.wim":   "disk-image/wim",
+
+	"sample.pkg":      "install/pkg",
+	"sample.deb":      "install/deb",
+	"sample.rpm":      "install/rpm",
+	"sample.appimage": "install/appimage",
 }
 
 // TestFixturesDetect walks the embedded fixture bank and asserts every

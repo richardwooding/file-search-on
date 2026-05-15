@@ -43,6 +43,7 @@ Built in the open — issues, PRs, and feature requests warmly welcomed. See [Co
   | **Source code** | Go, Python, JS/TS, Rust, C/C++, Java, Ruby, Swift, Kotlin, Scala, Shell, Lua, Elixir, Clojure, Haskell, OCaml, Zig | language, line_count, loc, comment_loc, blank_loc |
   | **Notebooks** | Jupyter `.ipynb`, Apache Zeppelin `.zpln` | cell_count, code_cell_count, markdown_cell_count, kernel, language, title |
   | **Disk images** | DMG (UDIF), ISO 9660, VHD, VHDX, VMDK (sparse), QCOW2, WIM | disk_image_format, virtual_size, disk_type, volume_label, created_at, cluster_bits, is_encrypted, image_count |
+  | **Install packages** | macOS `.pkg` (XAR), Debian `.deb`, Red Hat `.rpm`, Linux `.appimage` | package_format, package_name, package_version, package_release, package_arch, package_kind, appimage_version |
 
   Type predicates (`is_pdf`, `is_image`, `is_audio`, `is_video`, `is_office`, `is_epub`, …) light up automatically from the registered content type. See [examples/](./examples/) for recipes by family.
 
@@ -267,7 +268,7 @@ file-search-on 'is_html && dir.contains("build")'
 
 ### Type predicates
 
-**By format** — `is_markdown`, `is_json`, `is_yaml`, `is_toml`, `is_xml`, `is_html`, `is_pdf`, `is_csv`, `is_text`, `is_image`, `is_audio`, `is_video`, `is_office`, `is_epub`, `is_archive`, `is_binary`, `is_email`, `is_source`, `is_notebook`, `is_disk_image`, `is_dmg`, `is_iso`, `is_vhd`, `is_vhdx`, `is_vmdk`, `is_qcow2`, `is_wim`.
+**By format** — `is_markdown`, `is_json`, `is_yaml`, `is_toml`, `is_xml`, `is_html`, `is_pdf`, `is_csv`, `is_text`, `is_image`, `is_audio`, `is_video`, `is_office`, `is_epub`, `is_archive`, `is_binary`, `is_email`, `is_source`, `is_notebook`, `is_disk_image`, `is_dmg`, `is_iso`, `is_vhd`, `is_vhdx`, `is_vmdk`, `is_qcow2`, `is_wim`, `is_install_package`, `is_pkg`, `is_deb`, `is_rpm`, `is_appimage`, `is_test_file`.
 
 **By exact filename** — `is_dockerfile`, `is_makefile`, `is_justfile`, `is_rakefile`, `is_license`, `is_changelog`, `is_contributing`, `is_codeowners`, `is_gitignore`, `is_dockerignore`, `is_gomod`, `is_node_manifest`, `is_cargo_manifest`, `is_pipfile`, `is_python_reqs`, `is_gemfile`, `is_procfile`, `is_vagrantfile`, `is_ds_store`, `is_localized`, `is_thumbs_db`, `is_desktop_ini`, `is_kde_directory`.
 
@@ -292,6 +293,8 @@ file-search-on 'is_html && dir.contains("build")'
 | **Source code** | `language`, `line_count`, `loc`, `comment_loc`, `blank_loc` |
 | **Notebooks** | `cell_count`, `code_cell_count`, `markdown_cell_count`, `kernel` (plus shared `language` / `title`) |
 | **Disk images** | `disk_image_format`, `virtual_size`, `disk_type` (VHD / VMDK), `volume_label` (ISO), `created_at` (VHD / ISO), `cluster_bits` (QCOW2), `is_encrypted` (QCOW2), `image_count` (WIM) |
+| **Install packages** | `package_format`, `package_name` (RPM), `package_version` (RPM), `package_release` (RPM), `package_arch` (RPM), `package_kind`, `appimage_version` |
+| **Repo metadata** | `license_id` (SPDX id detected from LICENSE / LICENCE / COPYING / UNLICENSE body) |
 | **Project context** | `module`, `go_version`, `base_image`, `project_types`, `project_type` (the last two populated by `--resolve-projects`) |
 
 ### Built-in CEL functions
