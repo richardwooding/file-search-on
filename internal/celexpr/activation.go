@@ -144,6 +144,22 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.IsLinuxMetadata, true
 	case "is_system_metadata":
 		return a.attrs.IsSystemMetadata, true
+	case "is_dmg":
+		return a.attrs.IsDMG, true
+	case "is_iso":
+		return a.attrs.IsISO, true
+	case "is_vhd":
+		return a.attrs.IsVHD, true
+	case "is_vhdx":
+		return a.attrs.IsVHDX, true
+	case "is_vmdk":
+		return a.attrs.IsVMDK, true
+	case "is_qcow2":
+		return a.attrs.IsQCOW2, true
+	case "is_wim":
+		return a.attrs.IsWIM, true
+	case "is_disk_image":
+		return a.attrs.IsDiskImage, true
 	}
 	if v, ok := a.attrs.Extra[name]; ok {
 		return v, true
@@ -253,4 +269,14 @@ var zeroDefaults = map[string]any{
 	"categories":            []string{},
 	"draft":                 false,
 	"date":                  time.Time{},
+
+	// Disk-image family.
+	"disk_image_format": "",
+	"virtual_size":      int64(0),
+	"disk_type":         "",
+	"volume_label":      "",
+	"created_at":        time.Time{},
+	"cluster_bits":      int64(0),
+	"is_encrypted":      false,
+	"image_count":       int64(0),
 }

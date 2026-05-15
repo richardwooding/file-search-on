@@ -122,6 +122,31 @@ type Match struct {
 	IsLinuxMetadata   bool `json:"is_linux_metadata,omitempty"`
 	IsSystemMetadata  bool `json:"is_system_metadata,omitempty"`
 
+	// Disk-image family. Per-type predicates plus the umbrella
+	// IsDiskImage family flag.
+	IsDMG       bool `json:"is_dmg,omitempty"`
+	IsISO       bool `json:"is_iso,omitempty"`
+	IsVHD       bool `json:"is_vhd,omitempty"`
+	IsVHDX      bool `json:"is_vhdx,omitempty"`
+	IsVMDK      bool `json:"is_vmdk,omitempty"`
+	IsQCOW2     bool `json:"is_qcow2,omitempty"`
+	IsWIM       bool `json:"is_wim,omitempty"`
+	IsDiskImage bool `json:"is_disk_image,omitempty"`
+
+	// Disk-image attributes. disk_image_format + virtual_size are
+	// populated for every matched disk-image file; the others are
+	// per-format (disk_type for VHD/VMDK, volume_label for ISO,
+	// created_at for VHD/ISO, cluster_bits + is_encrypted for
+	// QCOW2, image_count for WIM).
+	DiskImageFormat string `json:"disk_image_format,omitempty"`
+	VirtualSize     int64  `json:"virtual_size,omitempty"`
+	DiskType        string `json:"disk_type,omitempty"`
+	VolumeLabel     string `json:"volume_label,omitempty"`
+	CreatedAt       string `json:"created_at,omitempty"` // RFC3339 when set
+	ClusterBits     int64  `json:"cluster_bits,omitempty"`
+	IsEncrypted     bool   `json:"is_encrypted,omitempty"`
+	ImageCount      int64  `json:"image_count,omitempty"`
+
 	Module    string `json:"module,omitempty"`
 	GoVersion string `json:"go_version,omitempty"`
 	BaseImage string `json:"base_image,omitempty"`
@@ -234,6 +259,7 @@ func MatchFrom(r Result) Match {
 	m.IsBuild, m.IsRepoMeta, m.IsIgnore, m.IsManifest, m.IsPlatform = a.IsBuild, a.IsRepoMeta, a.IsIgnore, a.IsManifest, a.IsPlatform
 	m.IsDSStore, m.IsLocalized, m.IsThumbsDB, m.IsDesktopIni, m.IsKDEDirectory = a.IsDSStore, a.IsLocalized, a.IsThumbsDB, a.IsDesktopIni, a.IsKDEDirectory
 	m.IsMacOSMetadata, m.IsWindowsMetadata, m.IsLinuxMetadata, m.IsSystemMetadata = a.IsMacOSMetadata, a.IsWindowsMetadata, a.IsLinuxMetadata, a.IsSystemMetadata
+	m.IsDMG, m.IsISO, m.IsVHD, m.IsVHDX, m.IsVMDK, m.IsQCOW2, m.IsWIM, m.IsDiskImage = a.IsDMG, a.IsISO, a.IsVHD, a.IsVHDX, a.IsVMDK, a.IsQCOW2, a.IsWIM, a.IsDiskImage
 
 	if a.Extra == nil {
 		return m
@@ -502,5 +528,32 @@ func MatchFrom(r Result) Match {
 	if v, ok := a.Extra["date"].(time.Time); ok && !v.IsZero() {
 		m.Date = v.Format(time.RFC3339)
 	}
+
+	// Disk-image family.
+	if v, ok := a.Extra["disk_image_format"].(string); ok {
+		m.DiskImageFormat = v
+	}
+	if v, ok := a.Extra["virtual_size"].(int64); ok {
+		m.VirtualSize = v
+	}
+	if v, ok := a.Extra["disk_type"].(string); ok {
+		m.DiskType = v
+	}
+	if v, ok := a.Extra["volume_label"].(string); ok {
+		m.VolumeLabel = v
+	}
+	if v, ok := a.Extra["created_at"].(time.Time); ok && !v.IsZero() {
+		m.CreatedAt = v.Format(time.RFC3339)
+	}
+	if v, ok := a.Extra["cluster_bits"].(int64); ok {
+		m.ClusterBits = v
+	}
+	if v, ok := a.Extra["is_encrypted"].(bool); ok {
+		m.IsEncrypted = v
+	}
+	if v, ok := a.Extra["image_count"].(int64); ok {
+		m.ImageCount = v
+	}
+
 	return m
 }
