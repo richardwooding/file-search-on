@@ -33,10 +33,13 @@ goreleaser check                    # validates .goreleaser.yaml
 git tag -a v0.X.Y -m "v0.X.Y — <one-line summary>"
 git push origin v0.X.Y
 
-# 4. Watch the workflow
-gh run watch "$(gh run list --workflow=release.yml --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status
+# 4. Watch the workflow — bounded by a hard timeout so an orphaned
+#    runner can't block forever (see "Orphaned runs" below).
+RUN_ID=$(gh run list --workflow=release.yml --limit 1 --json databaseId -q '.[0].databaseId')
+timeout 600 gh run watch "$RUN_ID" --exit-status || echo "watch exited (timeout or run failed); checking artifacts directly"
 
-# 5. Verify all three publish targets
+# 5. Verify all three publish targets — THIS is the source of truth,
+#    not the workflow status.
 bash .claude/skills/cut-release/scripts/verify_release.sh v0.X.Y
 ```
 
@@ -71,20 +74,33 @@ Use `git tag -a` (annotated), not lightweight tags. The release workflow does no
 ## Watch the workflow
 
 ```sh
-gh run watch <run-id> --exit-status
+RUN_ID=$(gh run list --workflow=release.yml --limit 1 --json databaseId -q '.[0].databaseId')
+timeout 600 gh run watch "$RUN_ID" --exit-status || true
 ```
 
-To find the run-id of the just-triggered release run:
+Always wrap `gh run watch` in `timeout` — the command has no built-in timeout and will block indefinitely if the runner orphans (see below). 10 minutes is generous for a workflow that typically completes in 2–3.
 
-```sh
-gh run list --workflow=release.yml --limit 1 --json databaseId,status -q '.[0]'
-```
+Typical duration: 2–3 minutes. If `gh run watch` returns non-zero (real failure OR timeout), don't trust the workflow status — verify directly via `verify_release.sh`. The artifacts are the source of truth; the workflow is bookkeeping.
 
-Typical duration: 2–3 minutes. If it fails, the tag is already pushed — see the rollback section.
+## Orphaned runs
+
+GitHub Actions occasionally orphans a hosted runner — every step inside the job reports `success` (including the final `Complete job` step) but the outer job's `status` stays `in_progress` and `conclusion` is `null` forever. Symptom: `gh run watch` blocks past the typical duration; `gh api repos/<owner>/<repo>/actions/jobs/<id>` shows all steps green but the job in-progress.
+
+This is a runner-agent failure to send the final job-status PATCH back to GitHub. Nothing on our side caused it. The release artifacts ARE published when the GoReleaser step shows `success` — only the workflow bookkeeping is stuck.
+
+**Handling**:
+
+1. **Trust `verify_release.sh`, not the workflow status.** If it passes, the release is real and users can install it.
+2. **Try to cancel the orphan**: `gh run cancel <run-id>`. If that returns HTTP 500, try `gh api -X POST repos/<owner>/<repo>/actions/runs/<run-id>/force-cancel`. If that ALSO returns 500, GitHub's bookkeeping is too wedged to cancel — the run will self-terminate at the 6-hour max-job-duration limit. Move on.
+3. **Don't re-tag or re-release.** The artifacts shipped; doing it again would either no-op (tag already exists on remote) or require deleting+re-pushing the tag which confuses ghcr / Homebrew caches.
+
+A workaround for the runner-agent flakiness itself isn't in our hands (it's GitHub-side), but bounded watches + artifact-first verification (the Quick Start above) make it a 10-minute annoyance instead of a blocker.
 
 ## Verify
 
 **Run** `bash .claude/skills/cut-release/scripts/verify_release.sh v0.X.Y` from the repo root — checks the GitHub Release has the six expected archives + checksums.txt, the Homebrew tap got an auto-commit referencing the version, and (if Docker is installed) the OCI image manifest is published. Exits non-zero on any failure.
+
+**This is the authoritative check.** A green `verify_release.sh` means the release shipped, regardless of whether `gh run watch` returned cleanly. A failing one is the trigger for rollback.
 
 If a target fails verification, jump to rollback before the user reports it.
 
