@@ -103,6 +103,8 @@ func Schema() SchemaDoc {
 			{"is_appimage", "bool", "true if Linux AppImage (.appimage / .AppImage; ELF + appended SquashFS)"},
 			{"is_install_package", "bool", "true if any install package — content_type starts with 'install/' (PKG, DEB, RPM, AppImage)"},
 			{"is_test_file", "bool", "true if the source file's basename matches a test convention for its language (e.g. *_test.go for Go, test_*.py / *_test.py for Python, *.test.{js,ts,tsx} / *.spec.{js,ts,tsx} for JS/TS, *Test.java / *Tests.java for Java, *_spec.rb / *_test.rb for Ruby, *Tests.swift for Swift, *Test.kt / *Spec.scala for Kotlin/Scala). Only populated for source/* content types."},
+			{"is_symlink", "bool", "true when the entry is a symbolic link (decided by os.Lstat — filesystem semantics, not 'shortcut' detection). Per-file attribute populated by the walker; matches the symlink itself, not its target."},
+			{"is_broken_symlink", "bool", "true when is_symlink is true AND the target can't be resolved (dangling link). Other file-level attributes (size, mod_time, content_type) fall back to the symlink's own Lstat result rather than the absent target."},
 		},
 		TypeSpecific: []AttributeDoc{
 			{"title", "string", "title (front-matter, markdown h1, HTML title, PDF title, EPUB, office, audio)"},
@@ -204,6 +206,7 @@ func Schema() SchemaDoc {
 			{"package_kind", "string", "install-package classification. RPM: 'binary' or 'source'. PKG: 'macos-installer'. AppImage: 'linux-portable'. DEB: 'binary' (the only standard kind for .deb files)."},
 			{"appimage_version", "int", "AppImage on-disk format version (1 or 2). v2 is the current format; v1 was superseded in 2017."},
 			{"license_id", "string", "SPDX license identifier detected by scanning the body of a LICENSE / LICENCE / COPYING / UNLICENSE file. Recognised: MIT, Apache-2.0, BSD-3-Clause, BSD-2-Clause, GPL-3.0, GPL-2.0, LGPL-3.0, LGPL-2.1, AGPL-3.0, MPL-2.0, ISC, Unlicense, CC0-1.0, BSL-1.0. Empty when the file doesn't match a recognised license. .md license variants (e.g. LICENSE.md) currently detect as markdown and don't populate license_id — use is_markdown && name.startsWith(\"LICENSE\") as a fallback."},
+			{"target_path", "string", "for symlinks, the raw link target as recorded on disk (relative or absolute — whatever the user passed to `ln -s`). Empty for non-symlinks. Surface alongside is_symlink and is_broken_symlink to audit dangling references, follow chains, or filter out symlinked duplicates."},
 		},
 		Frontmatter: []AttributeDoc{
 			{"frontmatter", "map", "full parsed front-matter, e.g. frontmatter.category"},

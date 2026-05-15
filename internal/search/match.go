@@ -145,6 +145,14 @@ type Match struct {
 	// per-language test convention.
 	IsTestFile bool `json:"is_test_file,omitempty"`
 
+	// Symlink awareness. is_symlink fires when os.Lstat reports the
+	// entry as a symbolic link; target_path carries the raw link
+	// target as recorded on disk; is_broken_symlink fires when the
+	// target can't be resolved.
+	IsSymlink       bool   `json:"is_symlink,omitempty"`
+	IsBrokenSymlink bool   `json:"is_broken_symlink,omitempty"`
+	TargetPath      string `json:"target_path,omitempty"`
+
 	// Install-package attributes.
 	PackageFormat   string `json:"package_format,omitempty"`
 	PackageName     string `json:"package_name,omitempty"`
@@ -285,6 +293,7 @@ func MatchFrom(r Result) Match {
 	m.IsMacOSMetadata, m.IsWindowsMetadata, m.IsLinuxMetadata, m.IsSystemMetadata = a.IsMacOSMetadata, a.IsWindowsMetadata, a.IsLinuxMetadata, a.IsSystemMetadata
 	m.IsDMG, m.IsISO, m.IsVHD, m.IsVHDX, m.IsVMDK, m.IsQCOW2, m.IsWIM, m.IsDiskImage = a.IsDMG, a.IsISO, a.IsVHD, a.IsVHDX, a.IsVMDK, a.IsQCOW2, a.IsWIM, a.IsDiskImage
 	m.IsPkg, m.IsDeb, m.IsRPM, m.IsAppImage, m.IsInstallPackage = a.IsPkg, a.IsDeb, a.IsRPM, a.IsAppImage, a.IsInstallPackage
+	m.IsSymlink, m.IsBrokenSymlink = a.IsSymlink, a.IsBrokenSymlink
 
 	if a.Extra == nil {
 		return m
@@ -611,6 +620,12 @@ func MatchFrom(r Result) Match {
 	// Test-file detection.
 	if v, ok := a.Extra["is_test_file"].(bool); ok {
 		m.IsTestFile = v
+	}
+
+	// Symlink awareness — target_path lives in Extra; the two
+	// booleans come from typed FileAttributes fields above.
+	if v, ok := a.Extra["target_path"].(string); ok {
+		m.TargetPath = v
 	}
 
 	return m

@@ -23,6 +23,7 @@ type FindDuplicatesInput struct {
 	TimeoutSeconds   *float64 `json:"timeout_seconds,omitempty" jsonschema:"Override the server's default per-call timeout. Same semantics as the search tool. Duplicate detection can be expensive on cold caches — pair with a generous timeout for first runs."`
 	Excludes         []string `json:"excludes,omitempty" jsonschema:"Glob patterns matched against file/dir basenames; matches are pruned."`
 	RespectGitignore bool     `json:"respect_gitignore,omitempty" jsonschema:"When true, parse a .gitignore at each walk root and skip matching paths."`
+	FollowSymlinks   bool     `json:"follow_symlinks,omitempty" jsonschema:"When true, descend through symbolic links to directories. Off by default. Symlinked duplicates (file A and a symlink pointing at A) are NOT collapsed — they hash to the same bytes via the resolved target and surface as a duplicate group."`
 	MinSize          int64    `json:"min_size,omitempty" jsonschema:"Skip files smaller than this many bytes. Raise to e.g. 4096 to ignore tiny duplicates."`
 }
 
@@ -80,6 +81,7 @@ func (h *handlers) findDuplicatesHandler(ctx context.Context, _ *mcp.CallToolReq
 		Index:            h.idx,
 		Excludes:         in.Excludes,
 		RespectGitignore: in.RespectGitignore,
+		FollowSymlinks:   in.FollowSymlinks,
 		MinSize:          in.MinSize,
 	}, content.DefaultRegistry())
 	elapsed := time.Since(start).Seconds()

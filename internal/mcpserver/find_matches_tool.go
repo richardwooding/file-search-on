@@ -25,6 +25,7 @@ type FindMatchesInput struct {
 	MaxMatchesPerFile   int      `json:"max_matches_per_file,omitempty" jsonschema:"Cap on matches reported per file. 0 = unlimited. The scan keeps reading past the cap until pending After windows are filled, so the last matches still carry full trailing context."`
 	Excludes            []string `json:"excludes,omitempty" jsonschema:"Glob patterns matched against file/dir basenames; matches are pruned. Same semantics as search."`
 	RespectGitignore    bool     `json:"respect_gitignore,omitempty" jsonschema:"When true, parse a .gitignore at the walk root and skip matching paths."`
+	FollowSymlinks      bool     `json:"follow_symlinks,omitempty" jsonschema:"When true, descend through symbolic links to directories. Off by default."`
 	PruneBuildArtefacts bool     `json:"prune_build_artefacts,omitempty" jsonschema:"When true, pre-walks each root to discover project subdirectories and prunes the canonical build-artefact basenames (vendor / node_modules / target / __pycache__ / .terraform / …). Unioned with 'excludes'."`
 }
 
@@ -90,6 +91,7 @@ func (h *handlers) findMatchesHandler(ctx context.Context, _ *mcp.CallToolReques
 		Index:               h.idx,
 		Excludes:            in.Excludes,
 		RespectGitignore:    in.RespectGitignore,
+		FollowSymlinks:      in.FollowSymlinks,
 		PruneBuildArtefacts: in.PruneBuildArtefacts,
 		Pattern:             in.Pattern,
 		ContextBefore:       in.ContextBefore,

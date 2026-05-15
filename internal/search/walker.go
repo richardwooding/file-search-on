@@ -140,6 +140,18 @@ type Options struct {
 	// mode (Roots non-empty), each root is checked independently.
 	RespectGitignore bool
 
+	// FollowSymlinks, when true, descends through symbolic links to
+	// directories during the walk. The default (false) preserves
+	// Go's fs.WalkDir behaviour — symlinks-to-dirs surface as leaf
+	// entries with is_symlink=true and are NOT recursed into.
+	// Independent of the is_symlink / target_path / is_broken_symlink
+	// CEL attributes, which are populated regardless of this flag.
+	//
+	// No symlink-loop detection — when set true on a tree with a
+	// cycle, the walk relies on Go's WalkDir to surface ELOOP from
+	// the OS. Best avoided unless you know the tree is acyclic.
+	FollowSymlinks bool
+
 	// GroupBy controls the bucketing key used by ComputeStats. See
 	// stats.go ValidGroupBys for the recognised set. Ignored by
 	// Walk/WalkStream — it only affects ComputeStats's aggregation.
@@ -372,6 +384,56 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 		})
 	}
 
+	// walkSymlinkDir is the FollowSymlinks=true descent. When entry
+	// at osPath is a symlink-to-dir, walks the resolved target and
+	// queues each file under the original symlink-anchored path.
+	// handled=true means the caller should skip its normal queue
+	// step. Closure (not package-level fn) because jobs / rootSpec
+	// types are declared inline inside WalkStream. Loop detection
+	// is deliberately not done — per issue #128 we rely on the OS
+	// to surface ELOOP through Go's WalkDir.
+	walkSymlinkDir := func(spec rootSpec, fsPath, osPath string) (handled bool, err error) {
+		lstatInfo, lerr := os.Lstat(osPath)
+		if lerr != nil || lstatInfo.Mode()&os.ModeSymlink == 0 {
+			return false, nil
+		}
+		statInfo, terr := os.Stat(osPath)
+		if terr != nil || !statInfo.IsDir() {
+			return false, nil
+		}
+		target, eerr := filepath.EvalSymlinks(osPath)
+		if eerr != nil || target == "" {
+			return false, nil
+		}
+		subFsys := os.DirFS(target)
+		werr := fs.WalkDir(subFsys, ".", func(subPath string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return nil
+			}
+			if subPath == "." {
+				return nil
+			}
+			virtualFSPath := filepath.ToSlash(filepath.Join(filepath.FromSlash(fsPath), filepath.FromSlash(subPath)))
+			if spec.exc.Match(virtualFSPath, d.IsDir()) {
+				if d.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
+			}
+			if d.IsDir() {
+				return nil
+			}
+			displayPath := filepath.Join(spec.root, filepath.FromSlash(fsPath), filepath.FromSlash(subPath))
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case jobs <- job{fsys: subFsys, fsPath: subPath, displayPath: displayPath, resolver: spec.resolver}:
+			}
+			return nil
+		})
+		return true, werr
+	}
+
 	// Producer: iterate each root through fs.WalkDir, feeding the
 	// shared jobs channel. Errors across roots are concatenated so
 	// the caller sees them all (rather than just the first); the
@@ -393,6 +455,21 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 			if d.IsDir() {
 				return nil
 			}
+
+			// FollowSymlinks: when the entry is a symlink-to-dir,
+			// recurse into the resolved target instead of queueing
+			// the symlink as a single leaf. Path rewriting keeps
+			// search results anchored under the original symlink so
+			// users see the "user-facing" location rather than the
+			// resolved target. Symlinks-to-files fall through to the
+			// regular queue path — fs.Stat already follows them.
+			if opts.FollowSymlinks && spec.root != "" {
+				osPath := filepath.Join(spec.root, filepath.FromSlash(fsPath))
+				if walked, werr := walkSymlinkDir(spec, fsPath, osPath); walked {
+					return werr
+				}
+			}
+
 			// User-facing path: OS-native join with the root the
 			// match came from. Tests that pass an in-memory FS
 			// without a root see fs-style paths in Result.Path.
@@ -435,3 +512,4 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 	}
 	return walkErr
 }
+

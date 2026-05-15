@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -14,6 +15,62 @@ import (
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/projecttype"
 )
+
+// symlinkInfo captures the result of an os.Lstat + os.Readlink probe
+// against a real OS path. All fields stay zero when the probe fails
+// (e.g. in tests where the path doesn't exist on disk), so callers
+// can apply the info unconditionally — non-symlinks surface as
+// is_symlink=false / target_path="".
+type symlinkInfo struct {
+	isSymlink bool
+	target    string
+	broken    bool
+}
+
+// probeSymlink runs os.Lstat against displayPath and, if the path is a
+// symlink, reads its target via os.Readlink and tests resolvability
+// via os.Stat. Returns a zero-value symlinkInfo when displayPath
+// isn't a real OS path or isn't a symlink — keeping the call cheap
+// and safe to invoke unconditionally.
+func probeSymlink(displayPath string) symlinkInfo {
+	if displayPath == "" {
+		return symlinkInfo{}
+	}
+	lstatInfo, err := os.Lstat(displayPath)
+	if err != nil {
+		return symlinkInfo{}
+	}
+	if lstatInfo.Mode()&os.ModeSymlink == 0 {
+		return symlinkInfo{}
+	}
+	info := symlinkInfo{isSymlink: true}
+	if target, rerr := os.Readlink(displayPath); rerr == nil {
+		info.target = target
+	}
+	if _, terr := os.Stat(displayPath); terr != nil {
+		info.broken = true
+	}
+	return info
+}
+
+// applySymlinkInfo writes the symlink probe result onto a built
+// FileAttributes. Sets the IsSymlink / IsBrokenSymlink struct fields
+// (so CEL evaluation reads them via the activation's typed switch)
+// and lands target_path under Extra (so it's surfaced to the CEL
+// `target_path` string variable via the Extra-key fallback).
+func applySymlinkInfo(attrs *FileAttributes, sym symlinkInfo) {
+	if attrs == nil || !sym.isSymlink {
+		return
+	}
+	attrs.IsSymlink = true
+	attrs.IsBrokenSymlink = sym.broken
+	if sym.target != "" {
+		if attrs.Extra == nil {
+			attrs.Extra = content.Attributes{}
+		}
+		attrs.Extra["target_path"] = sym.target
+	}
+}
 
 // staticSiteTypes is the set of registered project-type names that
 // constitute a static-site generator for the purposes of the
@@ -150,6 +207,15 @@ type FileAttributes struct {
 	IsAppImage       bool
 	IsInstallPackage bool
 
+	// Symlink awareness. IsSymlink fires when os.Lstat reports the
+	// entry as a symbolic link (filesystem semantics — not "file that
+	// looks like a shortcut"). IsBrokenSymlink fires when the target
+	// can't be resolved (dangling link). TargetPath carries the raw
+	// link target as recorded on disk (relative or absolute), under
+	// the target_path key in Extra.
+	IsSymlink       bool
+	IsBrokenSymlink bool
+
 	Extra content.Attributes
 }
 
@@ -278,6 +344,12 @@ func New(expr string) (*Evaluator, error) {
 
 		// Test-file detection (populated by source/* parser).
 		cel.Variable("is_test_file", cel.BoolType),
+
+		// Symlink awareness. Populated for every file (not just
+		// content-type-specific) by the walker's Lstat pass.
+		cel.Variable("is_symlink", cel.BoolType),
+		cel.Variable("is_broken_symlink", cel.BoolType),
+		cel.Variable("target_path", cel.StringType),
 
 		// Attributes parsed from exact-name types.
 		cel.Variable("module", cel.StringType),
@@ -479,9 +551,43 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	info, err := fs.Stat(fsys, fsPath)
-	if err != nil {
-		return nil, err
+
+	// Symlink probe — best-effort. When displayPath points at a real
+	// OS path AND that path is a symbolic link, set sym fields so the
+	// regular path below can apply them to the returned attrs and
+	// skip cache+detection for broken links. For in-memory test
+	// filesystems os.Lstat returns ENOENT and sym stays zero.
+	sym := probeSymlink(displayPath)
+
+	// Use the symlink's own Lstat info (rather than the resolved
+	// target's) for entries reaching this function as leaves where
+	// either the target is missing (broken link) OR the target is a
+	// directory. The walker calls BuildAttributesWith on file-like
+	// leaf entries — a symlink-to-dir arriving here means the walker
+	// is treating it as a leaf (FollowSymlinks=false). Letting
+	// fs.Stat resolve and report IsDir=true would surface a dir as
+	// a confusing "file" entry; instead we use Lstat so size and
+	// mtime reflect the symlink itself.
+	useLstatInfo := sym.broken
+	if sym.isSymlink && !sym.broken {
+		if statInfo, serr := os.Stat(displayPath); serr == nil && statInfo.IsDir() {
+			useLstatInfo = true
+		}
+	}
+
+	var info fs.FileInfo
+	if useLstatInfo {
+		lstatInfo, lerr := os.Lstat(displayPath)
+		if lerr != nil {
+			return nil, lerr
+		}
+		info = lstatInfo
+	} else {
+		var err error
+		info, err = fs.Stat(fsys, fsPath)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	name := info.Name()
@@ -504,7 +610,11 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 		}
 	}
 
-	if opts.Index != nil && cacheKey != "" {
+	// Broken-or-dir symlinks bypass the cache entirely — there's no
+	// target file content to validate against, and re-resolving on
+	// every walk is cheap. (The cache is keyed on file content's
+	// (size, mtime); a symlink as a leaf has no content to cache.)
+	if opts.Index != nil && cacheKey != "" && !useLstatInfo {
 		if cached, ok := opts.Index.Lookup(cacheKey, info.Size(), info.ModTime()); ok {
 			attrs := assembleFromCache(name, displayPath, dir, ext, info, cached)
 			// Body is intentionally NOT cached: bodies are large
@@ -538,8 +648,28 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 					}
 				}
 			}
+			applySymlinkInfo(attrs, sym)
 			return attrs, nil
 		}
+	}
+
+	// Symlinks treated as leaves (broken OR target-is-dir) have no
+	// file content to detect against — skip the registry pass and
+	// return a minimal record so agents can still find them via
+	// is_symlink / is_broken_symlink / target_path.
+	if useLstatInfo {
+		attrs := &FileAttributes{
+			Name:        name,
+			Path:        displayPath,
+			Dir:         dir,
+			Size:        info.Size(),
+			Ext:         ext,
+			ModTime:     info.ModTime(),
+			ContentType: "",
+			Extra:       content.Attributes{},
+		}
+		applySymlinkInfo(attrs, sym)
+		return attrs, nil
 	}
 
 	ct := registry.Detect(fsys, fsPath)
@@ -552,10 +682,11 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 		// per-format Attributes parse. Used by ComputeStats when the
 		// group_by key is detector-only.
 		if !opts.SkipAttributesParse {
-			extra, err = ct.Attributes(ctx, fsys, fsPath)
+			a, err := ct.Attributes(ctx, fsys, fsPath)
 			if err != nil {
 				return nil, err
 			}
+			extra = a
 		}
 	}
 
@@ -617,6 +748,7 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 		Extra:       extra,
 	}
 	setTypeFlags(attrs, contentTypeName)
+	applySymlinkInfo(attrs, sym)
 	return attrs, nil
 }
 
