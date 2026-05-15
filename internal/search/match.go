@@ -133,6 +133,30 @@ type Match struct {
 	IsWIM       bool `json:"is_wim,omitempty"`
 	IsDiskImage bool `json:"is_disk_image,omitempty"`
 
+	// Install-package family. Per-type predicates plus the umbrella
+	// IsInstallPackage family flag.
+	IsPkg            bool `json:"is_pkg,omitempty"`
+	IsDeb            bool `json:"is_deb,omitempty"`
+	IsRPM            bool `json:"is_rpm,omitempty"`
+	IsAppImage       bool `json:"is_appimage,omitempty"`
+	IsInstallPackage bool `json:"is_install_package,omitempty"`
+
+	// IsTestFile fires for source files whose basename matches the
+	// per-language test convention.
+	IsTestFile bool `json:"is_test_file,omitempty"`
+
+	// Install-package attributes.
+	PackageFormat   string `json:"package_format,omitempty"`
+	PackageName     string `json:"package_name,omitempty"`
+	PackageVersion  string `json:"package_version,omitempty"`
+	PackageRelease  string `json:"package_release,omitempty"`
+	PackageArch     string `json:"package_arch,omitempty"`
+	PackageKind     string `json:"package_kind,omitempty"`
+	AppImageVersion int64  `json:"appimage_version,omitempty"`
+
+	// SPDX license id detected by scanning LICENSE-shaped files.
+	LicenseID string `json:"license_id,omitempty"`
+
 	// Disk-image attributes. disk_image_format + virtual_size are
 	// populated for every matched disk-image file; the others are
 	// per-format (disk_type for VHD/VMDK, volume_label for ISO,
@@ -260,6 +284,7 @@ func MatchFrom(r Result) Match {
 	m.IsDSStore, m.IsLocalized, m.IsThumbsDB, m.IsDesktopIni, m.IsKDEDirectory = a.IsDSStore, a.IsLocalized, a.IsThumbsDB, a.IsDesktopIni, a.IsKDEDirectory
 	m.IsMacOSMetadata, m.IsWindowsMetadata, m.IsLinuxMetadata, m.IsSystemMetadata = a.IsMacOSMetadata, a.IsWindowsMetadata, a.IsLinuxMetadata, a.IsSystemMetadata
 	m.IsDMG, m.IsISO, m.IsVHD, m.IsVHDX, m.IsVMDK, m.IsQCOW2, m.IsWIM, m.IsDiskImage = a.IsDMG, a.IsISO, a.IsVHD, a.IsVHDX, a.IsVMDK, a.IsQCOW2, a.IsWIM, a.IsDiskImage
+	m.IsPkg, m.IsDeb, m.IsRPM, m.IsAppImage, m.IsInstallPackage = a.IsPkg, a.IsDeb, a.IsRPM, a.IsAppImage, a.IsInstallPackage
 
 	if a.Extra == nil {
 		return m
@@ -553,6 +578,39 @@ func MatchFrom(r Result) Match {
 	}
 	if v, ok := a.Extra["image_count"].(int64); ok {
 		m.ImageCount = v
+	}
+
+	// Install-package family.
+	if v, ok := a.Extra["package_format"].(string); ok {
+		m.PackageFormat = v
+	}
+	if v, ok := a.Extra["package_name"].(string); ok {
+		m.PackageName = v
+	}
+	if v, ok := a.Extra["package_version"].(string); ok {
+		m.PackageVersion = v
+	}
+	if v, ok := a.Extra["package_release"].(string); ok {
+		m.PackageRelease = v
+	}
+	if v, ok := a.Extra["package_arch"].(string); ok {
+		m.PackageArch = v
+	}
+	if v, ok := a.Extra["package_kind"].(string); ok {
+		m.PackageKind = v
+	}
+	if v, ok := a.Extra["appimage_version"].(int64); ok {
+		m.AppImageVersion = v
+	}
+
+	// License id.
+	if v, ok := a.Extra["license_id"].(string); ok {
+		m.LicenseID = v
+	}
+
+	// Test-file detection.
+	if v, ok := a.Extra["is_test_file"].(bool); ok {
+		m.IsTestFile = v
 	}
 
 	return m

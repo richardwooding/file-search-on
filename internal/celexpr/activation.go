@@ -160,6 +160,16 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.IsWIM, true
 	case "is_disk_image":
 		return a.attrs.IsDiskImage, true
+	case "is_pkg":
+		return a.attrs.IsPkg, true
+	case "is_deb":
+		return a.attrs.IsDeb, true
+	case "is_rpm":
+		return a.attrs.IsRPM, true
+	case "is_appimage":
+		return a.attrs.IsAppImage, true
+	case "is_install_package":
+		return a.attrs.IsInstallPackage, true
 	}
 	if v, ok := a.attrs.Extra[name]; ok {
 		return v, true
@@ -279,4 +289,17 @@ var zeroDefaults = map[string]any{
 	"cluster_bits":      int64(0),
 	"is_encrypted":      false,
 	"image_count":       int64(0),
+
+	// Install-package family.
+	"package_format":   "",
+	"package_name":     "",
+	"package_version":  "",
+	"package_release":  "",
+	"package_arch":     "",
+	"package_kind":     "",
+	"appimage_version": int64(0),
+
+	// License + test-file detection.
+	"license_id":   "",
+	"is_test_file": false,
 }

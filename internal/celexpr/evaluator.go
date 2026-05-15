@@ -140,6 +140,16 @@ type FileAttributes struct {
 	IsWIM       bool
 	IsDiskImage bool
 
+	// Install-package content types. Per-type flag fires on the
+	// matched content_type (install/pkg, install/deb, install/rpm,
+	// install/appimage); IsInstallPackage is the umbrella family
+	// flag, set via the install/ prefix block in setTypeFlags.
+	IsPkg            bool
+	IsDeb            bool
+	IsRPM            bool
+	IsAppImage       bool
+	IsInstallPackage bool
+
 	Extra content.Attributes
 }
 
@@ -248,6 +258,26 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("cluster_bits", cel.IntType),
 		cel.Variable("is_encrypted", cel.BoolType),
 		cel.Variable("image_count", cel.IntType),
+
+		// Install-package content types (per-type + family predicates).
+		cel.Variable("is_pkg", cel.BoolType),
+		cel.Variable("is_deb", cel.BoolType),
+		cel.Variable("is_rpm", cel.BoolType),
+		cel.Variable("is_appimage", cel.BoolType),
+		cel.Variable("is_install_package", cel.BoolType),
+		cel.Variable("package_format", cel.StringType),
+		cel.Variable("package_name", cel.StringType),
+		cel.Variable("package_version", cel.StringType),
+		cel.Variable("package_release", cel.StringType),
+		cel.Variable("package_arch", cel.StringType),
+		cel.Variable("package_kind", cel.StringType),
+		cel.Variable("appimage_version", cel.IntType),
+
+		// License detection (populated by repo/license parser).
+		cel.Variable("license_id", cel.StringType),
+
+		// Test-file detection (populated by source/* parser).
+		cel.Variable("is_test_file", cel.BoolType),
 
 		// Attributes parsed from exact-name types.
 		cel.Variable("module", cel.StringType),
@@ -698,6 +728,18 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 		attrs.IsQCOW2 = true
 	case "disk-image/wim":
 		attrs.IsWIM = true
+
+	// Install-package content types. Per-type flag fires here;
+	// family flag IsInstallPackage fires via the install/ prefix
+	// block below.
+	case "install/pkg":
+		attrs.IsPkg = true
+	case "install/deb":
+		attrs.IsDeb = true
+	case "install/rpm":
+		attrs.IsRPM = true
+	case "install/appimage":
+		attrs.IsAppImage = true
 	}
 
 	// Family prefix flags. Independent `if` blocks rather than a
@@ -765,6 +807,9 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 	}
 	if strings.HasPrefix(name, "disk-image/") {
 		attrs.IsDiskImage = true
+	}
+	if strings.HasPrefix(name, "install/") {
+		attrs.IsInstallPackage = true
 	}
 }
 
