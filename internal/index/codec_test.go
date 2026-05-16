@@ -94,30 +94,45 @@ func TestCodecRejectsOversize(t *testing.T) {
 	}
 }
 
-// TestCodecDecodeBudgetCancelled verifies that adversarial inputs known
-// to push gob.Decode into a multi-second compile path are bounded by
-// decodeTimeout. The committed regression seed (testdata/fuzz/
-// FuzzDecodeEntry/13d945203058feae) is the same shape that hung the
-// fuzz workflow before the goroutine + select-on-time.After guard
-// landed in #100. This test re-runs that input directly via
-// decodeEntry and asserts the call returns within a generous window —
-// the goroutine is allowed to keep running afterwards, but the caller
-// must unblock.
-func TestCodecDecodeBudgetCancelled(t *testing.T) {
-	// Bytes copied from testdata/fuzz/FuzzDecodeEntry/13d945203058feae.
-	// Keep in sync with that seed; it's the canonical "slow input".
-	slow := []byte("S\x7f\x03\x01\x01\x0500000\x01\xff0\x00\x01\x05\x01\x040000\x01\x04\x00\x01\x0f000000000000000\x01\x04\x00\x01\v00000000000\x01\f\x00\x01\x05Extra\x01\xff\x82\x00\x01\x040000\x01\f\x00\x00\x00'\xff\x81\x04\x01\x01\x1700000000000000000000000\x01\xff0\x00\x01\f\x01\x10\x00\x000\xff\x80\x03\n0000000000\x01\xfa\x00\x00\xfa000000\t0000000000000000000000")
-
-	start := time.Now()
-	_, err := decodeEntry(slow)
-	elapsed := time.Since(start)
-
-	if err == nil {
-		t.Errorf("decodeEntry should have errored on the known-adversarial seed; got success")
+// TestCodecDecodeBudgetSlowSeeds verifies decodeEntry's wrapper
+// catches the known-adversarial gob inputs that send the decoder
+// into multi-second CPU + multi-MB allocation paths. Both seeds
+// below were discovered by FuzzDecodeEntry runs and lock in the
+// regression: production must unblock within 3× decodeTimeout
+// regardless of how long the leaked gob.Decode goroutine keeps
+// running.
+//
+// These inputs are NOT in the fuzz seed corpus (testdata/fuzz/...
+// was removed when fuzzInputSizeCap landed) because exercising
+// them under the fuzz framework — across many mutation iterations
+// — leaks enough gob.Decode goroutine memory to OOM the worker.
+// Running each input once via decodeEntry, then letting the test
+// process exit, is the only way to verify the wrapper protection
+// without poisoning subsequent iterations.
+func TestCodecDecodeBudgetSlowSeeds(t *testing.T) {
+	// Bytes are gob streams that trigger an exponentially-deep type
+	// descriptor compile path. The first was discovered in #100,
+	// the second on 2026-05-16. Both stay under maxEntryBytes so
+	// they reach gob.Decode (above that, decodeEntry rejects on
+	// length up-front).
+	seeds := map[string][]byte{
+		"13d945203058feae": []byte("S\x7f\x03\x01\x01\x0500000\x01\xff0\x00\x01\x05\x01\x040000\x01\x04\x00\x01\x0f000000000000000\x01\x04\x00\x01\v00000000000\x01\f\x00\x01\x05Extra\x01\xff\x82\x00\x01\x040000\x01\f\x00\x00\x00'\xff\x81\x04\x01\x01\x1700000000000000000000000\x01\xff0\x00\x01\f\x01\x10\x00\x000\xff\x80\x03\n0000000000\x01\xfa\x00\x00\xfa000000\t0000000000000000000000"),
+		"3e390c27c4f55cde": []byte("x\x7f\x03\x01\x01\x05Entry\x01\xff\x80\x00\x01\a\x01\x04Siz\x00\x01\x05Extra\x01\xff\x82\x00\x01\x04Hash\x01\f\x00\x01\vFingerprint\x01\x06\x00\x01\x0fEntryAttributes\x01\xff\x86\x00\x00\x00'\xff\x81\x04\x01\x01\x17map[string]interface {}\x01\xff\x82\x00\x01\f\x01\x10\x00\x00\"\xff\x85\x02\x01\x01\x13[]index.EntryRecord\x01\xff\x86\x00\x01\xff\x84\x00\x00Z\xff\x83\x03\x01\x01\vEntryRecord\x01\xff\x84\x00\x01\x05\x01\x04Name\x01\f\x00\x01\x04Size\x01\x04\x00\x01\x0fModTimeUnixNano\x01\x04\x00\x01\vContentType\x01\f\x00\x01\x05Extra\x01\xff\x82\x00\x00\x003\xff\x80\x03\nimage/jpeg\x01\x02\btaken_at\ttime.Time\x87\xffng\xff\x89\x02\x01\x02\xff\x8a\x00\x01\f\x00g"),
 	}
-	// Allow up to 3x the timeout for slack (CI runners, GC).
-	if elapsed > 3*decodeTimeout {
-		t.Errorf("decodeEntry blocked %v, want < %v (timeout=%v)", elapsed, 3*decodeTimeout, decodeTimeout)
+	for name, data := range seeds {
+		t.Run(name, func(t *testing.T) {
+			start := time.Now()
+			_, err := decodeEntry(data)
+			elapsed := time.Since(start)
+			if err == nil {
+				t.Errorf("decodeEntry should have errored on adversarial seed %s; got success", name)
+			}
+			// Allow up to 3× the timeout for slack (CI runners, GC).
+			if elapsed > 3*decodeTimeout {
+				t.Errorf("decodeEntry blocked %v, want < %v (timeout=%v) on seed %s",
+					elapsed, 3*decodeTimeout, decodeTimeout, name)
+			}
+		})
 	}
 }
 
