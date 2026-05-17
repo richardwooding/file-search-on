@@ -70,19 +70,27 @@ var validGroupBys = map[string]struct{}{
 	"frontmatter_format": {},
 	// Time-bucket attributes (string formatted from the named
 	// timestamp). mtime_* reads FileAttributes.ModTime;
+	// created_at_* / metadata_changed_at_* read the corresponding
+	// FileAttributes fields populated by probeFileTimes;
 	// taken_at_* / sent_at_* / date_* read from Extra.
-	"mtime_year":     {},
-	"mtime_month":    {},
-	"mtime_day":      {},
-	"taken_at_year":  {},
-	"taken_at_month": {},
-	"taken_at_day":   {},
-	"sent_at_year":   {},
-	"sent_at_month":  {},
-	"sent_at_day":    {},
-	"date_year":      {},
-	"date_month":     {},
-	"date_day":       {},
+	"mtime_year":               {},
+	"mtime_month":              {},
+	"mtime_day":                {},
+	"created_at_year":          {},
+	"created_at_month":         {},
+	"created_at_day":           {},
+	"metadata_changed_at_year": {},
+	"metadata_changed_at_month": {},
+	"metadata_changed_at_day":  {},
+	"taken_at_year":            {},
+	"taken_at_month":           {},
+	"taken_at_day":             {},
+	"sent_at_year":             {},
+	"sent_at_month":            {},
+	"sent_at_day":              {},
+	"date_year":                {},
+	"date_month":               {},
+	"date_day":                 {},
 }
 
 // ValidGroupBys returns the curated set of group_by keys ComputeStats
@@ -104,12 +112,18 @@ func ValidGroupBys() []string {
 // circuit the expensive Attributes() parse via SkipAttributesParse —
 // turning /Applications-scale stats from minutes into seconds.
 var detectorOnlyGroupBys = map[string]struct{}{
-	"content_type": {},
-	"ext":          {},
-	"dir":          {},
-	"mtime_year":   {},
-	"mtime_month":  {},
-	"mtime_day":    {},
+	"content_type":              {},
+	"ext":                       {},
+	"dir":                       {},
+	"mtime_year":                {},
+	"mtime_month":               {},
+	"mtime_day":                 {},
+	"created_at_year":           {},
+	"created_at_month":          {},
+	"created_at_day":            {},
+	"metadata_changed_at_year":  {},
+	"metadata_changed_at_month": {},
+	"metadata_changed_at_day":   {},
 }
 
 // groupByNeedsAttributes reports whether the named bucket key requires
@@ -290,7 +304,7 @@ func bucketKey(r Result, groupBy string) string {
 // underlying attribute name + a time.Format layout. Returns
 // ok=false for non-time-bucket keys.
 func timeBucketSpec(groupBy string) (attr, layout string, ok bool) {
-	for _, prefix := range []string{"mtime", "taken_at", "sent_at", "date"} {
+	for _, prefix := range []string{"mtime", "created_at", "metadata_changed_at", "taken_at", "sent_at", "date"} {
 		for _, gran := range []struct {
 			suffix string
 			layout string
@@ -312,13 +326,18 @@ func timeBucketSpec(groupBy string) (attr, layout string, ok bool) {
 // Extra. Returns zero time when missing or wrong-typed — the
 // caller buckets it as "(no date)".
 func pullTime(r Result, attr string) time.Time {
-	if attr == "mtime" {
-		if r.Attrs != nil {
-			return r.Attrs.ModTime
-		}
+	if r.Attrs == nil {
 		return time.Time{}
 	}
-	if r.Attrs == nil || r.Attrs.Extra == nil {
+	switch attr {
+	case "mtime":
+		return r.Attrs.ModTime
+	case "created_at":
+		return r.Attrs.CreatedAt
+	case "metadata_changed_at":
+		return r.Attrs.MetadataChangedAt
+	}
+	if r.Attrs.Extra == nil {
 		return time.Time{}
 	}
 	v, ok := r.Attrs.Extra[attr]

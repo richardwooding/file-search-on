@@ -35,8 +35,8 @@ var vhdEpoch = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 //
 // Surfaces virtual_size = CurrentSize, disk_image_format = "vhd-fixed"
 // / "vhd-dynamic" / "vhd-differencing" (driven by DiskType), disk_type
-// = "fixed" / "dynamic" / "differencing", and created_at from the
-// TimeStamp field.
+// = "fixed" / "dynamic" / "differencing", and disk_image_created_at
+// from the TimeStamp field.
 func readVHDInfo(fsys fs.FS, path string) (Attributes, error) {
 	rs, size, closer, err := openReadSeeker(fsys, path)
 	if err != nil {
@@ -81,7 +81,7 @@ func parseVHDFooter(footer []byte) Attributes {
 	extras := Attributes{"disk_type": diskTypeStr}
 	timestampSecs := binary.BigEndian.Uint32(footer[0x18 : 0x18+4])
 	if timestampSecs > 0 {
-		extras["created_at"] = vhdEpoch.Add(time.Duration(timestampSecs) * time.Second)
+		extras["disk_image_created_at"] = vhdEpoch.Add(time.Duration(timestampSecs) * time.Second)
 	}
 	return diskImageAttrs(formatStr, currentSize, extras)
 }

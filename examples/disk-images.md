@@ -76,7 +76,7 @@ ISO 9660 carries a volume label and creation date in the primary volume descript
 file-search-on 'is_iso && volume_label.startsWith("Ubuntu")' -d ~/installers
 
 # ISOs created in 2025 (good for archive cleanup)
-file-search-on 'is_iso && created_at >= timestamp("2025-01-01T00:00:00Z") && created_at < timestamp("2026-01-01T00:00:00Z")' -d ~/installers
+file-search-on 'is_iso && disk_image_created_at >= timestamp("2025-01-01T00:00:00Z") && disk_image_created_at < timestamp("2026-01-01T00:00:00Z")' -d ~/installers
 
 # ISOs by size — find the bloated 4 GB+ ones
 file-search-on 'is_iso && virtual_size > 4000000000' -d ~/installers --sort-by virtual_size --order desc

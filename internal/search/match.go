@@ -190,16 +190,16 @@ type Match struct {
 	// Disk-image attributes. disk_image_format + virtual_size are
 	// populated for every matched disk-image file; the others are
 	// per-format (disk_type for VHD/VMDK, volume_label for ISO,
-	// created_at for VHD/ISO, cluster_bits + is_encrypted for
-	// QCOW2, image_count for WIM).
-	DiskImageFormat string `json:"disk_image_format,omitempty"`
-	VirtualSize     int64  `json:"virtual_size,omitempty"`
-	DiskType        string `json:"disk_type,omitempty"`
-	VolumeLabel     string `json:"volume_label,omitempty"`
-	CreatedAt       string `json:"created_at,omitempty"` // RFC3339 when set
-	ClusterBits     int64  `json:"cluster_bits,omitempty"`
-	IsEncrypted     bool   `json:"is_encrypted,omitempty"`
-	ImageCount      int64  `json:"image_count,omitempty"`
+	// disk_image_created_at for VHD/ISO, cluster_bits +
+	// is_encrypted for QCOW2, image_count for WIM).
+	DiskImageFormat    string `json:"disk_image_format,omitempty"`
+	VirtualSize        int64  `json:"virtual_size,omitempty"`
+	DiskType           string `json:"disk_type,omitempty"`
+	VolumeLabel        string `json:"volume_label,omitempty"`
+	DiskImageCreatedAt string `json:"disk_image_created_at,omitempty"` // RFC3339 when set
+	ClusterBits        int64  `json:"cluster_bits,omitempty"`
+	IsEncrypted        bool   `json:"is_encrypted,omitempty"`
+	ImageCount         int64  `json:"image_count,omitempty"`
 
 	Module    string `json:"module,omitempty"`
 	GoVersion string `json:"go_version,omitempty"`
@@ -275,6 +275,16 @@ type Match struct {
 	SHA1   string `json:"sha1,omitempty"`
 	SHA256 string `json:"sha256,omitempty"`
 
+	// Filesystem-level timestamps (PR #144). RFC3339 strings when
+	// the OS / filesystem tracks them; empty otherwise. CreatedAt
+	// is btime; MetadataChangedAt is ctime. IsBtimeAnomaly fires
+	// when CreatedAt > ModTime — classic "file placed here AFTER
+	// being modified elsewhere" indicator (restored backup, copied
+	// across volumes, planted artefact).
+	CreatedAt         string `json:"created_at,omitempty"`
+	MetadataChangedAt string `json:"metadata_changed_at,omitempty"`
+	IsBtimeAnomaly    bool   `json:"is_btime_anomaly,omitempty"`
+
 	// Snippet is the first N lines of the file body when the search
 	// call had include_snippet=true and the content type is
 	// text-based. Empty otherwise. Lets an agent decide whether a
@@ -326,6 +336,13 @@ func MatchFrom(r Result) Match {
 	m.IsSymlink, m.IsBrokenSymlink = a.IsSymlink, a.IsBrokenSymlink
 	m.IsClass, m.IsPyc, m.IsWasm, m.IsBytecode = a.IsClass, a.IsPyc, a.IsWasm, a.IsBytecode
 	m.MD5, m.SHA1, m.SHA256 = a.MD5, a.SHA1, a.SHA256
+	if !a.CreatedAt.IsZero() {
+		m.CreatedAt = a.CreatedAt.Format(time.RFC3339)
+	}
+	if !a.MetadataChangedAt.IsZero() {
+		m.MetadataChangedAt = a.MetadataChangedAt.Format(time.RFC3339)
+	}
+	m.IsBtimeAnomaly = a.IsBtimeAnomaly
 
 	if a.Extra == nil {
 		return m
@@ -608,8 +625,8 @@ func MatchFrom(r Result) Match {
 	if v, ok := a.Extra["volume_label"].(string); ok {
 		m.VolumeLabel = v
 	}
-	if v, ok := a.Extra["created_at"].(time.Time); ok && !v.IsZero() {
-		m.CreatedAt = v.Format(time.RFC3339)
+	if v, ok := a.Extra["disk_image_created_at"].(time.Time); ok && !v.IsZero() {
+		m.DiskImageCreatedAt = v.Format(time.RFC3339)
 	}
 	if v, ok := a.Extra["cluster_bits"].(int64); ok {
 		m.ClusterBits = v

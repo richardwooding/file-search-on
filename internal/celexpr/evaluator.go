@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/djherbis/times"
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/richardwooding/file-search-on/internal/content"
@@ -51,6 +52,53 @@ func probeSymlink(displayPath string) symlinkInfo {
 		info.broken = true
 	}
 	return info
+}
+
+// fileTimesInfo carries the platform-specific filesystem timestamps
+// — created (btime) and metadataChanged (ctime) — pulled via
+// djherbis/times. Either may be zero when the filesystem doesn't
+// track that timestamp; both zero for in-memory test fs.FS where
+// displayPath isn't a real OS path.
+type fileTimesInfo struct {
+	created         time.Time
+	metadataChanged time.Time
+}
+
+// probeFileTimes calls times.Stat(displayPath) and pulls btime + ctime
+// when the underlying filesystem exposes them. Best-effort: any error
+// (path doesn't exist, in-memory fs.FS, unsupported FS) returns a
+// zero-valued result.
+func probeFileTimes(displayPath string) fileTimesInfo {
+	if displayPath == "" {
+		return fileTimesInfo{}
+	}
+	t, err := times.Stat(displayPath)
+	if err != nil {
+		return fileTimesInfo{}
+	}
+	var out fileTimesInfo
+	if t.HasBirthTime() {
+		out.created = t.BirthTime()
+	}
+	if t.HasChangeTime() {
+		out.metadataChanged = t.ChangeTime()
+	}
+	return out
+}
+
+// applyFileTimes writes the filesystem-timestamp probe result onto a
+// built FileAttributes and sets IsBtimeAnomaly when CreatedAt is
+// after ModTime — the classic forensic "this file was placed here
+// after being modified elsewhere" indicator.
+func applyFileTimes(attrs *FileAttributes, ft fileTimesInfo) {
+	if attrs == nil {
+		return
+	}
+	attrs.CreatedAt = ft.created
+	attrs.MetadataChangedAt = ft.metadataChanged
+	if !ft.created.IsZero() && !attrs.ModTime.IsZero() && ft.created.After(attrs.ModTime) {
+		attrs.IsBtimeAnomaly = true
+	}
 }
 
 // applySymlinkInfo writes the symlink probe result onto a built
@@ -236,6 +284,24 @@ type FileAttributes struct {
 	SHA1   string
 	SHA256 string
 
+	// Filesystem-level timestamps (PR #144). Populated by the walker
+	// via the djherbis/times wrapper around statx(2) / Stat_t /
+	// GetFileTime. CreatedAt is the file's birth time (when the
+	// inode was first created on this filesystem). MetadataChangedAt
+	// is ctime (last status change — permissions, ownership,
+	// hard-link count). Both zero when the filesystem doesn't track
+	// them (rare on modern fs: ext4 / APFS / NTFS / btrfs / xfs all
+	// do); atime is deliberately not surfaced — modern mounts use
+	// relatime / noatime by default and the value is unreliable.
+	//
+	// IsBtimeAnomaly fires when CreatedAt is non-zero AND
+	// CreatedAt > ModTime — the classic "this file was placed here
+	// AFTER being modified elsewhere" forensic indicator (copy /
+	// restore / planted artefact).
+	CreatedAt           time.Time
+	MetadataChangedAt   time.Time
+	IsBtimeAnomaly      bool
+
 	Extra content.Attributes
 }
 
@@ -340,7 +406,7 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("virtual_size", cel.IntType),
 		cel.Variable("disk_type", cel.StringType),
 		cel.Variable("volume_label", cel.StringType),
-		cel.Variable("created_at", cel.TimestampType),
+		cel.Variable("disk_image_created_at", cel.TimestampType),
 		cel.Variable("cluster_bits", cel.IntType),
 		cel.Variable("is_encrypted", cel.BoolType),
 		cel.Variable("image_count", cel.IntType),
@@ -483,6 +549,12 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("md5", cel.StringType),
 		cel.Variable("sha1", cel.StringType),
 		cel.Variable("sha256", cel.StringType),
+		// Filesystem-level timestamps (PR #144). Populated for every
+		// real-OS file via djherbis/times; zero on test fs.FS that
+		// doesn't expose the underlying inode.
+		cel.Variable("created_at", cel.TimestampType),
+		cel.Variable("metadata_changed_at", cel.TimestampType),
+		cel.Variable("is_btime_anomaly", cel.BoolType),
 	}
 	opts = append(opts, fuzzyFunctions()...)
 	opts = append(opts, geoFunctions()...)
@@ -620,6 +692,12 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	// filesystems os.Lstat returns ENOENT and sym stays zero.
 	sym := probeSymlink(displayPath)
 
+	// Filesystem timestamp probe (PR #144). One extra stat()-shaped
+	// syscall per file via djherbis/times to pull btime + ctime
+	// where the OS / filesystem exposes them. Best-effort: zero on
+	// any error (in-memory test fs.FS, unsupported filesystem).
+	ftimes := probeFileTimes(displayPath)
+
 	// Use the symlink's own Lstat info (rather than the resolved
 	// target's) for entries reaching this function as leaves where
 	// either the target is missing (broken link) OR the target is a
@@ -715,6 +793,7 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 			if opts.ComputeHashes {
 				populateHashes(ctx, displayPath, cacheKey, info, cached, attrs, opts.Index)
 			}
+			applyFileTimes(attrs, ftimes)
 			applySymlinkInfo(attrs, sym)
 			return attrs, nil
 		}
@@ -735,6 +814,7 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 			ContentType: "",
 			Extra:       content.Attributes{},
 		}
+		applyFileTimes(attrs, ftimes)
 		applySymlinkInfo(attrs, sym)
 		return attrs, nil
 	}
@@ -826,6 +906,7 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	if opts.ComputeHashes {
 		populateHashes(ctx, displayPath, cacheKey, info, nil, attrs, opts.Index)
 	}
+	applyFileTimes(attrs, ftimes)
 	applySymlinkInfo(attrs, sym)
 	return attrs, nil
 }

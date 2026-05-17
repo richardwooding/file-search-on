@@ -42,7 +42,7 @@ Built in the open — issues, PRs, and feature requests warmly welcomed. See [Co
   | **Email** | RFC 5322 (`.eml`), Unix mbox (`.mbox`) | title (subject), author (from), email_to, email_cc, sent_at, attachment_count, email_count |
   | **Source code** | Go, Python, JS/TS, Rust, C/C++, Java, Ruby, Swift, Kotlin, Scala, Shell, Lua, Elixir, Clojure, Haskell, OCaml, Zig | language, line_count, loc, comment_loc, blank_loc |
   | **Notebooks** | Jupyter `.ipynb`, Apache Zeppelin `.zpln` | cell_count, code_cell_count, markdown_cell_count, kernel, language, title |
-  | **Disk images** | DMG (UDIF), ISO 9660, VHD, VHDX, VMDK (sparse), QCOW2, WIM | disk_image_format, virtual_size, disk_type, volume_label, created_at, cluster_bits, is_encrypted, image_count |
+  | **Disk images** | DMG (UDIF), ISO 9660, VHD, VHDX, VMDK (sparse), QCOW2, WIM | disk_image_format, virtual_size, disk_type, volume_label, disk_image_created_at, cluster_bits, is_encrypted, image_count |
   | **Install packages** | macOS `.pkg` (XAR), Debian `.deb`, Red Hat `.rpm`, Linux `.appimage` | package_format, package_name, package_version, package_release, package_arch, package_kind, appimage_version |
   | **VM bytecode** | Java `.class` (JVM), Python `.pyc` / `.pyo`, WebAssembly `.wasm` | bytecode_format, runtime_version, class_name (JVM), super_class (JVM), interfaces (JVM), method_count (JVM), field_count (JVM), access_flags (JVM), python_version, source_mtime, wasm_version, section_count, import_count, export_count |
 
@@ -279,7 +279,7 @@ file-search-on 'is_html && dir.contains("build")'
 
 ### On every file
 
-`name`, `path`, `dir`, `size`, `ext`, `content_type`, `mod_time`.
+`name`, `path`, `dir`, `size`, `ext`, `content_type`, `mod_time`, `created_at` (filesystem birth time / btime — modern fs only), `metadata_changed_at` (ctime — last permission / ownership change), `is_btime_anomaly` (true when `created_at > mod_time`).
 
 ### Type predicates
 
@@ -307,7 +307,7 @@ file-search-on 'is_html && dir.contains("build")'
 | **Email** | `email_to`, `email_cc`, `email_message_id`, `email_in_reply_to`, `sent_at`, `attachment_count`, `email_count` (plus shared `title` / `author`) |
 | **Source code** | `language`, `line_count`, `loc`, `comment_loc`, `blank_loc` |
 | **Notebooks** | `cell_count`, `code_cell_count`, `markdown_cell_count`, `kernel` (plus shared `language` / `title`) |
-| **Disk images** | `disk_image_format`, `virtual_size`, `disk_type` (VHD / VMDK), `volume_label` (ISO), `created_at` (VHD / ISO), `cluster_bits` (QCOW2), `is_encrypted` (QCOW2), `image_count` (WIM) |
+| **Disk images** | `disk_image_format`, `virtual_size`, `disk_type` (VHD / VMDK), `volume_label` (ISO), `disk_image_created_at` (VHD / ISO; in-header creation time, distinct from filesystem `created_at`), `cluster_bits` (QCOW2), `is_encrypted` (QCOW2), `image_count` (WIM) |
 | **Install packages** | `package_format`, `package_name` (RPM), `package_version` (RPM), `package_release` (RPM), `package_arch` (RPM), `package_kind`, `appimage_version` |
 | **Repo metadata** | `license_id` (SPDX id detected from LICENSE / LICENCE / COPYING / UNLICENSE body) |
 | **Symlinks** | `is_symlink`, `is_broken_symlink`, `target_path` (raw `ln -s` target; relative or absolute as recorded on disk) |

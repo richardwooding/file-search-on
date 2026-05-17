@@ -10,6 +10,48 @@ import (
 	"github.com/richardwooding/file-search-on/internal/search"
 )
 
+// TestComputeStats_CreatedAtYear groups files by year of filesystem
+// birth time. We can't pin btime to a specific value (no portable
+// way to set it), so the assertion is structural: the bucketing
+// pipeline must accept the key, run, and produce a bucket whose
+// Name parses as a 4-digit year matching the current OS clock.
+func TestComputeStats_CreatedAtYear(t *testing.T) {
+	dir := t.TempDir()
+	for _, n := range []string{"a.md", "b.md"} {
+		if err := os.WriteFile(filepath.Join(dir, n), []byte("# h\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	stats, err := search.ComputeStats(t.Context(), search.Options{
+		Root:    dir,
+		Expr:    "true",
+		GroupBy: "created_at_year",
+	}, content.DefaultRegistry())
+	if err != nil {
+		t.Fatalf("ComputeStats: %v", err)
+	}
+	if stats.GroupBy != "created_at_year" {
+		t.Errorf("GroupBy=%q want created_at_year", stats.GroupBy)
+	}
+	if stats.TotalCount != 2 {
+		t.Errorf("TotalCount=%d want 2", stats.TotalCount)
+	}
+	currentYear := time.Now().UTC().Format("2006")
+	hit := false
+	for _, b := range stats.Groups {
+		// The bucket should be the current year OR "(no date)" on
+		// filesystems that don't track btime. Either is acceptable
+		// here — the assertion is that the key wired up correctly.
+		if b.Name == currentYear || b.Name == "(no date)" {
+			hit = true
+		}
+	}
+	if !hit {
+		t.Errorf("no acceptable bucket; groups=%+v", stats.Groups)
+	}
+}
+
 // TestComputeStats_MTimeMonth groups files by year-month of mtime.
 // We seed three files and use os.Chtimes to control mtime so the
 // test isn't dependent on actual wall-clock time.

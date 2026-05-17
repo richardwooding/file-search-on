@@ -67,12 +67,13 @@ type Options struct {
 
 	// Sort, when non-empty, sorts the buffered Walk() result set by
 	// the named attribute. Recognised keys: size, name, path,
-	// mod_time, word_count, line_count, page_count, duration, bitrate,
-	// sample_rate, video_height, video_width, frame_rate, iso,
-	// focal_length, taken_at, sent_at, year, entry_count,
-	// uncompressed_size, loc, attachment_count, email_count,
-	// virtual_size, image_count, created_at, cluster_bits.
-	// Streaming WalkStream() ignores Sort — sort happens post-collect.
+	// mod_time, created_at, metadata_changed_at, word_count,
+	// line_count, page_count, duration, bitrate, sample_rate,
+	// video_height, video_width, frame_rate, iso, focal_length,
+	// taken_at, sent_at, year, entry_count, uncompressed_size, loc,
+	// attachment_count, email_count, virtual_size, image_count,
+	// disk_image_created_at, cluster_bits. Streaming WalkStream()
+	// ignores Sort — sort happens post-collect.
 	Sort string
 	// Order: "asc" (default) or "desc". Ignored when Sort is empty.
 	Order string
