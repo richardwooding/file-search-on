@@ -43,6 +43,16 @@ type Entry struct {
 	// gob handles the additive field gracefully — older cache
 	// files without this field decode with Hash="".
 	Hash string
+	// MD5, SHA1 are companion hex digests populated alongside Hash
+	// when callers request hashing — single-pass io.MultiWriter so
+	// the file is read once for all three. Forensic interop:
+	// MD5 + SHA1 are the canonical NSRL / VirusTotal / Autopsy /
+	// EnCase indexes; SHA256 (the existing Hash field) is the
+	// modern default. gob-additive — pre-#143 cache entries decode
+	// with MD5="" / SHA1="" and the next hash-requiring pass
+	// repopulates them.
+	MD5  string
+	SHA1 string
 	// Fingerprint is the 64-bit Charikar SimHash of the file's
 	// extracted body, computed by internal/fingerprint. Zero unless
 	// the near-duplicates pipeline asked for it. Like Hash, it's

@@ -182,6 +182,12 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.IsSymlink, true
 	case "is_broken_symlink":
 		return a.attrs.IsBrokenSymlink, true
+	case "md5":
+		return a.attrs.MD5, true
+	case "sha1":
+		return a.attrs.SHA1, true
+	case "sha256":
+		return a.attrs.SHA256, true
 	}
 	if v, ok := a.attrs.Extra[name]; ok {
 		return v, true

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/richardwooding/file-search-on/internal/content"
+	"github.com/richardwooding/file-search-on/internal/cryptohash"
 	"github.com/richardwooding/file-search-on/internal/index"
 )
 
@@ -56,6 +57,48 @@ func isStructuredBody(name string) bool {
 // uses this to gate the body read.
 func canExtractBody(name string) bool {
 	return isTextForBody(name) || isStructuredBody(name)
+}
+
+// populateHashes fills FileAttributes.{MD5,SHA1,SHA256} when the
+// caller opts in via BuildOptions.ComputeHashes. Cache-aware: when
+// cached is non-nil and carries all three hashes, no file read
+// happens; otherwise cryptohash.File reads the file once and stores
+// the trio in the cache for the next call.
+//
+// cacheKey may be empty (tests with relative paths or no index);
+// that just skips the Put — the live hashes still surface on attrs.
+//
+// Errors degrade silently — a file we can't read just leaves the
+// hashes empty. The CEL filter then sees `md5 == ""` which won't
+// match any forensic hash query.
+func populateHashes(ctx context.Context, displayPath, cacheKey string, info fs.FileInfo, cached *index.Entry, attrs *FileAttributes, idx index.Index) {
+	if cached != nil && cached.MD5 != "" && cached.SHA1 != "" && cached.Hash != "" {
+		attrs.MD5 = cached.MD5
+		attrs.SHA1 = cached.SHA1
+		attrs.SHA256 = cached.Hash
+		return
+	}
+	trio, err := cryptohash.File(ctx, displayPath)
+	if err != nil {
+		return
+	}
+	attrs.MD5 = trio.MD5
+	attrs.SHA1 = trio.SHA1
+	attrs.SHA256 = trio.SHA256
+	if idx != nil && cacheKey != "" {
+		entry := cached
+		if entry == nil {
+			entry = &index.Entry{
+				Size:            info.Size(),
+				ModTimeUnixNano: info.ModTime().UnixNano(),
+				ContentType:     attrs.ContentType,
+			}
+		}
+		entry.MD5 = trio.MD5
+		entry.SHA1 = trio.SHA1
+		entry.Hash = trio.SHA256
+		_ = idx.Put(cacheKey, entry)
+	}
 }
 
 // lookupOrExtractBody is the cache-aware body reader. When the

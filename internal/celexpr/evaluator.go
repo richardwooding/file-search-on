@@ -225,6 +225,17 @@ type FileAttributes struct {
 	IsSymlink       bool
 	IsBrokenSymlink bool
 
+	// Forensic-interop hashes (PR #143). Populated when the caller
+	// sets BuildOptions.ComputeHashes OR when the file participates
+	// in find_duplicates / find_near_duplicates. All three compute
+	// in one pass via search.HashFile — io.MultiWriter over md5,
+	// sha1, sha256. Empty strings when hashing wasn't requested.
+	// Cached in index.Entry.MD5 / SHA1 / Hash (the existing Hash
+	// field is sha256); validation is the standard (size, mtime).
+	MD5    string
+	SHA1   string
+	SHA256 string
+
 	Extra content.Attributes
 }
 
@@ -466,6 +477,12 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("categories", cel.ListType(cel.StringType)),
 		cel.Variable("draft", cel.BoolType),
 		cel.Variable("date", cel.TimestampType),
+		// Forensic-interop hashes (PR #143). Empty strings when the
+		// caller didn't request hashing — CEL filters like
+		// `md5 == "..."` simply don't match.
+		cel.Variable("md5", cel.StringType),
+		cel.Variable("sha1", cel.StringType),
+		cel.Variable("sha256", cel.StringType),
 	}
 	opts = append(opts, fuzzyFunctions()...)
 	opts = append(opts, geoFunctions()...)
@@ -548,6 +565,20 @@ type BuildOptions struct {
 	// — empty Extras would otherwise poison the cache for later
 	// calls that DO want attributes.
 	SkipAttributesParse bool
+
+	// ComputeHashes, when true, makes BuildAttributesWith populate
+	// MD5 / SHA1 / SHA256 on every walked file. The three hashes
+	// are computed in one io.MultiWriter pass via
+	// internal/cryptohash so a single file read populates all
+	// three. The cached index.Entry.MD5 / SHA1 / Hash fields are
+	// consulted first; on hit they short-circuit the file read.
+	// Cache miss or a hit with empty Hash triggers re-compute.
+	//
+	// Off by default — hashing every file in a tree is expensive
+	// (multi-GB videos read fully into the hashers). Opt-in for
+	// forensic / dedup workflows; CLI exposes via --with-hashes
+	// on the search subcommand, MCP via compute_hashes input.
+	ComputeHashes bool
 }
 
 // defaultBodyMaxBytes caps the body string supplied to CEL when
@@ -678,6 +709,12 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 					}
 				}
 			}
+			// Hash trio (PR #143). On cache hit we reuse cached.MD5 /
+			// SHA1 / Hash when all three are populated; otherwise
+			// compute and re-Put so the next call is free.
+			if opts.ComputeHashes {
+				populateHashes(ctx, displayPath, cacheKey, info, cached, attrs, opts.Index)
+			}
 			applySymlinkInfo(attrs, sym)
 			return attrs, nil
 		}
@@ -783,6 +820,12 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 		Extra:       extra,
 	}
 	setTypeFlags(attrs, contentTypeName)
+	// Hash trio (PR #143). Cache-miss path: no cached entry to consult,
+	// so populateHashes always computes when ComputeHashes is set. The
+	// fresh values flow back into the cache so subsequent walks hit.
+	if opts.ComputeHashes {
+		populateHashes(ctx, displayPath, cacheKey, info, nil, attrs, opts.Index)
+	}
 	applySymlinkInfo(attrs, sym)
 	return attrs, nil
 }

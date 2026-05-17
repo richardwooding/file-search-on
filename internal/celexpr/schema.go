@@ -109,6 +109,9 @@ func Schema() SchemaDoc {
 			{"is_pyc", "bool", "true if Python compiled bytecode (.pyc / .pyo)"},
 			{"is_wasm", "bool", "true if WebAssembly module (.wasm with `\\0asm` magic)"},
 			{"is_bytecode", "bool", "true if any VM bytecode — content_type starts with 'bytecode/' (JVM class, Python pyc, WebAssembly)"},
+			{"md5", "string", "MD5 hex digest of the file's content (32 lowercase hex chars). Empty unless the caller opts in via --with-hashes / compute_hashes — hashing is not free. NSRL / VirusTotal / threat-intel-feed interop primary; consumed by hash-allowlist / hash-denylist matching when those flags are set. Cached alongside SHA1 + SHA256 in the index; single io.MultiWriter pass over the file so all three populate together."},
+			{"sha1", "string", "SHA-1 hex digest of the file's content (40 lowercase hex chars). Same lifecycle as md5 — populated when --with-hashes / compute_hashes is set. NSRL ships MD5 + SHA1 as the canonical allowlist key; many forensic tools index by SHA1."},
+			{"sha256", "string", "SHA-256 hex digest of the file's content (64 lowercase hex chars). Modern default; populated when --with-hashes / compute_hashes is set OR as a side effect of find_duplicates / find_near_duplicates. Stable across the file's (size, mtime) lifetime so the cached value survives any repeat walk."},
 		},
 		TypeSpecific: []AttributeDoc{
 			{"title", "string", "title (front-matter, markdown h1, HTML title, PDF title, EPUB, office, audio)"},
