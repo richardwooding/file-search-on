@@ -647,13 +647,13 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	if opts.Index != nil && cacheKey != "" && !useLstatInfo {
 		if cached, ok := opts.Index.Lookup(cacheKey, info.Size(), info.ModTime()); ok {
 			attrs := assembleFromCache(name, displayPath, dir, ext, info, cached)
-			// Body is intentionally NOT cached: bodies are large
-			// relative to the rest of an Entry, change semantics
-			// independently of (size, mtime), and CEL filters that
-			// need them want fresh reads. Re-read on cache hit
-			// when the caller asked for body.
+			// Body lives in the dedicated bodies_v1 bucket — independent
+			// of the attribute cache so eviction and per-bucket caps
+			// can be tuned separately. Consult the body cache first;
+			// on miss, re-extract and async-Put so subsequent calls hit.
 			if opts.IncludeBody && canExtractBody(cached.ContentType) {
-				if body, berr := readBody(ctx, fsys, fsPath, cached.ContentType, opts.BodyMaxBytes); berr == nil && body != "" {
+				body := lookupOrExtractBody(ctx, fsys, fsPath, displayPath, cacheKey, info, cached.ContentType, opts)
+				if body != "" {
 					if attrs.Extra == nil {
 						attrs.Extra = content.Attributes{}
 					}
@@ -737,8 +737,13 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	// Extra above). CEL evaluation runs against this attrs, so the
 	// body needs to be present for `body.contains(...)` /
 	// `body.matches(...)` filters to fire.
+	//
+	// Bodies live in the dedicated bodies_v1 bucket — separate from
+	// the attribute Extra (which is what got Put a few lines up).
+	// Cache-aware: try LookupBody first; on miss extract + PutBody.
 	if opts.IncludeBody && canExtractBody(contentTypeName) {
-		if body, berr := readBody(ctx, fsys, fsPath, contentTypeName, opts.BodyMaxBytes); berr == nil && body != "" {
+		body := lookupOrExtractBody(ctx, fsys, fsPath, displayPath, cacheKey, info, contentTypeName, opts)
+		if body != "" {
 			if extra == nil {
 				extra = content.Attributes{}
 			}
