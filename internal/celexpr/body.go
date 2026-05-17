@@ -5,8 +5,10 @@ import (
 	"io"
 	"io/fs"
 	"strings"
+	"time"
 
 	"github.com/richardwooding/file-search-on/internal/content"
+	"github.com/richardwooding/file-search-on/internal/index"
 )
 
 // isTextForBody reports whether the given content type's body is
@@ -54,6 +56,42 @@ func isStructuredBody(name string) bool {
 // uses this to gate the body read.
 func canExtractBody(name string) bool {
 	return isTextForBody(name) || isStructuredBody(name)
+}
+
+// lookupOrExtractBody is the cache-aware body reader. When the
+// caller's BuildOptions carries a non-nil Index AND a valid cache
+// key, it tries LookupBody first; a hit returns the cached body
+// without re-extracting (the bbolt cache also touches the access
+// timestamp internally for LRU eviction). A miss runs readBody and
+// asynchronously Puts the result so the next call against the same
+// (path, size, mtime) hits.
+//
+// Bodies for paths that aren't validly absolute (in-memory test
+// filesystems with displayPath="") bypass the cache — there's no
+// stable cache key. The caller still gets a freshly-extracted body.
+//
+// Returns "" on extraction error OR empty body — same contract as
+// the prior inline readBody calls; callers check empty-string before
+// writing into attrs.Extra.
+func lookupOrExtractBody(ctx context.Context, fsys fs.FS, fsPath, displayPath, cacheKey string, info fs.FileInfo, contentTypeName string, opts BuildOptions) string {
+	if opts.Index != nil && cacheKey != "" {
+		if body, ok := opts.Index.LookupBody(cacheKey, info.Size(), info.ModTime()); ok {
+			return body
+		}
+	}
+	body, err := readBody(ctx, fsys, fsPath, contentTypeName, opts.BodyMaxBytes)
+	if err != nil || body == "" {
+		return ""
+	}
+	if opts.Index != nil && cacheKey != "" {
+		_ = opts.Index.PutBody(cacheKey, &index.BodyEntry{
+			Size:            info.Size(),
+			ModTimeUnixNano: info.ModTime().UnixNano(),
+			CreatedUnixNano: time.Now().UnixNano(),
+			Body:            body,
+		})
+	}
+	return body
 }
 
 // readBody returns the file's body as a string capped at maxBytes.

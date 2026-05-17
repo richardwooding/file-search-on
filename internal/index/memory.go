@@ -7,9 +7,10 @@ import (
 )
 
 type memoryIndex struct {
-	mu    sync.RWMutex
-	data  map[string]*Entry
-	stats memoryStats
+	mu     sync.RWMutex
+	data   map[string]*Entry
+	bodies map[string]*BodyEntry
+	stats  memoryStats
 }
 
 type memoryStats struct {
@@ -18,10 +19,21 @@ type memoryStats struct {
 	puts   atomic.Uint64
 	stales atomic.Uint64
 	errors atomic.Uint64
+
+	bodyHits      atomic.Uint64
+	bodyMisses    atomic.Uint64
+	bodyPuts      atomic.Uint64
+	bodyStales    atomic.Uint64
+	bodyEvictions atomic.Uint64
+	bodyOversize  atomic.Uint64
+	bodyErrors    atomic.Uint64
 }
 
 func newMemoryIndex() *memoryIndex {
-	return &memoryIndex{data: make(map[string]*Entry)}
+	return &memoryIndex{
+		data:   make(map[string]*Entry),
+		bodies: make(map[string]*BodyEntry),
+	}
 }
 
 func (m *memoryIndex) Lookup(path string, size int64, mtime time.Time) (*Entry, bool) {
@@ -56,13 +68,59 @@ func (m *memoryIndex) Put(path string, e *Entry) error {
 	return nil
 }
 
+// LookupBody mirrors Lookup against the body sub-map. In-memory has
+// no eviction — process lifetime bounds storage. (size, mtime)
+// validation is identical to Lookup so attribute and body cache
+// invalidate together on file change.
+func (m *memoryIndex) LookupBody(path string, size int64, mtime time.Time) (string, bool) {
+	if path == "" || mtime.IsZero() {
+		m.stats.bodyMisses.Add(1)
+		return "", false
+	}
+	m.mu.RLock()
+	be, ok := m.bodies[path]
+	m.mu.RUnlock()
+	if !ok {
+		m.stats.bodyMisses.Add(1)
+		return "", false
+	}
+	if be.Size != size || be.ModTimeUnixNano != mtime.UnixNano() {
+		m.stats.bodyStales.Add(1)
+		return "", false
+	}
+	m.stats.bodyHits.Add(1)
+	return be.Body, true
+}
+
+// PutBody stores a body in the in-memory map. No size cap or eviction
+// — agents using the in-memory index typically run short MCP sessions
+// where memory pressure is bounded by walk lifetime.
+func (m *memoryIndex) PutBody(path string, be *BodyEntry) error {
+	if path == "" || be == nil {
+		m.stats.bodyErrors.Add(1)
+		return nil
+	}
+	m.mu.Lock()
+	m.bodies[path] = be
+	m.mu.Unlock()
+	m.stats.bodyPuts.Add(1)
+	return nil
+}
+
 func (m *memoryIndex) Stats() Stats {
 	return Stats{
-		Hits:   m.stats.hits.Load(),
-		Misses: m.stats.misses.Load(),
-		Puts:   m.stats.puts.Load(),
-		Stales: m.stats.stales.Load(),
-		Errors: m.stats.errors.Load(),
+		Hits:          m.stats.hits.Load(),
+		Misses:        m.stats.misses.Load(),
+		Puts:          m.stats.puts.Load(),
+		Stales:        m.stats.stales.Load(),
+		Errors:        m.stats.errors.Load(),
+		BodyHits:      m.stats.bodyHits.Load(),
+		BodyMisses:    m.stats.bodyMisses.Load(),
+		BodyPuts:      m.stats.bodyPuts.Load(),
+		BodyStales:    m.stats.bodyStales.Load(),
+		BodyEvictions: m.stats.bodyEvictions.Load(),
+		BodyOversize:  m.stats.bodyOversize.Load(),
+		BodyErrors:    m.stats.bodyErrors.Load(),
 	}
 }
 

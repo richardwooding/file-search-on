@@ -87,6 +87,9 @@ jobs:
           - name: DecodeEntry
             pkg: ./internal/index/
             func: FuzzDecodeEntry
+          - name: DecodeBody
+            pkg: ./internal/index/
+            func: FuzzDecodeBody
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6

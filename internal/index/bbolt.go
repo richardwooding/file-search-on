@@ -1,32 +1,49 @@
 package index
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.etcd.io/bbolt"
 )
 
 const (
-	schemaVersion = 1
-	bucketAttrs   = "attrs_v1"
-	bucketMeta    = "meta"
-	metaKey       = "schema"
+	schemaVersion     = 1
+	bucketAttrs       = "attrs_v1"
+	bucketBodies      = "bodies_v1"
+	bucketBodyAccess  = "body_access_v1"
+	bucketMeta        = "meta"
+	metaKey           = "schema"
+	metaBodiesSizeKey = "bodies_total_size"
 
 	// putBufferSize is the depth of the write channel between workers
 	// and the single writer goroutine. Bigger = more burst absorption,
 	// smaller = quicker back-pressure into Stats.Errors.
 	putBufferSize = 256
+	// bodyPutBufferSize is the body-puts channel depth. Bodies can be
+	// up to bodyMaxBytes (8 MiB) each, but in practice typical
+	// markdown / source / DOCX bodies are 10-100 KB. 128 slots
+	// comfortably absorb a parallel-walker burst (8 workers × ~16
+	// bodies in flight) without dropping puts into BodyErrors; the
+	// worst-case memory (128 × 8 MiB = 1 GiB) is bounded but unlikely.
+	bodyPutBufferSize = 128
 	// flushInterval bounds writer goroutine latency: even with one
 	// straggler in the channel we batch+commit at least this often.
 	flushInterval = 100 * time.Millisecond
 	// flushBatch is the inner batch size — at most this many puts go
 	// into a single bbolt batch transaction.
 	flushBatch = 64
+	// bodyFlushBatch is smaller than flushBatch because each body
+	// write is up to bodyMaxBytes — keeping per-tx work bounded keeps
+	// the writer responsive.
+	bodyFlushBatch = 16
 )
 
 type metaPayload struct {
@@ -37,9 +54,14 @@ type metaPayload struct {
 type boltIndex struct {
 	db    *bbolt.DB
 	puts  chan putReq
+	bputs chan bodyPutReq
 	wg    sync.WaitGroup
 	once  sync.Once
 	stats memoryStats
+
+	bodyCap         int64        // configured body-cache size cap (bytes); <=0 means no cap
+	bodyCacheOff    bool         // when true, PutBody is a no-op and LookupBody always misses
+	bodiesTotalSize atomic.Int64 // running total of encoded bodies bucket bytes (key+value), mirrored to meta on each batch
 }
 
 type putReq struct {
@@ -47,7 +69,17 @@ type putReq struct {
 	val []byte
 }
 
-func openBoltIndex(path string) (*boltIndex, error) {
+// bodyPutReq is the body-puts variant. Op distinguishes a Put (write
+// new/updated body) from a Touch (only update the access timestamp,
+// no body re-encode). Touch is the cheap LRU "I read this" signal so
+// the body itself doesn't need to round-trip through gob on every read.
+type bodyPutReq struct {
+	key string
+	val []byte // nil for Touch
+	ts  int64  // AccessedUnixNano
+}
+
+func openBoltIndex(path string, cap BodyCacheCap) (*boltIndex, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("resolve index path: %w", err)
@@ -62,12 +94,37 @@ func openBoltIndex(path string) (*boltIndex, error) {
 		return nil, err
 	}
 
-	idx := &boltIndex{
-		db:   db,
-		puts: make(chan putReq, putBufferSize),
+	maxBytes := cap.MaxBytes
+	if maxBytes <= 0 {
+		maxBytes = defaultBodyCacheMaxBytes
 	}
-	idx.wg.Add(1)
+	idx := &boltIndex{
+		db:           db,
+		puts:         make(chan putReq, putBufferSize),
+		bputs:        make(chan bodyPutReq, bodyPutBufferSize),
+		bodyCap:      maxBytes,
+		bodyCacheOff: cap.Disable,
+	}
+
+	// Recover the running bodies-total-size counter from meta so cap
+	// enforcement carries across restarts. Fall through to 0 on any
+	// read error — the next batch flush will reconcile.
+	_ = db.View(func(tx *bbolt.Tx) error {
+		meta := tx.Bucket([]byte(bucketMeta))
+		if meta == nil {
+			return nil
+		}
+		raw := meta.Get([]byte(metaBodiesSizeKey))
+		if len(raw) != 8 {
+			return nil
+		}
+		idx.bodiesTotalSize.Store(int64(binary.BigEndian.Uint64(raw)))
+		return nil
+	})
+
+	idx.wg.Add(2)
 	go idx.writerLoop()
+	go idx.bodyWriterLoop()
 	return idx, nil
 }
 
@@ -75,7 +132,8 @@ func initOrValidateSchema(db *bbolt.DB) error {
 	return db.Update(func(tx *bbolt.Tx) error {
 		meta := tx.Bucket([]byte(bucketMeta))
 		if meta == nil {
-			// Fresh file: create both buckets and stamp schema metadata.
+			// Fresh file: create the meta + data buckets and stamp
+			// schema metadata.
 			meta, err := tx.CreateBucket([]byte(bucketMeta))
 			if err != nil {
 				return fmt.Errorf("create meta bucket: %w", err)
@@ -93,6 +151,12 @@ func initOrValidateSchema(db *bbolt.DB) error {
 			if _, err := tx.CreateBucket([]byte(bucketAttrs)); err != nil {
 				return fmt.Errorf("create attrs bucket: %w", err)
 			}
+			if _, err := tx.CreateBucket([]byte(bucketBodies)); err != nil {
+				return fmt.Errorf("create bodies bucket: %w", err)
+			}
+			if _, err := tx.CreateBucket([]byte(bucketBodyAccess)); err != nil {
+				return fmt.Errorf("create body-access bucket: %w", err)
+			}
 			return nil
 		}
 		raw := meta.Get([]byte(metaKey))
@@ -109,6 +173,20 @@ func initOrValidateSchema(db *bbolt.DB) error {
 		if tx.Bucket([]byte(bucketAttrs)) == nil {
 			// Meta exists but data bucket doesn't — corrupt, refuse to use.
 			return ErrSchemaMismatch
+		}
+		// Schema-additive: bodies_v1 and body_access_v1 are absent from
+		// pre-body-cache v1 files. Create them on first open of the
+		// new binary so existing v1 indexes upgrade transparently
+		// without an ErrSchemaMismatch.
+		if tx.Bucket([]byte(bucketBodies)) == nil {
+			if _, err := tx.CreateBucket([]byte(bucketBodies)); err != nil {
+				return fmt.Errorf("create bodies bucket: %w", err)
+			}
+		}
+		if tx.Bucket([]byte(bucketBodyAccess)) == nil {
+			if _, err := tx.CreateBucket([]byte(bucketBodyAccess)); err != nil {
+				return fmt.Errorf("create body-access bucket: %w", err)
+			}
 		}
 		return nil
 	})
@@ -171,22 +249,113 @@ func (b *boltIndex) Put(path string, e *Entry) error {
 	return nil
 }
 
+// LookupBody returns the cached body for absPath when (size, mtime)
+// match. On hit it enqueues a Touch on the body-puts channel so the
+// access timestamp updates lazily — the read path itself never blocks
+// on a write.
+func (b *boltIndex) LookupBody(absPath string, size int64, mtime time.Time) (string, bool) {
+	if b.bodyCacheOff {
+		b.stats.bodyMisses.Add(1)
+		return "", false
+	}
+	if absPath == "" || mtime.IsZero() || !filepath.IsAbs(absPath) {
+		b.stats.bodyMisses.Add(1)
+		return "", false
+	}
+	var be *BodyEntry
+	err := b.db.View(func(tx *bbolt.Tx) error {
+		bk := tx.Bucket([]byte(bucketBodies))
+		if bk == nil {
+			return nil
+		}
+		raw := bk.Get([]byte(absPath))
+		if raw == nil {
+			return nil
+		}
+		decoded, decErr := decodeBody(raw)
+		if decErr != nil {
+			return decErr
+		}
+		be = decoded
+		return nil
+	})
+	if err != nil {
+		b.stats.bodyErrors.Add(1)
+		return "", false
+	}
+	if be == nil {
+		b.stats.bodyMisses.Add(1)
+		return "", false
+	}
+	if be.Size != size || be.ModTimeUnixNano != mtime.UnixNano() {
+		b.stats.bodyStales.Add(1)
+		return "", false
+	}
+	// Touch — non-blocking enqueue. Drop the touch if the channel is
+	// full; LRU is best-effort and a missed touch just means the entry
+	// looks slightly older than reality to eviction.
+	select {
+	case b.bputs <- bodyPutReq{key: absPath, val: nil, ts: time.Now().UnixNano()}:
+	default:
+	}
+	b.stats.bodyHits.Add(1)
+	return be.Body, true
+}
+
+// PutBody stores an extracted body for absPath. The encoded body must
+// fit in bodyMaxBytes (8 MiB); larger bodies bump BodyOversize and are
+// dropped. Non-blocking — the body-puts channel back-pressures into
+// BodyErrors when full.
+func (b *boltIndex) PutBody(absPath string, be *BodyEntry) error {
+	if b.bodyCacheOff {
+		return nil
+	}
+	if absPath == "" || be == nil || !filepath.IsAbs(absPath) {
+		b.stats.bodyErrors.Add(1)
+		return nil
+	}
+	val, err := encodeBody(be)
+	if err != nil {
+		if errors.Is(err, errBodyTooLarge) {
+			b.stats.bodyOversize.Add(1)
+		} else {
+			b.stats.bodyErrors.Add(1)
+		}
+		return nil
+	}
+	select {
+	case b.bputs <- bodyPutReq{key: absPath, val: val, ts: time.Now().UnixNano()}:
+	default:
+		b.stats.bodyErrors.Add(1)
+	}
+	return nil
+}
+
 func (b *boltIndex) Stats() Stats {
 	return Stats{
-		Hits:   b.stats.hits.Load(),
-		Misses: b.stats.misses.Load(),
-		Puts:   b.stats.puts.Load(),
-		Stales: b.stats.stales.Load(),
-		Errors: b.stats.errors.Load(),
+		Hits:          b.stats.hits.Load(),
+		Misses:        b.stats.misses.Load(),
+		Puts:          b.stats.puts.Load(),
+		Stales:        b.stats.stales.Load(),
+		Errors:        b.stats.errors.Load(),
+		BodyHits:      b.stats.bodyHits.Load(),
+		BodyMisses:    b.stats.bodyMisses.Load(),
+		BodyPuts:      b.stats.bodyPuts.Load(),
+		BodyStales:    b.stats.bodyStales.Load(),
+		BodyEvictions: b.stats.bodyEvictions.Load(),
+		BodyOversize:  b.stats.bodyOversize.Load(),
+		BodyErrors:    b.stats.bodyErrors.Load(),
 	}
 }
 
-// Close drains the writer channel, waits for the writer goroutine to exit,
-// then closes the bbolt db. Safe to call once; subsequent calls are no-ops.
+// Close drains both writer channels, waits for the writer goroutines
+// to exit, then closes the bbolt db. Safe to call once; subsequent
+// calls are no-ops.
 func (b *boltIndex) Close() error {
 	var closeErr error
 	b.once.Do(func() {
 		close(b.puts)
+		close(b.bputs)
 		b.wg.Wait()
 		closeErr = b.db.Close()
 	})
@@ -245,3 +414,164 @@ func (b *boltIndex) writerLoop() {
 	}
 }
 
+// bodyWriterLoop is the single writer for the bodies bucket. Mirrors
+// writerLoop's batching pattern, but each flush also:
+//
+//   - Updates the body-access bucket with the latest AccessedUnixNano
+//     for every Put OR Touch in the batch (Touch = nil val).
+//   - Updates the running bodies_total_size meta key when bodies are
+//     inserted or replaced.
+//   - Evicts oldest-by-access-time entries when the running total
+//     exceeds bodyCap.
+//
+// Eviction runs in the same transaction as the flush, so the
+// post-batch invariant holds: bodiesTotalSize ≤ bodyCap. The eviction
+// pass is bounded by how many entries it needs to drop, not by the
+// bucket size, so it's cheap when the workload isn't churning.
+func (b *boltIndex) bodyWriterLoop() {
+	defer b.wg.Done()
+	ticker := time.NewTicker(flushInterval)
+	defer ticker.Stop()
+
+	pending := make([]bodyPutReq, 0, bodyFlushBatch)
+	flush := func() {
+		if len(pending) == 0 {
+			return
+		}
+		var puts uint64
+		err := b.db.Update(func(tx *bbolt.Tx) error {
+			bodies := tx.Bucket([]byte(bucketBodies))
+			access := tx.Bucket([]byte(bucketBodyAccess))
+			meta := tx.Bucket([]byte(bucketMeta))
+			if bodies == nil || access == nil || meta == nil {
+				return errors.New("body buckets missing")
+			}
+			tsBuf := make([]byte, 8)
+			for _, p := range pending {
+				key := []byte(p.key)
+				if p.val != nil {
+					// Put — replace any existing body, adjusting the
+					// running total by (newSize - oldSize).
+					old := bodies.Get(key)
+					oldSize := int64(0)
+					if old != nil {
+						oldSize = int64(len(key)) + int64(len(old))
+					}
+					newSize := int64(len(key)) + int64(len(p.val))
+					if err := bodies.Put(key, p.val); err != nil {
+						return err
+					}
+					b.bodiesTotalSize.Add(newSize - oldSize)
+					puts++
+				}
+				// Both Put and Touch update the access timestamp.
+				binary.BigEndian.PutUint64(tsBuf, uint64(p.ts))
+				if err := access.Put(key, append([]byte{}, tsBuf...)); err != nil {
+					return err
+				}
+			}
+			// Mirror bodiesTotalSize to meta so it survives restarts.
+			totalBuf := make([]byte, 8)
+			binary.BigEndian.PutUint64(totalBuf, uint64(b.bodiesTotalSize.Load()))
+			if err := meta.Put([]byte(metaBodiesSizeKey), totalBuf); err != nil {
+				return err
+			}
+			// Evict if over cap. Eviction walks the access bucket in
+			// ascending timestamp order, deleting from both buckets
+			// until the running total is back under cap.
+			if b.bodyCap > 0 && b.bodiesTotalSize.Load() > b.bodyCap {
+				if err := b.evictBodiesLocked(tx); err != nil {
+					return err
+				}
+				// Re-mirror total after eviction.
+				binary.BigEndian.PutUint64(totalBuf, uint64(b.bodiesTotalSize.Load()))
+				if err := meta.Put([]byte(metaBodiesSizeKey), totalBuf); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			b.stats.bodyErrors.Add(uint64(len(pending)))
+		} else {
+			b.stats.bodyPuts.Add(puts)
+		}
+		pending = pending[:0]
+	}
+
+	for {
+		select {
+		case req, ok := <-b.bputs:
+			if !ok {
+				flush()
+				return
+			}
+			pending = append(pending, req)
+			if len(pending) >= bodyFlushBatch {
+				flush()
+			}
+		case <-ticker.C:
+			flush()
+		}
+	}
+}
+
+// evictBodiesLocked drops oldest-by-access-timestamp entries until
+// bodiesTotalSize ≤ bodyCap. Must be called inside an Update tx —
+// it mutates bodies + body_access buckets directly. Bumps
+// BodyEvictions for each deleted entry.
+//
+// Algorithm: walk body_access in ascending order (small fixed-size
+// 8-byte values), build a list sorted by timestamp, then pop oldest
+// and delete from both buckets until under cap. The first walk is
+// O(N) in the bucket size but the inner sort+delete loop terminates
+// as soon as the cap is satisfied.
+func (b *boltIndex) evictBodiesLocked(tx *bbolt.Tx) error {
+	bodies := tx.Bucket([]byte(bucketBodies))
+	access := tx.Bucket([]byte(bucketBodyAccess))
+	if bodies == nil || access == nil {
+		return errors.New("body buckets missing during eviction")
+	}
+
+	type accessEntry struct {
+		key []byte
+		ts  uint64
+	}
+	var all []accessEntry
+	if err := access.ForEach(func(k, v []byte) error {
+		if len(v) != 8 {
+			return nil
+		}
+		all = append(all, accessEntry{
+			key: append([]byte{}, k...),
+			ts:  binary.BigEndian.Uint64(v),
+		})
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].ts < all[j].ts })
+
+	evicted := uint64(0)
+	for _, e := range all {
+		if b.bodiesTotalSize.Load() <= b.bodyCap {
+			break
+		}
+		bodyVal := bodies.Get(e.key)
+		entrySize := int64(0)
+		if bodyVal != nil {
+			entrySize = int64(len(e.key)) + int64(len(bodyVal))
+		}
+		if err := bodies.Delete(e.key); err != nil {
+			return err
+		}
+		if err := access.Delete(e.key); err != nil {
+			return err
+		}
+		b.bodiesTotalSize.Add(-entrySize)
+		evicted++
+	}
+	b.stats.bodyEvictions.Add(evicted)
+	return nil
+}

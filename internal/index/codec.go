@@ -59,6 +59,20 @@ var decodeSem = make(chan struct{}, concurrentDecodeLimit)
 // always recoverable, a runaway DB is not.
 const maxEntryBytes = 256 * 1024
 
+// bodyMaxBytes is the per-body encoded-size cap. Bigger than maxEntryBytes
+// because a body for a typical PDF / DOCX runs 10 KB – 1 MB and the agent
+// upside of caching long bodies outweighs the storage cost. Matches the
+// archive entry read cap (internal/search/archive_walk.go EntryReadCap) so a
+// body that would fit in the archive walker's per-entry buffer also fits
+// the body cache. Bodies bigger than this don't cache (Stats.BodyOversize++);
+// the re-extraction path is the safety net.
+const bodyMaxBytes = 8 << 20
+
+// defaultBodyCacheMaxBytes is the default total-size cap for the bodies_v1
+// bucket. 256 MiB fits ~1000-3000 cached bodies for a typical document tree
+// before FIFO eviction kicks in. Tunable via OpenWith / BodyCacheCap.
+const defaultBodyCacheMaxBytes = int64(256 << 20)
+
 // gob registry init: the values inside Entry.Extra reach gob via
 // `interface{}`, so concrete types must be registered before encode/decode
 // or gob refuses to round-trip them. The set below covers everything
@@ -150,6 +164,63 @@ func decodeEntry(b []byte) (*Entry, error) {
 // Stats.Errors increment and silently drop the Put.
 var errEntryTooLarge = encodingError("encoded entry exceeds size cap")
 
+// errBodyTooLarge mirrors errEntryTooLarge for the body cache. Callers
+// in bbolt.go convert it into a Stats.BodyOversize increment and
+// silently drop the PutBody — the body will simply be re-extracted on
+// the next access.
+var errBodyTooLarge = encodingError("encoded body exceeds size cap")
+
 type encodingError string
 
 func (e encodingError) Error() string { return string(e) }
+
+// encodeBody serialises a BodyEntry to gob. Mirrors encodeEntry but
+// uses bodyMaxBytes (8 MiB) instead of maxEntryBytes (256 KiB) because
+// bodies are intrinsically larger than attribute payloads.
+func encodeBody(b *BodyEntry) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+	if err := enc.Encode(b); err != nil {
+		return nil, err
+	}
+	if buf.Len() > bodyMaxBytes {
+		return nil, errBodyTooLarge
+	}
+	return buf.Bytes(), nil
+}
+
+// decodeBody reverses encodeBody. Honours the same decodeTimeout +
+// concurrentDecodeLimit semaphore as decodeEntry — adversarial input
+// to either codec gets the same DoS defence. Bodies are larger than
+// attribute payloads but the gob decoder's pathological-input class
+// (heavily nested structures, slice-length attacks) is the same.
+func decodeBody(b []byte) (*BodyEntry, error) {
+	if len(b) > bodyMaxBytes {
+		return nil, errBodyTooLarge
+	}
+	select {
+	case decodeSem <- struct{}{}:
+	default:
+		return nil, errDecodeOverloaded
+	}
+	type result struct {
+		e   *BodyEntry
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		defer func() { <-decodeSem }()
+		var e BodyEntry
+		dec := gob.NewDecoder(bytes.NewReader(b))
+		ch <- result{e: &e, err: dec.Decode(&e)}
+	}()
+	select {
+	case r := <-ch:
+		if r.err != nil {
+			return nil, r.err
+		}
+		return r.e, nil
+	case <-time.After(decodeTimeout):
+		return nil, errDecodeTimeout
+	}
+}

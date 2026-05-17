@@ -77,14 +77,55 @@ type EntryRecord struct {
 	Extra           map[string]any
 }
 
+// BodyEntry caches the extracted text body of a file.
+//
+// Validation tuple is (Size, ModTimeUnixNano) — same as Entry, so a
+// (size, mtime) change on disk invalidates the body cache in lockstep
+// with the attribute cache. CreatedUnixNano marks the wall-clock time
+// the body was extracted and stored; it's stable and informational.
+//
+// Body holds the extracted plain-text body string (truncated to the
+// per-body cap). For text-shaped types this is the raw bytes; for
+// structured types (PDF / office / EPUB / email) it's the
+// content.ExtractBody output.
+//
+// Access timestamps for LRU eviction live in a separate small bucket
+// (body_access_v1) keyed by the same path; touching on read updates
+// only the access bucket so a touch doesn't re-encode the body.
+type BodyEntry struct {
+	Size            int64
+	ModTimeUnixNano int64
+	CreatedUnixNano int64
+	Body            string
+}
+
 // Stats counts cache events for diagnostic surfacing (CLI footer, MCP
 // index_stats tool, tests). All fields are monotonic; no Reset.
+//
+// Body* counters are the body-cache analogues of the attribute-cache
+// counters. They report independently because body cache effectiveness
+// and attribute cache effectiveness can diverge — a workload that
+// always asks for body but rarely re-queries the same path will see
+// high BodyMisses without affecting Hits/Misses on attributes.
 type Stats struct {
 	Hits   uint64
 	Misses uint64
 	Puts   uint64
 	Stales uint64
 	Errors uint64
+
+	BodyHits      uint64 // successful LookupBody
+	BodyMisses    uint64 // LookupBody with no entry
+	BodyPuts      uint64 // PutBody persisted to disk
+	BodyStales    uint64 // LookupBody (size, mtime) mismatch
+	BodyEvictions uint64 // entries dropped by FIFO eviction when over cap
+	BodyOversize  uint64 // PutBody encoded > bodyMaxBytes; dropped
+	// BodyErrors: encode failures, full body-puts channel (peak walker
+	// bursts on cold trees can outrun the writer's drain rate), or
+	// failed body-writer batch transactions. A high count next to a
+	// healthy BodyHits is benign — affected bodies simply re-extract
+	// next call. Worth investigating only when BodyHits stays near zero.
+	BodyErrors uint64
 }
 
 // Index is the surface every cache implementation honours.
@@ -105,8 +146,33 @@ type Stats struct {
 type Index interface {
 	Lookup(absPath string, size int64, mtime time.Time) (*Entry, bool)
 	Put(absPath string, e *Entry) error
+
+	// LookupBody returns the cached extracted body for absPath when the
+	// (size, mtime) tuple matches. A hit also bumps the LRU access
+	// timestamp so frequently-used bodies stay out of the eviction
+	// queue.
+	LookupBody(absPath string, size int64, mtime time.Time) (string, bool)
+
+	// PutBody stores an extracted body for absPath. The implementation
+	// is responsible for honouring size caps and triggering eviction
+	// when the body cache exceeds its configured maximum. Failures
+	// (encoded size > bodyMaxBytes, channel full, encode error) bump
+	// the relevant Body* counter but never return an error to the
+	// caller — the body simply isn't cached, which is recoverable
+	// (a re-extraction next time).
+	PutBody(absPath string, e *BodyEntry) error
+
 	Stats() Stats
 	Close() error
+}
+
+// BodyCacheCap is the optional configuration for body cache size
+// limits. Passed to Open via Options when the caller wants a non-
+// default cap or opt-out. Zero values mean "use default" (256 MiB
+// cap, body cache enabled).
+type BodyCacheCap struct {
+	MaxBytes int64 // total bytes for bodies_v1 bucket; 0 = default
+	Disable  bool  // when true, PutBody is a no-op and LookupBody always misses
 }
 
 // ErrSchemaMismatch is returned by Open when the on-disk index file
@@ -121,13 +187,18 @@ func NewMemory() Index {
 	return newMemoryIndex()
 }
 
-// Open returns an Index. When path is empty it returns NewMemory().
-// Otherwise it opens (or creates) a bbolt file at path. On
-// schema-version mismatch it returns ErrSchemaMismatch and does NOT
-// modify the file.
+// Open returns an Index using the default body-cache cap (256 MiB).
+// When path is empty it returns NewMemory(). Otherwise it opens (or
+// creates) a bbolt file at path. On schema-version mismatch it returns
+// ErrSchemaMismatch and does NOT modify the file.
 func Open(path string) (Index, error) {
+	return OpenWith(path, BodyCacheCap{})
+}
+
+// OpenWith is Open with a tunable body-cache cap.
+func OpenWith(path string, cap BodyCacheCap) (Index, error) {
 	if path == "" {
 		return NewMemory(), nil
 	}
-	return openBoltIndex(path)
+	return openBoltIndex(path, cap)
 }

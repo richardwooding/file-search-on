@@ -194,7 +194,7 @@ func (s *StatsCmd) Run(ctx context.Context) error {
 	var idx index.Index
 	if s.IndexPath != "" {
 		var err error
-		idx, err = openIndex(s.IndexPath)
+		idx, err = openIndex(s.IndexPath, index.BodyCacheCap{})
 		if err != nil {
 			return err
 		}
@@ -274,7 +274,7 @@ func (d *DuplicatesCmd) Run(ctx context.Context) error {
 	var idx index.Index
 	if d.IndexPath != "" {
 		var err error
-		idx, err = openIndex(d.IndexPath)
+		idx, err = openIndex(d.IndexPath, index.BodyCacheCap{})
 		if err != nil {
 			return err
 		}
@@ -354,7 +354,7 @@ func (n *NearDuplicatesCmd) Run(ctx context.Context) error {
 	var idx index.Index
 	if n.IndexPath != "" {
 		var err error
-		idx, err = openIndex(n.IndexPath)
+		idx, err = openIndex(n.IndexPath, index.BodyCacheCap{})
 		if err != nil {
 			return err
 		}
@@ -426,7 +426,7 @@ func (c *ArchiveContentsCmd) Run(ctx context.Context) error {
 	var idx index.Index
 	if c.IndexPath != "" {
 		var err error
-		idx, err = openIndex(c.IndexPath)
+		idx, err = openIndex(c.IndexPath, index.BodyCacheCap{})
 		if err != nil {
 			return err
 		}
@@ -548,7 +548,7 @@ func (f *FindMatchesCmd) Run(ctx context.Context) error {
 	var idx index.Index
 	if f.IndexPath != "" {
 		var err error
-		idx, err = openIndex(f.IndexPath)
+		idx, err = openIndex(f.IndexPath, index.BodyCacheCap{})
 		if err != nil {
 			return err
 		}
@@ -739,12 +739,14 @@ type MCPCmd struct {
 	Transport string        `name:"transport" enum:"stdio,http,sse" default:"stdio" help:"Transport: stdio (default; for desktop clients), http (Streamable HTTP, MCP 2025-03-26), or sse (DEPRECATED — HTTP+SSE, MCP 2024-11-05)."`
 	Addr      string        `name:"addr" default:":8080" help:"host:port to bind for http or sse transports. Ignored for stdio."`
 	Path      string        `name:"path" default:"/" help:"URL path prefix the handler is mounted at. Ignored for stdio."`
-	IndexPath string        `name:"index-path" help:"Persistent attribute index file (bbolt). When unset the server uses an in-memory cache that lives for the process lifetime; setting this makes the cache survive restarts. The file is created on first use."`
-	Timeout   time.Duration `name:"timeout" default:"60s" help:"Default per-tool-call timeout (Go duration: 30s, 2m, 5m). Each search/read_attributes invocation is wrapped with this deadline. Per-call 'timeout_seconds' input on the search tool overrides this. Set to 0 to disable the default (not recommended — long-running calls can exceed MCP client read deadlines)."`
+	IndexPath         string        `name:"index-path" help:"Persistent attribute index file (bbolt). When unset the server uses an in-memory cache that lives for the process lifetime; setting this makes the cache survive restarts. The file is created on first use."`
+	BodyCacheMaxBytes int           `name:"body-cache-max-bytes" default:"268435456" help:"Total size cap (bytes) for the body cache inside the bbolt index file. Default 256 MiB. FIFO eviction by access time once exceeded. Only relevant when --index-path is set; in-memory indexes have no cap."`
+	NoBodyCache       bool          `name:"no-body-cache" help:"Disable the body cache. LookupBody always misses; PutBody is a no-op. Bodies are re-extracted on every include_body query."`
+	Timeout           time.Duration `name:"timeout" default:"60s" help:"Default per-tool-call timeout (Go duration: 30s, 2m, 5m). Each search/read_attributes invocation is wrapped with this deadline. Per-call 'timeout_seconds' input on the search tool overrides this. Set to 0 to disable the default (not recommended — long-running calls can exceed MCP client read deadlines)."`
 }
 
 func (m *MCPCmd) Run(ctx context.Context) error {
-	idx, err := openIndex(m.IndexPath)
+	idx, err := openIndex(m.IndexPath, index.BodyCacheCap{MaxBytes: int64(m.BodyCacheMaxBytes), Disable: m.NoBodyCache})
 	if err != nil {
 		return err
 	}
@@ -764,11 +766,17 @@ func (m *MCPCmd) Run(ctx context.Context) error {
 // openIndex returns an index.Index for the given path. Empty path
 // means in-memory only. On schema mismatch it surfaces a helpful
 // "delete or re-point --index-path" message rather than a raw error.
-func openIndex(path string) (index.Index, error) {
+//
+// bodyCap controls the body-cache total-size cap and opt-out for the
+// bodies_v1 bucket. Zero-value uses defaults (256 MiB cap, body cache
+// enabled). Subcommands that don't expose body-cache flags pass the
+// zero value; SearchCmd threads its --body-cache-max-bytes / --no-body-cache
+// through.
+func openIndex(path string, bodyCap index.BodyCacheCap) (index.Index, error) {
 	if path == "" {
 		return index.NewMemory(), nil
 	}
-	idx, err := index.Open(path)
+	idx, err := index.OpenWith(path, bodyCap)
 	if err != nil {
 		if errors.Is(err, index.ErrSchemaMismatch) {
 			return nil, fmt.Errorf("index file at %s has an incompatible schema; delete it or pass a new --index-path", path)
@@ -796,6 +804,8 @@ type SearchCmd struct {
 	SnippetLines     int           `name:"snippet-lines" default:"10" help:"How many lines of body content to include per match when --snippet is set."`
 	Body             bool          `name:"body" help:"Make file body available to the CEL expression as the 'body' string variable. Pair with CEL's built-in string methods to filter on content: --body 'is_markdown && body.contains(\"transformer\")', or for regex: --body 'is_source && body.matches(\"(?i)\\\\bTODO\\\\b\")'. Only text-based content types populate; the body is capped at --body-max-bytes (default 1 MiB). Expensive: reads every candidate file's body, not just headers."`
 	BodyMaxBytes     int           `name:"body-max-bytes" default:"0" help:"Cap on the body string read per file in bytes. 0 uses the 1 MiB default. Files larger than the cap are silently truncated; the prefix still participates in the CEL filter."`
+	BodyCacheMaxBytes int          `name:"body-cache-max-bytes" default:"268435456" help:"Total size cap (bytes) for the body cache inside the bbolt index file. Default 256 MiB. FIFO eviction by access time once exceeded. Only relevant when --body and --index-path are both set."`
+	NoBodyCache      bool          `name:"no-body-cache" help:"Disable the body cache entirely. PutBody is a no-op and LookupBody always misses. Use when caching adds no value (one-shot search of a tree that won't be queried again) or when storage is at a premium."`
 	Exclude          []string      `name:"exclude" help:"Glob pattern matched against the basename of each file/directory; matches are skipped (directories are pruned). Repeatable: --exclude node_modules --exclude '*.bak'."`
 	RespectGitignore bool          `name:"respect-gitignore" help:"Parse a .gitignore at the walk root (if present) and skip matching paths. Nested .gitignore files in subdirectories are NOT honoured in this version."`
 	FollowSymlinks   bool          `name:"follow-symlinks" help:"Descend through symbolic links to directories during the walk. Off by default — symlinks-to-dirs surface as leaf entries with is_symlink=true. The is_symlink / target_path / is_broken_symlink CEL attributes are populated regardless of this flag. No loop detection."`
@@ -837,7 +847,10 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 	var idx index.Index
 	if s.IndexPath != "" {
 		var err error
-		idx, err = openIndex(s.IndexPath)
+		idx, err = openIndex(s.IndexPath, index.BodyCacheCap{
+			MaxBytes: int64(s.BodyCacheMaxBytes),
+			Disable:  s.NoBodyCache,
+		})
 		if err != nil {
 			return err
 		}
@@ -903,6 +916,12 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		st := idx.Stats()
 		fmt.Fprintf(os.Stderr, "index: %d hits, %d misses, %d stored, %d stale, %d errors\n",
 			st.Hits, st.Misses, st.Puts, st.Stales, st.Errors)
+		// Print body-cache line only when body caching actually fired
+		// — keeps the footer clean for callers that don't use --body.
+		if st.BodyHits+st.BodyMisses+st.BodyPuts+st.BodyStales+st.BodyEvictions+st.BodyOversize+st.BodyErrors > 0 {
+			fmt.Fprintf(os.Stderr, "body cache: %d hits, %d misses, %d stored, %d stale, %d evicted, %d oversized, %d errors\n",
+				st.BodyHits, st.BodyMisses, st.BodyPuts, st.BodyStales, st.BodyEvictions, st.BodyOversize, st.BodyErrors)
+		}
 	}
 
 	// Distinguish timeout, Ctrl-C, and real errors. The stream/buffered
