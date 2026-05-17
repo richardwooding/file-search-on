@@ -72,6 +72,15 @@ jobs:
           - name: ReadVHDXMetadata
             pkg: ./internal/content/
             func: FuzzReadVHDXMetadata
+          - name: ParseClassFile
+            pkg: ./internal/content/
+            func: FuzzParseClassFile
+          - name: ParsePYCHeader
+            pkg: ./internal/content/
+            func: FuzzParsePYCHeader
+          - name: ParseWASMModule
+            pkg: ./internal/content/
+            func: FuzzParseWASMModule
           - name: CELCompile
             pkg: ./internal/celexpr/
             func: FuzzCELCompile

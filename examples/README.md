@@ -17,6 +17,7 @@ CEL expression recipes by content family, plus cross-cutting cookbook patterns.
 | [`binaries.md`](./binaries.md) | ELF / Mach-O / PE — architecture filtering, static-vs-dynamic, stripped triage, rogue `.exe` hunting |
 | [`disk-images.md`](./disk-images.md) | DMG / ISO / VHD / VHDX / VMDK / QCOW2 / WIM — `virtual_size`, `disk_image_format`, `disk_type` (VHD/VMDK), `volume_label` (ISO), `is_encrypted` (QCOW2), `image_count` (WIM) |
 | [`install-packages.md`](./install-packages.md) | macOS `.pkg` / Debian `.deb` / Red Hat `.rpm` / Linux `.appimage` — `package_format`, `package_name` (RPM), `package_version` (RPM), `package_arch` (RPM), `package_kind` |
+| [`bytecode.md`](./bytecode.md) | Java `.class` / Python `.pyc` / WebAssembly `.wasm` — `bytecode_format`, `runtime_version`, `class_name`, `super_class`, `interfaces`, `access_flags`, `method_count`, `python_version`, `wasm_version`, `import_count`, `export_count` |
 | [`symlinks.md`](./symlinks.md) | `is_symlink`, `is_broken_symlink`, `target_path` — audit dangling links, follow Homebrew / asdf farms with `--follow-symlinks`, distinguish symlinked from real duplicates |
 | [`email.md`](./email.md) | `.eml` / `.mbox` — inbox triage, find emails by sender / subject / date, mbox archive sniffing |
 | [`source-code.md`](./source-code.md) | Go / Python / JS / TS / Rust / C / C++ / Java / Ruby / Swift / Kotlin / Scala / Shell / Lua / Elixir / Clojure / Haskell / OCaml / Zig — LOC counts, language filtering, comment density |

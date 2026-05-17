@@ -69,6 +69,10 @@ var expectedTypes = map[string]string{
 	"sample.deb":      "install/deb",
 	"sample.rpm":      "install/rpm",
 	"sample.appimage": "install/appimage",
+
+	"sample.class": "bytecode/jvm",
+	"sample.pyc":   "bytecode/python",
+	"sample.wasm":  "bytecode/wasm",
 }
 
 // TestFixturesDetect walks the embedded fixture bank and asserts every

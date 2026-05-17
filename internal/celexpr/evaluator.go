@@ -207,6 +207,15 @@ type FileAttributes struct {
 	IsAppImage       bool
 	IsInstallPackage bool
 
+	// VM-bytecode content types. Per-type flag fires on the matched
+	// content_type (bytecode/jvm, bytecode/python, bytecode/wasm);
+	// IsBytecode is the umbrella family flag set via the bytecode/
+	// prefix block in setTypeFlags.
+	IsClass    bool
+	IsPyc      bool
+	IsWasm     bool
+	IsBytecode bool
+
 	// Symlink awareness. IsSymlink fires when os.Lstat reports the
 	// entry as a symbolic link (filesystem semantics — not "file that
 	// looks like a shortcut"). IsBrokenSymlink fires when the target
@@ -350,6 +359,27 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("is_symlink", cel.BoolType),
 		cel.Variable("is_broken_symlink", cel.BoolType),
 		cel.Variable("target_path", cel.StringType),
+
+		// VM-bytecode content types (per-type + family predicates +
+		// per-format attributes).
+		cel.Variable("is_class", cel.BoolType),
+		cel.Variable("is_pyc", cel.BoolType),
+		cel.Variable("is_wasm", cel.BoolType),
+		cel.Variable("is_bytecode", cel.BoolType),
+		cel.Variable("bytecode_format", cel.StringType),
+		cel.Variable("runtime_version", cel.StringType),
+		cel.Variable("class_name", cel.StringType),
+		cel.Variable("super_class", cel.StringType),
+		cel.Variable("interfaces", cel.ListType(cel.StringType)),
+		cel.Variable("method_count", cel.IntType),
+		cel.Variable("field_count", cel.IntType),
+		cel.Variable("access_flags", cel.ListType(cel.StringType)),
+		cel.Variable("python_version", cel.StringType),
+		cel.Variable("source_mtime", cel.TimestampType),
+		cel.Variable("wasm_version", cel.IntType),
+		cel.Variable("section_count", cel.IntType),
+		cel.Variable("import_count", cel.IntType),
+		cel.Variable("export_count", cel.IntType),
 
 		// Attributes parsed from exact-name types.
 		cel.Variable("module", cel.StringType),
@@ -872,6 +902,15 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 		attrs.IsRPM = true
 	case "install/appimage":
 		attrs.IsAppImage = true
+
+	// VM-bytecode content types. Per-type flag fires here;
+	// family flag IsBytecode fires via the bytecode/ prefix block.
+	case "bytecode/jvm":
+		attrs.IsClass = true
+	case "bytecode/python":
+		attrs.IsPyc = true
+	case "bytecode/wasm":
+		attrs.IsWasm = true
 	}
 
 	// Family prefix flags. Independent `if` blocks rather than a
@@ -942,6 +981,9 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 	}
 	if strings.HasPrefix(name, "install/") {
 		attrs.IsInstallPackage = true
+	}
+	if strings.HasPrefix(name, "bytecode/") {
+		attrs.IsBytecode = true
 	}
 }
 
