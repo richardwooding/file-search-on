@@ -102,6 +102,15 @@ type Options struct {
 	IncludeBody  bool
 	BodyMaxBytes int // hard cap on the body string in bytes; 0 → 1 MiB default
 
+	// ComputeHashes, when true, populates MD5 / SHA1 / SHA256 on
+	// each Result by reading the file fully (one io.MultiWriter
+	// pass across the three hashers). Cached in the index alongside
+	// other Entry fields, keyed on (size, mtime). Expensive: every
+	// matched file is read end-to-end. Opt-in for forensic / hash-
+	// based interop workflows (NSRL, VirusTotal, threat-intel feeds);
+	// CLI exposes via `--with-hashes`, MCP via `compute_hashes`.
+	ComputeHashes bool
+
 	// ResolveProjects, when true, makes BuildAttributesWith populate
 	// each match's `project_types` (list<string>) and `project_type`
 	// (string — first match) CEL variables by walking up from the
@@ -353,6 +362,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 						BodyMaxBytes:        opts.BodyMaxBytes,
 						ProjectResolver:     j.resolver,
 						SkipAttributesParse: opts.SkipAttributesParse,
+						ComputeHashes:       opts.ComputeHashes,
 					})
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 						return

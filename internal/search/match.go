@@ -267,6 +267,14 @@ type Match struct {
 	MarkdownCellCount int64  `json:"markdown_cell_count,omitempty"`
 	Kernel            string `json:"kernel,omitempty"`
 
+	// Forensic-interop hashes. Populated when the caller sets
+	// `compute_hashes: true` (MCP) or `--with-hashes` (CLI). All
+	// three are computed in one io.MultiWriter pass; cached
+	// alongside (size, mtime). Empty when not requested.
+	MD5    string `json:"md5,omitempty"`
+	SHA1   string `json:"sha1,omitempty"`
+	SHA256 string `json:"sha256,omitempty"`
+
 	// Snippet is the first N lines of the file body when the search
 	// call had include_snippet=true and the content type is
 	// text-based. Empty otherwise. Lets an agent decide whether a
@@ -317,6 +325,7 @@ func MatchFrom(r Result) Match {
 	m.IsPkg, m.IsDeb, m.IsRPM, m.IsAppImage, m.IsInstallPackage = a.IsPkg, a.IsDeb, a.IsRPM, a.IsAppImage, a.IsInstallPackage
 	m.IsSymlink, m.IsBrokenSymlink = a.IsSymlink, a.IsBrokenSymlink
 	m.IsClass, m.IsPyc, m.IsWasm, m.IsBytecode = a.IsClass, a.IsPyc, a.IsWasm, a.IsBytecode
+	m.MD5, m.SHA1, m.SHA256 = a.MD5, a.SHA1, a.SHA256
 
 	if a.Extra == nil {
 		return m

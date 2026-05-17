@@ -2,15 +2,12 @@ package search
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
-	"io"
-	"os"
 	"sort"
 	"time"
 
 	"github.com/richardwooding/file-search-on/internal/content"
+	"github.com/richardwooding/file-search-on/internal/cryptohash"
 	"github.com/richardwooding/file-search-on/internal/index"
 )
 
@@ -181,14 +178,14 @@ done:
 // readOrComputeHash returns the sha256 hex of the file. With a
 // non-nil idx it consults the cache first; on a hit with non-empty
 // Hash returns it; on a hit with empty Hash or a miss, computes
-// the hash and writes back so the next call is free.
+// all three (md5, sha1, sha256) in one pass via HashFile and writes
+// back so the next call is free.
 //
 // The path is the OS-native display path (the same string
 // Result.Path carries); we use os.Open against it rather than
 // going through fsys because FindDuplicates only supports
 // real-filesystem walks (multi-root tests use t.TempDir, which
-// yields absolute paths). This decouples the hash computation
-// from the per-job fs.FS abstraction the walker uses.
+// yields absolute paths).
 func readOrComputeHash(ctx context.Context, path string, size int64, mtime time.Time, idx index.Index) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
@@ -204,7 +201,7 @@ func readOrComputeHash(ctx context.Context, path string, size int64, mtime time.
 		}
 	}
 
-	h, err := hashFile(ctx, path)
+	trio, err := cryptohash.File(ctx, path)
 	if err != nil {
 		return "", err
 	}
@@ -217,42 +214,10 @@ func readOrComputeHash(ctx context.Context, path string, size int64, mtime time.
 				ModTimeUnixNano: mtime.UnixNano(),
 			}
 		}
-		entry.Hash = h
+		entry.Hash = trio.SHA256
+		entry.MD5 = trio.MD5
+		entry.SHA1 = trio.SHA1
 		_ = idx.Put(path, entry)
 	}
-	return h, nil
-}
-
-// hashFile streams the file through sha256. Uses io.Copy for the
-// throughput; ctx is checked at entry and after each chunk so
-// cancellation propagates on multi-GB files. No size cap — by
-// the time FindDuplicates gets here we've already validated the
-// file is in a size-collision group and worth hashing.
-func hashFile(ctx context.Context, path string) (string, error) {
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = f.Close() }()
-	h := sha256.New()
-	buf := make([]byte, 64*1024)
-	for {
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
-		n, rerr := f.Read(buf)
-		if n > 0 {
-			h.Write(buf[:n])
-		}
-		if rerr == io.EOF {
-			break
-		}
-		if rerr != nil {
-			return "", rerr
-		}
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return trio.SHA256, nil
 }
