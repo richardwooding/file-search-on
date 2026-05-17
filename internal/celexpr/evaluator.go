@@ -302,6 +302,19 @@ type FileAttributes struct {
 	MetadataChangedAt   time.Time
 	IsBtimeAnomaly      bool
 
+	// Disguise detection (PR #145). Populated when the caller sets
+	// BuildOptions.CheckDisguised. MagicContentType is what the
+	// file's first 512 bytes look like under magic-byte sniffing
+	// alone (registry.DetectBoth's magic-pass result);
+	// ExtensionContentType is what the name-based passes (exact-
+	// basename + extension) would return. Either may be empty.
+	// IsDisguised fires when both are non-empty AND they disagree —
+	// the classic "this .txt file contains a PE binary" forensic
+	// indicator.
+	MagicContentType     string
+	ExtensionContentType string
+	IsDisguised          bool
+
 	Extra content.Attributes
 }
 
@@ -555,6 +568,11 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("created_at", cel.TimestampType),
 		cel.Variable("metadata_changed_at", cel.TimestampType),
 		cel.Variable("is_btime_anomaly", cel.BoolType),
+		// Disguise detection (PR #145). Empty / false when the
+		// caller didn't opt in via CheckDisguised.
+		cel.Variable("magic_content_type", cel.StringType),
+		cel.Variable("extension_content_type", cel.StringType),
+		cel.Variable("is_disguised", cel.BoolType),
 	}
 	opts = append(opts, fuzzyFunctions()...)
 	opts = append(opts, geoFunctions()...)
@@ -651,6 +669,22 @@ type BuildOptions struct {
 	// forensic / dedup workflows; CLI exposes via --with-hashes
 	// on the search subcommand, MCP via compute_hashes input.
 	ComputeHashes bool
+
+	// CheckDisguised, when true, makes BuildAttributesWith call
+	// registry.DetectBoth (instead of Detect) and populate
+	// MagicContentType / ExtensionContentType / IsDisguised. The
+	// extra cost is one 512-byte file read per file whose
+	// extension already won — the magic pass that Detect's
+	// fast-path normally skips.
+	//
+	// Cached via index.Entry.MagicContentType /
+	// ExtensionContentType (both gob-additive); a cache hit with
+	// either field populated short-circuits the re-detect.
+	//
+	// Off by default. Opt-in for forensic / triage workflows; CLI
+	// exposes via --check-disguised on the search subcommand, MCP
+	// via check_disguised input.
+	CheckDisguised bool
 }
 
 // defaultBodyMaxBytes caps the body string supplied to CEL when
@@ -793,6 +827,24 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 			if opts.ComputeHashes {
 				populateHashes(ctx, displayPath, cacheKey, info, cached, attrs, opts.Index)
 			}
+			// Disguise check (PR #145). Reuse cached.MagicContentType /
+			// ExtensionContentType when DisguiseChecked is true (older
+			// entries lack the marker, in which case we re-detect).
+			if opts.CheckDisguised {
+				if cached.DisguiseChecked {
+					applyDisguise(attrs, cached.MagicContentType, cached.ExtensionContentType)
+				} else {
+					magicCT, extCT := redetectDisguise(fsys, fsPath, registry)
+					applyDisguise(attrs, magicCT, extCT)
+					// Backfill cache with the disguise fields so the
+					// next walk can serve from cache.
+					updated := *cached
+					updated.MagicContentType = magicCT
+					updated.ExtensionContentType = extCT
+					updated.DisguiseChecked = true
+					_ = opts.Index.Put(cacheKey, &updated)
+				}
+			}
 			applyFileTimes(attrs, ftimes)
 			applySymlinkInfo(attrs, sym)
 			return attrs, nil
@@ -819,7 +871,23 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 		return attrs, nil
 	}
 
-	ct := registry.Detect(fsys, fsPath)
+	var ct content.ContentType
+	var magicCT, extCT string
+	if opts.CheckDisguised {
+		nameType, magicType := registry.DetectBoth(fsys, fsPath)
+		ct = nameType
+		if ct == nil {
+			ct = magicType
+		}
+		if nameType != nil {
+			extCT = nameType.Name()
+		}
+		if magicType != nil {
+			magicCT = magicType.Name()
+		}
+	} else {
+		ct = registry.Detect(fsys, fsPath)
+	}
 	contentTypeName := ""
 	var extra content.Attributes
 	if ct != nil {
@@ -843,10 +911,13 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	// above) and would otherwise bloat the index file.
 	if opts.Index != nil && cacheKey != "" {
 		_ = opts.Index.Put(cacheKey, &index.Entry{
-			Size:            info.Size(),
-			ModTimeUnixNano: info.ModTime().UnixNano(),
-			ContentType:     contentTypeName,
-			Extra:           map[string]any(extra),
+			Size:                 info.Size(),
+			ModTimeUnixNano:      info.ModTime().UnixNano(),
+			ContentType:          contentTypeName,
+			Extra:                map[string]any(extra),
+			MagicContentType:     magicCT,
+			ExtensionContentType: extCT,
+			DisguiseChecked:      opts.CheckDisguised,
 		})
 	}
 
@@ -905,6 +976,9 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	// fresh values flow back into the cache so subsequent walks hit.
 	if opts.ComputeHashes {
 		populateHashes(ctx, displayPath, cacheKey, info, nil, attrs, opts.Index)
+	}
+	if opts.CheckDisguised {
+		applyDisguise(attrs, magicCT, extCT)
 	}
 	applyFileTimes(attrs, ftimes)
 	applySymlinkInfo(attrs, sym)

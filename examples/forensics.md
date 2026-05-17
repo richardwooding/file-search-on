@@ -69,15 +69,26 @@ Or `read_attributes` for a single file:
 
 ## Recipes
 
-### Find recently-modified executables that don't match their extension
+### Find disguised files — extension lies about content
 
-The classic "planted backdoor" signal. Combines magic-byte detection with mtime:
+The classic "planted backdoor" / "evasion" signal. `--check-disguised` runs both the name-based and magic-byte detection passes and surfaces three new attributes:
+
+- `magic_content_type` — what the file's first 512 bytes look like under magic-byte sniffing alone
+- `extension_content_type` — what the extension implies
+- `is_disguised` — fires when both are non-empty AND disagree
 
 ```sh
-file-search-on 'is_binary && mod_time > timestamp("2026-05-01T00:00:00Z")' --with-hashes -d /Volumes/Evidence
+# Disguised binaries — extension claims something benign but bytes say binary
+file-search-on 'is_disguised && magic_content_type.startsWith("binary/")' --check-disguised -d /Volumes/Evidence -o json
+
+# Disguised executables planted recently
+file-search-on 'is_disguised && is_binary && mod_time > timestamp("2026-05-01T00:00:00Z")' --check-disguised --with-hashes -d /Volumes/Evidence
+
+# Any extension-vs-bytes mismatch, sorted by recency
+file-search-on 'is_disguised' --check-disguised --sort mod_time --order desc -d /Volumes/Evidence
 ```
 
-(Note: a follow-up [issue #145](https://github.com/richardwooding/file-search-on/issues/145) adds `is_disguised` for explicit extension-vs-magic mismatch detection.)
+**Filter tip**: a bare `is_disguised` flag also fires on legitimate name-vs-magic divergences (e.g. `package.json` matches `manifest/node` by name and `json` by magic — both are "JSON in content", which is fine). Pair with type predicates like `is_disguised && is_binary` for forensic-grade signal that excludes the manifest noise.
 
 ### Hash every binary and compare against a known-bad list
 

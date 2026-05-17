@@ -53,6 +53,16 @@ type Entry struct {
 	// repopulates them.
 	MD5  string
 	SHA1 string
+	// MagicContentType, ExtensionContentType cache the results of
+	// Registry.DetectBoth — what the file's bytes look like under
+	// magic-byte sniffing alone vs what its extension implies. Set
+	// only when the caller opts in via BuildOptions.CheckDisguised
+	// (PR #145). Either string may legitimately be empty (no magic
+	// match / extensionless file) — use DisguiseChecked to tell
+	// "detected and empty" from "never detected". gob-additive.
+	MagicContentType     string
+	ExtensionContentType string
+	DisguiseChecked      bool
 	// Fingerprint is the 64-bit Charikar SimHash of the file's
 	// extracted body, computed by internal/fingerprint. Zero unless
 	// the near-duplicates pipeline asked for it. Like Hash, it's

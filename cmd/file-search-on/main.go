@@ -807,6 +807,7 @@ type SearchCmd struct {
 	BodyCacheMaxBytes int          `name:"body-cache-max-bytes" default:"268435456" help:"Total size cap (bytes) for the body cache inside the bbolt index file. Default 256 MiB. FIFO eviction by access time once exceeded. Only relevant when --body and --index-path are both set."`
 	NoBodyCache      bool          `name:"no-body-cache" help:"Disable the body cache entirely. PutBody is a no-op and LookupBody always misses. Use when caching adds no value (one-shot search of a tree that won't be queried again) or when storage is at a premium."`
 	WithHashes       bool          `name:"with-hashes" help:"Compute MD5, SHA1, and SHA256 of every matched file in a single io.MultiWriter pass and expose them as md5 / sha1 / sha256 CEL variables (and on the JSON/template output). Hashes cache in the index alongside (size, mtime), so subsequent runs are free on unchanged files. Off by default — hashing every file reads multi-GB videos / archives in full. Opt-in for forensic / NSRL / VirusTotal / threat-intel-feed workflows."`
+	CheckDisguised   bool          `name:"check-disguised" help:"Run both the name-based and magic-byte detection passes on every matched file, populating magic_content_type / extension_content_type / is_disguised CEL variables. is_disguised fires when the bytes disagree with the extension — classic 'this .txt is actually a PE binary' indicator. One extra 512-byte file read per match (cached in the index)."`
 	Exclude          []string      `name:"exclude" help:"Glob pattern matched against the basename of each file/directory; matches are skipped (directories are pruned). Repeatable: --exclude node_modules --exclude '*.bak'."`
 	RespectGitignore bool          `name:"respect-gitignore" help:"Parse a .gitignore at the walk root (if present) and skip matching paths. Nested .gitignore files in subdirectories are NOT honoured in this version."`
 	FollowSymlinks   bool          `name:"follow-symlinks" help:"Descend through symbolic links to directories during the walk. Off by default — symlinks-to-dirs surface as leaf entries with is_symlink=true. The is_symlink / target_path / is_broken_symlink CEL attributes are populated regardless of this flag. No loop detection."`
@@ -830,7 +831,7 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 	// Record path which already requires attrs). --body doesn't
 	// need Attrs surfaced on Result (the body lives in Extra only
 	// for CEL evaluation), but it's harmless to keep them.
-	includeAttrs := s.Format != "" || s.Output == "verbose" || s.Output == "json" || s.Sort != "" || s.Snippet || s.WithHashes
+	includeAttrs := s.Format != "" || s.Output == "verbose" || s.Output == "json" || s.Sort != "" || s.Snippet || s.WithHashes || s.CheckDisguised
 
 	// Parse the template up front so a bad template fails before we walk.
 	var tmpl *template.Template
@@ -886,6 +887,7 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		IncludeBody:       s.Body,
 		BodyMaxBytes:      s.BodyMaxBytes,
 		ComputeHashes:     s.WithHashes,
+		CheckDisguised:    s.CheckDisguised,
 		Excludes:            s.Exclude,
 		RespectGitignore:    s.RespectGitignore,
 		FollowSymlinks:      s.FollowSymlinks,

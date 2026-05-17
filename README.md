@@ -312,6 +312,7 @@ file-search-on 'is_html && dir.contains("build")'
 | **Repo metadata** | `license_id` (SPDX id detected from LICENSE / LICENCE / COPYING / UNLICENSE body) |
 | **Symlinks** | `is_symlink`, `is_broken_symlink`, `target_path` (raw `ln -s` target; relative or absolute as recorded on disk) |
 | **Forensic hashes** | `md5`, `sha1`, `sha256` — populated only when `--with-hashes` (CLI) or `compute_hashes: true` (MCP) is set. Single io.MultiWriter pass over the file; cached alongside (size, mtime). Forensic / NSRL / VirusTotal / threat-intel-feed interop. |
+| **Disguise detection** | `magic_content_type`, `extension_content_type`, `is_disguised` — populated only when `--check-disguised` (CLI) or `check_disguised: true` (MCP) is set. `is_disguised` fires when the bytes disagree with the extension (classic "this `.txt` contains a PE binary" indicator). Cached alongside (size, mtime). |
 | **VM bytecode** | `bytecode_format`, `runtime_version`, `class_name` (JVM), `super_class` (JVM), `interfaces` (JVM), `method_count` (JVM), `field_count` (JVM), `access_flags` (JVM), `python_version`, `source_mtime`, `wasm_version`, `section_count`, `import_count`, `export_count` |
 | **Project context** | `module`, `go_version`, `base_image`, `project_types`, `project_type` (the last two populated by `--resolve-projects`) |
 

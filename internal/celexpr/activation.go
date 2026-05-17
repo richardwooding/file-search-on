@@ -194,6 +194,12 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.MetadataChangedAt, true
 	case "is_btime_anomaly":
 		return a.attrs.IsBtimeAnomaly, true
+	case "magic_content_type":
+		return a.attrs.MagicContentType, true
+	case "extension_content_type":
+		return a.attrs.ExtensionContentType, true
+	case "is_disguised":
+		return a.attrs.IsDisguised, true
 	}
 	if v, ok := a.attrs.Extra[name]; ok {
 		return v, true

@@ -285,6 +285,17 @@ type Match struct {
 	MetadataChangedAt string `json:"metadata_changed_at,omitempty"`
 	IsBtimeAnomaly    bool   `json:"is_btime_anomaly,omitempty"`
 
+	// Disguise detection (PR #145). Populated when the caller sets
+	// `check_disguised: true` (MCP) or `--check-disguised` (CLI).
+	// MagicContentType is what the file's first 512 bytes look
+	// like under magic-byte sniffing alone; ExtensionContentType
+	// is what the name implies. IsDisguised fires when both are
+	// non-empty AND they disagree — classic "this .txt contains a
+	// PE binary" indicator.
+	MagicContentType     string `json:"magic_content_type,omitempty"`
+	ExtensionContentType string `json:"extension_content_type,omitempty"`
+	IsDisguised          bool   `json:"is_disguised,omitempty"`
+
 	// Snippet is the first N lines of the file body when the search
 	// call had include_snippet=true and the content type is
 	// text-based. Empty otherwise. Lets an agent decide whether a
@@ -343,6 +354,9 @@ func MatchFrom(r Result) Match {
 		m.MetadataChangedAt = a.MetadataChangedAt.Format(time.RFC3339)
 	}
 	m.IsBtimeAnomaly = a.IsBtimeAnomaly
+	m.MagicContentType = a.MagicContentType
+	m.ExtensionContentType = a.ExtensionContentType
+	m.IsDisguised = a.IsDisguised
 
 	if a.Extra == nil {
 		return m
