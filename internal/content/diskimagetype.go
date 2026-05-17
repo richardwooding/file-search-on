@@ -99,8 +99,8 @@ func (d *diskImageType) Attributes(ctx context.Context, fsys fs.FS, path string)
 // diskImageAttrs packs the cross-format surface (always present:
 // disk_image_format + virtual_size) plus any extras. Per-format
 // callers add `disk_type`, `volume_label`, `cluster_bits`,
-// `is_encrypted`, `image_count`, `created_at` on top via extras.
-// Mirrors archiveAttrs / binaryAttrs.
+// `is_encrypted`, `image_count`, `disk_image_created_at` on top via
+// extras. Mirrors archiveAttrs / binaryAttrs.
 func diskImageAttrs(format string, virtualSize int64, extras Attributes) Attributes {
 	out := Attributes{
 		"disk_image_format": format,
@@ -112,6 +112,7 @@ func diskImageAttrs(format string, virtualSize int64, extras Attributes) Attribu
 
 // zeroTime is the package-level "no date" sentinel. Per-format parsers
 // return this when the format declares no creation timestamp; the CEL
-// activation populates `created_at` with the zero time so filters like
-// `created_at > timestamp("2020-01-01T00:00:00Z")` work uniformly.
+// activation populates `disk_image_created_at` with the zero time so
+// filters like `disk_image_created_at > timestamp("2020-01-01T00:00:00Z")`
+// work uniformly.
 var zeroTime = time.Time{}

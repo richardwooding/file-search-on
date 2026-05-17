@@ -32,9 +32,9 @@ const (
 // relative offset 1.
 //
 // Surfaces:
-//   - virtual_size = volume_space_size (LE uint32) × 2048-byte sectors
-//   - volume_label = volume_identifier (32 bytes, space-padded d-chars)
-//   - created_at   = volume_creation_date_and_time (17 bytes,
+//   - virtual_size            = volume_space_size (LE uint32) × 2048-byte sectors
+//   - volume_label            = volume_identifier (32 bytes, space-padded d-chars)
+//   - disk_image_created_at   = volume_creation_date_and_time (17 bytes,
 //     "YYYYMMDDHHMMSScc" + signed tz-offset byte in 15-min units)
 //
 // All fields decode best-effort: a malformed PVD returns empty attrs +
@@ -85,7 +85,7 @@ func parseISOPVD(pvd []byte) Attributes {
 	}
 
 	if t := parseISO9660Date(pvd[isoCreationOff : isoCreationOff+isoCreationSize]); !t.IsZero() {
-		extras["created_at"] = t
+		extras["disk_image_created_at"] = t
 	}
 
 	return diskImageAttrs("iso9660", virtualSize, extras)

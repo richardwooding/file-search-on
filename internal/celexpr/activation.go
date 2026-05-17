@@ -188,6 +188,12 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.SHA1, true
 	case "sha256":
 		return a.attrs.SHA256, true
+	case "created_at":
+		return a.attrs.CreatedAt, true
+	case "metadata_changed_at":
+		return a.attrs.MetadataChangedAt, true
+	case "is_btime_anomaly":
+		return a.attrs.IsBtimeAnomaly, true
 	}
 	if v, ok := a.attrs.Extra[name]; ok {
 		return v, true
@@ -302,9 +308,9 @@ var zeroDefaults = map[string]any{
 	"disk_image_format": "",
 	"virtual_size":      int64(0),
 	"disk_type":         "",
-	"volume_label":      "",
-	"created_at":        time.Time{},
-	"cluster_bits":      int64(0),
+	"volume_label":          "",
+	"disk_image_created_at": time.Time{},
+	"cluster_bits":          int64(0),
 	"is_encrypted":      false,
 	"image_count":       int64(0),
 

@@ -41,9 +41,9 @@ func TestDiskImage_FixtureAttributes(t *testing.T) {
 			wantVS: 2 * 1024 * 1024,
 			extras: map[string]any{
 				"volume_label": "FILESEARCH",
-				// created_at is checked for non-zero only — exact tz
-				// reconstruction is brittle and the fixture pins it
-				// at 2026-05-14T12:00:00Z.
+				// disk_image_created_at is checked for non-zero only —
+				// exact tz reconstruction is brittle and the fixture
+				// pins it at 2026-05-14T12:00:00Z.
 			},
 		},
 		{
@@ -106,14 +106,14 @@ func TestDiskImage_FixtureAttributes(t *testing.T) {
 					t.Errorf("%s = %v (%T), want %v (%T)", k, got, got, want, want)
 				}
 			}
-			// ISO fixture also has a created_at; just assert it's
-			// populated and from 2026.
+			// ISO fixture also has a disk_image_created_at; just
+			// assert it's populated and from 2026.
 			if tc.fixture == "sample.iso" {
-				ts, ok := attrs["created_at"].(time.Time)
+				ts, ok := attrs["disk_image_created_at"].(time.Time)
 				if !ok || ts.IsZero() {
-					t.Errorf("created_at not populated for sample.iso: %v", attrs["created_at"])
+					t.Errorf("disk_image_created_at not populated for sample.iso: %v", attrs["disk_image_created_at"])
 				} else if ts.Year() != 2026 {
-					t.Errorf("created_at year = %d, want 2026", ts.Year())
+					t.Errorf("disk_image_created_at year = %d, want 2026", ts.Year())
 				}
 			}
 		})

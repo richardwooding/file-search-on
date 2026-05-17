@@ -124,7 +124,24 @@ file-search-on stats 'is_image' --group-by taken_at_month -d /Volumes/Evidence
 file-search-on stats 'is_email' --group-by sent_at_year -d /Volumes/Evidence
 ```
 
-A follow-up [issue #144](https://github.com/richardwooding/file-search-on/issues/144) adds `created_at` (btime) + `metadata_changed_at` (ctime) + `is_btime_anomaly` for proper timeline reconstruction beyond mtime.
+For timeline reconstruction beyond mtime, file-search-on now surfaces **`created_at`** (filesystem birth time / btime) and **`metadata_changed_at`** (ctime — last permission / ownership change), plus the **`is_btime_anomaly`** predicate that fires when `created_at > mod_time` (the classic "this file claims to have been modified before it was placed here" signal — restored backup, copied across volumes, planted artefact).
+
+```sh
+# Files newly created on this volume in the last 30 days
+file-search-on 'created_at > timestamp("2026-04-17T00:00:00Z")' -d /Volumes/Evidence
+
+# Anomalous files — placed here AFTER being modified elsewhere
+file-search-on 'is_btime_anomaly' -d /Volumes/Evidence -o json | jq '.[] | {path, created_at, mod_time}'
+
+# Recent permission / ownership changes — tamper-trail
+file-search-on 'metadata_changed_at > timestamp("2026-05-01T00:00:00Z")' -d /Volumes/Evidence --sort metadata_changed_at --order desc --limit 50
+
+# Birth-time bucketing — when did this volume see new files?
+file-search-on stats --group-by created_at_year -d /Volumes/Evidence
+file-search-on stats --group-by created_at_month -d /Volumes/Evidence
+```
+
+`created_at` populates on every modern filesystem (ext4 / APFS / NTFS / btrfs / xfs). Empty on filesystems / OSes that don't track it; the predicate correctly stays false in that case. `atime` is deliberately **not** surfaced — modern mounts use `relatime` / `noatime` and the value is unreliable for forensic use.
 
 ## Out of scope
 
