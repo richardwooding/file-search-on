@@ -112,6 +112,16 @@ type Options struct {
 	// CLI exposes via `--with-hashes`, MCP via `compute_hashes`.
 	ComputeHashes bool
 
+	// CheckDisguised, when true, populates magic_content_type /
+	// extension_content_type / is_disguised on each Result by
+	// running both Registry.Detect tiers (name-based and
+	// magic-byte) independently. One extra 512-byte file read per
+	// file whose extension already won — cheap relative to
+	// ComputeHashes but not free. Cached in index.Entry. Opt-in
+	// for forensic triage; CLI exposes via `--check-disguised`,
+	// MCP via `check_disguised`.
+	CheckDisguised bool
+
 	// ResolveProjects, when true, makes BuildAttributesWith populate
 	// each match's `project_types` (list<string>) and `project_type`
 	// (string — first match) CEL variables by walking up from the
@@ -364,6 +374,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 						ProjectResolver:     j.resolver,
 						SkipAttributesParse: opts.SkipAttributesParse,
 						ComputeHashes:       opts.ComputeHashes,
+						CheckDisguised:      opts.CheckDisguised,
 					})
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 						return

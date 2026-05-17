@@ -59,6 +59,35 @@ func canExtractBody(name string) bool {
 	return isTextForBody(name) || isStructuredBody(name)
 }
 
+// applyDisguise writes the magic-vs-extension content-type strings
+// onto attrs and sets IsDisguised when both are non-empty and they
+// disagree. Used by the CheckDisguised opt-in path (PR #145).
+func applyDisguise(attrs *FileAttributes, magicCT, extCT string) {
+	if attrs == nil {
+		return
+	}
+	attrs.MagicContentType = magicCT
+	attrs.ExtensionContentType = extCT
+	if magicCT != "" && extCT != "" && magicCT != extCT {
+		attrs.IsDisguised = true
+	}
+}
+
+// redetectDisguise calls registry.DetectBoth and returns the two
+// content-type names (magic, extension). Used on the cache-hit path
+// when the cached entry lacks the disguise fields (pre-#145 cache
+// or CheckDisguised wasn't set in the prior walk).
+func redetectDisguise(fsys fs.FS, fsPath string, registry *content.Registry) (magicCT, extCT string) {
+	nameType, magicType := registry.DetectBoth(fsys, fsPath)
+	if nameType != nil {
+		extCT = nameType.Name()
+	}
+	if magicType != nil {
+		magicCT = magicType.Name()
+	}
+	return magicCT, extCT
+}
+
 // populateHashes fills FileAttributes.{MD5,SHA1,SHA256} when the
 // caller opts in via BuildOptions.ComputeHashes. Cache-aware: when
 // cached is non-nil and carries all three hashes, no file read
