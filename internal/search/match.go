@@ -153,6 +153,28 @@ type Match struct {
 	IsBrokenSymlink bool   `json:"is_broken_symlink,omitempty"`
 	TargetPath      string `json:"target_path,omitempty"`
 
+	// VM-bytecode family. Per-type predicates + umbrella, plus the
+	// per-format attribute surface.
+	IsClass    bool `json:"is_class,omitempty"`
+	IsPyc      bool `json:"is_pyc,omitempty"`
+	IsWasm     bool `json:"is_wasm,omitempty"`
+	IsBytecode bool `json:"is_bytecode,omitempty"`
+
+	BytecodeFormat string   `json:"bytecode_format,omitempty"`
+	RuntimeVersion string   `json:"runtime_version,omitempty"`
+	ClassName      string   `json:"class_name,omitempty"`
+	SuperClass     string   `json:"super_class,omitempty"`
+	Interfaces     []string `json:"interfaces,omitempty"`
+	MethodCount    int64    `json:"method_count,omitempty"`
+	FieldCount     int64    `json:"field_count,omitempty"`
+	AccessFlags    []string `json:"access_flags,omitempty"`
+	PythonVersion  string   `json:"python_version,omitempty"`
+	SourceMtime    string   `json:"source_mtime,omitempty"` // RFC3339 when set
+	WasmVersion    int64    `json:"wasm_version,omitempty"`
+	SectionCount   int64    `json:"section_count,omitempty"`
+	ImportCount    int64    `json:"import_count,omitempty"`
+	ExportCount    int64    `json:"export_count,omitempty"`
+
 	// Install-package attributes.
 	PackageFormat   string `json:"package_format,omitempty"`
 	PackageName     string `json:"package_name,omitempty"`
@@ -294,6 +316,7 @@ func MatchFrom(r Result) Match {
 	m.IsDMG, m.IsISO, m.IsVHD, m.IsVHDX, m.IsVMDK, m.IsQCOW2, m.IsWIM, m.IsDiskImage = a.IsDMG, a.IsISO, a.IsVHD, a.IsVHDX, a.IsVMDK, a.IsQCOW2, a.IsWIM, a.IsDiskImage
 	m.IsPkg, m.IsDeb, m.IsRPM, m.IsAppImage, m.IsInstallPackage = a.IsPkg, a.IsDeb, a.IsRPM, a.IsAppImage, a.IsInstallPackage
 	m.IsSymlink, m.IsBrokenSymlink = a.IsSymlink, a.IsBrokenSymlink
+	m.IsClass, m.IsPyc, m.IsWasm, m.IsBytecode = a.IsClass, a.IsPyc, a.IsWasm, a.IsBytecode
 
 	if a.Extra == nil {
 		return m
@@ -626,6 +649,50 @@ func MatchFrom(r Result) Match {
 	// booleans come from typed FileAttributes fields above.
 	if v, ok := a.Extra["target_path"].(string); ok {
 		m.TargetPath = v
+	}
+
+	// VM-bytecode family attributes.
+	if v, ok := a.Extra["bytecode_format"].(string); ok {
+		m.BytecodeFormat = v
+	}
+	if v, ok := a.Extra["runtime_version"].(string); ok {
+		m.RuntimeVersion = v
+	}
+	if v, ok := a.Extra["class_name"].(string); ok {
+		m.ClassName = v
+	}
+	if v, ok := a.Extra["super_class"].(string); ok {
+		m.SuperClass = v
+	}
+	if v, ok := a.Extra["interfaces"].([]string); ok && len(v) > 0 {
+		m.Interfaces = v
+	}
+	if v, ok := a.Extra["method_count"].(int64); ok {
+		m.MethodCount = v
+	}
+	if v, ok := a.Extra["field_count"].(int64); ok {
+		m.FieldCount = v
+	}
+	if v, ok := a.Extra["access_flags"].([]string); ok && len(v) > 0 {
+		m.AccessFlags = v
+	}
+	if v, ok := a.Extra["python_version"].(string); ok {
+		m.PythonVersion = v
+	}
+	if v, ok := a.Extra["source_mtime"].(time.Time); ok && !v.IsZero() {
+		m.SourceMtime = v.Format(time.RFC3339)
+	}
+	if v, ok := a.Extra["wasm_version"].(int64); ok {
+		m.WasmVersion = v
+	}
+	if v, ok := a.Extra["section_count"].(int64); ok {
+		m.SectionCount = v
+	}
+	if v, ok := a.Extra["import_count"].(int64); ok {
+		m.ImportCount = v
+	}
+	if v, ok := a.Extra["export_count"].(int64); ok {
+		m.ExportCount = v
 	}
 
 	return m

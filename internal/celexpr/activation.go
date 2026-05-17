@@ -170,6 +170,14 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.IsAppImage, true
 	case "is_install_package":
 		return a.attrs.IsInstallPackage, true
+	case "is_class":
+		return a.attrs.IsClass, true
+	case "is_pyc":
+		return a.attrs.IsPyc, true
+	case "is_wasm":
+		return a.attrs.IsWasm, true
+	case "is_bytecode":
+		return a.attrs.IsBytecode, true
 	case "is_symlink":
 		return a.attrs.IsSymlink, true
 	case "is_broken_symlink":
@@ -309,4 +317,20 @@ var zeroDefaults = map[string]any{
 
 	// Symlink awareness — populated by BuildAttributesWith via Lstat.
 	"target_path": "",
+
+	// VM-bytecode family.
+	"bytecode_format": "",
+	"runtime_version": "",
+	"class_name":      "",
+	"super_class":     "",
+	"interfaces":      []string{},
+	"method_count":    int64(0),
+	"field_count":     int64(0),
+	"access_flags":    []string{},
+	"python_version":  "",
+	"source_mtime":    time.Time{},
+	"wasm_version":    int64(0),
+	"section_count":   int64(0),
+	"import_count":    int64(0),
+	"export_count":    int64(0),
 }
