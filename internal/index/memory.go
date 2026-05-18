@@ -27,6 +27,11 @@ type memoryStats struct {
 	bodyEvictions atomic.Uint64
 	bodyOversize  atomic.Uint64
 	bodyErrors    atomic.Uint64
+
+	embedHits   atomic.Uint64
+	embedMisses atomic.Uint64
+	embedPuts   atomic.Uint64
+	embedErrors atomic.Uint64
 }
 
 func newMemoryIndex() *memoryIndex {
@@ -121,6 +126,28 @@ func (m *memoryIndex) Stats() Stats {
 		BodyEvictions: m.stats.bodyEvictions.Load(),
 		BodyOversize:  m.stats.bodyOversize.Load(),
 		BodyErrors:    m.stats.bodyErrors.Load(),
+		EmbedHits:     m.stats.embedHits.Load(),
+		EmbedMisses:   m.stats.embedMisses.Load(),
+		EmbedPuts:     m.stats.embedPuts.Load(),
+		EmbedErrors:   m.stats.embedErrors.Load(),
+	}
+}
+
+func (m *memoryIndex) BumpEmbedStat(kind string) { bumpEmbedStat(&m.stats, kind) }
+
+// bumpEmbedStat is shared between the in-memory and bbolt backends —
+// the embedding counters live on memoryStats either way (the bbolt
+// impl reuses the same struct via embedding).
+func bumpEmbedStat(s *memoryStats, kind string) {
+	switch kind {
+	case "hit":
+		s.embedHits.Add(1)
+	case "miss":
+		s.embedMisses.Add(1)
+	case "put":
+		s.embedPuts.Add(1)
+	case "error":
+		s.embedErrors.Add(1)
 	}
 }
 

@@ -345,8 +345,14 @@ func (b *boltIndex) Stats() Stats {
 		BodyEvictions: b.stats.bodyEvictions.Load(),
 		BodyOversize:  b.stats.bodyOversize.Load(),
 		BodyErrors:    b.stats.bodyErrors.Load(),
+		EmbedHits:     b.stats.embedHits.Load(),
+		EmbedMisses:   b.stats.embedMisses.Load(),
+		EmbedPuts:     b.stats.embedPuts.Load(),
+		EmbedErrors:   b.stats.embedErrors.Load(),
 	}
 }
+
+func (b *boltIndex) BumpEmbedStat(kind string) { bumpEmbedStat(&b.stats, kind) }
 
 // Close drains both writer channels, waits for the writer goroutines
 // to exit, then closes the bbolt db. Safe to call once; subsequent

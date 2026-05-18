@@ -204,6 +204,8 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.IsKnownGood, true
 	case "is_known_bad":
 		return a.attrs.IsKnownBad, true
+	case "similarity":
+		return a.attrs.Similarity, true
 	}
 	if v, ok := a.attrs.Extra[name]; ok {
 		return v, true

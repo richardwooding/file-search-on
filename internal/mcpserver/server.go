@@ -21,8 +21,10 @@ import (
 // The MCP SDK requires plain functions for AddTool, so we use closures
 // to inject this shared state.
 type handlers struct {
-	idx            index.Index
-	defaultTimeout time.Duration
+	idx                    index.Index
+	defaultTimeout         time.Duration
+	defaultEmbeddingServer string
+	defaultEmbeddingModel  string
 }
 
 // resolveTimeout returns a child ctx bounded by the effective per-call
@@ -228,7 +230,16 @@ Field projection: 'search' and 'read_attributes' both accept a 'fields': []strin
 // timeout_seconds override. A bounded default is strongly recommended
 // because MCP clients have their own read deadlines; a runaway server
 // walk would otherwise wedge the client.
-func New(version string, idx index.Index, defaultTimeout time.Duration) *mcp.Server {
+// EmbedDefaults carries the optional server-startup defaults for the
+// search_semantic tool. Empty values mean "no default; per-call inputs
+// MUST supply this", except for Server which falls back to
+// http://localhost:11434.
+type EmbedDefaults struct {
+	Server string // Ollama base URL; "" → http://localhost:11434
+	Model  string // Ollama embedding model name; "" → no default
+}
+
+func New(version string, idx index.Index, defaultTimeout time.Duration, embedDefaults EmbedDefaults) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{
 		Name:    "file-search-on",
 		Version: version,
@@ -236,12 +247,26 @@ func New(version string, idx index.Index, defaultTimeout time.Duration) *mcp.Ser
 		Instructions: serverInstructions,
 	})
 
-	h := &handlers{idx: idx, defaultTimeout: defaultTimeout}
+	server := embedDefaults.Server
+	if server == "" {
+		server = "http://localhost:11434"
+	}
+	h := &handlers{
+		idx:                    idx,
+		defaultTimeout:         defaultTimeout,
+		defaultEmbeddingServer: server,
+		defaultEmbeddingModel:  embedDefaults.Model,
+	}
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "search",
 		Description: "Recursively search a directory for files matching a CEL expression evaluated over file metadata and content-type-specific attributes. Boolean type predicates you can use directly in expr: is_markdown, is_pdf, is_html, is_xml, is_json, is_yaml, is_csv, is_text, is_image, is_audio, is_video, is_office, is_epub, is_archive, is_binary, is_email, is_source, is_disk_image (umbrella for is_dmg/is_iso/is_vhd/is_vhdx/is_vmdk/is_qcow2/is_wim), is_install_package (umbrella for is_pkg/is_deb/is_rpm/is_appimage), is_bytecode (umbrella for is_class/is_pyc/is_wasm — VM bytecode artefacts with parsed runtime_version + per-format metadata), is_test_file (source files matching the per-language test convention), is_symlink + is_broken_symlink (filesystem-level symlink awareness; target_path attribute carries the raw link target). Common scalar attributes: size (int bytes), name, path, dir, ext, content_type, title, author, language, word_count, line_count, page_count. Per-family attributes (image EXIF, audio tags, video codec, frontmatter, archive sizes, binary architectures, email headers, source-LOC, disk-image virtual_size / disk_image_format / volume_label / cluster_bits / is_encrypted / image_count, install-package package_format / package_name / package_version / package_arch / package_kind, license_id for repo-license files) populate when the matching family fires — see list_attributes for the full schema. Built-in functions: levenshtein(a, b), soundex(s), ngrams(s, n), ngram_similarity(a, b, n) for fuzzy / phonetic matching; point_in_polygon(lat, lon, polygon) for GPS-bbox filtering. Example exprs: 'is_markdown && word_count > 500'; 'is_pdf && page_count > 10'; 'is_image && iso > 1600'; 'is_video && video_height >= 2160 && duration > 1800'; 'is_source && language == \"go\" && loc > 200'. Top-K queries: pass sort_by + limit, e.g. {expr:'is_video', sort_by:'duration', order:'desc', limit:5} for the 5 longest videos. Sort keys: size, name, path, mod_time, created_at, metadata_changed_at, word_count, line_count, page_count, duration, bitrate, sample_rate, video_height, video_width, frame_rate, iso, focal_length, taken_at, sent_at, year, entry_count, uncompressed_size, loc, attachment_count, email_count, virtual_size, image_count, disk_image_created_at, cluster_bits. Snippets: pass include_snippet=true to populate match.snippet with the first N lines of body text (text content types only). Body filters: pass include_body=true to expose the full file body as the CEL 'body' variable, then use built-in string methods to filter: body.contains(\"X\"), body.matches(\"\\\\bX\\\\b\") (RE2 regex). Body reads every candidate file — pair with a tight type predicate (e.g. is_markdown). Exclusions: pass excludes (basename globs like ['node_modules', '.git', '*.bak']) and/or respect_gitignore=true to prune the walk. Repeated searches reuse a per-process attribute cache so unchanged files skip the parse step (see index_stats). Timeouts: every call is bounded by the server's default timeout (set at startup via --timeout, typically 60s); pass timeout_seconds in the input to override (positive = seconds, 0 = no timeout). On timeout the call DOES NOT error — it returns the partial match set with cancelled=true, cancellation_reason set, and elapsed_seconds populated. Always check 'cancelled' before treating the result as exhaustive.",
 	}, h.searchHandler)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "search_semantic",
+		Description: "Semantic similarity search via local Ollama embeddings. Returns files RANKED by conceptual similarity to a natural-language query — paraphrase, synonyms, and topic-level matches surface even when the exact words don't appear in the body. Required input: 'query' (the natural-language search). Optional: 'threshold' (default 0.5; cosine similarity floor — 0.7+ for strict topical match, 0.4-0.5 for loose / related), 'limit' (default 50; top-K cap), 'expr' (CEL pre-filter using the same vocabulary as the search tool — e.g. 'is_pdf || is_office' to scope to documents), 'model' / 'embedding_server' (per-call overrides for the server-startup defaults — useful when you've pulled multiple embedding models). Setup: requires Ollama running locally (https://ollama.com) and one embedding model pulled (e.g. 'ollama pull nomic-embed-text'). The MCP server boots WITHOUT Ollama; the first search_semantic call performs the connection check and returns a clear error if Ollama is unreachable or the model isn't pulled. The per-file embedding is cached alongside (size, mtime) so repeat searches against an unchanged tree are I/O-cheap.",
+	}, h.searchSemanticHandler)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_attributes",
@@ -314,6 +339,6 @@ func New(version string, idx index.Index, defaultTimeout time.Duration) *mcp.Ser
 // Run starts an MCP server on stdio with the given index and default
 // per-call timeout, and blocks until the transport closes or ctx is
 // cancelled.
-func Run(ctx context.Context, version string, idx index.Index, defaultTimeout time.Duration) error {
-	return New(version, idx, defaultTimeout).Run(ctx, &mcp.StdioTransport{})
+func Run(ctx context.Context, version string, idx index.Index, defaultTimeout time.Duration, embedDefaults EmbedDefaults) error {
+	return New(version, idx, defaultTimeout, embedDefaults).Run(ctx, &mcp.StdioTransport{})
 }

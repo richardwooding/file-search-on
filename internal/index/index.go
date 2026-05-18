@@ -63,6 +63,17 @@ type Entry struct {
 	MagicContentType     string
 	ExtensionContentType string
 	DisguiseChecked      bool
+	// Vector is the file body's embedding vector (L2-normalised),
+	// populated when BuildOptions.SemanticQuery + Embedder are set
+	// (issue #151). Cached under the same (size, mtime) validation
+	// tuple as the rest of the entry. The dimension depends on the
+	// embedding model (768 for nomic-embed-text, 1024 for
+	// mxbai-embed-large, etc.) — callers are responsible for
+	// consistency: switching models on a tree that was previously
+	// embedded with a different model produces gibberish similarity
+	// scores. gob-additive: pre-#151 entries decode with empty
+	// Vector and the next semantic walk repopulates them.
+	Vector []float32
 	// Fingerprint is the 64-bit Charikar SimHash of the file's
 	// extracted body, computed by internal/fingerprint. Zero unless
 	// the near-duplicates pipeline asked for it. Like Hash, it's
@@ -146,6 +157,14 @@ type Stats struct {
 	// healthy BodyHits is benign — affected bodies simply re-extract
 	// next call. Worth investigating only when BodyHits stays near zero.
 	BodyErrors uint64
+
+	// Embed* counters track the embedding cache (PR for #151).
+	// Embed cache lives in index.Entry.Vector alongside the other
+	// per-file fields and uses the same (size, mtime) validation.
+	EmbedHits   uint64 // successful Vector reuse from cache
+	EmbedMisses uint64 // cache had no Vector → had to call the Embedder
+	EmbedPuts   uint64 // freshly-computed vector stored back to cache
+	EmbedErrors uint64 // Embedder.Embed call failed (Ollama unreachable, model missing, etc.)
 }
 
 // Index is the surface every cache implementation honours.
@@ -181,6 +200,14 @@ type Index interface {
 	// caller — the body simply isn't cached, which is recoverable
 	// (a re-extraction next time).
 	PutBody(absPath string, e *BodyEntry) error
+
+	// BumpEmbedStat increments one of the embedding cache counters.
+	// kind is "hit" / "miss" / "put" / "error" — anything else is a
+	// no-op. Separate from Lookup/Put because the embedding cache
+	// hit/miss decision lives in the caller (celexpr) — Vector is
+	// just a field on Entry, but agents want a per-cache breakdown
+	// of how often the field was present.
+	BumpEmbedStat(kind string)
 
 	Stats() Stats
 	Close() error

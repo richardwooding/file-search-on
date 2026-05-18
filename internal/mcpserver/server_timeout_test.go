@@ -30,7 +30,7 @@ func TestSearchTimeoutReturnsPartial(t *testing.T) {
 	}
 
 	ctx := t.Context()
-	server := New("test", index.NewMemory(), 0)
+	server := New("test", index.NewMemory(), 0, EmbedDefaults{})
 	t1, t2 := mcp.NewInMemoryTransports()
 	ss, err := server.Connect(ctx, t1, nil)
 	if err != nil {
@@ -88,7 +88,7 @@ func TestSearchTimeoutPerCallOverridesDefault(t *testing.T) {
 
 	ctx := t.Context()
 	// Server default = 1 ms (would normally cause cancellation).
-	server := New("test", index.NewMemory(), time.Millisecond)
+	server := New("test", index.NewMemory(), time.Millisecond, EmbedDefaults{})
 	t1, t2 := mcp.NewInMemoryTransports()
 	ss, err := server.Connect(ctx, t1, nil)
 	if err != nil {
@@ -139,7 +139,7 @@ func TestSearchTimeoutZeroDisablesForCall(t *testing.T) {
 
 	ctx := t.Context()
 	// Server default = 1ms.
-	server := New("test", index.NewMemory(), time.Millisecond)
+	server := New("test", index.NewMemory(), time.Millisecond, EmbedDefaults{})
 	t1, t2 := mcp.NewInMemoryTransports()
 	ss, err := server.Connect(ctx, t1, nil)
 	if err != nil {
@@ -183,7 +183,7 @@ func TestSearchClientCancelReason(t *testing.T) {
 	}
 
 	parentCtx, cancel := context.WithCancel(t.Context())
-	server := New("test", index.NewMemory(), 0)
+	server := New("test", index.NewMemory(), 0, EmbedDefaults{})
 	t1, t2 := mcp.NewInMemoryTransports()
 	ss, err := server.Connect(parentCtx, t1, nil)
 	if err != nil {

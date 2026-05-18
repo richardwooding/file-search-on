@@ -27,6 +27,11 @@ type IndexStatsOutput struct {
 	BodyEvictions uint64 `json:"body_evictions"`
 	BodyOversize  uint64 `json:"body_oversize"`
 	BodyErrors    uint64 `json:"body_errors"`
+
+	EmbedHits   uint64 `json:"embed_hits"`
+	EmbedMisses uint64 `json:"embed_misses"`
+	EmbedPuts   uint64 `json:"embed_puts"`
+	EmbedErrors uint64 `json:"embed_errors"`
 }
 
 func (h *handlers) indexStatsHandler(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, IndexStatsOutput, error) {
@@ -47,5 +52,9 @@ func (h *handlers) indexStatsHandler(_ context.Context, _ *mcp.CallToolRequest, 
 		BodyEvictions: st.BodyEvictions,
 		BodyOversize:  st.BodyOversize,
 		BodyErrors:    st.BodyErrors,
+		EmbedHits:     st.EmbedHits,
+		EmbedMisses:   st.EmbedMisses,
+		EmbedPuts:     st.EmbedPuts,
+		EmbedErrors:   st.EmbedErrors,
 	}, nil
 }
