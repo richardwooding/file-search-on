@@ -15,6 +15,7 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/richardwooding/file-search-on/internal/celexpr"
 	contentpkg "github.com/richardwooding/file-search-on/internal/content"
+	"github.com/richardwooding/file-search-on/internal/embed"
 	"github.com/richardwooding/file-search-on/internal/hashset"
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/mcpserver"
@@ -744,6 +745,8 @@ type MCPCmd struct {
 	IndexPath         string        `name:"index-path" help:"Persistent attribute index file (bbolt). When unset the server uses an in-memory cache that lives for the process lifetime; setting this makes the cache survive restarts. The file is created on first use."`
 	BodyCacheMaxBytes int           `name:"body-cache-max-bytes" default:"268435456" help:"Total size cap (bytes) for the body cache inside the bbolt index file. Default 256 MiB. FIFO eviction by access time once exceeded. Only relevant when --index-path is set; in-memory indexes have no cap."`
 	NoBodyCache       bool          `name:"no-body-cache" help:"Disable the body cache. LookupBody always misses; PutBody is a no-op. Bodies are re-extracted on every include_body query."`
+	EmbeddingServer   string        `name:"embedding-server" default:"http://localhost:11434" help:"Default Ollama base URL for the search_semantic tool. Per-call 'embedding_server' input overrides. Lazy connect — server starts without Ollama running; search_semantic fails clearly on first call if Ollama is unreachable."`
+	EmbeddingModel    string        `name:"embedding-model" help:"Default Ollama embedding model for the search_semantic tool (e.g. nomic-embed-text, mxbai-embed-large). No default — pick a model you've pulled via 'ollama pull <name>'. Per-call 'model' input overrides. If neither is set, search_semantic returns 'no embedding model configured'."`
 	Timeout           time.Duration `name:"timeout" default:"60s" help:"Default per-tool-call timeout (Go duration: 30s, 2m, 5m). Each search/read_attributes invocation is wrapped with this deadline. Per-call 'timeout_seconds' input on the search tool overrides this. Set to 0 to disable the default (not recommended — long-running calls can exceed MCP client read deadlines)."`
 }
 
@@ -754,14 +757,19 @@ func (m *MCPCmd) Run(ctx context.Context) error {
 	}
 	defer func() { _ = idx.Close() }()
 
+	embedDefaults := mcpserver.EmbedDefaults{
+		Server: m.EmbeddingServer,
+		Model:  m.EmbeddingModel,
+	}
+
 	switch m.Transport {
 	case "http":
-		return mcpserver.RunHTTP(ctx, version, m.Addr, m.Path, idx, m.Timeout)
+		return mcpserver.RunHTTP(ctx, version, m.Addr, m.Path, idx, m.Timeout, embedDefaults)
 	case "sse":
 		fmt.Fprintln(os.Stderr, "warning: --transport sse is DEPRECATED (MCP 2024-11-05); prefer --transport http for new clients.")
-		return mcpserver.RunSSE(ctx, version, m.Addr, m.Path, idx, m.Timeout)
+		return mcpserver.RunSSE(ctx, version, m.Addr, m.Path, idx, m.Timeout, embedDefaults)
 	default:
-		return mcpserver.Run(ctx, version, idx, m.Timeout)
+		return mcpserver.Run(ctx, version, idx, m.Timeout, embedDefaults)
 	}
 }
 
@@ -812,6 +820,10 @@ type SearchCmd struct {
 	CheckDisguised   bool          `name:"check-disguised" help:"Run both the name-based and magic-byte detection passes on every matched file, populating magic_content_type / extension_content_type / is_disguised CEL variables. is_disguised fires when the bytes disagree with the extension — classic 'this .txt is actually a PE binary' indicator. One extra 512-byte file read per match (cached in the index)."`
 	HashAllowlist    string        `name:"hash-allowlist" help:"Path to a hash allowlist (newline-separated md5/sha1/sha256 hex, mixed algorithms auto-detected by length, # comments allowed) OR a pre-built bbolt hashset file (via 'hash-set build'). When set, populates the is_known_good CEL predicate by looking up each matched file's hashes. Forces --with-hashes on. NSRL / corp allowlist / threat-intel allowlist interop."`
 	HashDenylist     string        `name:"hash-denylist" help:"Path to a hash denylist (same format as --hash-allowlist). Populates is_known_bad. Threat-intel-feed / IOC-list interop."`
+	SemanticQuery    string        `name:"semantic-query" help:"Natural-language query to embed and rank every matched file against. Populates the 'similarity' CEL variable (cosine in 0..1) so filters like 'is_pdf && similarity > 0.7' fire. Requires --embedding-model + a running Ollama instance (--embedding-server defaults to http://localhost:11434). Auto-sorts results by similarity desc and applies --similarity-threshold."`
+	SimilarityThreshold float64    `name:"similarity-threshold" default:"0.5" help:"Minimum similarity score (0..1) for a file to be returned when --semantic-query is set. Higher = stricter."`
+	EmbeddingServer  string        `name:"embedding-server" default:"http://localhost:11434" help:"Ollama base URL for embedding requests."`
+	EmbeddingModel   string        `name:"embedding-model" help:"Ollama embedding model name (e.g. nomic-embed-text, mxbai-embed-large). No default — user picks per-tree based on the model they've pulled. Required when --semantic-query is set."`
 	Exclude          []string      `name:"exclude" help:"Glob pattern matched against the basename of each file/directory; matches are skipped (directories are pruned). Repeatable: --exclude node_modules --exclude '*.bak'."`
 	RespectGitignore bool          `name:"respect-gitignore" help:"Parse a .gitignore at the walk root (if present) and skip matching paths. Nested .gitignore files in subdirectories are NOT honoured in this version."`
 	FollowSymlinks   bool          `name:"follow-symlinks" help:"Descend through symbolic links to directories during the walk. Off by default — symlinks-to-dirs surface as leaf entries with is_symlink=true. The is_symlink / target_path / is_broken_symlink CEL attributes are populated regardless of this flag. No loop detection."`
@@ -835,7 +847,7 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 	// Record path which already requires attrs). --body doesn't
 	// need Attrs surfaced on Result (the body lives in Extra only
 	// for CEL evaluation), but it's harmless to keep them.
-	includeAttrs := s.Format != "" || s.Output == "verbose" || s.Output == "json" || s.Sort != "" || s.Snippet || s.WithHashes || s.CheckDisguised || s.HashAllowlist != "" || s.HashDenylist != ""
+	includeAttrs := s.Format != "" || s.Output == "verbose" || s.Output == "json" || s.Sort != "" || s.Snippet || s.WithHashes || s.CheckDisguised || s.HashAllowlist != "" || s.HashDenylist != "" || s.SemanticQuery != ""
 
 	// Parse the template up front so a bad template fails before we walk.
 	var tmpl *template.Template
@@ -901,6 +913,41 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		s.WithHashes = true
 	}
 
+	// Semantic search setup (issue #151). Pre-embed the query once
+	// so workers do one dot-product per file rather than re-embedding
+	// the query for every file. The Embedder is lazy-connect — no
+	// HTTP call happens until the first per-file embedding.
+	var embedder embed.Embedder
+	var queryVector []float32
+	if s.SemanticQuery != "" {
+		if s.EmbeddingModel == "" {
+			return fmt.Errorf("--semantic-query requires --embedding-model (pass an Ollama model name, e.g. nomic-embed-text)")
+		}
+		embedder = embed.NewOllama(s.EmbeddingServer, s.EmbeddingModel)
+		v, err := embedder.Embed(effectiveCtx, s.SemanticQuery)
+		if err != nil {
+			return fmt.Errorf("embed query: %w", err)
+		}
+		embed.Normalize(v)
+		queryVector = v
+		// Force sort by similarity desc unless the user already
+		// specified one — semantic search without ranking is useless.
+		if s.Sort == "" {
+			s.Sort = "similarity"
+			s.Order = "desc"
+		}
+		// Fold the similarity threshold into the CEL filter. Use
+		// CEL's fmt.Sprintf-friendly literal for the float so locale
+		// settings can't accidentally produce a comma. CEL parses
+		// scientific notation, so even very small thresholds work.
+		threshold := fmt.Sprintf("similarity >= %g", s.SimilarityThreshold)
+		if s.Expr == "" {
+			s.Expr = threshold
+		} else {
+			s.Expr = "(" + s.Expr + ") && " + threshold
+		}
+	}
+
 	opts := search.Options{
 		Roots:             s.Dir,
 		Expr:              s.Expr,
@@ -919,6 +966,8 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		CheckDisguised:    s.CheckDisguised,
 		Allowlist:         allowlist,
 		Denylist:          denylist,
+		Embedder:               embedder,
+		SemanticQueryEmbedding: queryVector,
 		Excludes:            s.Exclude,
 		RespectGitignore:    s.RespectGitignore,
 		FollowSymlinks:      s.FollowSymlinks,

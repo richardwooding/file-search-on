@@ -9,6 +9,7 @@ import (
 
 	"github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/cryptohash"
+	"github.com/richardwooding/file-search-on/internal/embed"
 	"github.com/richardwooding/file-search-on/internal/hashset"
 	"github.com/richardwooding/file-search-on/internal/index"
 )
@@ -58,6 +59,96 @@ func isStructuredBody(name string) bool {
 // uses this to gate the body read.
 func canExtractBody(name string) bool {
 	return isTextForBody(name) || isStructuredBody(name)
+}
+
+// populateSimilarity fills FileAttributes.Similarity with the
+// cosine similarity between the file's body embedding and the
+// caller's pre-embedded query (issue #151).
+//
+// Cache-aware: when the cache holds a non-empty Vector for the
+// file, the cosine is computed directly and the embed-hit counter
+// bumps. On miss, the file's body is read via lookupOrExtractBody
+// (which itself is cache-aware on the body cache), embedded via
+// opts.Embedder.Embed, normalised, and stored back to the cache.
+// The query embedding is assumed to be normalised already (caller
+// responsibility); both vectors normalised => Dot == cosine, the
+// O(d) fast path.
+//
+// No-ops when:
+//   - opts.SemanticQueryEmbedding is empty (no query in this walk)
+//   - opts.Embedder is nil (search isn't configured)
+//   - the content type isn't text-shaped (canExtractBody returns
+//     false) — semantic search across binary content makes no sense
+//   - the file body is empty (no signal to embed)
+//   - the Embedder returns an error (counter bumps; Similarity stays 0)
+//
+// Stats bumps:
+//   - "hit": cached Vector reused, no Embedder call
+//   - "miss": cached Vector missing, Embedder call attempted
+//   - "put": cached Vector freshly stored
+//   - "error": Embedder.Embed returned a non-nil error
+func populateSimilarity(ctx context.Context, fsys fs.FS, fsPath, displayPath, cacheKey string, info fs.FileInfo, cached *index.Entry, attrs *FileAttributes, opts BuildOptions) {
+	if attrs == nil {
+		return
+	}
+	if opts.Embedder == nil || len(opts.SemanticQueryEmbedding) == 0 {
+		return
+	}
+	if !canExtractBody(attrs.ContentType) {
+		return
+	}
+
+	// Cache hit: cached Vector is the file's embedding, already
+	// normalised (we normalise at insert time). Dot == cosine.
+	if cached != nil && len(cached.Vector) > 0 {
+		attrs.Similarity = embed.Dot(opts.SemanticQueryEmbedding, cached.Vector)
+		if opts.Index != nil {
+			opts.Index.BumpEmbedStat("hit")
+		}
+		return
+	}
+
+	// Cache miss. Extract the body via the existing body-cache-aware
+	// reader so we share the body cache with anything else asking
+	// for it in this walk. Empty body → no signal → leave Similarity
+	// at 0.
+	body, err := readBody(ctx, fsys, fsPath, attrs.ContentType, opts.BodyMaxBytes)
+	if err != nil || body == "" {
+		if opts.Index != nil {
+			opts.Index.BumpEmbedStat("miss")
+		}
+		return
+	}
+	if opts.Index != nil {
+		opts.Index.BumpEmbedStat("miss")
+	}
+	vec, err := opts.Embedder.Embed(ctx, body)
+	if err != nil || len(vec) == 0 {
+		if opts.Index != nil {
+			opts.Index.BumpEmbedStat("error")
+		}
+		return
+	}
+	embed.Normalize(vec)
+	attrs.Similarity = embed.Dot(opts.SemanticQueryEmbedding, vec)
+
+	// Write the freshly-computed vector back to the cache so the
+	// next walk against the same (size, mtime) skips the Embedder
+	// call. Always-write semantics: even on a cache hit for other
+	// attrs, we now have a Vector to record.
+	if opts.Index != nil && cacheKey != "" {
+		entry := cached
+		if entry == nil {
+			entry = &index.Entry{
+				Size:            info.Size(),
+				ModTimeUnixNano: info.ModTime().UnixNano(),
+				ContentType:     attrs.ContentType,
+			}
+		}
+		entry.Vector = vec
+		_ = opts.Index.Put(cacheKey, entry)
+		opts.Index.BumpEmbedStat("put")
+	}
 }
 
 // applyKnownStatus checks the file's MD5 / SHA1 / SHA256 against

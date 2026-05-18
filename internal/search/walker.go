@@ -11,6 +11,7 @@ import (
 
 	"github.com/richardwooding/file-search-on/internal/celexpr"
 	"github.com/richardwooding/file-search-on/internal/content"
+	"github.com/richardwooding/file-search-on/internal/embed"
 	"github.com/richardwooding/file-search-on/internal/hashset"
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/projecttype"
@@ -135,6 +136,18 @@ type Options struct {
 	// points force it when the lists are set).
 	Allowlist hashset.Set
 	Denylist  hashset.Set
+
+	// Embedder + SemanticQueryEmbedding power the `similarity`
+	// CEL variable (issue #151). When both are set, the walker
+	// passes them down to BuildAttributesWith which embeds each
+	// candidate file's body (cache-aware via index.Entry.Vector)
+	// and stores the cosine against SemanticQueryEmbedding in
+	// FileAttributes.Similarity. CLI threads these from
+	// --semantic-query / --embedding-model / --embedding-server;
+	// MCP threads them from the search_semantic tool's inputs +
+	// server-startup defaults.
+	Embedder               embed.Embedder
+	SemanticQueryEmbedding []float32
 
 	// ResolveProjects, when true, makes BuildAttributesWith populate
 	// each match's `project_types` (list<string>) and `project_type`
@@ -382,15 +395,17 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 						return
 					}
 					attrs, err := celexpr.BuildAttributesWith(ctx, j.fsys, j.fsPath, j.displayPath, registry, celexpr.BuildOptions{
-						Index:               opts.Index,
-						IncludeBody:         opts.IncludeBody,
-						BodyMaxBytes:        opts.BodyMaxBytes,
-						ProjectResolver:     j.resolver,
-						SkipAttributesParse: opts.SkipAttributesParse,
-						ComputeHashes:       opts.ComputeHashes,
-						CheckDisguised:      opts.CheckDisguised,
-						Allowlist:           opts.Allowlist,
-						Denylist:            opts.Denylist,
+						Index:                  opts.Index,
+						IncludeBody:            opts.IncludeBody,
+						BodyMaxBytes:           opts.BodyMaxBytes,
+						ProjectResolver:        j.resolver,
+						SkipAttributesParse:    opts.SkipAttributesParse,
+						ComputeHashes:          opts.ComputeHashes,
+						CheckDisguised:         opts.CheckDisguised,
+						Allowlist:              opts.Allowlist,
+						Denylist:               opts.Denylist,
+						Embedder:               opts.Embedder,
+						SemanticQueryEmbedding: opts.SemanticQueryEmbedding,
 					})
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 						return

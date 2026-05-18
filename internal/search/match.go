@@ -304,6 +304,12 @@ type Match struct {
 	IsKnownGood bool `json:"is_known_good,omitempty"`
 	IsKnownBad  bool `json:"is_known_bad,omitempty"`
 
+	// Similarity is the cosine similarity between the file's body
+	// embedding and the search call's query embedding (issue
+	// #151). Populated only when --semantic-query / SemanticQuery
+	// + an embedding model are configured. 0 otherwise.
+	Similarity float64 `json:"similarity,omitempty"`
+
 	// Snippet is the first N lines of the file body when the search
 	// call had include_snippet=true and the content type is
 	// text-based. Empty otherwise. Lets an agent decide whether a
@@ -355,6 +361,7 @@ func MatchFrom(r Result) Match {
 	m.IsSymlink, m.IsBrokenSymlink = a.IsSymlink, a.IsBrokenSymlink
 	m.IsClass, m.IsPyc, m.IsWasm, m.IsBytecode = a.IsClass, a.IsPyc, a.IsWasm, a.IsBytecode
 	m.MD5, m.SHA1, m.SHA256 = a.MD5, a.SHA1, a.SHA256
+	m.Similarity = a.Similarity
 	if !a.CreatedAt.IsZero() {
 		m.CreatedAt = a.CreatedAt.Format(time.RFC3339)
 	}

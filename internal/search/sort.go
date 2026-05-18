@@ -58,6 +58,8 @@ func compareByKey(a, b Result, key string) int {
 		return cmpString(a.Path, b.Path)
 	case "mod_time":
 		return cmpTime(modTimeOf(a), modTimeOf(b))
+	case "similarity":
+		return cmpFloat(similarityOf(a), similarityOf(b))
 	}
 	// Per-family scalar keys live in FileAttributes.Extra. Pull the
 	// value via the Attrs pointer (nil when IncludeAttributes is
@@ -94,6 +96,13 @@ func modTimeOf(r Result) time.Time {
 		return r.Attrs.ModTime
 	}
 	return time.Time{}
+}
+
+func similarityOf(r Result) float64 {
+	if r.Attrs != nil {
+		return r.Attrs.Similarity
+	}
+	return 0
 }
 
 // extraScalar pulls a comparable value (int64, float64, time.Time)

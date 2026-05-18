@@ -17,7 +17,7 @@ import (
 // renamed) without updating serverInstructions.
 func TestServerInstructionsExposesPredicates(t *testing.T) {
 	ctx := t.Context()
-	server := New("test", index.NewMemory(), 0)
+	server := New("test", index.NewMemory(), 0, EmbedDefaults{})
 	t1, t2 := mcp.NewInMemoryTransports()
 
 	ss, err := server.Connect(ctx, t1, nil)
@@ -70,7 +70,7 @@ func TestServerInstructionsExposesPredicates(t *testing.T) {
 // list_attributes call.
 func TestSearchToolDescriptionMentionsPredicates(t *testing.T) {
 	ctx := t.Context()
-	server := New("test", index.NewMemory(), 0)
+	server := New("test", index.NewMemory(), 0, EmbedDefaults{})
 	t1, t2 := mcp.NewInMemoryTransports()
 
 	ss, err := server.Connect(ctx, t1, nil)

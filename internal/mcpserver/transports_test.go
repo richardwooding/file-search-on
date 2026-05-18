@@ -30,7 +30,7 @@ func TestRunHTTPStartsAndShutsDown(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- mcpserver.RunHTTP(ctx, "test", addr, "/", index.NewMemory(), 0)
+		errCh <- mcpserver.RunHTTP(ctx, "test", addr, "/", index.NewMemory(), 0, mcpserver.EmbedDefaults{})
 	}()
 
 	// Give the listener a moment to bind.
@@ -63,7 +63,7 @@ func TestRunSSEStartsAndShutsDown(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- mcpserver.RunSSE(ctx, "test", addr, "/", index.NewMemory(), 0)
+		errCh <- mcpserver.RunSSE(ctx, "test", addr, "/", index.NewMemory(), 0, mcpserver.EmbedDefaults{})
 	}()
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -99,7 +99,7 @@ func TestRunHTTPInUseAddressFails(t *testing.T) {
 	// Try to start the HTTP transport on the same address; expect a real error.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	err = mcpserver.RunHTTP(ctx, "test", l.Addr().String(), "/", index.NewMemory(), 0)
+	err = mcpserver.RunHTTP(ctx, "test", l.Addr().String(), "/", index.NewMemory(), 0, mcpserver.EmbedDefaults{})
 	if err == nil {
 		t.Fatal("expected error binding to busy address, got nil")
 	}

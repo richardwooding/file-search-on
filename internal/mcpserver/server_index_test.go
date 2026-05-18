@@ -19,7 +19,7 @@ func TestIndexStatsTool(t *testing.T) {
 
 	ctx := t.Context()
 	idx := index.NewMemory()
-	server := New("test", idx, 0)
+	server := New("test", idx, 0, EmbedDefaults{})
 	t1, t2 := mcp.NewInMemoryTransports()
 
 	ss, err := server.Connect(ctx, t1, nil)

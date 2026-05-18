@@ -13,6 +13,7 @@ import (
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/richardwooding/file-search-on/internal/content"
+	"github.com/richardwooding/file-search-on/internal/embed"
 	"github.com/richardwooding/file-search-on/internal/hashset"
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/projecttype"
@@ -325,6 +326,13 @@ type FileAttributes struct {
 	IsKnownGood bool
 	IsKnownBad  bool
 
+	// Similarity is the cosine similarity between this file's body
+	// embedding and the search-call's query embedding (issue #151).
+	// Populated when BuildOptions.SemanticQuery + Embedder are set;
+	// 0 otherwise. Always in [-1, 1] for normalised embeddings;
+	// typical thresholds for "related" content are 0.5-0.7.
+	Similarity float64
+
 	Extra content.Attributes
 }
 
@@ -589,6 +597,9 @@ func New(expr string) (*Evaluator, error) {
 		// per-file hash trio is computed.
 		cel.Variable("is_known_good", cel.BoolType),
 		cel.Variable("is_known_bad", cel.BoolType),
+		// Semantic similarity (issue #151). Populated when the
+		// caller sets SemanticQuery + Embedder; 0 otherwise.
+		cel.Variable("similarity", cel.DoubleType),
 	}
 	opts = append(opts, fuzzyFunctions()...)
 	opts = append(opts, geoFunctions()...)
@@ -713,6 +724,27 @@ type BuildOptions struct {
 	// (size, mtime).
 	Allowlist hashset.Set
 	Denylist  hashset.Set
+
+	// Embedder + SemanticQueryEmbedding power the `similarity`
+	// CEL variable (issue #151). When both are set,
+	// BuildAttributesWith reads each file's body, embeds it via
+	// the Embedder (or reuses the cached Vector from
+	// index.Entry.Vector when available), normalises, and stores
+	// the cosine against SemanticQueryEmbedding in
+	// FileAttributes.Similarity.
+	//
+	// The caller is responsible for pre-embedding the query once
+	// per walk and passing the resulting vector via
+	// SemanticQueryEmbedding — that keeps the per-file work
+	// strictly local (one cosine dot product + optional embed +
+	// optional cache put) and avoids re-embedding the query for
+	// every file.
+	//
+	// When Embedder is nil OR SemanticQueryEmbedding is empty,
+	// Similarity stays at 0 — same wire shape as "no semantic
+	// search requested".
+	Embedder               embed.Embedder
+	SemanticQueryEmbedding []float32
 }
 
 // defaultBodyMaxBytes caps the body string supplied to CEL when
@@ -860,6 +892,11 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 			// so we never cache the resulting flags — just re-check.
 			if opts.Allowlist != nil || opts.Denylist != nil {
 				applyKnownStatus(attrs, opts)
+			}
+			// Semantic similarity (issue #151). Cache-aware via
+			// cached.Vector; on miss, embed via opts.Embedder.
+			if opts.Embedder != nil && len(opts.SemanticQueryEmbedding) > 0 {
+				populateSimilarity(ctx, fsys, fsPath, displayPath, cacheKey, info, cached, attrs, opts)
 			}
 			// Disguise check (PR #145). Reuse cached.MagicContentType /
 			// ExtensionContentType when DisguiseChecked is true (older
@@ -1013,6 +1050,9 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	}
 	if opts.Allowlist != nil || opts.Denylist != nil {
 		applyKnownStatus(attrs, opts)
+	}
+	if opts.Embedder != nil && len(opts.SemanticQueryEmbedding) > 0 {
+		populateSimilarity(ctx, fsys, fsPath, displayPath, cacheKey, info, nil, attrs, opts)
 	}
 	if opts.CheckDisguised {
 		applyDisguise(attrs, magicCT, extCT)
