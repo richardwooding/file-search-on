@@ -9,6 +9,7 @@ import (
 
 	"github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/cryptohash"
+	"github.com/richardwooding/file-search-on/internal/hashset"
 	"github.com/richardwooding/file-search-on/internal/index"
 )
 
@@ -57,6 +58,45 @@ func isStructuredBody(name string) bool {
 // uses this to gate the body read.
 func canExtractBody(name string) bool {
 	return isTextForBody(name) || isStructuredBody(name)
+}
+
+// applyKnownStatus checks the file's MD5 / SHA1 / SHA256 against
+// the loaded allowlist / denylist hashsets and sets the IsKnownGood
+// / IsKnownBad flags on attrs. Membership in ANY of the three
+// algorithms is sufficient — NSRL ships MD5 + SHA1; threat-intel
+// feeds tend to use MD5 or SHA1; modern tools index by SHA256.
+//
+// Called from BuildAttributesWith AFTER populateHashes so the
+// hashes on attrs are populated. No-op when both lists are nil.
+func applyKnownStatus(attrs *FileAttributes, opts BuildOptions) {
+	if attrs == nil {
+		return
+	}
+	if opts.Allowlist != nil {
+		if anyHashIn(opts.Allowlist, attrs.MD5, attrs.SHA1, attrs.SHA256) {
+			attrs.IsKnownGood = true
+		}
+	}
+	if opts.Denylist != nil {
+		if anyHashIn(opts.Denylist, attrs.MD5, attrs.SHA1, attrs.SHA256) {
+			attrs.IsKnownBad = true
+		}
+	}
+}
+
+// anyHashIn returns true when any of md5 / sha1 / sha256 (skipping
+// empty strings) is a member of the given Set.
+func anyHashIn(set hashset.Set, md5, sha1, sha256 string) bool {
+	if md5 != "" && set.Contains("md5", md5) {
+		return true
+	}
+	if sha1 != "" && set.Contains("sha1", sha1) {
+		return true
+	}
+	if sha256 != "" && set.Contains("sha256", sha256) {
+		return true
+	}
+	return false
 }
 
 // applyDisguise writes the magic-vs-extension content-type strings

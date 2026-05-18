@@ -13,6 +13,7 @@ import (
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/richardwooding/file-search-on/internal/content"
+	"github.com/richardwooding/file-search-on/internal/hashset"
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/projecttype"
 )
@@ -315,6 +316,15 @@ type FileAttributes struct {
 	ExtensionContentType string
 	IsDisguised          bool
 
+	// Hash-allowlist / hash-denylist membership (PR #146). Populated
+	// when the caller supplies BuildOptions.Allowlist / Denylist
+	// AND ComputeHashes is set so the file's MD5 / SHA1 / SHA256
+	// are available to match. False when no list is loaded OR the
+	// hash isn't in the list. IsKnownGood + IsKnownBad can both
+	// be true on misconfigured pairs — agent's responsibility.
+	IsKnownGood bool
+	IsKnownBad  bool
+
 	Extra content.Attributes
 }
 
@@ -573,6 +583,12 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("magic_content_type", cel.StringType),
 		cel.Variable("extension_content_type", cel.StringType),
 		cel.Variable("is_disguised", cel.BoolType),
+		// Hash-allowlist / denylist membership (PR #146). False
+		// when no list is loaded OR the file's hash isn't in the
+		// list. Requires --with-hashes / compute_hashes so the
+		// per-file hash trio is computed.
+		cel.Variable("is_known_good", cel.BoolType),
+		cel.Variable("is_known_bad", cel.BoolType),
 	}
 	opts = append(opts, fuzzyFunctions()...)
 	opts = append(opts, geoFunctions()...)
@@ -685,6 +701,18 @@ type BuildOptions struct {
 	// exposes via --check-disguised on the search subcommand, MCP
 	// via check_disguised input.
 	CheckDisguised bool
+
+	// Allowlist / Denylist are hash-allowlist / hash-denylist
+	// query layers (PR #146). When non-nil AND ComputeHashes is
+	// also set, BuildAttributesWith populates IsKnownGood /
+	// IsKnownBad on each FileAttributes by looking up the
+	// computed MD5 / SHA1 / SHA256 in the respective Set. Either
+	// or both may be nil (no list loaded → corresponding flag
+	// stays false). Membership is NOT cached in the index —
+	// it's a function of the loaded set, not the file's
+	// (size, mtime).
+	Allowlist hashset.Set
+	Denylist  hashset.Set
 }
 
 // defaultBodyMaxBytes caps the body string supplied to CEL when
@@ -826,6 +854,12 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 			// compute and re-Put so the next call is free.
 			if opts.ComputeHashes {
 				populateHashes(ctx, displayPath, cacheKey, info, cached, attrs, opts.Index)
+			}
+			// Hash-allowlist / -denylist membership (PR #146).
+			// Membership depends on the loaded sets, not (size, mtime),
+			// so we never cache the resulting flags — just re-check.
+			if opts.Allowlist != nil || opts.Denylist != nil {
+				applyKnownStatus(attrs, opts)
 			}
 			// Disguise check (PR #145). Reuse cached.MagicContentType /
 			// ExtensionContentType when DisguiseChecked is true (older
@@ -976,6 +1010,9 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	// fresh values flow back into the cache so subsequent walks hit.
 	if opts.ComputeHashes {
 		populateHashes(ctx, displayPath, cacheKey, info, nil, attrs, opts.Index)
+	}
+	if opts.Allowlist != nil || opts.Denylist != nil {
+		applyKnownStatus(attrs, opts)
 	}
 	if opts.CheckDisguised {
 		applyDisguise(attrs, magicCT, extCT)
