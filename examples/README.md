@@ -38,6 +38,7 @@ CEL expression recipes by content family, plus cross-cutting cookbook patterns.
 | [`archive-search.md`](./archive-search.md) | List or read entries inside ZIP / TAR / TAR.GZ / GZIP without extracting — `file-search-on archive-contents <archive> [--expr]` and `file-search-on archive-read <archive> <entry>` |
 | [`find-matches.md`](./find-matches.md) | Line-level regex matching with context — `file-search-on find-matches '<re>' --expr 'is_source' -C 2` |
 | [`forensics.md`](./forensics.md) | Forensic triage — `--with-hashes` populates `md5` / `sha1` / `sha256` (NSRL / VirusTotal / threat-intel interop), magic-byte-vs-extension detection, GPS / EXIF / email triage, time-bucketed activity |
+| [`hashsets.md`](./hashsets.md) | Hash allowlist / denylist — `is_known_good` / `is_known_bad` predicates; build NSRL or threat-intel-feed `.hashset` files via `file-search-on hash-set build` |
 
 Every recipe is a complete `file-search-on '<expr>'` invocation that you can paste and run. Most include a few variations and useful output-format snippets.
 

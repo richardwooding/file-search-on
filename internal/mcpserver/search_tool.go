@@ -10,6 +10,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/richardwooding/file-search-on/internal/content"
+	"github.com/richardwooding/file-search-on/internal/hashset"
 	"github.com/richardwooding/file-search-on/internal/search"
 )
 
@@ -30,6 +31,8 @@ type SearchInput struct {
 	BodyMaxBytes     int      `json:"body_max_bytes,omitempty" jsonschema:"Cap on the body string in bytes (default 1 MiB). Files larger than the cap are silently truncated; the prefix still participates in body.contains / body.matches. Ignored when include_body is false."`
 	ComputeHashes    bool     `json:"compute_hashes,omitempty" jsonschema:"When true, populate md5 / sha1 / sha256 (lowercase hex) on each match and expose them as CEL variables. All three compute in one io.MultiWriter pass over the file and cache alongside (size, mtime) — subsequent runs on unchanged files are free. Off by default — hashing every match reads multi-GB videos / archives in full. Opt-in for forensic / NSRL / VirusTotal / threat-intel-feed workflows. Filter examples: 'is_binary && md5 == \"<IOC-hex>\"', 'is_image && sha256.startsWith(\"00\")'."`
 	CheckDisguised   bool     `json:"check_disguised,omitempty" jsonschema:"When true, run both the name-based and magic-byte detection passes and populate magic_content_type / extension_content_type / is_disguised CEL variables. is_disguised fires when the bytes disagree with the extension. One extra 512-byte file read per match (cached). Filter examples: 'is_disguised && is_binary' (forensic-grade — disguised executables), 'is_disguised && magic_content_type.startsWith(\"binary/\")'."`
+	HashAllowlistPath string  `json:"hash_allowlist_path,omitempty" jsonschema:"Path to a hash allowlist (newline-separated md5/sha1/sha256 hex, mixed algorithms auto-detected; # comments allowed) OR a pre-built bbolt hashset file. When set, populates is_known_good on each match. Forces compute_hashes on. NSRL / corp-allowlist / threat-intel-allowlist interop. Combine with '!is_known_good && is_binary' to cut a forensic disk image's review surface to known-unknown executables."`
+	HashDenylistPath  string  `json:"hash_denylist_path,omitempty" jsonschema:"Path to a hash denylist (same format as hash_allowlist_path). Populates is_known_bad. Threat-intel-feed / IOC-list interop."`
 	Excludes         []string `json:"excludes,omitempty" jsonschema:"Glob patterns matched against the basename of each file/directory; matched directories are pruned. Example: ['node_modules', '.git', 'target', '*.bak']. Use respect_gitignore for path-aware patterns."`
 	RespectGitignore bool     `json:"respect_gitignore,omitempty" jsonschema:"When true, parse a .gitignore at the walk root (if present) and skip matching paths. Honours standard gitignore semantics. Nested .gitignore files in subdirectories are NOT honoured in this version."`
 	FollowSymlinks   bool     `json:"follow_symlinks,omitempty" jsonschema:"When true, descend through symbolic links to directories. Off by default — symlinks-to-dirs surface as leaf entries with is_symlink=true. The is_symlink / target_path / is_broken_symlink CEL attributes are populated regardless of this flag. No loop detection — best avoided unless the tree is known acyclic."`
@@ -96,6 +99,29 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 
 	start := time.Now()
 
+	// Load hash allowlist / denylist when supplied. Auto-detects
+	// bbolt vs text format. Forces compute_hashes on so the
+	// per-file hash trio is computed for membership lookup.
+	var allowlist, denylist hashset.Set
+	if in.HashAllowlistPath != "" {
+		al, alErr := hashset.Open(in.HashAllowlistPath)
+		if alErr != nil {
+			return nil, SearchOutput{}, fmt.Errorf("load hash_allowlist_path: %w", alErr)
+		}
+		allowlist = al
+		defer func() { _ = al.Close() }()
+		in.ComputeHashes = true
+	}
+	if in.HashDenylistPath != "" {
+		dl, dlErr := hashset.Open(in.HashDenylistPath)
+		if dlErr != nil {
+			return nil, SearchOutput{}, fmt.Errorf("load hash_denylist_path: %w", dlErr)
+		}
+		denylist = dl
+		defer func() { _ = dl.Close() }()
+		in.ComputeHashes = true
+	}
+
 	out := make(chan search.Result, 64)
 	var walkErr error
 	done := make(chan struct{})
@@ -121,6 +147,8 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 		BodyMaxBytes:      in.BodyMaxBytes,
 		ComputeHashes:     in.ComputeHashes,
 		CheckDisguised:    in.CheckDisguised,
+		Allowlist:         allowlist,
+		Denylist:          denylist,
 		Excludes:          in.Excludes,
 		RespectGitignore:    in.RespectGitignore,
 		FollowSymlinks:      in.FollowSymlinks,

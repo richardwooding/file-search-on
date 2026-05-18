@@ -296,6 +296,14 @@ type Match struct {
 	ExtensionContentType string `json:"extension_content_type,omitempty"`
 	IsDisguised          bool   `json:"is_disguised,omitempty"`
 
+	// Hash-allowlist / hash-denylist membership (PR #146).
+	// IsKnownGood fires when the file's MD5 / SHA1 / SHA256
+	// appears in the loaded allowlist; IsKnownBad fires when it
+	// appears in the denylist. Requires compute_hashes. NSRL /
+	// VirusTotal / threat-intel-feed interop.
+	IsKnownGood bool `json:"is_known_good,omitempty"`
+	IsKnownBad  bool `json:"is_known_bad,omitempty"`
+
 	// Snippet is the first N lines of the file body when the search
 	// call had include_snippet=true and the content type is
 	// text-based. Empty otherwise. Lets an agent decide whether a
@@ -357,6 +365,8 @@ func MatchFrom(r Result) Match {
 	m.MagicContentType = a.MagicContentType
 	m.ExtensionContentType = a.ExtensionContentType
 	m.IsDisguised = a.IsDisguised
+	m.IsKnownGood = a.IsKnownGood
+	m.IsKnownBad = a.IsKnownBad
 
 	if a.Extra == nil {
 		return m

@@ -11,6 +11,7 @@ import (
 
 	"github.com/richardwooding/file-search-on/internal/celexpr"
 	"github.com/richardwooding/file-search-on/internal/content"
+	"github.com/richardwooding/file-search-on/internal/hashset"
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/projecttype"
 )
@@ -121,6 +122,19 @@ type Options struct {
 	// for forensic triage; CLI exposes via `--check-disguised`,
 	// MCP via `check_disguised`.
 	CheckDisguised bool
+
+	// Allowlist / Denylist are hash-allowlist / hash-denylist
+	// query layers (PR #146). When non-nil AND ComputeHashes is
+	// true, BuildAttributesWith populates is_known_good /
+	// is_known_bad on each match by looking up MD5 / SHA1 /
+	// SHA256 in the respective Set. NSRL / VirusTotal /
+	// threat-intel-feed interop. CLI exposes via
+	// `--hash-allowlist` / `--hash-denylist`, MCP via
+	// `hash_allowlist_path` / `hash_denylist_path`. Callers
+	// should set ComputeHashes alongside (the CLI / MCP entry
+	// points force it when the lists are set).
+	Allowlist hashset.Set
+	Denylist  hashset.Set
 
 	// ResolveProjects, when true, makes BuildAttributesWith populate
 	// each match's `project_types` (list<string>) and `project_type`
@@ -375,6 +389,8 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 						SkipAttributesParse: opts.SkipAttributesParse,
 						ComputeHashes:       opts.ComputeHashes,
 						CheckDisguised:      opts.CheckDisguised,
+						Allowlist:           opts.Allowlist,
+						Denylist:            opts.Denylist,
 					})
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 						return

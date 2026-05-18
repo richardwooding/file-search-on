@@ -90,15 +90,45 @@ file-search-on 'is_disguised' --check-disguised --sort mod_time --order desc -d 
 
 **Filter tip**: a bare `is_disguised` flag also fires on legitimate name-vs-magic divergences (e.g. `package.json` matches `manifest/node` by name and `json` by magic — both are "JSON in content", which is fine). Pair with type predicates like `is_disguised && is_binary` for forensic-grade signal that excludes the manifest noise.
 
-### Hash every binary and compare against a known-bad list
+### Hash allowlist / denylist — `is_known_good` / `is_known_bad`
 
-For now, dump hashes to JSON and post-process. [Issue #146](https://github.com/richardwooding/file-search-on/issues/146) tracks adding `--hash-denylist` / `is_known_bad` as a first-class CEL predicate.
+Compare every walked file's hashes against an external list (NSRL allowlist, VirusTotal IOC feed, internal known-malware drop) in one CEL query:
 
 ```sh
-file-search-on 'is_binary' --with-hashes -d /Volumes/Evidence -o json --index-path /tmp/evidence.db \
-  | jq -r '.[].md5' \
-  | grep -Ff /tmp/ioc-md5s.txt
+# NSRL: cut review surface to executables NOT in the known-good list
+file-search-on '!is_known_good && is_binary' --hash-allowlist nsrl.hashset -d /Volumes/Evidence
+
+# Threat-intel feed: surface every file whose hash matches a known-bad IOC
+file-search-on 'is_known_bad' --hash-denylist /tmp/ioc-md5s.txt -d /Volumes/Evidence -o json
+
+# Combined: known-bad files + a hash for triage upload
+file-search-on 'is_known_bad' --hash-denylist /tmp/ioc.txt --format '{{.Path}}\t{{.MD5}}\t{{.SHA256}}' -d /Volumes/Evidence
 ```
+
+The flag accepts two formats:
+
+- **Newline-separated hex** (mixed md5/sha1/sha256 auto-detected by length, `#` comments allowed). Cheap to author by hand, fine for lists up to a few hundred thousand hashes.
+- **Pre-built bbolt** (`.hashset`). Required for NSRL-scale (~50M hashes). Build with `file-search-on hash-set build`:
+
+```sh
+# NSRL Modern RDS CSV → bbolt (typically ~5-10 minutes on the full set)
+file-search-on hash-set build NSRLFile.txt --out nsrl.hashset
+
+# Text-list → bbolt (idempotent; rebuild any time)
+file-search-on hash-set build allowlist.txt --out allow.hashset
+
+# Sanity-check counts
+file-search-on hash-set info nsrl.hashset
+# nsrl.hashset
+#   md5:    49234567
+#   sha1:   49234567
+#   sha256: 0
+#   total:  98469134
+```
+
+Both `--hash-allowlist` and `--hash-denylist` force `--with-hashes` on transparently — membership lookup needs the per-file hash trio. Membership is NOT cached in the attribute index (it depends on the set, not the file), so swapping lists is free.
+
+See [`examples/hashsets.md`](./hashsets.md) for the full hashset cookbook.
 
 ### Photos from a specific GPS bbox + camera
 
@@ -162,7 +192,6 @@ file-search-on does **not** do:
 - Write-blocker semantics or atime preservation (reading a file with this tool DOES update atime on filesystems mounted with default options)
 - Windows registry / Plist / browser-SQLite parsing
 - Chain-of-custody logging or audit trails
-- NSRL hash-allowlist filtering ([tracked in #146](https://github.com/richardwooding/file-search-on/issues/146))
 - Online VirusTotal queries
 
 For those use cases, pair file-search-on with Autopsy / sleuthkit / Volatility / X-Ways for the low-level work, and use file-search-on for the typed content-discovery layer once files are extracted.

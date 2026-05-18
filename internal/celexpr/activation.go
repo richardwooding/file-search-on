@@ -200,6 +200,10 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.ExtensionContentType, true
 	case "is_disguised":
 		return a.attrs.IsDisguised, true
+	case "is_known_good":
+		return a.attrs.IsKnownGood, true
+	case "is_known_bad":
+		return a.attrs.IsKnownBad, true
 	}
 	if v, ok := a.attrs.Extra[name]; ok {
 		return v, true

@@ -15,6 +15,7 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/richardwooding/file-search-on/internal/celexpr"
 	contentpkg "github.com/richardwooding/file-search-on/internal/content"
+	"github.com/richardwooding/file-search-on/internal/hashset"
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/mcpserver"
 	"github.com/richardwooding/file-search-on/internal/projecttype"
@@ -66,6 +67,7 @@ var CLI struct {
 	Projects    FindProjectsCmd  `cmd:"" name:"find-projects" help:"Walk a root and list every project subdirectory under it."`
 	WhichProject WhichProjectCmd `cmd:"" name:"which-project" help:"Given a file or directory path, walk up the chain and identify the nearest enclosing project root and type(s)."`
 	ConfigPaths ConfigPathsCmd   `cmd:"" name:"config-paths" help:"Print the project-type config search paths for this platform. Use to discover where to drop your user-wide config (mkdir -p \"$(file-search-on config-paths -o bare | head -1 | xargs dirname)\")."`
+	HashSet    HashSetCmd       `cmd:"" name:"hash-set" help:"Manage hash allowlist / denylist files used by --hash-allowlist / --hash-denylist. Subcommands: build (compile text or NSRL CSV into bbolt format), info (print per-algorithm counts)."`
 	MCP        MCPCmd           `cmd:"" name:"mcp" help:"Run as a Model Context Protocol server (stdio, http, or sse)."`
 	Version    kong.VersionFlag `short:"V" help:"Print version and exit."`
 }
@@ -808,6 +810,8 @@ type SearchCmd struct {
 	NoBodyCache      bool          `name:"no-body-cache" help:"Disable the body cache entirely. PutBody is a no-op and LookupBody always misses. Use when caching adds no value (one-shot search of a tree that won't be queried again) or when storage is at a premium."`
 	WithHashes       bool          `name:"with-hashes" help:"Compute MD5, SHA1, and SHA256 of every matched file in a single io.MultiWriter pass and expose them as md5 / sha1 / sha256 CEL variables (and on the JSON/template output). Hashes cache in the index alongside (size, mtime), so subsequent runs are free on unchanged files. Off by default — hashing every file reads multi-GB videos / archives in full. Opt-in for forensic / NSRL / VirusTotal / threat-intel-feed workflows."`
 	CheckDisguised   bool          `name:"check-disguised" help:"Run both the name-based and magic-byte detection passes on every matched file, populating magic_content_type / extension_content_type / is_disguised CEL variables. is_disguised fires when the bytes disagree with the extension — classic 'this .txt is actually a PE binary' indicator. One extra 512-byte file read per match (cached in the index)."`
+	HashAllowlist    string        `name:"hash-allowlist" help:"Path to a hash allowlist (newline-separated md5/sha1/sha256 hex, mixed algorithms auto-detected by length, # comments allowed) OR a pre-built bbolt hashset file (via 'hash-set build'). When set, populates the is_known_good CEL predicate by looking up each matched file's hashes. Forces --with-hashes on. NSRL / corp allowlist / threat-intel allowlist interop."`
+	HashDenylist     string        `name:"hash-denylist" help:"Path to a hash denylist (same format as --hash-allowlist). Populates is_known_bad. Threat-intel-feed / IOC-list interop."`
 	Exclude          []string      `name:"exclude" help:"Glob pattern matched against the basename of each file/directory; matches are skipped (directories are pruned). Repeatable: --exclude node_modules --exclude '*.bak'."`
 	RespectGitignore bool          `name:"respect-gitignore" help:"Parse a .gitignore at the walk root (if present) and skip matching paths. Nested .gitignore files in subdirectories are NOT honoured in this version."`
 	FollowSymlinks   bool          `name:"follow-symlinks" help:"Descend through symbolic links to directories during the walk. Off by default — symlinks-to-dirs surface as leaf entries with is_symlink=true. The is_symlink / target_path / is_broken_symlink CEL attributes are populated regardless of this flag. No loop detection."`
@@ -831,7 +835,7 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 	// Record path which already requires attrs). --body doesn't
 	// need Attrs surfaced on Result (the body lives in Extra only
 	// for CEL evaluation), but it's harmless to keep them.
-	includeAttrs := s.Format != "" || s.Output == "verbose" || s.Output == "json" || s.Sort != "" || s.Snippet || s.WithHashes || s.CheckDisguised
+	includeAttrs := s.Format != "" || s.Output == "verbose" || s.Output == "json" || s.Sort != "" || s.Snippet || s.WithHashes || s.CheckDisguised || s.HashAllowlist != "" || s.HashDenylist != ""
 
 	// Parse the template up front so a bad template fails before we walk.
 	var tmpl *template.Template
@@ -872,6 +876,31 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		defer cancel()
 	}
 
+	// Load hash allowlist / denylist files when set. Auto-detects
+	// bbolt-format vs newline-separated text; an unreadable file
+	// fails fast before the walk starts. Membership checking
+	// requires --with-hashes so the per-file hash trio is computed;
+	// we force it on transparently rather than erroring.
+	var allowlist, denylist hashset.Set
+	if s.HashAllowlist != "" {
+		al, err := hashset.Open(s.HashAllowlist)
+		if err != nil {
+			return fmt.Errorf("load --hash-allowlist: %w", err)
+		}
+		allowlist = al
+		defer func() { _ = al.Close() }()
+		s.WithHashes = true
+	}
+	if s.HashDenylist != "" {
+		dl, err := hashset.Open(s.HashDenylist)
+		if err != nil {
+			return fmt.Errorf("load --hash-denylist: %w", err)
+		}
+		denylist = dl
+		defer func() { _ = dl.Close() }()
+		s.WithHashes = true
+	}
+
 	opts := search.Options{
 		Roots:             s.Dir,
 		Expr:              s.Expr,
@@ -888,6 +917,8 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		BodyMaxBytes:      s.BodyMaxBytes,
 		ComputeHashes:     s.WithHashes,
 		CheckDisguised:    s.CheckDisguised,
+		Allowlist:         allowlist,
+		Denylist:          denylist,
 		Excludes:            s.Exclude,
 		RespectGitignore:    s.RespectGitignore,
 		FollowSymlinks:      s.FollowSymlinks,
