@@ -90,6 +90,12 @@ jobs:
           - name: ParseHDF5Superblock
             pkg: ./internal/content/
             func: FuzzParseHDF5Superblock
+          - name: ParsePDS3Label
+            pkg: ./internal/content/
+            func: FuzzParsePDS3Label
+          - name: ParsePDS4Label
+            pkg: ./internal/content/
+            func: FuzzParsePDS4Label
           - name: CELCompile
             pkg: ./internal/celexpr/
             func: FuzzCELCompile

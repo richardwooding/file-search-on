@@ -274,6 +274,9 @@ type FileAttributes struct {
 	IsFITS        bool
 	IsVotable     bool
 	IsHDF5        bool
+	IsPDS3        bool
+	IsPDS4        bool
+	IsPDS         bool
 	IsScienceData bool
 
 	// Symlink awareness. IsSymlink fires when os.Lstat reports the
@@ -506,7 +509,17 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("is_fits", cel.BoolType),
 		cel.Variable("is_votable", cel.BoolType),
 		cel.Variable("is_hdf5", cel.BoolType),
+		cel.Variable("is_pds3", cel.BoolType),
+		cel.Variable("is_pds4", cel.BoolType),
+		cel.Variable("is_pds", cel.BoolType),
 		cel.Variable("is_science_data", cel.BoolType),
+		cel.Variable("pds_version", cel.StringType),
+		cel.Variable("mission_name", cel.StringType),
+		cel.Variable("spacecraft_name", cel.StringType),
+		cel.Variable("instrument_name", cel.StringType),
+		cel.Variable("target_name", cel.StringType),
+		cel.Variable("product_id", cel.StringType),
+		cel.Variable("start_time", cel.StringType),
 		cel.Variable("hdf5_format_version", cel.IntType),
 		cel.Variable("hdf5_size_of_offsets", cel.IntType),
 		cel.Variable("hdf5_size_of_lengths", cel.IntType),
@@ -1247,6 +1260,12 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 		attrs.IsVotable = true
 	case "science/hdf5":
 		attrs.IsHDF5 = true
+	case "science/pds3":
+		attrs.IsPDS3 = true
+		attrs.IsPDS = true
+	case "science/pds4":
+		attrs.IsPDS4 = true
+		attrs.IsPDS = true
 	}
 
 	// Family prefix flags. Independent `if` blocks rather than a

@@ -184,6 +184,12 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.IsVotable, true
 	case "is_hdf5":
 		return a.attrs.IsHDF5, true
+	case "is_pds3":
+		return a.attrs.IsPDS3, true
+	case "is_pds4":
+		return a.attrs.IsPDS4, true
+	case "is_pds":
+		return a.attrs.IsPDS, true
 	case "is_science_data":
 		return a.attrs.IsScienceData, true
 	case "is_symlink":
@@ -398,4 +404,13 @@ var zeroDefaults = map[string]any{
 	"hdf5_format_version":  int64(0),
 	"hdf5_size_of_offsets": int64(0),
 	"hdf5_size_of_lengths": int64(0),
+
+	// PDS (issue #162). Shared across PDS3 PVL + PDS4 XML variants.
+	"pds_version":     "",
+	"mission_name":    "",
+	"spacecraft_name": "",
+	"instrument_name": "",
+	"target_name":     "",
+	"product_id":      "",
+	"start_time":      "",
 }
