@@ -7,6 +7,16 @@ import (
 	"strings"
 )
 
+// maxXMLTokens caps how many tokens an XML walker will consume from
+// the underlying decoder before returning. Bounds worst-case wall
+// time on adversarial input — all-tags XML with no character data
+// doesn't trip the maxBytes output cap, so without this guard a
+// pathological input can drive the decoder for many seconds. 1M
+// tokens covers any realistic OOXML / ODT document (typical sizes
+// are 10-100k tokens for very large docs); above that we assume
+// adversarial intent and return what we have.
+const maxXMLTokens = 1_000_000
+
 // extractXMLText walks an XML document collecting CharData. For each
 // occurrence of paraElem the accumulated text is emitted as one line
 // (newline-separated in the output). textElem, when non-empty, scopes
@@ -26,6 +36,7 @@ func extractXMLText(ctx context.Context, r io.Reader, paraElem, textElem string,
 	paraDepth := 0
 	scoped := textElem != ""
 
+	tokens := 0
 	for {
 		if err := ctx.Err(); err != nil {
 			return out.String(), err
@@ -33,6 +44,14 @@ func extractXMLText(ctx context.Context, r io.Reader, paraElem, textElem string,
 		if maxBytes > 0 && out.Len()+line.Len() >= maxBytes {
 			break
 		}
+		// Bounded-work guard. xml.Decoder.Token() is fast per call but
+		// all-tags adversarial input (no character data) doesn't trip
+		// the maxBytes cap; the only thing stopping the loop on
+		// pathological input is this counter. See maxXMLTokens.
+		if tokens >= maxXMLTokens {
+			break
+		}
+		tokens++
 		tok, err := dec.Token()
 		if err == io.EOF {
 			break
@@ -102,6 +121,7 @@ func extractHTMLText(ctx context.Context, r io.Reader, maxBytes int) (string, er
 
 	var out strings.Builder
 	skipDepth := 0 // > 0 → inside <script> / <style>
+	tokens := 0
 	for {
 		if err := ctx.Err(); err != nil {
 			return out.String(), err
@@ -109,6 +129,14 @@ func extractHTMLText(ctx context.Context, r io.Reader, maxBytes int) (string, er
 		if maxBytes > 0 && out.Len() >= maxBytes {
 			break
 		}
+		// Bounded-work guard — see maxXMLTokens. permissive mode +
+		// adversarial HTML can drive the decoder through many tokens
+		// without emitting CharData (e.g. all-tag inputs inside
+		// <script>/<style>); cap iteration count.
+		if tokens >= maxXMLTokens {
+			break
+		}
+		tokens++
 		tok, err := dec.Token()
 		if err != nil {
 			break

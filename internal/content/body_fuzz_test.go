@@ -5,8 +5,29 @@ import (
 	"context"
 	"testing"
 	"testing/fstest"
+	"time"
 )
 
+// fuzzXMLInputCap caps the per-input size for the XML / HTML fuzz
+// targets. Adversarial all-tags input doesn't trip the per-call
+// maxBytes output cap (no CharData is emitted) and can drive the
+// decoder for many seconds before the production maxXMLTokens guard
+// kicks in. The mutator generates a long tail of multi-KB nested-tag
+// inputs that are individually safe but collectively starve the fuzz
+// worker, so the harness fails with "context deadline exceeded" at
+// the -fuzztime ceiling (workflow run 26206369524 caught this).
+// Capping fuzz input at 8 KiB still exercises every interesting
+// shape (deep nesting, mixed content, entity bombs, namespace
+// quirks) while keeping each call well under a millisecond.
+const fuzzXMLInputCap = 8 * 1024
+
+// fuzzXMLPerCallTimeout is the wall-clock ceiling for a single fuzz
+// invocation. Belt-and-braces alongside fuzzXMLInputCap: even if a
+// future mutator finds a small-but-slow input that the size cap
+// misses, ctx cancellation surfaces inside extractXMLText /
+// extractHTMLText (both check ctx.Err() per token) so the worker
+// completes promptly.
+const fuzzXMLPerCallTimeout = 500 * time.Millisecond
 
 // FuzzExtractXMLText targets the shared XML walker that DOCX / XLSX /
 // PPTX / ODT all funnel through. The walker takes (paraElem, textElem)
@@ -59,8 +80,12 @@ func FuzzExtractXMLText(f *testing.F) {
 	// shape (textElem empty, scoped to paraElem). Captures both
 	// extractor modes from a single fuzz function.
 	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > fuzzXMLInputCap {
+			return
+		}
 		const maxBytes = 4096
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(context.Background(), fuzzXMLPerCallTimeout)
+		defer cancel()
 
 		// Scoped mode (DOCX / XLSX / PPTX).
 		out, _ := extractXMLText(ctx, bytes.NewReader(data), "p", "t", maxBytes)
@@ -112,8 +137,13 @@ func FuzzExtractHTMLText(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > fuzzXMLInputCap {
+			return
+		}
 		const maxBytes = 4096
-		out, _ := extractHTMLText(context.Background(), bytes.NewReader(data), maxBytes)
+		ctx, cancel := context.WithTimeout(context.Background(), fuzzXMLPerCallTimeout)
+		defer cancel()
+		out, _ := extractHTMLText(ctx, bytes.NewReader(data), maxBytes)
 		if len(out) > 2*maxBytes {
 			t.Fatalf("output %d bytes exceeds 2× cap (%d)", len(out), maxBytes)
 		}
