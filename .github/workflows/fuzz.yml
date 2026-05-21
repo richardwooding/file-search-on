@@ -84,6 +84,9 @@ jobs:
           - name: ParseFITSHeaders
             pkg: ./internal/content/
             func: FuzzParseFITSHeaders
+          - name: ParseVOTable
+            pkg: ./internal/content/
+            func: FuzzParseVOTable
           - name: CELCompile
             pkg: ./internal/celexpr/
             func: FuzzCELCompile

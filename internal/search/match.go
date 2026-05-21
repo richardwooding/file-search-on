@@ -125,6 +125,7 @@ type Match struct {
 	// Science-data family. Per-type predicates plus the umbrella
 	// IsScienceData family flag.
 	IsFITS        bool `json:"is_fits,omitempty"`
+	IsVotable     bool `json:"is_votable,omitempty"`
 	IsScienceData bool `json:"is_science_data,omitempty"`
 
 	// Disk-image family. Per-type predicates plus the umbrella
@@ -201,6 +202,17 @@ type Match struct {
 	Naxis2        int64   `json:"naxis2,omitempty"`
 	HDUCount      int64   `json:"hdu_count,omitempty"`
 	FITSKind      string  `json:"fits_kind,omitempty"`
+
+	// VOTable (issue #160). VOTableVersion / TableCount / TotalRows
+	// always populated for matched VOTable files; the FIELD parallel
+	// lists only when at least one FIELD is declared.
+	VOTableVersion    string   `json:"votable_version,omitempty"`
+	TableCount        int64    `json:"table_count,omitempty"`
+	TotalRows         int64    `json:"total_rows,omitempty"`
+	FieldNames        []string `json:"field_names,omitempty"`
+	FieldUnits        []string `json:"field_units,omitempty"`
+	FieldUCDs         []string `json:"field_ucds,omitempty"`
+	VOTableDataFormat string   `json:"votable_data_format,omitempty"`
 
 	// Install-package attributes.
 	PackageFormat   string `json:"package_format,omitempty"`
@@ -387,7 +399,7 @@ func MatchFrom(r Result) Match {
 	m.IsPkg, m.IsDeb, m.IsRPM, m.IsAppImage, m.IsInstallPackage = a.IsPkg, a.IsDeb, a.IsRPM, a.IsAppImage, a.IsInstallPackage
 	m.IsSymlink, m.IsBrokenSymlink = a.IsSymlink, a.IsBrokenSymlink
 	m.IsClass, m.IsPyc, m.IsWasm, m.IsBytecode = a.IsClass, a.IsPyc, a.IsWasm, a.IsBytecode
-	m.IsFITS, m.IsScienceData = a.IsFITS, a.IsScienceData
+	m.IsFITS, m.IsVotable, m.IsScienceData = a.IsFITS, a.IsVotable, a.IsScienceData
 	m.MD5, m.SHA1, m.SHA256 = a.MD5, a.SHA1, a.SHA256
 	m.Similarity = a.Similarity
 	if !a.CreatedAt.IsZero() {
@@ -831,6 +843,29 @@ func MatchFrom(r Result) Match {
 	}
 	if v, ok := a.Extra["fits_kind"].(string); ok {
 		m.FITSKind = v
+	}
+
+	// VOTable.
+	if v, ok := a.Extra["votable_version"].(string); ok {
+		m.VOTableVersion = v
+	}
+	if v, ok := a.Extra["table_count"].(int64); ok {
+		m.TableCount = v
+	}
+	if v, ok := a.Extra["total_rows"].(int64); ok {
+		m.TotalRows = v
+	}
+	if v, ok := a.Extra["field_names"].([]string); ok && len(v) > 0 {
+		m.FieldNames = v
+	}
+	if v, ok := a.Extra["field_units"].([]string); ok && len(v) > 0 {
+		m.FieldUnits = v
+	}
+	if v, ok := a.Extra["field_ucds"].([]string); ok && len(v) > 0 {
+		m.FieldUCDs = v
+	}
+	if v, ok := a.Extra["votable_data_format"].(string); ok {
+		m.VOTableDataFormat = v
 	}
 
 	return m

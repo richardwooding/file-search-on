@@ -180,6 +180,8 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.IsBytecode, true
 	case "is_fits":
 		return a.attrs.IsFITS, true
+	case "is_votable":
+		return a.attrs.IsVotable, true
 	case "is_science_data":
 		return a.attrs.IsScienceData, true
 	case "is_symlink":
@@ -380,4 +382,13 @@ var zeroDefaults = map[string]any{
 	"naxis2":         int64(0),
 	"hdu_count":      int64(0),
 	"fits_kind":      "",
+
+	// VOTable (issue #160).
+	"votable_version":     "",
+	"table_count":         int64(0),
+	"total_rows":          int64(0),
+	"field_names":         []string{},
+	"field_units":         []string{},
+	"field_ucds":          []string{},
+	"votable_data_format": "",
 }

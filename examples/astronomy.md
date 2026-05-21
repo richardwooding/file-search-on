@@ -1,6 +1,11 @@
 # Recipes — Astronomy & scientific data
 
-Content type: `science/fits` — Flexible Image Transport System, the dominant data format in astronomy since 1981. Used by every major observatory and space telescope (HST, JWST, Chandra, ALMA, Gaia, TESS, Kepler) for images, tables, spectra, and data cubes. Umbrella boolean `is_science_data` extends over future VOTable / HDF5 / PDS / CDF additions.
+Content types covered:
+
+- **`science/fits`** — Flexible Image Transport System, the dominant binary container in astronomy since 1981. Used by every major observatory and space telescope (HST, JWST, Chandra, ALMA, Gaia, TESS, Kepler) for images, tables, spectra, and data cubes.
+- **`science/votable`** — IVOA tabular standard, XML-based. Used by every VO service (Simbad, Vizier, MAST, ESO archive, Gaia archive) for catalog query results and source lists.
+
+Umbrella boolean `is_science_data` fires for both. Future HDF5 / PDS / CDF additions will join the same family.
 
 The parser reads the FITS primary HDU header (80-byte ASCII cards packed into 2880-byte blocks) plus an HDU walk to count extensions. No pixel-data read — header-only metadata. Pure-Go stdlib, no third-party libs.
 
@@ -120,9 +125,66 @@ file-search-on 'is_fits' -d ~/data -o json | \
   jq -r '.telescope' | sort | uniq -c | sort -rn
 ```
 
+## VOTable — IVOA catalog files
+
+VOTable files (`.vot` / `.votable`) carry tabular astronomical data from Virtual Observatory services. The parser reads the XML header — VOTABLE version, RESOURCE / TABLE structure, FIELD definitions — without walking row payloads.
+
+```sh
+# All VOTable files under a directory
+file-search-on 'is_votable' -d ~/data/queries
+
+# Specific VOTable version (e.g. recent VO services emit 1.4)
+file-search-on 'is_votable && votable_version == "1.4"' -d ~/data/queries
+
+# Tables with > 1000 rows (uses the TABLE@nrows attribute when present)
+file-search-on 'is_votable && total_rows > 1000' -d ~/data
+
+# Multi-resource files (catalog with multiple tables)
+file-search-on 'is_votable && table_count > 1' -d ~/data
+```
+
+### Filter by column / UCD
+
+`field_names` carries every column name in declaration order; `field_ucds` carries the IVOA Unified Content Descriptors (semantic types like `phot.mag`, `pos.eq.ra`, `time.epoch`):
+
+```sh
+# Catalogs that contain a magnitude column
+file-search-on 'is_votable && "mag" in field_names' -d ~/data
+
+# Files with right-ascension / declination columns (positional catalogs)
+file-search-on 'is_votable && "pos.eq.ra" in field_ucds' -d ~/data
+
+# Files that include a redshift column
+file-search-on 'is_votable && "src.redshift" in field_ucds' -d ~/data
+```
+
+### Data-format triage
+
+```sh
+# Files using TABLEDATA (XML rows) — searchable as text
+file-search-on 'is_votable && votable_data_format == "tabledata"' -d ~/data
+
+# Files with base64-encoded binary payloads (faster but opaque to grep)
+file-search-on 'is_votable && (votable_data_format == "binary" || votable_data_format == "binary2")' -d ~/data
+```
+
+### Cross-format vocabulary
+
+`title` is populated from the root `<DESCRIPTION>` text; `author` from `<INFO name="creator">`. The same cross-family queries that work for FITS work here:
+
+```sh
+# All scientific data files (FITS + VOTable) by a specific author
+file-search-on 'is_science_data && author == "Gaia DPAC"' -d ~/data
+
+# Files described as Gaia data (across formats)
+file-search-on 'is_science_data && title.contains("Gaia")' -d ~/data
+```
+
 ## Known limitations
 
 - **Header-only**: pixel-data inside the FITS file is never read. Use astropy / fitsio if you need the actual array.
 - **No WCS projection**: `ra` / `dec` are the raw `CRVAL1` / `CRVAL2` reference values, not full sky-position computations for arbitrary pixels. Reading the CD matrix and projecting pixel → sky would need `wcslib` — out of scope.
 - **Single attribute set**: multi-extension files surface attributes from the primary HDU only. Per-extension drilling (e.g. `hdu[1].telescope`) is not modelled.
-- **Other astronomy formats** (VOTable, HDF5, PDS, CDF) are not yet supported but the `is_science_data` umbrella is positioned to extend cleanly when those land.
+- **VOTable row payloads**: the parser stops at the first table's `<DATA>` element. Row data (TABLEDATA TR/TD, BINARY/BINARY2 base64 streams) is never walked — search filters on `total_rows` rely on the `nrows` attribute set by the publishing tool. Tables without `nrows` contribute 0.
+- **VOTable namespace requirement**: files literally named `.xml` that happen to contain VOTable XML detect as plain XML, not `science/votable`. Rename to `.vot` / `.votable` to engage the VOTable parser.
+- **Other astronomy formats** (HDF5, PDS, CDF) are not yet supported but the `is_science_data` umbrella is positioned to extend cleanly when those land — see issues #161, #162, #163.

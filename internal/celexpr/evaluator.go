@@ -272,6 +272,7 @@ type FileAttributes struct {
 	// — positioned to extend over future VOTable / HDF5 / PDS / CDF
 	// content types without touching consumers.
 	IsFITS        bool
+	IsVotable     bool
 	IsScienceData bool
 
 	// Symlink awareness. IsSymlink fires when os.Lstat reports the
@@ -502,8 +503,16 @@ func New(expr string) (*Evaluator, error) {
 		// title (← OBJECT), author (← OBSERVER), and taken_at
 		// (← parsed DATE-OBS) across the document / image families.
 		cel.Variable("is_fits", cel.BoolType),
+		cel.Variable("is_votable", cel.BoolType),
 		cel.Variable("is_science_data", cel.BoolType),
 		cel.Variable("science_format", cel.StringType),
+		cel.Variable("votable_version", cel.StringType),
+		cel.Variable("table_count", cel.IntType),
+		cel.Variable("total_rows", cel.IntType),
+		cel.Variable("field_names", cel.ListType(cel.StringType)),
+		cel.Variable("field_units", cel.ListType(cel.StringType)),
+		cel.Variable("field_ucds", cel.ListType(cel.StringType)),
+		cel.Variable("votable_data_format", cel.StringType),
 		cel.Variable("telescope", cel.StringType),
 		cel.Variable("instrument", cel.StringType),
 		cel.Variable("object", cel.StringType),
@@ -1229,6 +1238,8 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 	// block below.
 	case "science/fits":
 		attrs.IsFITS = true
+	case "science/votable":
+		attrs.IsVotable = true
 	}
 
 	// Family prefix flags. Independent `if` blocks rather than a
