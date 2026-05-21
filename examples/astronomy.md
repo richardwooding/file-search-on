@@ -1,14 +1,15 @@
 # Recipes — Astronomy & scientific data
 
-Content types covered:
+Content types covered (the full `science/*` family):
 
 - **`science/fits`** — Flexible Image Transport System, the dominant binary container in astronomy since 1981. Used by every major observatory and space telescope (HST, JWST, Chandra, ALMA, Gaia, TESS, Kepler) for images, tables, spectra, and data cubes.
 - **`science/votable`** — IVOA tabular standard, XML-based. Used by every VO service (Simbad, Vizier, MAST, ESO archive, Gaia archive) for catalog query results and source lists.
 - **`science/hdf5`** — Hierarchical Data Format v5. Used by LSST / Vera Rubin sky survey, LIGO gravitational waves, NetCDF4 (built on HDF5), every modern simulation pipeline, PyTorch / NumPy checkpoints.
 - **`science/pds3`** — NASA Planetary Data System v3 (PVL labels). Voyager / Galileo / Cassini / MESSENGER / Mars rovers through Curiosity.
 - **`science/pds4`** — NASA Planetary Data System v4 (XML labels). Current standard for Perseverance, Lucy, OSIRIS-REx, and future missions.
+- **`science/cdf`** — NASA Common Data Format v3+ for heliophysics. Used by ACE, Wind, Cluster, MMS, Parker Solar Probe, Solar Orbiter.
 
-Umbrella boolean `is_science_data` fires for all five. `is_pds` is the cross-version umbrella for PDS specifically. Future CDF additions will join the same family.
+Umbrella boolean `is_science_data` fires for all six. `is_pds` is the cross-version umbrella for PDS specifically.
 
 The parser reads the FITS primary HDU header (80-byte ASCII cards packed into 2880-byte blocks) plus an HDU walk to count extensions. No pixel-data read — header-only metadata. Pure-Go stdlib, no third-party libs.
 
@@ -262,6 +263,34 @@ file-search-on 'is_pds4 && taken_at > timestamp("2025-01-01T00:00:00Z")' -d ~/da
 file-search-on 'is_science_data && title.contains("Jezero")' -d ~/data
 ```
 
+## CDF — Common Data Format (heliophysics)
+
+CDF is NASA Goddard's archive format for space-physics time-series — used by every solar / magnetospheric mission (ACE, Wind, Cluster, MMS, Parker Solar Probe, Solar Orbiter) plus the broader SPDF Space Physics Data Facility archives.
+
+```sh
+# All CDF files
+file-search-on 'is_cdf' -d ~/data/heliophysics
+
+# CDF v3.8 or newer
+file-search-on 'is_cdf && cdf_version >= "3.8"' -d ~/data
+
+# Big files (many variables)
+file-search-on 'is_cdf && variable_count > 100' -d ~/data --sort-by variable_count --order desc
+
+# Row-major (C-style) layouts
+file-search-on 'is_cdf && cdf_majority == "row"' -d ~/data
+
+# Modern encoding (network or PC little-endian)
+file-search-on 'is_cdf && (cdf_encoding == "network" || cdf_encoding == "ibmpc")' -d ~/data
+```
+
+The full `is_science_data` umbrella now covers astronomy (FITS, VOTable, HDF5), planetary science (PDS3, PDS4), and heliophysics (CDF) — every NASA-archive-standard format an agent might encounter under `~/data` lights up:
+
+```sh
+# Reconnaissance: how many of each science format under a directory?
+file-search-on stats 'is_science_data' -d ~/data
+```
+
 ## Known limitations
 
 - **Header-only**: pixel-data inside the FITS file is never read. Use astropy / fitsio if you need the actual array.
@@ -274,4 +303,6 @@ file-search-on 'is_science_data && title.contains("Jezero")' -d ~/data
 - **PDS3 nested OBJECT/END_OBJECT groups**: only top-level keywords are parsed. The block-structured sub-objects (IMAGE, TABLE, etc.) that describe data layout aren't walked.
 - **PDS4 Product_Bundle / Product_Collection / Product_Document**: only `Product_Observational` is supported in v1. Other product kinds detect (by `.lblx` extension) but return empty attrs.
 - **PDS4 detection via `.xml`**: PDS4 labels literally named `.xml` detect as plain XML, not `science/pds4`. Rename to `.lblx` or symlink to engage the PDS4 parser.
-- **CDF**: not yet supported (NASA Common Data Format for heliophysics) — see issue #163.
+- **CDF ISTP-convention global attributes**: v1 surfaces only the CDR + GDR header fields (version, encoding, majority, variable_count, attribute_count). The walk through the ADR (attribute descriptor record) linked list for ISTP convention attributes — `TITLE` → `title`, `PI_name` → `author`, first-record Epoch → `taken_at` — is deferred to a follow-up.
+- **CDF v2.x**: detected only via the `.cdf` extension (v2 magic `0x0000FFFF` collides with too many other file types to register safely). Modern CDF files are v3+, where the `0xCDF30001` magic detects reliably.
+- **CDF GDR beyond the read cap**: for files where the GDR sits past the 64 KiB initial read window AND the underlying fs.FS isn't seekable, `variable_count` and `attribute_count` are unset (the parser still surfaces `cdf_version`, `cdf_encoding`, `cdf_majority`). Real on-disk files (`os.DirFS`) are seekable so this is mostly an in-memory-test-FS limitation.

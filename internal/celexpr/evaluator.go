@@ -277,6 +277,7 @@ type FileAttributes struct {
 	IsPDS3        bool
 	IsPDS4        bool
 	IsPDS         bool
+	IsCDF         bool
 	IsScienceData bool
 
 	// Symlink awareness. IsSymlink fires when os.Lstat reports the
@@ -512,7 +513,13 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("is_pds3", cel.BoolType),
 		cel.Variable("is_pds4", cel.BoolType),
 		cel.Variable("is_pds", cel.BoolType),
+		cel.Variable("is_cdf", cel.BoolType),
 		cel.Variable("is_science_data", cel.BoolType),
+		cel.Variable("cdf_version", cel.StringType),
+		cel.Variable("cdf_encoding", cel.StringType),
+		cel.Variable("cdf_majority", cel.StringType),
+		cel.Variable("variable_count", cel.IntType),
+		cel.Variable("attribute_count", cel.IntType),
 		cel.Variable("pds_version", cel.StringType),
 		cel.Variable("mission_name", cel.StringType),
 		cel.Variable("spacecraft_name", cel.StringType),
@@ -1266,6 +1273,8 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 	case "science/pds4":
 		attrs.IsPDS4 = true
 		attrs.IsPDS = true
+	case "science/cdf":
+		attrs.IsCDF = true
 	}
 
 	// Family prefix flags. Independent `if` blocks rather than a
