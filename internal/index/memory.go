@@ -28,10 +28,11 @@ type memoryStats struct {
 	bodyOversize  atomic.Uint64
 	bodyErrors    atomic.Uint64
 
-	embedHits   atomic.Uint64
-	embedMisses atomic.Uint64
-	embedPuts   atomic.Uint64
-	embedErrors atomic.Uint64
+	embedHits            atomic.Uint64
+	embedMisses          atomic.Uint64
+	embedPuts            atomic.Uint64
+	embedErrors          atomic.Uint64
+	embedModelMismatches atomic.Uint64
 }
 
 func newMemoryIndex() *memoryIndex {
@@ -126,10 +127,11 @@ func (m *memoryIndex) Stats() Stats {
 		BodyEvictions: m.stats.bodyEvictions.Load(),
 		BodyOversize:  m.stats.bodyOversize.Load(),
 		BodyErrors:    m.stats.bodyErrors.Load(),
-		EmbedHits:     m.stats.embedHits.Load(),
-		EmbedMisses:   m.stats.embedMisses.Load(),
-		EmbedPuts:     m.stats.embedPuts.Load(),
-		EmbedErrors:   m.stats.embedErrors.Load(),
+		EmbedHits:            m.stats.embedHits.Load(),
+		EmbedMisses:          m.stats.embedMisses.Load(),
+		EmbedPuts:            m.stats.embedPuts.Load(),
+		EmbedErrors:          m.stats.embedErrors.Load(),
+		EmbedModelMismatches: m.stats.embedModelMismatches.Load(),
 	}
 }
 
@@ -148,6 +150,8 @@ func bumpEmbedStat(s *memoryStats, kind string) {
 		s.embedPuts.Add(1)
 	case "error":
 		s.embedErrors.Add(1)
+	case "model_mismatch":
+		s.embedModelMismatches.Add(1)
 	}
 }
 

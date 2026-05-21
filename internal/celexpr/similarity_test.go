@@ -141,6 +141,152 @@ func TestBuildAttributesWith_Similarity_CacheHit(t *testing.T) {
 	}
 }
 
+// TestBuildAttributesWith_Similarity_ModelMismatch confirms that
+// switching the embedding model between two walks invalidates the
+// cached vector — the second walk bumps EmbedModelMismatches and
+// re-embeds, rather than silently returning a Dot product against a
+// vector from the wrong coordinate system.
+func TestBuildAttributesWith_Similarity_ModelMismatch(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "f.md")
+	mustWrite(t, path, "content for model A then model B\n")
+
+	abs, _ := filepath.Abs(path)
+	base := filepath.Base(abs)
+	parent := filepath.Dir(abs)
+
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		// Same vector either way — the test cares about the model
+		// identity check, not vector content.
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"embeddings": [][]float32{{0.6, 0.8}},
+		})
+	}))
+	defer srv.Close()
+
+	idx := index.NewMemory()
+	defer func() { _ = idx.Close() }()
+	queryVec := []float32{0.6, 0.8}
+
+	// Walk 1: populate cache with model A.
+	embedderA := embed.NewOllama(srv.URL, "model-a")
+	if _, err := celexpr.BuildAttributesWith(ctx, os.DirFS(parent), base, abs, content.DefaultRegistry(), celexpr.BuildOptions{
+		Index:                  idx,
+		Embedder:               embedderA,
+		SemanticQueryEmbedding: queryVec,
+	}); err != nil {
+		t.Fatalf("walk A: %v", err)
+	}
+	if idx.Stats().EmbedPuts != 1 {
+		t.Fatalf("after walk A: EmbedPuts=%d want 1; stats=%+v", idx.Stats().EmbedPuts, idx.Stats())
+	}
+
+	// Walk 2: same tree, different model. Must NOT report a hit;
+	// must bump EmbedModelMismatches and re-embed.
+	embedderB := embed.NewOllama(srv.URL, "model-b")
+	if _, err := celexpr.BuildAttributesWith(ctx, os.DirFS(parent), base, abs, content.DefaultRegistry(), celexpr.BuildOptions{
+		Index:                  idx,
+		Embedder:               embedderB,
+		SemanticQueryEmbedding: queryVec,
+	}); err != nil {
+		t.Fatalf("walk B: %v", err)
+	}
+	st := idx.Stats()
+	if st.EmbedModelMismatches != 1 {
+		t.Errorf("EmbedModelMismatches=%d want 1; stats=%+v", st.EmbedModelMismatches, st)
+	}
+	if st.EmbedHits != 0 {
+		t.Errorf("EmbedHits=%d want 0 (model changed, must not hit); stats=%+v", st.EmbedHits, st)
+	}
+	if st.EmbedPuts != 2 {
+		t.Errorf("EmbedPuts=%d want 2 (re-embed under model B); stats=%+v", st.EmbedPuts, st)
+	}
+	if calls != 2 {
+		t.Errorf("Ollama calls=%d want 2 (one per walk); model mismatch should force re-embed", calls)
+	}
+
+	// Walk 3: back to model A. Cache now holds model B's vector, so
+	// this is ANOTHER mismatch. Demonstrates the cache holds only
+	// one model at a time per file — switching back and forth is
+	// not free, but at least it's correct.
+	if _, err := celexpr.BuildAttributesWith(ctx, os.DirFS(parent), base, abs, content.DefaultRegistry(), celexpr.BuildOptions{
+		Index:                  idx,
+		Embedder:               embedderA,
+		SemanticQueryEmbedding: queryVec,
+	}); err != nil {
+		t.Fatalf("walk A again: %v", err)
+	}
+	st = idx.Stats()
+	if st.EmbedModelMismatches != 2 {
+		t.Errorf("EmbedModelMismatches=%d want 2; stats=%+v", st.EmbedModelMismatches, st)
+	}
+}
+
+// TestBuildAttributesWith_Similarity_PreV154EntryRejected exercises
+// the upgrade path: an Entry that pre-dates #154 has Vector populated
+// but EmbedModel="". We must NOT trust such a vector (we don't know
+// what produced it) — treat it as a model mismatch and re-embed.
+func TestBuildAttributesWith_Similarity_PreV154EntryRejected(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "f.md")
+	mustWrite(t, path, "legacy cache entry simulation\n")
+
+	abs, _ := filepath.Abs(path)
+	base := filepath.Base(abs)
+	parent := filepath.Dir(abs)
+
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"embeddings": [][]float32{{0.6, 0.8}},
+		})
+	}))
+	defer srv.Close()
+
+	idx := index.NewMemory()
+	defer func() { _ = idx.Close() }()
+
+	// Manually seed the cache with a pre-#154-shaped entry: Vector
+	// populated, EmbedModel empty (simulating a gob decode from a
+	// cache file written before this PR).
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cacheKey, _ := filepath.Abs(path)
+	_ = idx.Put(cacheKey, &index.Entry{
+		Size:            info.Size(),
+		ModTimeUnixNano: info.ModTime().UnixNano(),
+		ContentType:     "markdown",
+		Vector:          []float32{0.6, 0.8},
+		EmbedModel:      "", // pre-#154 entries have empty EmbedModel
+	})
+
+	embedder := embed.NewOllama(srv.URL, "mock")
+	if _, err := celexpr.BuildAttributesWith(ctx, os.DirFS(parent), base, abs, content.DefaultRegistry(), celexpr.BuildOptions{
+		Index:                  idx,
+		Embedder:               embedder,
+		SemanticQueryEmbedding: []float32{0.6, 0.8},
+	}); err != nil {
+		t.Fatalf("BuildAttributesWith: %v", err)
+	}
+	st := idx.Stats()
+	if st.EmbedModelMismatches != 1 {
+		t.Errorf("EmbedModelMismatches=%d want 1 (pre-#154 vector should be rejected); stats=%+v", st.EmbedModelMismatches, st)
+	}
+	if calls != 1 {
+		t.Errorf("Ollama calls=%d want 1 (re-embed under the new model)", calls)
+	}
+	if st.EmbedHits != 0 {
+		t.Errorf("EmbedHits=%d want 0 (must not trust empty-EmbedModel vector); stats=%+v", st.EmbedHits, st)
+	}
+}
+
 // TestEvaluate_SimilarityFilter exercises the CEL predicate from a
 // synthesised FileAttributes.
 func TestEvaluate_SimilarityFilter(t *testing.T) {

@@ -87,6 +87,10 @@ func canExtractBody(name string) bool {
 //   - "miss": cached Vector missing, Embedder call attempted
 //   - "put": cached Vector freshly stored
 //   - "error": Embedder.Embed returned a non-nil error
+//   - "model_mismatch": cached Vector existed but EmbedModel differs
+//     from opts.Embedder.Model() (or EmbedModel is empty — unknown
+//     provenance, never trust). Falls through to re-embed; does NOT
+//     also bump "miss" (the model mismatch IS the miss reason).
 func populateSimilarity(ctx context.Context, fsys fs.FS, fsPath, displayPath, cacheKey string, info fs.FileInfo, cached *index.Entry, attrs *FileAttributes, opts BuildOptions) {
 	if attrs == nil {
 		return
@@ -98,28 +102,47 @@ func populateSimilarity(ctx context.Context, fsys fs.FS, fsPath, displayPath, ca
 		return
 	}
 
-	// Cache hit: cached Vector is the file's embedding, already
-	// normalised (we normalise at insert time). Dot == cosine.
+	currentModel := opts.Embedder.Model()
+
+	// Cache hit path — three sub-cases:
+	//
+	//   1. Vector + EmbedModel match the current model → reuse, Dot
+	//      gives cosine (both pre-normalised). "hit".
+	//   2. Vector present but EmbedModel differs (or is empty —
+	//      pre-#154 provenance) → bump "model_mismatch" and fall
+	//      through to re-embed. We can't trust the cached vector
+	//      because dimensions and/or coordinate systems differ across
+	//      models; computing a dot product would return either 0
+	//      (length mismatch) or nonsense (same dim, different model).
+	//   3. Vector empty → bump "miss" below in the re-embed path.
 	if cached != nil && len(cached.Vector) > 0 {
-		attrs.Similarity = embed.Dot(opts.SemanticQueryEmbedding, cached.Vector)
-		if opts.Index != nil {
-			opts.Index.BumpEmbedStat("hit")
+		if cached.EmbedModel == currentModel && currentModel != "" {
+			attrs.Similarity = embed.Dot(opts.SemanticQueryEmbedding, cached.Vector)
+			if opts.Index != nil {
+				opts.Index.BumpEmbedStat("hit")
+			}
+			return
 		}
-		return
+		if opts.Index != nil {
+			opts.Index.BumpEmbedStat("model_mismatch")
+		}
+		// fall through to re-embed; don't also bump "miss".
 	}
 
-	// Cache miss. Extract the body via the existing body-cache-aware
-	// reader so we share the body cache with anything else asking
-	// for it in this walk. Empty body → no signal → leave Similarity
-	// at 0.
+	// Re-embed path. Extract the body via the body-cache-aware reader
+	// so we share the body cache with anything else asking for it in
+	// this walk. Empty body → no signal → leave Similarity at 0.
 	body, err := readBody(ctx, fsys, fsPath, attrs.ContentType, opts.BodyMaxBytes)
 	if err != nil || body == "" {
-		if opts.Index != nil {
+		if opts.Index != nil && (cached == nil || len(cached.Vector) == 0) {
+			// Pure cache-miss (no Vector at all). When we got here
+			// via model_mismatch we've already bumped that counter
+			// and shouldn't also bump "miss".
 			opts.Index.BumpEmbedStat("miss")
 		}
 		return
 	}
-	if opts.Index != nil {
+	if opts.Index != nil && (cached == nil || len(cached.Vector) == 0) {
 		opts.Index.BumpEmbedStat("miss")
 	}
 	vec, err := opts.Embedder.Embed(ctx, body)
@@ -133,9 +156,10 @@ func populateSimilarity(ctx context.Context, fsys fs.FS, fsPath, displayPath, ca
 	attrs.Similarity = embed.Dot(opts.SemanticQueryEmbedding, vec)
 
 	// Write the freshly-computed vector back to the cache so the
-	// next walk against the same (size, mtime) skips the Embedder
-	// call. Always-write semantics: even on a cache hit for other
-	// attrs, we now have a Vector to record.
+	// next walk against the same (size, mtime, model) skips the
+	// Embedder call. Stamp EmbedModel so future calls with a
+	// different model surface as model_mismatch instead of silently
+	// returning wrong scores.
 	if opts.Index != nil && cacheKey != "" {
 		entry := cached
 		if entry == nil {
@@ -146,6 +170,7 @@ func populateSimilarity(ctx context.Context, fsys fs.FS, fsPath, displayPath, ca
 			}
 		}
 		entry.Vector = vec
+		entry.EmbedModel = currentModel
 		_ = opts.Index.Put(cacheKey, entry)
 		opts.Index.BumpEmbedStat("put")
 	}
