@@ -4,8 +4,9 @@ Content types covered:
 
 - **`science/fits`** — Flexible Image Transport System, the dominant binary container in astronomy since 1981. Used by every major observatory and space telescope (HST, JWST, Chandra, ALMA, Gaia, TESS, Kepler) for images, tables, spectra, and data cubes.
 - **`science/votable`** — IVOA tabular standard, XML-based. Used by every VO service (Simbad, Vizier, MAST, ESO archive, Gaia archive) for catalog query results and source lists.
+- **`science/hdf5`** — Hierarchical Data Format v5. Used by LSST / Vera Rubin sky survey, LIGO gravitational waves, NetCDF4 (built on HDF5), every modern simulation pipeline, PyTorch / NumPy checkpoints.
 
-Umbrella boolean `is_science_data` fires for both. Future HDF5 / PDS / CDF additions will join the same family.
+Umbrella boolean `is_science_data` fires for all three. Future PDS / CDF additions will join the same family.
 
 The parser reads the FITS primary HDU header (80-byte ASCII cards packed into 2880-byte blocks) plus an HDU walk to count extensions. No pixel-data read — header-only metadata. Pure-Go stdlib, no third-party libs.
 
@@ -180,6 +181,26 @@ file-search-on 'is_science_data && author == "Gaia DPAC"' -d ~/data
 file-search-on 'is_science_data && title.contains("Gaia")' -d ~/data
 ```
 
+## HDF5 — Hierarchical Data Format v5
+
+HDF5 is the workhorse for large-scale scientific data — LSST sky-survey chunks, LIGO frames, every modern PyTorch / NumPy checkpoint, and the substrate for NetCDF4. v1 scope is superblock-only metadata; the recursive group / dataset hierarchy walk is a follow-up.
+
+```sh
+# All HDF5 files under a directory
+file-search-on 'is_hdf5' -d ~/data
+
+# Files written by libhdf5 1.10+ (compact v2/v3 superblock)
+file-search-on 'is_hdf5 && hdf5_format_version >= 2' -d ~/data
+
+# Legacy files (libhdf5 1.6 / 1.8 era)
+file-search-on 'is_hdf5 && hdf5_format_version <= 1' -d ~/data
+
+# 32-bit-era files with 4-byte offset addresses (rare today)
+file-search-on 'is_hdf5 && hdf5_size_of_offsets == 4' -d ~/data
+```
+
+`.hdf` files: HDF4 (a different, older format) is NOT detected — its magic differs from HDF5's. The HDF5 magic-byte detector is reliable enough that `is_hdf5` doesn't false-positive on HDF4 even when both share the `.hdf` extension.
+
 ## Known limitations
 
 - **Header-only**: pixel-data inside the FITS file is never read. Use astropy / fitsio if you need the actual array.
@@ -187,4 +208,6 @@ file-search-on 'is_science_data && title.contains("Gaia")' -d ~/data
 - **Single attribute set**: multi-extension files surface attributes from the primary HDU only. Per-extension drilling (e.g. `hdu[1].telescope`) is not modelled.
 - **VOTable row payloads**: the parser stops at the first table's `<DATA>` element. Row data (TABLEDATA TR/TD, BINARY/BINARY2 base64 streams) is never walked — search filters on `total_rows` rely on the `nrows` attribute set by the publishing tool. Tables without `nrows` contribute 0.
 - **VOTable namespace requirement**: files literally named `.xml` that happen to contain VOTable XML detect as plain XML, not `science/votable`. Rename to `.vot` / `.votable` to engage the VOTable parser.
-- **Other astronomy formats** (HDF5, PDS, CDF) are not yet supported but the `is_science_data` umbrella is positioned to extend cleanly when those land — see issues #161, #162, #163.
+- **HDF5 hierarchy walk**: v1 ships superblock metadata only. Group / dataset enumeration (`group_count`, `dataset_count`, `top_level_groups`) is deferred — parsing v0/v1 B-trees and v2/v3 fractal heaps without real-world binary fixtures was higher risk than the metadata payoff justified. Tracked as a follow-up.
+- **HDF5 superblock placement**: the spec allows the superblock at file offset 0, 512, 1024, 2048, etc. v1 only parses files with the superblock at offset 0 (overwhelmingly the common case). Non-zero offsets detect by extension (`.h5` / `.hdf5`) but surface no attributes.
+- **Other astronomy formats** (PDS, CDF) are not yet supported but the `is_science_data` umbrella is positioned to extend cleanly when those land — see issues #162, #163.
