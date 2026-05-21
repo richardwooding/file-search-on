@@ -182,6 +182,8 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.IsFITS, true
 	case "is_votable":
 		return a.attrs.IsVotable, true
+	case "is_hdf5":
+		return a.attrs.IsHDF5, true
 	case "is_science_data":
 		return a.attrs.IsScienceData, true
 	case "is_symlink":
@@ -391,4 +393,9 @@ var zeroDefaults = map[string]any{
 	"field_units":         []string{},
 	"field_ucds":          []string{},
 	"votable_data_format": "",
+
+	// HDF5 (issue #161). Superblock-only attributes for v1.
+	"hdf5_format_version":  int64(0),
+	"hdf5_size_of_offsets": int64(0),
+	"hdf5_size_of_lengths": int64(0),
 }

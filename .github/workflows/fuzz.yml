@@ -87,6 +87,9 @@ jobs:
           - name: ParseVOTable
             pkg: ./internal/content/
             func: FuzzParseVOTable
+          - name: ParseHDF5Superblock
+            pkg: ./internal/content/
+            func: FuzzParseHDF5Superblock
           - name: CELCompile
             pkg: ./internal/celexpr/
             func: FuzzCELCompile

@@ -126,6 +126,7 @@ type Match struct {
 	// IsScienceData family flag.
 	IsFITS        bool `json:"is_fits,omitempty"`
 	IsVotable     bool `json:"is_votable,omitempty"`
+	IsHDF5        bool `json:"is_hdf5,omitempty"`
 	IsScienceData bool `json:"is_science_data,omitempty"`
 
 	// Disk-image family. Per-type predicates plus the umbrella
@@ -213,6 +214,14 @@ type Match struct {
 	FieldUnits        []string `json:"field_units,omitempty"`
 	FieldUCDs         []string `json:"field_ucds,omitempty"`
 	VOTableDataFormat string   `json:"votable_data_format,omitempty"`
+
+	// HDF5 superblock attributes (issue #161). Always populated
+	// when IsHDF5 fires; the v1 scope is superblock-only — the
+	// recursive hierarchy walk (group_count / dataset_count /
+	// top_level_groups) is deferred to a follow-up.
+	HDF5FormatVersion int64 `json:"hdf5_format_version,omitempty"`
+	HDF5SizeOfOffsets int64 `json:"hdf5_size_of_offsets,omitempty"`
+	HDF5SizeOfLengths int64 `json:"hdf5_size_of_lengths,omitempty"`
 
 	// Install-package attributes.
 	PackageFormat   string `json:"package_format,omitempty"`
@@ -399,7 +408,7 @@ func MatchFrom(r Result) Match {
 	m.IsPkg, m.IsDeb, m.IsRPM, m.IsAppImage, m.IsInstallPackage = a.IsPkg, a.IsDeb, a.IsRPM, a.IsAppImage, a.IsInstallPackage
 	m.IsSymlink, m.IsBrokenSymlink = a.IsSymlink, a.IsBrokenSymlink
 	m.IsClass, m.IsPyc, m.IsWasm, m.IsBytecode = a.IsClass, a.IsPyc, a.IsWasm, a.IsBytecode
-	m.IsFITS, m.IsVotable, m.IsScienceData = a.IsFITS, a.IsVotable, a.IsScienceData
+	m.IsFITS, m.IsVotable, m.IsHDF5, m.IsScienceData = a.IsFITS, a.IsVotable, a.IsHDF5, a.IsScienceData
 	m.MD5, m.SHA1, m.SHA256 = a.MD5, a.SHA1, a.SHA256
 	m.Similarity = a.Similarity
 	if !a.CreatedAt.IsZero() {
@@ -866,6 +875,17 @@ func MatchFrom(r Result) Match {
 	}
 	if v, ok := a.Extra["votable_data_format"].(string); ok {
 		m.VOTableDataFormat = v
+	}
+
+	// HDF5.
+	if v, ok := a.Extra["hdf5_format_version"].(int64); ok {
+		m.HDF5FormatVersion = v
+	}
+	if v, ok := a.Extra["hdf5_size_of_offsets"].(int64); ok {
+		m.HDF5SizeOfOffsets = v
+	}
+	if v, ok := a.Extra["hdf5_size_of_lengths"].(int64); ok {
+		m.HDF5SizeOfLengths = v
 	}
 
 	return m
