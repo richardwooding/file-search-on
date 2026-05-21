@@ -5,8 +5,10 @@ Content types covered:
 - **`science/fits`** — Flexible Image Transport System, the dominant binary container in astronomy since 1981. Used by every major observatory and space telescope (HST, JWST, Chandra, ALMA, Gaia, TESS, Kepler) for images, tables, spectra, and data cubes.
 - **`science/votable`** — IVOA tabular standard, XML-based. Used by every VO service (Simbad, Vizier, MAST, ESO archive, Gaia archive) for catalog query results and source lists.
 - **`science/hdf5`** — Hierarchical Data Format v5. Used by LSST / Vera Rubin sky survey, LIGO gravitational waves, NetCDF4 (built on HDF5), every modern simulation pipeline, PyTorch / NumPy checkpoints.
+- **`science/pds3`** — NASA Planetary Data System v3 (PVL labels). Voyager / Galileo / Cassini / MESSENGER / Mars rovers through Curiosity.
+- **`science/pds4`** — NASA Planetary Data System v4 (XML labels). Current standard for Perseverance, Lucy, OSIRIS-REx, and future missions.
 
-Umbrella boolean `is_science_data` fires for all three. Future PDS / CDF additions will join the same family.
+Umbrella boolean `is_science_data` fires for all five. `is_pds` is the cross-version umbrella for PDS specifically. Future CDF additions will join the same family.
 
 The parser reads the FITS primary HDU header (80-byte ASCII cards packed into 2880-byte blocks) plus an HDU walk to count extensions. No pixel-data read — header-only metadata. Pure-Go stdlib, no third-party libs.
 
@@ -201,6 +203,65 @@ file-search-on 'is_hdf5 && hdf5_size_of_offsets == 4' -d ~/data
 
 `.hdf` files: HDF4 (a different, older format) is NOT detected — its magic differs from HDF5's. The HDF5 magic-byte detector is reliable enough that `is_hdf5` doesn't false-positive on HDF4 even when both share the `.hdf` extension.
 
+## PDS — NASA Planetary Data System
+
+PDS covers every planetary-mission archive — Voyager through Perseverance — and ships in two distinct flavours:
+
+- **PDS3**: PVL (Parameter Value Language) labels, free-form `KEYWORD = VALUE` pairs in `.lbl` files. Detected by extension AND by the `PDS_VERSION_ID` magic at offset 0.
+- **PDS4**: XML labels in the NASA PDS namespace, named `.lblx`. The v1 parser handles `Product_Observational` only; Bundle / Collection / Document variants detect but don't populate attrs.
+
+```sh
+# All PDS labels (both versions)
+file-search-on 'is_pds' -d ~/data
+
+# PDS3-era archives only
+file-search-on 'is_pds3' -d ~/data/voyager
+file-search-on 'is_pds3' -d ~/data/cassini
+
+# PDS4 (current standard)
+file-search-on 'is_pds4' -d ~/data/perseverance
+
+# Cross-version umbrella with version-specific behaviour
+file-search-on 'is_pds && pds_version == "PDS4"' -d ~/data
+```
+
+### Filter by mission / target / instrument
+
+```sh
+# All Mars observations across missions
+file-search-on 'is_pds && target_name.contains("MARS") || target_name == "Mars"' -d ~/data
+
+# Perseverance Mastcam-Z images
+file-search-on 'is_pds4 && instrument_name == "Mastcam-Z"' -d ~/data
+
+# Specific mission
+file-search-on 'is_pds && mission_name.contains("Voyager")' -d ~/data
+
+# Find a specific product
+file-search-on 'is_pds && product_id.contains("PSP_007146")' -d ~/data
+```
+
+### Time-bucketed observations
+
+`start_time` is parsed into `taken_at` so the time-bucket vocabulary that works for FITS / images works here:
+
+```sh
+# PDS observations by year
+file-search-on stats 'is_pds' -d ~/data --group-by taken_at_year
+
+# Recent Perseverance data
+file-search-on 'is_pds4 && taken_at > timestamp("2025-01-01T00:00:00Z")' -d ~/data
+```
+
+### Cross-family vocabulary
+
+`title` is populated for both PDS3 (synthesised from `INSTRUMENT_NAME + TARGET_NAME`) and PDS4 (from `Identification_Area > title`). The same cross-family queries work here:
+
+```sh
+# All scientific data files mentioning Jezero (the Perseverance landing site)
+file-search-on 'is_science_data && title.contains("Jezero")' -d ~/data
+```
+
 ## Known limitations
 
 - **Header-only**: pixel-data inside the FITS file is never read. Use astropy / fitsio if you need the actual array.
@@ -210,4 +271,7 @@ file-search-on 'is_hdf5 && hdf5_size_of_offsets == 4' -d ~/data
 - **VOTable namespace requirement**: files literally named `.xml` that happen to contain VOTable XML detect as plain XML, not `science/votable`. Rename to `.vot` / `.votable` to engage the VOTable parser.
 - **HDF5 hierarchy walk**: v1 ships superblock metadata only. Group / dataset enumeration (`group_count`, `dataset_count`, `top_level_groups`) is deferred — parsing v0/v1 B-trees and v2/v3 fractal heaps without real-world binary fixtures was higher risk than the metadata payoff justified. Tracked as a follow-up.
 - **HDF5 superblock placement**: the spec allows the superblock at file offset 0, 512, 1024, 2048, etc. v1 only parses files with the superblock at offset 0 (overwhelmingly the common case). Non-zero offsets detect by extension (`.h5` / `.hdf5`) but surface no attributes.
-- **Other astronomy formats** (PDS, CDF) are not yet supported but the `is_science_data` umbrella is positioned to extend cleanly when those land — see issues #162, #163.
+- **PDS3 nested OBJECT/END_OBJECT groups**: only top-level keywords are parsed. The block-structured sub-objects (IMAGE, TABLE, etc.) that describe data layout aren't walked.
+- **PDS4 Product_Bundle / Product_Collection / Product_Document**: only `Product_Observational` is supported in v1. Other product kinds detect (by `.lblx` extension) but return empty attrs.
+- **PDS4 detection via `.xml`**: PDS4 labels literally named `.xml` detect as plain XML, not `science/pds4`. Rename to `.lblx` or symlink to engage the PDS4 parser.
+- **CDF**: not yet supported (NASA Common Data Format for heliophysics) — see issue #163.

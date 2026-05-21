@@ -127,6 +127,9 @@ type Match struct {
 	IsFITS        bool `json:"is_fits,omitempty"`
 	IsVotable     bool `json:"is_votable,omitempty"`
 	IsHDF5        bool `json:"is_hdf5,omitempty"`
+	IsPDS3        bool `json:"is_pds3,omitempty"`
+	IsPDS4        bool `json:"is_pds4,omitempty"`
+	IsPDS         bool `json:"is_pds,omitempty"`
 	IsScienceData bool `json:"is_science_data,omitempty"`
 
 	// Disk-image family. Per-type predicates plus the umbrella
@@ -222,6 +225,16 @@ type Match struct {
 	HDF5FormatVersion int64 `json:"hdf5_format_version,omitempty"`
 	HDF5SizeOfOffsets int64 `json:"hdf5_size_of_offsets,omitempty"`
 	HDF5SizeOfLengths int64 `json:"hdf5_size_of_lengths,omitempty"`
+
+	// PDS attributes (issue #162). Shared across PDS3 PVL + PDS4
+	// XML variants. pds_version distinguishes between them.
+	PDSVersion     string `json:"pds_version,omitempty"`
+	MissionName    string `json:"mission_name,omitempty"`
+	SpacecraftName string `json:"spacecraft_name,omitempty"`
+	InstrumentName string `json:"instrument_name,omitempty"`
+	TargetName     string `json:"target_name,omitempty"`
+	ProductID      string `json:"product_id,omitempty"`
+	StartTime      string `json:"start_time,omitempty"`
 
 	// Install-package attributes.
 	PackageFormat   string `json:"package_format,omitempty"`
@@ -409,6 +422,7 @@ func MatchFrom(r Result) Match {
 	m.IsSymlink, m.IsBrokenSymlink = a.IsSymlink, a.IsBrokenSymlink
 	m.IsClass, m.IsPyc, m.IsWasm, m.IsBytecode = a.IsClass, a.IsPyc, a.IsWasm, a.IsBytecode
 	m.IsFITS, m.IsVotable, m.IsHDF5, m.IsScienceData = a.IsFITS, a.IsVotable, a.IsHDF5, a.IsScienceData
+	m.IsPDS3, m.IsPDS4, m.IsPDS = a.IsPDS3, a.IsPDS4, a.IsPDS
 	m.MD5, m.SHA1, m.SHA256 = a.MD5, a.SHA1, a.SHA256
 	m.Similarity = a.Similarity
 	if !a.CreatedAt.IsZero() {
@@ -886,6 +900,29 @@ func MatchFrom(r Result) Match {
 	}
 	if v, ok := a.Extra["hdf5_size_of_lengths"].(int64); ok {
 		m.HDF5SizeOfLengths = v
+	}
+
+	// PDS.
+	if v, ok := a.Extra["pds_version"].(string); ok {
+		m.PDSVersion = v
+	}
+	if v, ok := a.Extra["mission_name"].(string); ok {
+		m.MissionName = v
+	}
+	if v, ok := a.Extra["spacecraft_name"].(string); ok {
+		m.SpacecraftName = v
+	}
+	if v, ok := a.Extra["instrument_name"].(string); ok {
+		m.InstrumentName = v
+	}
+	if v, ok := a.Extra["target_name"].(string); ok {
+		m.TargetName = v
+	}
+	if v, ok := a.Extra["product_id"].(string); ok {
+		m.ProductID = v
+	}
+	if v, ok := a.Extra["start_time"].(string); ok {
+		m.StartTime = v
 	}
 
 	return m
