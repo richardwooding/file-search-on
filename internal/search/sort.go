@@ -60,6 +60,8 @@ func compareByKey(a, b Result, key string) int {
 		return cmpTime(modTimeOf(a), modTimeOf(b))
 	case "similarity":
 		return cmpFloat(similarityOf(a), similarityOf(b))
+	case "rank":
+		return cmpFloat(a.Rank, b.Rank)
 	}
 	// Per-family scalar keys live in FileAttributes.Extra. Pull the
 	// value via the Attrs pointer (nil when IncludeAttributes is

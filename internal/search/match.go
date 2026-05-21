@@ -10,6 +10,9 @@ type Match struct {
 	Path        string `json:"path"`
 	ContentType string `json:"content_type"`
 	Size        int64  `json:"size"`
+	// Rank is the computed score from search.Options.RankExpr (issue
+	// #168). Omitted when no rank expression was configured.
+	Rank float64 `json:"rank,omitempty"`
 
 	Title    string `json:"title,omitempty"`
 	Author   string `json:"author,omitempty"`
@@ -399,6 +402,7 @@ func MatchFrom(r Result) Match {
 		ContentType: r.ContentType,
 		Size:        r.Size,
 		Snippet:     r.Snippet,
+		Rank:        r.Rank,
 	}
 	if m.ContentType == "" {
 		m.ContentType = "unknown"

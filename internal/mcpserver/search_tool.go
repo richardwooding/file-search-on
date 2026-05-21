@@ -24,6 +24,7 @@ type SearchInput struct {
 	TimeoutSeconds   *float64 `json:"timeout_seconds,omitempty" jsonschema:"Override the server's default per-call timeout for this invocation (in seconds; fractions allowed). Omit to use the server default (set when the MCP server was started). Pass 0 to disable the timeout for this call. On expiry the walk is cancelled and the partial result set is returned with cancelled=true."`
 	SortBy           string   `json:"sort_by,omitempty" jsonschema:"Sort matches by attribute. Recognised keys: size, name, path, mod_time, word_count, line_count, page_count, duration, bitrate, sample_rate, video_height, video_width, frame_rate, iso, focal_length, taken_at, sent_at, year, entry_count, uncompressed_size, loc, attachment_count, email_count. Files missing the attribute group at the end. Sorting buffers the full result set (top-K is incoherent with streaming)."`
 	Order            string   `json:"order,omitempty" jsonschema:"Sort direction when sort_by is set: 'asc' (default) or 'desc'."`
+	Rank             string   `json:"rank,omitempty" jsonschema:"CEL expression returning double / int / bool — evaluated per file as a custom sort key. Higher values rank first. Composes with semantic_query (similarity is a CEL variable). When set, overrides sort_by; default order is desc. Example: 'similarity * 0.7 + (mod_time > timestamp(\"2025-01-01T00:00:00Z\") ? 0.3 : 0.0)'."`
 	Limit            int      `json:"limit,omitempty" jsonschema:"Cap the returned match count. With sort_by, returns the top-N (after sorting). Without sort_by, returns the first N in walk order. 0 = unlimited."`
 	IncludeSnippet   bool     `json:"include_snippet,omitempty" jsonschema:"When true, populate each match's 'snippet' field with the first N lines of the file body (see snippet_lines). Only text-based content types (markdown / text / html / csv / json / xml / source/*) populate; binary families leave snippet empty."`
 	SnippetLines     int      `json:"snippet_lines,omitempty" jsonschema:"How many lines to include per snippet (default 10). Ignored when include_snippet is false."`
@@ -154,6 +155,10 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 		FollowSymlinks:      in.FollowSymlinks,
 		ResolveProjects:     in.ResolveProjects,
 		PruneBuildArtefacts: in.PruneBuildArtefacts,
+		// RankExpr IS passed to WalkStream because rank is evaluated
+		// per file (during the walk), not post-collect. The eventual
+		// sort happens below in the sortAndLimit block.
+		RankExpr: in.Rank,
 		// Sort, Order, Limit are applied via sortAndLimit AFTER we
 		// collect — see end of handler. We don't pass them to
 		// WalkStream because WalkStream doesn't honour them.
@@ -200,8 +205,16 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 	// semantics. sortAndLimit lives in internal/search next to the
 	// type-aware compareByKey so this stays the single source of
 	// truth for sort/limit logic.
-	if in.SortBy != "" || in.Limit > 0 {
+	if in.Rank != "" || in.SortBy != "" || in.Limit > 0 {
 		sortOpts := search.Options{Sort: in.SortBy, Order: in.Order, Limit: in.Limit}
+		// Rank overrides sort_by: when set, sort by rank desc by
+		// default (mirrors the CLI / walker behaviour).
+		if in.Rank != "" {
+			sortOpts.Sort = "rank"
+			if sortOpts.Order == "" {
+				sortOpts.Order = "desc"
+			}
+		}
 		results = search.SortAndLimit(results, sortOpts)
 	} else {
 		// Historical contract: matches sorted by path. Preserve it
