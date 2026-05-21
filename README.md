@@ -45,7 +45,7 @@ Built in the open — issues, PRs, and feature requests warmly welcomed. See [Co
   | **Disk images** | DMG (UDIF), ISO 9660, VHD, VHDX, VMDK (sparse), QCOW2, WIM | disk_image_format, virtual_size, disk_type, volume_label, disk_image_created_at, cluster_bits, is_encrypted, image_count |
   | **Install packages** | macOS `.pkg` (XAR), Debian `.deb`, Red Hat `.rpm`, Linux `.appimage` | package_format, package_name, package_version, package_release, package_arch, package_kind, appimage_version |
   | **VM bytecode** | Java `.class` (JVM), Python `.pyc` / `.pyo`, WebAssembly `.wasm` | bytecode_format, runtime_version, class_name (JVM), super_class (JVM), interfaces (JVM), method_count (JVM), field_count (JVM), access_flags (JVM), python_version, source_mtime, wasm_version, section_count, import_count, export_count |
-  | **Science data** | FITS (Flexible Image Transport System — astronomy / astrophysics) | science_format, telescope, instrument, object (→ title), observer (→ author), date_obs (→ taken_at), exptime, filter, airmass, ra, dec, bitpix, naxis, naxis1, naxis2, hdu_count, fits_kind |
+  | **Science data** | FITS (Flexible Image Transport System), VOTable (IVOA astronomical tables) | science_format, telescope, instrument, object (→ title), observer (→ author), date_obs (→ taken_at), exptime, filter, airmass, ra, dec, bitpix, naxis, naxis1, naxis2, hdu_count, fits_kind, votable_version, table_count, total_rows, field_names, field_units, field_ucds, votable_data_format |
 
   Type predicates (`is_pdf`, `is_image`, `is_audio`, `is_video`, `is_office`, `is_epub`, …) light up automatically from the registered content type. See [examples/](./examples/) for recipes by family.
 
@@ -284,7 +284,7 @@ file-search-on 'is_html && dir.contains("build")'
 
 ### Type predicates
 
-**By format** — `is_markdown`, `is_json`, `is_yaml`, `is_toml`, `is_xml`, `is_html`, `is_pdf`, `is_csv`, `is_text`, `is_image`, `is_audio`, `is_video`, `is_office`, `is_epub`, `is_archive`, `is_binary`, `is_email`, `is_source`, `is_notebook`, `is_disk_image`, `is_dmg`, `is_iso`, `is_vhd`, `is_vhdx`, `is_vmdk`, `is_qcow2`, `is_wim`, `is_install_package`, `is_pkg`, `is_deb`, `is_rpm`, `is_appimage`, `is_test_file`, `is_symlink`, `is_broken_symlink`, `is_bytecode`, `is_class`, `is_pyc`, `is_wasm`, `is_science_data`, `is_fits`.
+**By format** — `is_markdown`, `is_json`, `is_yaml`, `is_toml`, `is_xml`, `is_html`, `is_pdf`, `is_csv`, `is_text`, `is_image`, `is_audio`, `is_video`, `is_office`, `is_epub`, `is_archive`, `is_binary`, `is_email`, `is_source`, `is_notebook`, `is_disk_image`, `is_dmg`, `is_iso`, `is_vhd`, `is_vhdx`, `is_vmdk`, `is_qcow2`, `is_wim`, `is_install_package`, `is_pkg`, `is_deb`, `is_rpm`, `is_appimage`, `is_test_file`, `is_symlink`, `is_broken_symlink`, `is_bytecode`, `is_class`, `is_pyc`, `is_wasm`, `is_science_data`, `is_fits`, `is_votable`.
 
 **By exact filename** — `is_dockerfile`, `is_makefile`, `is_justfile`, `is_rakefile`, `is_license`, `is_changelog`, `is_contributing`, `is_codeowners`, `is_gitignore`, `is_dockerignore`, `is_gomod`, `is_node_manifest`, `is_cargo_manifest`, `is_pipfile`, `is_python_reqs`, `is_gemfile`, `is_procfile`, `is_vagrantfile`, `is_ds_store`, `is_localized`, `is_thumbs_db`, `is_desktop_ini`, `is_kde_directory`.
 
@@ -317,7 +317,8 @@ file-search-on 'is_html && dir.contains("build")'
 | **Hash allowlist / denylist** | `is_known_good`, `is_known_bad` — populated when `--hash-allowlist` / `--hash-denylist` (CLI) or `hash_allowlist_path` / `hash_denylist_path` (MCP) is set. Both auto-detect text vs pre-built bbolt format. NSRL / VirusTotal / threat-intel-feed interop; combine with `!is_known_good && is_binary` to cut forensic disk-image review surfaces by 80-95%. |
 | **Semantic similarity** | `similarity` (double, 0-1) — populated when `--semantic-query` (CLI) / `search_semantic` tool (MCP) is set. Cosine similarity between the file's body embedding and the query embedding, computed via local Ollama. Compose with type predicates: `is_pdf && similarity > 0.7` finds PDFs conceptually related to the query. Vectors cache in the index alongside `(size, mtime)`. |
 | **VM bytecode** | `bytecode_format`, `runtime_version`, `class_name` (JVM), `super_class` (JVM), `interfaces` (JVM), `method_count` (JVM), `field_count` (JVM), `access_flags` (JVM), `python_version`, `source_mtime`, `wasm_version`, `section_count`, `import_count`, `export_count` |
-| **Science data** | `science_format`, `telescope`, `instrument`, `object`, `observer`, `date_obs`, `exptime`, `filter`, `airmass`, `ra`, `dec`, `bitpix`, `naxis`, `naxis1`, `naxis2`, `hdu_count`, `fits_kind` (plus shared `title` ← `OBJECT`, `author` ← `OBSERVER`, `taken_at` ← parsed `DATE-OBS`) |
+| **Science data — FITS** | `science_format`, `telescope`, `instrument`, `object`, `observer`, `date_obs`, `exptime`, `filter`, `airmass`, `ra`, `dec`, `bitpix`, `naxis`, `naxis1`, `naxis2`, `hdu_count`, `fits_kind` (plus shared `title` ← `OBJECT`, `author` ← `OBSERVER`, `taken_at` ← parsed `DATE-OBS`) |
+| **Science data — VOTable** | `votable_version`, `table_count`, `total_rows`, `field_names`, `field_units`, `field_ucds`, `votable_data_format` (plus shared `title` ← root `DESCRIPTION`, `author` ← `INFO[@name='creator']`) |
 | **Project context** | `module`, `go_version`, `base_image`, `project_types`, `project_type` (the last two populated by `--resolve-projects`) |
 
 ### Built-in CEL functions
