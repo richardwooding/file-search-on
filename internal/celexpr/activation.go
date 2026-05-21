@@ -178,6 +178,10 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.IsWasm, true
 	case "is_bytecode":
 		return a.attrs.IsBytecode, true
+	case "is_fits":
+		return a.attrs.IsFITS, true
+	case "is_science_data":
+		return a.attrs.IsScienceData, true
 	case "is_symlink":
 		return a.attrs.IsSymlink, true
 	case "is_broken_symlink":
@@ -357,4 +361,23 @@ var zeroDefaults = map[string]any{
 	"section_count":   int64(0),
 	"import_count":    int64(0),
 	"export_count":    int64(0),
+
+	// Science-data family (issue #158).
+	"science_format": "",
+	"telescope":      "",
+	"instrument":     "",
+	"object":         "",
+	"observer":       "",
+	"date_obs":       "",
+	"exptime":        float64(0),
+	"filter":         "",
+	"airmass":        float64(0),
+	"ra":             float64(0),
+	"dec":            float64(0),
+	"bitpix":         int64(0),
+	"naxis":          int64(0),
+	"naxis1":         int64(0),
+	"naxis2":         int64(0),
+	"hdu_count":      int64(0),
+	"fits_kind":      "",
 }

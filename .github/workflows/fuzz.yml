@@ -81,6 +81,9 @@ jobs:
           - name: ParseWASMModule
             pkg: ./internal/content/
             func: FuzzParseWASMModule
+          - name: ParseFITSHeaders
+            pkg: ./internal/content/
+            func: FuzzParseFITSHeaders
           - name: CELCompile
             pkg: ./internal/celexpr/
             func: FuzzCELCompile

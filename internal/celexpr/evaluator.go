@@ -266,6 +266,14 @@ type FileAttributes struct {
 	IsWasm     bool
 	IsBytecode bool
 
+	// Science-data content types (issue #158). IsFITS fires on
+	// content_type == "science/fits". IsScienceData is the umbrella
+	// family flag set via the science/ prefix block in setTypeFlags
+	// — positioned to extend over future VOTable / HDF5 / PDS / CDF
+	// content types without touching consumers.
+	IsFITS        bool
+	IsScienceData bool
+
 	// Symlink awareness. IsSymlink fires when os.Lstat reports the
 	// entry as a symbolic link (filesystem semantics — not "file that
 	// looks like a shortcut"). IsBrokenSymlink fires when the target
@@ -488,6 +496,30 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("section_count", cel.IntType),
 		cel.Variable("import_count", cel.IntType),
 		cel.Variable("export_count", cel.IntType),
+
+		// Science-data content types (issue #158). Per-type +
+		// family predicates plus FITS header attributes. Reuses
+		// title (← OBJECT), author (← OBSERVER), and taken_at
+		// (← parsed DATE-OBS) across the document / image families.
+		cel.Variable("is_fits", cel.BoolType),
+		cel.Variable("is_science_data", cel.BoolType),
+		cel.Variable("science_format", cel.StringType),
+		cel.Variable("telescope", cel.StringType),
+		cel.Variable("instrument", cel.StringType),
+		cel.Variable("object", cel.StringType),
+		cel.Variable("observer", cel.StringType),
+		cel.Variable("date_obs", cel.StringType),
+		cel.Variable("exptime", cel.DoubleType),
+		cel.Variable("filter", cel.StringType),
+		cel.Variable("airmass", cel.DoubleType),
+		cel.Variable("ra", cel.DoubleType),
+		cel.Variable("dec", cel.DoubleType),
+		cel.Variable("bitpix", cel.IntType),
+		cel.Variable("naxis", cel.IntType),
+		cel.Variable("naxis1", cel.IntType),
+		cel.Variable("naxis2", cel.IntType),
+		cel.Variable("hdu_count", cel.IntType),
+		cel.Variable("fits_kind", cel.StringType),
 
 		// Attributes parsed from exact-name types.
 		cel.Variable("module", cel.StringType),
@@ -1191,6 +1223,12 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 		attrs.IsPyc = true
 	case "bytecode/wasm":
 		attrs.IsWasm = true
+
+	// Science-data content types (issue #158). Per-type flag fires
+	// here; family flag IsScienceData fires via the science/ prefix
+	// block below.
+	case "science/fits":
+		attrs.IsFITS = true
 	}
 
 	// Family prefix flags. Independent `if` blocks rather than a
@@ -1264,6 +1302,9 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 	}
 	if strings.HasPrefix(name, "bytecode/") {
 		attrs.IsBytecode = true
+	}
+	if strings.HasPrefix(name, "science/") {
+		attrs.IsScienceData = true
 	}
 }
 
