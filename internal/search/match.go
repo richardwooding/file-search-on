@@ -122,6 +122,11 @@ type Match struct {
 	IsLinuxMetadata   bool `json:"is_linux_metadata,omitempty"`
 	IsSystemMetadata  bool `json:"is_system_metadata,omitempty"`
 
+	// Science-data family. Per-type predicates plus the umbrella
+	// IsScienceData family flag.
+	IsFITS        bool `json:"is_fits,omitempty"`
+	IsScienceData bool `json:"is_science_data,omitempty"`
+
 	// Disk-image family. Per-type predicates plus the umbrella
 	// IsDiskImage family flag.
 	IsDMG       bool `json:"is_dmg,omitempty"`
@@ -174,6 +179,28 @@ type Match struct {
 	SectionCount   int64    `json:"section_count,omitempty"`
 	ImportCount    int64    `json:"import_count,omitempty"`
 	ExportCount    int64    `json:"export_count,omitempty"`
+
+	// Science-data family attributes (issue #158). ScienceFormat is
+	// the umbrella discriminator (`"fits"` today); FITS-specific
+	// fields surface alongside. OBJECT / OBSERVER / DATE-OBS also
+	// populate the shared Title / Author / TakenAt fields above.
+	ScienceFormat string  `json:"science_format,omitempty"`
+	Telescope     string  `json:"telescope,omitempty"`
+	Instrument    string  `json:"instrument,omitempty"`
+	Object        string  `json:"object,omitempty"`
+	Observer      string  `json:"observer,omitempty"`
+	DateObs       string  `json:"date_obs,omitempty"`
+	Exptime       float64 `json:"exptime,omitempty"`
+	Filter        string  `json:"filter,omitempty"`
+	Airmass       float64 `json:"airmass,omitempty"`
+	RA            float64 `json:"ra,omitempty"`
+	Dec           float64 `json:"dec,omitempty"`
+	Bitpix        int64   `json:"bitpix,omitempty"`
+	Naxis         int64   `json:"naxis,omitempty"`
+	Naxis1        int64   `json:"naxis1,omitempty"`
+	Naxis2        int64   `json:"naxis2,omitempty"`
+	HDUCount      int64   `json:"hdu_count,omitempty"`
+	FITSKind      string  `json:"fits_kind,omitempty"`
 
 	// Install-package attributes.
 	PackageFormat   string `json:"package_format,omitempty"`
@@ -360,6 +387,7 @@ func MatchFrom(r Result) Match {
 	m.IsPkg, m.IsDeb, m.IsRPM, m.IsAppImage, m.IsInstallPackage = a.IsPkg, a.IsDeb, a.IsRPM, a.IsAppImage, a.IsInstallPackage
 	m.IsSymlink, m.IsBrokenSymlink = a.IsSymlink, a.IsBrokenSymlink
 	m.IsClass, m.IsPyc, m.IsWasm, m.IsBytecode = a.IsClass, a.IsPyc, a.IsWasm, a.IsBytecode
+	m.IsFITS, m.IsScienceData = a.IsFITS, a.IsScienceData
 	m.MD5, m.SHA1, m.SHA256 = a.MD5, a.SHA1, a.SHA256
 	m.Similarity = a.Similarity
 	if !a.CreatedAt.IsZero() {
@@ -750,6 +778,59 @@ func MatchFrom(r Result) Match {
 	}
 	if v, ok := a.Extra["export_count"].(int64); ok {
 		m.ExportCount = v
+	}
+
+	// Science-data family.
+	if v, ok := a.Extra["science_format"].(string); ok {
+		m.ScienceFormat = v
+	}
+	if v, ok := a.Extra["telescope"].(string); ok {
+		m.Telescope = v
+	}
+	if v, ok := a.Extra["instrument"].(string); ok {
+		m.Instrument = v
+	}
+	if v, ok := a.Extra["object"].(string); ok {
+		m.Object = v
+	}
+	if v, ok := a.Extra["observer"].(string); ok {
+		m.Observer = v
+	}
+	if v, ok := a.Extra["date_obs"].(string); ok {
+		m.DateObs = v
+	}
+	if v, ok := a.Extra["exptime"].(float64); ok {
+		m.Exptime = v
+	}
+	if v, ok := a.Extra["filter"].(string); ok {
+		m.Filter = v
+	}
+	if v, ok := a.Extra["airmass"].(float64); ok {
+		m.Airmass = v
+	}
+	if v, ok := a.Extra["ra"].(float64); ok {
+		m.RA = v
+	}
+	if v, ok := a.Extra["dec"].(float64); ok {
+		m.Dec = v
+	}
+	if v, ok := a.Extra["bitpix"].(int64); ok {
+		m.Bitpix = v
+	}
+	if v, ok := a.Extra["naxis"].(int64); ok {
+		m.Naxis = v
+	}
+	if v, ok := a.Extra["naxis1"].(int64); ok {
+		m.Naxis1 = v
+	}
+	if v, ok := a.Extra["naxis2"].(int64); ok {
+		m.Naxis2 = v
+	}
+	if v, ok := a.Extra["hdu_count"].(int64); ok {
+		m.HDUCount = v
+	}
+	if v, ok := a.Extra["fits_kind"].(string); ok {
+		m.FITSKind = v
 	}
 
 	return m
