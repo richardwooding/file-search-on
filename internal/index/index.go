@@ -68,12 +68,19 @@ type Entry struct {
 	// (issue #151). Cached under the same (size, mtime) validation
 	// tuple as the rest of the entry. The dimension depends on the
 	// embedding model (768 for nomic-embed-text, 1024 for
-	// mxbai-embed-large, etc.) — callers are responsible for
-	// consistency: switching models on a tree that was previously
-	// embedded with a different model produces gibberish similarity
-	// scores. gob-additive: pre-#151 entries decode with empty
-	// Vector and the next semantic walk repopulates them.
+	// mxbai-embed-large, etc.) — switching models on a tree that
+	// was previously embedded with a different model would produce
+	// nonsensical similarity scores, so populateSimilarity validates
+	// EmbedModel below before reusing the cached vector. gob-additive:
+	// pre-#151 entries decode with empty Vector and the next
+	// semantic walk repopulates them.
 	Vector []float32
+	// EmbedModel is the model name that produced Vector. Empty when
+	// Vector is empty OR when the vector came from a pre-#154 cache
+	// entry (in which case populateSimilarity treats it as a
+	// mismatch and re-embeds — we never trust a vector of unknown
+	// provenance). gob-additive.
+	EmbedModel string
 	// Fingerprint is the 64-bit Charikar SimHash of the file's
 	// extracted body, computed by internal/fingerprint. Zero unless
 	// the near-duplicates pipeline asked for it. Like Hash, it's
@@ -161,10 +168,11 @@ type Stats struct {
 	// Embed* counters track the embedding cache (PR for #151).
 	// Embed cache lives in index.Entry.Vector alongside the other
 	// per-file fields and uses the same (size, mtime) validation.
-	EmbedHits   uint64 // successful Vector reuse from cache
-	EmbedMisses uint64 // cache had no Vector → had to call the Embedder
-	EmbedPuts   uint64 // freshly-computed vector stored back to cache
-	EmbedErrors uint64 // Embedder.Embed call failed (Ollama unreachable, model missing, etc.)
+	EmbedHits            uint64 // successful Vector reuse from cache
+	EmbedMisses          uint64 // cache had no Vector → had to call the Embedder
+	EmbedPuts            uint64 // freshly-computed vector stored back to cache
+	EmbedErrors          uint64 // Embedder.Embed call failed (Ollama unreachable, model missing, etc.)
+	EmbedModelMismatches uint64 // cached Vector existed but came from a different embedding model → treated as miss, re-embedded
 }
 
 // Index is the surface every cache implementation honours.

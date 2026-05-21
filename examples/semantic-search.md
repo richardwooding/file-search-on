@@ -155,7 +155,7 @@ Note: image files only have semantic-search-friendly content when they carry tex
 - **First call against a tree**: dominated by Ollama embedding latency. ~50-200ms per file depending on body length + model size. A 1000-file tree with `nomic-embed-text` typically completes in 1-3 minutes cold.
 - **Repeat calls against unchanged trees**: vector cache hits skip Ollama entirely. The bottleneck moves to body extraction (which is itself cached from PR #142). Sub-second for the same 1000-file tree.
 - **Different queries against the same tree**: query embedding is one extra Ollama call (~50ms), per-file work is a dot product (microseconds). Sub-second after the first warm-up.
-- **Switching models**: changes the vector dimension and invalidates the entire vector cache. Plan accordingly — pick one model per index file.
+- **Switching models** (e.g. `nomic-embed-text` → `mxbai-embed-large`): each cache entry records which model produced its vector. The next walk under the new model detects the mismatch, re-embeds, and stamps the new model name — no manual rebuild needed, no silently-wrong scores. The `embed_model_mismatches` counter in `index_stats` reports how many files were re-embedded vs. genuinely missed. Switching back and forth between models is correct but not free: each switch re-embeds the touched files.
 
 ## Out of scope (for now)
 

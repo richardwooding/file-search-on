@@ -345,10 +345,11 @@ func (b *boltIndex) Stats() Stats {
 		BodyEvictions: b.stats.bodyEvictions.Load(),
 		BodyOversize:  b.stats.bodyOversize.Load(),
 		BodyErrors:    b.stats.bodyErrors.Load(),
-		EmbedHits:     b.stats.embedHits.Load(),
-		EmbedMisses:   b.stats.embedMisses.Load(),
-		EmbedPuts:     b.stats.embedPuts.Load(),
-		EmbedErrors:   b.stats.embedErrors.Load(),
+		EmbedHits:            b.stats.embedHits.Load(),
+		EmbedMisses:          b.stats.embedMisses.Load(),
+		EmbedPuts:            b.stats.embedPuts.Load(),
+		EmbedErrors:          b.stats.embedErrors.Load(),
+		EmbedModelMismatches: b.stats.embedModelMismatches.Load(),
 	}
 }
 
