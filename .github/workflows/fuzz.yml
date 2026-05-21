@@ -96,6 +96,9 @@ jobs:
           - name: ParsePDS4Label
             pkg: ./internal/content/
             func: FuzzParsePDS4Label
+          - name: ParseCDFHeader
+            pkg: ./internal/content/
+            func: FuzzParseCDFHeader
           - name: CELCompile
             pkg: ./internal/celexpr/
             func: FuzzCELCompile

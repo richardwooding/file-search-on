@@ -130,6 +130,7 @@ type Match struct {
 	IsPDS3        bool `json:"is_pds3,omitempty"`
 	IsPDS4        bool `json:"is_pds4,omitempty"`
 	IsPDS         bool `json:"is_pds,omitempty"`
+	IsCDF         bool `json:"is_cdf,omitempty"`
 	IsScienceData bool `json:"is_science_data,omitempty"`
 
 	// Disk-image family. Per-type predicates plus the umbrella
@@ -235,6 +236,16 @@ type Match struct {
 	TargetName     string `json:"target_name,omitempty"`
 	ProductID      string `json:"product_id,omitempty"`
 	StartTime      string `json:"start_time,omitempty"`
+
+	// CDF attributes (issue #163). NASA Common Data Format —
+	// heliophysics time-series. variable_count + attribute_count
+	// may be 0 / absent when the GDR is beyond the read cap on a
+	// non-seekable fs.FS.
+	CDFVersion     string `json:"cdf_version,omitempty"`
+	CDFEncoding    string `json:"cdf_encoding,omitempty"`
+	CDFMajority    string `json:"cdf_majority,omitempty"`
+	VariableCount  int64  `json:"variable_count,omitempty"`
+	AttributeCount int64  `json:"attribute_count,omitempty"`
 
 	// Install-package attributes.
 	PackageFormat   string `json:"package_format,omitempty"`
@@ -423,6 +434,7 @@ func MatchFrom(r Result) Match {
 	m.IsClass, m.IsPyc, m.IsWasm, m.IsBytecode = a.IsClass, a.IsPyc, a.IsWasm, a.IsBytecode
 	m.IsFITS, m.IsVotable, m.IsHDF5, m.IsScienceData = a.IsFITS, a.IsVotable, a.IsHDF5, a.IsScienceData
 	m.IsPDS3, m.IsPDS4, m.IsPDS = a.IsPDS3, a.IsPDS4, a.IsPDS
+	m.IsCDF = a.IsCDF
 	m.MD5, m.SHA1, m.SHA256 = a.MD5, a.SHA1, a.SHA256
 	m.Similarity = a.Similarity
 	if !a.CreatedAt.IsZero() {
@@ -923,6 +935,23 @@ func MatchFrom(r Result) Match {
 	}
 	if v, ok := a.Extra["start_time"].(string); ok {
 		m.StartTime = v
+	}
+
+	// CDF.
+	if v, ok := a.Extra["cdf_version"].(string); ok {
+		m.CDFVersion = v
+	}
+	if v, ok := a.Extra["cdf_encoding"].(string); ok {
+		m.CDFEncoding = v
+	}
+	if v, ok := a.Extra["cdf_majority"].(string); ok {
+		m.CDFMajority = v
+	}
+	if v, ok := a.Extra["variable_count"].(int64); ok {
+		m.VariableCount = v
+	}
+	if v, ok := a.Extra["attribute_count"].(int64); ok {
+		m.AttributeCount = v
 	}
 
 	return m

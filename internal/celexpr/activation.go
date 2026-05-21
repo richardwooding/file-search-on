@@ -190,6 +190,8 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.IsPDS4, true
 	case "is_pds":
 		return a.attrs.IsPDS, true
+	case "is_cdf":
+		return a.attrs.IsCDF, true
 	case "is_science_data":
 		return a.attrs.IsScienceData, true
 	case "is_symlink":
@@ -413,4 +415,11 @@ var zeroDefaults = map[string]any{
 	"target_name":     "",
 	"product_id":      "",
 	"start_time":      "",
+
+	// CDF (issue #163). NASA Common Data Format for heliophysics.
+	"cdf_version":     "",
+	"cdf_encoding":    "",
+	"cdf_majority":    "",
+	"variable_count":  int64(0),
+	"attribute_count": int64(0),
 }
