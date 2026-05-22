@@ -534,6 +534,13 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("sqlite_text_encoding", cel.StringType),
 		cel.Variable("sqlite_user_version", cel.IntType),
 		cel.Variable("sqlite_application_id", cel.IntType),
+		// Schema introspection (sqlite_master walker — follow-up to #174).
+		cel.Variable("sqlite_table_count", cel.IntType),
+		cel.Variable("sqlite_view_count", cel.IntType),
+		cel.Variable("sqlite_index_count", cel.IntType),
+		cel.Variable("sqlite_trigger_count", cel.IntType),
+		cel.Variable("sqlite_table_names", cel.ListType(cel.StringType)),
+		cel.Variable("sqlite_schema_fingerprint", cel.StringType),
 		cel.Variable("cdf_version", cel.StringType),
 		cel.Variable("cdf_encoding", cel.StringType),
 		cel.Variable("cdf_majority", cel.StringType),

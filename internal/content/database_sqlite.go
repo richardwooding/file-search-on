@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"io"
 	"io/fs"
+	"maps"
 )
 
 // SQLite v3 file format constants per the SQLite Database File Format
@@ -26,10 +27,14 @@ const (
 	sqliteMagicLen  = 16
 	sqliteHeaderLen = 100
 
-	// sqliteReadCap bounds disk reads — way more than the 100-byte
-	// header so future schema walkers can extend without changing
-	// the registration surface.
-	sqliteReadCap = 4096
+	// sqliteReadCap bounds disk reads. 1 MiB covers the SQLite header
+	// (100 bytes) plus enough b-tree pages for sqlite_master to walk
+	// schema introspection — typical schemas fit in one or two pages
+	// at the default 4 KiB page size, and even 16 KiB page schemas
+	// rarely exceed 64 pages. Files where sqlite_master spans past
+	// 1 MiB surface header-only attrs; the schema walk degrades
+	// gracefully (returns nothing rather than erroring).
+	sqliteReadCap = 1 << 20
 
 	// sqlitePageSizeMagic is the encoding for the 65536-byte page
 	// size — the page-size field is uint16, can't represent 65536
@@ -122,14 +127,21 @@ func parseSQLiteHeader(data []byte) Attributes {
 		return databaseAttrs("sqlite", nil)
 	}
 
+	pageSize := sqlitePageSize(data)
 	extras := Attributes{
-		"sqlite_page_size":      sqlitePageSize(data),
+		"sqlite_page_size":      pageSize,
 		"sqlite_format_version": int64(data[18]),
 		"sqlite_page_count":     int64(binary.BigEndian.Uint32(data[28:32])),
 		"sqlite_schema_version": int64(binary.BigEndian.Uint32(data[40:44])),
 		"sqlite_text_encoding":  sqliteEncodingName(binary.BigEndian.Uint32(data[56:60])),
 		"sqlite_user_version":   int64(binary.BigEndian.Uint32(data[60:64])),
 		"sqlite_application_id": int64(binary.BigEndian.Uint32(data[68:72])),
+	}
+	// Schema introspection: walk sqlite_master if we have enough
+	// bytes for at least page 1. Best-effort — failures don't drop
+	// the header attrs.
+	if int64(len(data)) >= pageSize {
+		maps.Copy(extras, schemaFromSQLiteMaster(data, pageSize))
 	}
 	return databaseAttrs("sqlite", extras)
 }

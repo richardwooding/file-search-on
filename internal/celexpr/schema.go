@@ -295,6 +295,12 @@ func Schema() SchemaDoc {
 			{"sqlite_text_encoding", "string", "SQLite text encoding for TEXT columns — 'utf-8' (default and overwhelmingly the common case), 'utf-16le', or 'utf-16be'."},
 			{"sqlite_user_version", "int", "SQLite `PRAGMA user_version` value — an arbitrary 32-bit integer apps use for their own schema-version tracking. Distinct from `sqlite_schema_version`."},
 			{"sqlite_application_id", "int", "SQLite `PRAGMA application_id` value — a magic number apps can stamp to identify the SQLite file as theirs. Examples: 0x0FACADE0 (Mozilla Firefox places.sqlite), 0x66747261 (Fossil SCM repo)."},
+			{"sqlite_table_count", "int", "SQLite — number of `CREATE TABLE` objects in sqlite_master. Matches `SELECT count(*) FROM sqlite_master WHERE type='table'`. Populated by the hand-rolled sqlite_master b-tree walker; v1 limitation: overflow page chains aren't followed, so VERY long CREATE statements (rare) could truncate."},
+			{"sqlite_view_count", "int", "SQLite — number of `CREATE VIEW` objects in sqlite_master."},
+			{"sqlite_index_count", "int", "SQLite — number of `CREATE INDEX` objects in sqlite_master. Includes auto-created indexes (`sqlite_autoindex_*`) that SQLite makes for PRIMARY KEY / UNIQUE constraints."},
+			{"sqlite_trigger_count", "int", "SQLite — number of `CREATE TRIGGER` objects in sqlite_master. Useful for audit / triage; triggers often indicate change-tracking or constraint logic."},
+			{"sqlite_table_names", "list<str>", "SQLite — sorted, deduplicated list of user table names from sqlite_master (capped at 100). Use `\"history\" in sqlite_table_names` to find DBs containing a known table. Auto-created index names like `sqlite_autoindex_*` don't appear here (they're counted in sqlite_index_count instead)."},
+			{"sqlite_schema_fingerprint", "string", "SQLite — SHA256 hex of the sorted (type, name, sql) tuples from sqlite_master. Stable across cosmetic schema reorders; changes when CREATE statements change. Use for version detection (`sqlite_schema_fingerprint == \"<known-good>\"`) or forensic-grade schema integrity checks."},
 		},
 		Frontmatter: []AttributeDoc{
 			{"frontmatter", "map", "full parsed front-matter, e.g. frontmatter.category"},
