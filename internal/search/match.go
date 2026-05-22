@@ -136,6 +136,11 @@ type Match struct {
 	IsCDF         bool `json:"is_cdf,omitempty"`
 	IsScienceData bool `json:"is_science_data,omitempty"`
 
+	// Database family (issue #170). IsSQLite per-type, IsDatabase
+	// umbrella.
+	IsSQLite   bool `json:"is_sqlite,omitempty"`
+	IsDatabase bool `json:"is_database,omitempty"`
+
 	// Disk-image family. Per-type predicates plus the umbrella
 	// IsDiskImage family flag.
 	IsDMG       bool `json:"is_dmg,omitempty"`
@@ -249,6 +254,17 @@ type Match struct {
 	CDFMajority    string `json:"cdf_majority,omitempty"`
 	VariableCount  int64  `json:"variable_count,omitempty"`
 	AttributeCount int64  `json:"attribute_count,omitempty"`
+
+	// Database family (issue #170). SQLite header-only attributes
+	// for v1; schema introspection deferred to a follow-up.
+	DatabaseFormat      string `json:"database_format,omitempty"`
+	SQLitePageSize      int64  `json:"sqlite_page_size,omitempty"`
+	SQLiteFormatVersion int64  `json:"sqlite_format_version,omitempty"`
+	SQLitePageCount     int64  `json:"sqlite_page_count,omitempty"`
+	SQLiteSchemaVersion int64  `json:"sqlite_schema_version,omitempty"`
+	SQLiteTextEncoding  string `json:"sqlite_text_encoding,omitempty"`
+	SQLiteUserVersion   int64  `json:"sqlite_user_version,omitempty"`
+	SQLiteApplicationID int64  `json:"sqlite_application_id,omitempty"`
 
 	// Install-package attributes.
 	PackageFormat   string `json:"package_format,omitempty"`
@@ -439,6 +455,7 @@ func MatchFrom(r Result) Match {
 	m.IsFITS, m.IsVotable, m.IsHDF5, m.IsScienceData = a.IsFITS, a.IsVotable, a.IsHDF5, a.IsScienceData
 	m.IsPDS3, m.IsPDS4, m.IsPDS = a.IsPDS3, a.IsPDS4, a.IsPDS
 	m.IsCDF = a.IsCDF
+	m.IsSQLite, m.IsDatabase = a.IsSQLite, a.IsDatabase
 	m.MD5, m.SHA1, m.SHA256 = a.MD5, a.SHA1, a.SHA256
 	m.Similarity = a.Similarity
 	if !a.CreatedAt.IsZero() {
@@ -956,6 +973,32 @@ func MatchFrom(r Result) Match {
 	}
 	if v, ok := a.Extra["attribute_count"].(int64); ok {
 		m.AttributeCount = v
+	}
+
+	// Database family.
+	if v, ok := a.Extra["database_format"].(string); ok {
+		m.DatabaseFormat = v
+	}
+	if v, ok := a.Extra["sqlite_page_size"].(int64); ok {
+		m.SQLitePageSize = v
+	}
+	if v, ok := a.Extra["sqlite_format_version"].(int64); ok {
+		m.SQLiteFormatVersion = v
+	}
+	if v, ok := a.Extra["sqlite_page_count"].(int64); ok {
+		m.SQLitePageCount = v
+	}
+	if v, ok := a.Extra["sqlite_schema_version"].(int64); ok {
+		m.SQLiteSchemaVersion = v
+	}
+	if v, ok := a.Extra["sqlite_text_encoding"].(string); ok {
+		m.SQLiteTextEncoding = v
+	}
+	if v, ok := a.Extra["sqlite_user_version"].(int64); ok {
+		m.SQLiteUserVersion = v
+	}
+	if v, ok := a.Extra["sqlite_application_id"].(int64); ok {
+		m.SQLiteApplicationID = v
 	}
 
 	return m

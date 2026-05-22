@@ -280,6 +280,14 @@ type FileAttributes struct {
 	IsCDF         bool
 	IsScienceData bool
 
+	// Database content types (issue #170). IsSQLite fires on
+	// content_type == "database/sqlite". IsDatabase is the umbrella
+	// family flag set via the database/ prefix block in setTypeFlags
+	// — positioned to extend over future DuckDB / PostgreSQL-dump /
+	// BoltDB content types without touching consumers.
+	IsSQLite   bool
+	IsDatabase bool
+
 	// Symlink awareness. IsSymlink fires when os.Lstat reports the
 	// entry as a symbolic link (filesystem semantics — not "file that
 	// looks like a shortcut"). IsBrokenSymlink fires when the target
@@ -515,6 +523,17 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("is_pds", cel.BoolType),
 		cel.Variable("is_cdf", cel.BoolType),
 		cel.Variable("is_science_data", cel.BoolType),
+		// Database family (issue #170).
+		cel.Variable("is_sqlite", cel.BoolType),
+		cel.Variable("is_database", cel.BoolType),
+		cel.Variable("database_format", cel.StringType),
+		cel.Variable("sqlite_page_size", cel.IntType),
+		cel.Variable("sqlite_format_version", cel.IntType),
+		cel.Variable("sqlite_page_count", cel.IntType),
+		cel.Variable("sqlite_schema_version", cel.IntType),
+		cel.Variable("sqlite_text_encoding", cel.StringType),
+		cel.Variable("sqlite_user_version", cel.IntType),
+		cel.Variable("sqlite_application_id", cel.IntType),
 		cel.Variable("cdf_version", cel.StringType),
 		cel.Variable("cdf_encoding", cel.StringType),
 		cel.Variable("cdf_majority", cel.StringType),
@@ -1283,6 +1302,8 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 		attrs.IsPDS = true
 	case "science/cdf":
 		attrs.IsCDF = true
+	case "database/sqlite":
+		attrs.IsSQLite = true
 	}
 
 	// Family prefix flags. Independent `if` blocks rather than a
@@ -1359,6 +1380,9 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 	}
 	if strings.HasPrefix(name, "science/") {
 		attrs.IsScienceData = true
+	}
+	if strings.HasPrefix(name, "database/") {
+		attrs.IsDatabase = true
 	}
 }
 
