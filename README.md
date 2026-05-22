@@ -161,6 +161,22 @@ file-search-on '...' --sort word_count --order desc --limit 5
 
 Top-K queries (`--sort` + `--limit`) buffer the full result set, sort, then truncate. Without `--sort`, `--limit` returns the first N in walk order.
 
+For custom ranking — combining multiple attributes or semantic similarity into a single score — pass a CEL expression to `--rank`:
+
+```sh
+# Hybrid semantic + recency: weight similarity at 70%, fresh files at 30%
+file-search-on 'is_pdf' \
+  --semantic-query "Q4 revenue forecast" \
+  --embedding-model nomic-embed-text \
+  --rank 'similarity * 0.7 + (mod_time > timestamp("2025-01-01T00:00:00Z") ? 0.3 : 0.0)' \
+  --limit 10
+
+# Promote PDFs to the top of a mixed result set
+file-search-on 'is_pdf || is_office || is_markdown' --rank 'is_pdf' --limit 20
+```
+
+The rank expression evaluates per file (after the filter). Higher values rank first; `--order asc` flips. See [examples/ranking.md](./examples/ranking.md) for the full cookbook.
+
 ### Stats and reconnaissance
 
 ```sh

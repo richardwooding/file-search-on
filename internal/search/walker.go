@@ -33,6 +33,11 @@ type Result struct {
 	// joined by "\n". Empty for non-text content types or when snippets
 	// are disabled.
 	Snippet string
+	// Rank is the float64 score from Options.RankExpr (a CEL expression
+	// returning double / int / bool — see celexpr.RankEvaluator). Zero
+	// when RankExpr is empty OR when the per-file evaluation errored
+	// (we keep the file in results rather than dropping it). Issue #168.
+	Rank float64
 }
 
 // Options configures the search
@@ -79,6 +84,15 @@ type Options struct {
 	Sort string
 	// Order: "asc" (default) or "desc". Ignored when Sort is empty.
 	Order string
+	// RankExpr is a CEL expression that returns a double / int / bool
+	// score per file (issue #168). When non-empty the walker compiles
+	// it alongside Expr and evaluates per file; the result lands on
+	// Result.Rank. When set, Walk() defaults Sort to "rank" and Order
+	// to "desc" so the more expressive primitive wins gracefully —
+	// `--rank 'similarity * 0.7 + recency_bonus'` Just Works without
+	// also passing --sort rank --order desc. Composes with semantic
+	// search because the `similarity` CEL variable is already declared.
+	RankExpr string
 	// Limit caps the returned match count. 0 = unlimited. With Sort
 	// set, the limit is applied AFTER sorting (top-K). Without Sort,
 	// the buffered Walk() truncates collected matches; the streaming
@@ -275,6 +289,17 @@ func Walk(ctx context.Context, opts Options, registry *content.Registry) ([]Resu
 	// The CLI's bufferedSearch and the MCP search handler both flow
 	// through here (or apply the same helper on their collected
 	// matches — see mcpserver.searchHandler).
+	//
+	// RankExpr graceful default: when set, override Sort to "rank"
+	// and Order to "desc" (the more expressive primitive wins; users
+	// can pass --order asc to flip). Composes with --sort: rank still
+	// wins because it's evaluated per file and isn't a fixed attribute.
+	if opts.RankExpr != "" {
+		opts.Sort = "rank"
+		if opts.Order == "" {
+			opts.Order = "desc"
+		}
+	}
 	results = SortAndLimit(results, opts)
 	return results, walkErr
 }
@@ -304,6 +329,16 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 	evaluator, err := celexpr.New(opts.Expr)
 	if err != nil {
 		return err
+	}
+
+	// Compile the optional rank expression against the same env.
+	// nil rankEvaluator → no per-file rank evaluation in the worker.
+	var rankEvaluator *celexpr.RankEvaluator
+	if opts.RankExpr != "" {
+		rankEvaluator, err = evaluator.NewRank(opts.RankExpr)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Resolve which root(s) we're walking. opts.Roots takes
@@ -424,6 +459,14 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 					}
 					if opts.IncludeAttributes {
 						r.Attrs = attrs
+					}
+					// Rank evaluation — per file, after the filter
+					// passed. Errors zero the rank rather than dropping
+					// the file (partial data beats missing matches).
+					if rankEvaluator != nil {
+						if v, err := rankEvaluator.Eval(attrs); err == nil {
+							r.Rank = v
+						}
 					}
 					// Snippets are only meaningful for text content
 					// types — readSnippet returns ("", nil) on a

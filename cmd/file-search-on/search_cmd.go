@@ -29,7 +29,8 @@ type SearchCmd struct {
 	IndexPath        string        `name:"index-path" help:"Persistent attribute index file (bbolt). When set, unchanged files (matched by absolute path + size + mtime) skip the per-file content-type parse, making repeat searches dramatically faster. The file is created on first use; delete it to force a full re-extraction."`
 	Timeout          time.Duration `name:"timeout" help:"Maximum walk duration (Go duration string: 30s, 2m, 500ms). Default unset = no timeout. On expiry, results collected so far are still printed and the process exits 124. Ctrl-C exits 130 with whatever was collected."`
 	Sort             string        `name:"sort" help:"Sort matches by attribute. Recognised keys: size, name, path, mod_time, word_count, line_count, page_count, duration, bitrate, sample_rate, video_height, video_width, frame_rate, iso, focal_length, taken_at, sent_at, year, entry_count, uncompressed_size, loc, attachment_count, email_count. Files missing the attribute group at the end. Forces buffered mode."`
-	Order            string        `name:"order" enum:"asc,desc" default:"asc" help:"Sort direction. Ignored without --sort."`
+	Order            string        `name:"order" help:"Sort direction: 'asc' (default for --sort) or 'desc'. When --rank is set the default flips to 'desc' (higher score first). Ignored without --sort or --rank."`
+	Rank             string        `name:"rank" help:"CEL expression returning double / int / bool — evaluated per file (after the filter) as a custom sort key. Higher values rank first. Composes with --semantic-query (similarity is a CEL variable). When set, overrides --sort and defaults --order to desc. Example: --rank 'similarity * 0.7 + (mod_time > timestamp(\"2025-01-01T00:00:00Z\") ? 0.3 : 0.0)'. Forces buffered mode."`
 	Limit            int           `name:"limit" default:"0" help:"Cap the result set at N matches. With --sort, returns the top-N (after sorting). Without --sort, returns the first N in walk order. 0 = unlimited."`
 	Snippet          bool          `name:"snippet" help:"Read a snippet of each match's body (first N lines, see --snippet-lines) and include it in verbose/json/template output. Only text-based content types (markdown / text / html / csv / json / xml / source/*) populate; binary families leave the snippet empty."`
 	SnippetLines     int           `name:"snippet-lines" default:"10" help:"How many lines of body content to include per match when --snippet is set."`
@@ -178,6 +179,7 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		Index:             idx,
 		Sort:              s.Sort,
 		Order:             s.Order,
+		RankExpr:          s.Rank,
 		Limit:             s.Limit,
 		IncludeSnippet:    s.Snippet,
 		SnippetLines:      s.SnippetLines,
@@ -196,11 +198,11 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		PruneBuildArtefacts: s.PruneArtefacts,
 	}
 
-	// --sort and --limit both need the full result set in memory
-	// (sort, then truncate), so they force buffered mode regardless
-	// of --unsorted / -o bare / json / --format. Streaming +
-	// top-K is incoherent; bail to buffered.
-	forceBuffered := s.Sort != "" || s.Limit > 0
+	// --sort, --rank, and --limit all need the full result set in
+	// memory (sort, then truncate), so they force buffered mode
+	// regardless of --unsorted / -o bare / json / --format.
+	// Streaming + top-K is incoherent; bail to buffered.
+	forceBuffered := s.Sort != "" || s.Rank != "" || s.Limit > 0
 	// Streaming-friendly modes (bare / json / template) always stream —
 	// first result lands on stdout immediately rather than waiting for
 	// the full walk. Default and verbose stream too when --unsorted is
@@ -306,9 +308,12 @@ func bufferedSearch(ctx context.Context, opts search.Options, tmpl *template.Tem
 	results, err := search.Walk(ctx, opts, contentpkg.DefaultRegistry())
 
 	// Path-sort default only when the user didn't ask for a specific
-	// ordering. With --sort set, results are already in the order
-	// Walk produced; re-sorting would defeat the flag.
-	if opts.Sort == "" {
+	// ordering. With --sort OR --rank set, results are already in the
+	// order Walk produced; re-sorting would defeat the flag. (Walk
+	// itself transforms RankExpr into Sort="rank" internally; we
+	// check RankExpr here because that transformation runs on Walk's
+	// own copy of opts and isn't visible to this caller.)
+	if opts.Sort == "" && opts.RankExpr == "" {
 		sort.Slice(results, func(i, j int) bool {
 			return results[i].Path < results[j].Path
 		})

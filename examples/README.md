@@ -28,6 +28,7 @@ CEL expression recipes by content family, plus cross-cutting cookbook patterns.
 | [`indexing.md`](./indexing.md) | Persistent attribute index — `--index-path` for the CLI, auto-on cache for MCP, refresh and inspection |
 | [`timeouts.md`](./timeouts.md) | Timeouts and partial results — CLI `--timeout`, MCP `timeout_seconds`, exit codes, cancellation semantics |
 | [`top-k.md`](./top-k.md) | Top-K queries — `--sort` / `--limit` for "biggest 5 videos", "10 most recent photos", etc. |
+| [`ranking.md`](./ranking.md) | Custom rank-by-CEL-expression — `--rank 'similarity * 0.7 + recency'` for hybrid semantic + structural sort. Composes with `--semantic-query` for the headline RAG-shaped UX. |
 | [`snippets.md`](./snippets.md) | Body previews — `--snippet` returns the first N lines of text files alongside metadata |
 | [`exclude.md`](./exclude.md) | Pruning the walk — `--exclude` basename globs and `--respect-gitignore` for monorepos |
 | [`body-search.md`](./body-search.md) | Content filters — `--body` exposes file body to CEL; pair with `contains` / `matches` (RE2) / `startsWith` |
