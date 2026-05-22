@@ -438,4 +438,12 @@ var zeroDefaults = map[string]any{
 	"sqlite_text_encoding":  "",
 	"sqlite_user_version":   int64(0),
 	"sqlite_application_id": int64(0),
+
+	// Schema introspection (sqlite_master walker — follow-up to #174).
+	"sqlite_table_count":        int64(0),
+	"sqlite_view_count":         int64(0),
+	"sqlite_index_count":        int64(0),
+	"sqlite_trigger_count":      int64(0),
+	"sqlite_table_names":        []string{},
+	"sqlite_schema_fingerprint": "",
 }

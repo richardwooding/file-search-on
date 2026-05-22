@@ -266,6 +266,16 @@ type Match struct {
 	SQLiteUserVersion   int64  `json:"sqlite_user_version,omitempty"`
 	SQLiteApplicationID int64  `json:"sqlite_application_id,omitempty"`
 
+	// SQLite schema introspection (follow-up to #174). Populated by
+	// the hand-rolled sqlite_master b-tree walker — see
+	// internal/content/database_sqlite_btree.go.
+	SQLiteTableCount         int64    `json:"sqlite_table_count,omitempty"`
+	SQLiteViewCount          int64    `json:"sqlite_view_count,omitempty"`
+	SQLiteIndexCount         int64    `json:"sqlite_index_count,omitempty"`
+	SQLiteTriggerCount       int64    `json:"sqlite_trigger_count,omitempty"`
+	SQLiteTableNames         []string `json:"sqlite_table_names,omitempty"`
+	SQLiteSchemaFingerprint  string   `json:"sqlite_schema_fingerprint,omitempty"`
+
 	// Install-package attributes.
 	PackageFormat   string `json:"package_format,omitempty"`
 	PackageName     string `json:"package_name,omitempty"`
@@ -999,6 +1009,24 @@ func MatchFrom(r Result) Match {
 	}
 	if v, ok := a.Extra["sqlite_application_id"].(int64); ok {
 		m.SQLiteApplicationID = v
+	}
+	if v, ok := a.Extra["sqlite_table_count"].(int64); ok {
+		m.SQLiteTableCount = v
+	}
+	if v, ok := a.Extra["sqlite_view_count"].(int64); ok {
+		m.SQLiteViewCount = v
+	}
+	if v, ok := a.Extra["sqlite_index_count"].(int64); ok {
+		m.SQLiteIndexCount = v
+	}
+	if v, ok := a.Extra["sqlite_trigger_count"].(int64); ok {
+		m.SQLiteTriggerCount = v
+	}
+	if v, ok := a.Extra["sqlite_table_names"].([]string); ok && len(v) > 0 {
+		m.SQLiteTableNames = v
+	}
+	if v, ok := a.Extra["sqlite_schema_fingerprint"].(string); ok {
+		m.SQLiteSchemaFingerprint = v
 	}
 
 	return m

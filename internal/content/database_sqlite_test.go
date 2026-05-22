@@ -3,8 +3,20 @@ package content
 import (
 	"context"
 	"encoding/binary"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
+)
+
+// execLookPath / execCommand / osDirFS are tiny shims so the test
+// imports stay tidy when adding the real-DB tests below.
+var (
+	execLookPath = exec.LookPath
+	execCommand  = exec.Command
+	osDirFS      = os.DirFS
 )
 
 // buildSQLiteHeader synthesises a 100-byte SQLite v3 header with the
@@ -151,6 +163,97 @@ func TestSQLite_TruncatedBelowMagic(t *testing.T) {
 	fsys := fstest.MapFS{"x.db": {Data: body}}
 	if _, err := DefaultRegistry().Detect(fsys, "x.db").Attributes(context.Background(), fsys, "x.db"); err != nil {
 		t.Errorf("truncated input errored: %v", err)
+	}
+}
+
+// TestSQLite_SchemaIntrospection_RealDB exercises the sqlite_master
+// b-tree walker against a real database created via the `sqlite3`
+// shell. Skips when sqlite3 isn't on PATH — CI runners on both
+// macOS and Ubuntu have it preinstalled. Catches integration bugs
+// the hand-built unit tests miss (cell-pointer math, real CREATE
+// statement formatting, autoindex generation).
+func TestSQLite_SchemaIntrospection_RealDB(t *testing.T) {
+	if _, err := execLookPath("sqlite3"); err != nil {
+		t.Skip("sqlite3 shell not in PATH")
+	}
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "app.db")
+	cmd := execCommand("sqlite3", dbPath)
+	cmd.Stdin = strings.NewReader(`
+CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);
+CREATE TABLE history (id INTEGER, url TEXT, ts INTEGER);
+CREATE INDEX idx_history_ts ON history(ts);
+CREATE VIEW v_recent AS SELECT * FROM history ORDER BY ts DESC LIMIT 100;
+CREATE TRIGGER trg_users AFTER INSERT ON users BEGIN INSERT INTO history(id) VALUES (NEW.id); END;
+`)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("sqlite3 run: %v", err)
+	}
+
+	fsys := osDirFS(dir)
+	ct := DefaultRegistry().Detect(fsys, "app.db")
+	if ct == nil || ct.Name() != "database/sqlite" {
+		t.Fatalf("Detect = %v, want database/sqlite", ct)
+	}
+	attrs, err := ct.Attributes(context.Background(), fsys, "app.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Schema attrs.
+	if got := attrs["sqlite_table_count"]; got != int64(2) {
+		t.Errorf("sqlite_table_count = %v, want 2 (users, history)", got)
+	}
+	if got := attrs["sqlite_view_count"]; got != int64(1) {
+		t.Errorf("sqlite_view_count = %v, want 1 (v_recent)", got)
+	}
+	if got := attrs["sqlite_index_count"]; got == nil {
+		t.Errorf("sqlite_index_count missing (expected ≥1 — idx_history_ts)")
+	}
+	if got := attrs["sqlite_trigger_count"]; got != int64(1) {
+		t.Errorf("sqlite_trigger_count = %v, want 1 (trg_users)", got)
+	}
+
+	names, ok := attrs["sqlite_table_names"].([]string)
+	if !ok {
+		t.Fatalf("sqlite_table_names not []string: %T", attrs["sqlite_table_names"])
+	}
+	if len(names) != 2 || names[0] != "history" || names[1] != "users" {
+		t.Errorf("sqlite_table_names = %v, want [history users]", names)
+	}
+
+	fp, ok := attrs["sqlite_schema_fingerprint"].(string)
+	if !ok || len(fp) != 64 {
+		t.Errorf("sqlite_schema_fingerprint = %q (len %d), want 64-char hex", fp, len(fp))
+	}
+}
+
+// TestSQLite_SchemaFingerprintStableAcrossCosmetics verifies that
+// the schema fingerprint is invariant under cosmetic reorders of
+// CREATE statements (we sort by (type, name) before hashing).
+func TestSQLite_SchemaFingerprintStableAcrossCosmetics(t *testing.T) {
+	if _, err := execLookPath("sqlite3"); err != nil {
+		t.Skip("sqlite3 shell not in PATH")
+	}
+	buildDB := func(sql string) string {
+		dir := t.TempDir()
+		dbPath := filepath.Join(dir, "x.db")
+		cmd := execCommand("sqlite3", dbPath)
+		cmd.Stdin = strings.NewReader(sql)
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("sqlite3 run: %v", err)
+		}
+		fsys := osDirFS(dir)
+		attrs, err := DefaultRegistry().Detect(fsys, "x.db").Attributes(context.Background(), fsys, "x.db")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return attrs["sqlite_schema_fingerprint"].(string)
+	}
+	a := buildDB("CREATE TABLE a (x INT); CREATE TABLE b (y INT);")
+	b := buildDB("CREATE TABLE b (y INT); CREATE TABLE a (x INT);")
+	if a != b {
+		t.Errorf("fingerprint should be stable across creation order; got %q vs %q", a, b)
 	}
 }
 
