@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -231,12 +232,17 @@ func ComputeStats(ctx context.Context, opts Options, registry *content.Registry)
 	}
 
 	if walkErr != nil {
-		switch walkErr {
-		case context.Canceled:
+		// errors.Is unwraps — the producer in walker.go joins ctx.Err()
+		// via errors.Join, so direct equality (switch walkErr) misses
+		// the wrapped DeadlineExceeded / Canceled and we silently drop
+		// the Cancelled flag. Bug surfaced via CLI smoke against
+		// ~/Library with --timeout 100ms.
+		switch {
+		case errors.Is(walkErr, context.Canceled):
 			stats.Cancelled = true
 			stats.CancellationReason = "client_cancel"
 			return stats, nil
-		case context.DeadlineExceeded:
+		case errors.Is(walkErr, context.DeadlineExceeded):
 			stats.Cancelled = true
 			stats.CancellationReason = "timeout"
 			return stats, nil
