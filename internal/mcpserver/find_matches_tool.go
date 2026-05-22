@@ -36,6 +36,7 @@ type FindMatchesInput struct {
 // FilesWithMatches is the subset that produced at least one hit.
 // Cancelled / CancellationReason mirror search / stats / duplicates.
 type FindMatchesOutput struct {
+	CommonOutput
 	Matches            []LineMatch `json:"matches"`
 	Count              int         `json:"count"`
 	FilesScanned       int         `json:"files_scanned"`
@@ -144,5 +145,6 @@ func (h *handlers) findMatchesHandler(ctx context.Context, _ *mcp.CallToolReques
 			}, synthMatches, out.ElapsedSeconds, out.CancellationReason)
 		}
 	}
+	out.ServerVersion = h.version
 	return nil, out, nil
 }

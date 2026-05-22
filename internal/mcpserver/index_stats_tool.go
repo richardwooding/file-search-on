@@ -14,6 +14,7 @@ import (
 // the in-memory equivalent) populated by include_body=true searches;
 // hits skip the per-file body extraction entirely.
 type IndexStatsOutput struct {
+	CommonOutput
 	Hits   uint64 `json:"hits"`
 	Misses uint64 `json:"misses"`
 	Puts   uint64 `json:"puts"`
@@ -37,10 +38,11 @@ type IndexStatsOutput struct {
 
 func (h *handlers) indexStatsHandler(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, IndexStatsOutput, error) {
 	if h.idx == nil {
-		return nil, IndexStatsOutput{}, nil
+		return nil, IndexStatsOutput{CommonOutput: CommonOutput{ServerVersion: h.version}}, nil
 	}
 	st := h.idx.Stats()
 	return nil, IndexStatsOutput{
+		CommonOutput:  CommonOutput{ServerVersion: h.version},
 		Hits:          st.Hits,
 		Misses:        st.Misses,
 		Puts:          st.Puts,

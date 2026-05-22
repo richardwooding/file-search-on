@@ -28,6 +28,7 @@ type ListArchiveContentsInput struct {
 // ListArchiveContentsOutput mirrors search.ArchiveWalkResult with a
 // JSON-tagged wire shape.
 type ListArchiveContentsOutput struct {
+	CommonOutput
 	Entries            []ArchiveEntryWire `json:"entries"`
 	ScannedEntries     int64              `json:"scanned_entries"`
 	MatchedEntries     int64              `json:"matched_entries"`
@@ -108,5 +109,6 @@ func (h *handlers) listArchiveContentsHandler(ctx context.Context, _ *mcp.CallTo
 			out.Entries[i] = wire
 		}
 	}
+	out.ServerVersion = h.version
 	return nil, out, nil
 }

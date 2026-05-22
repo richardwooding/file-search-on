@@ -19,6 +19,7 @@ type DetectProjectInput struct {
 // indicators that fired. Multiple types can match a single directory
 // (e.g. a Go module with docker-compose.yml hits both).
 type DetectProjectOutput struct {
+	CommonOutput
 	Path         string              `json:"path"`
 	ProjectTypes []string            `json:"project_types"`
 	Indicators   []projecttype.Match `json:"indicators"`
@@ -50,6 +51,7 @@ func (h *handlers) detectProjectHandler(ctx context.Context, _ *mcp.CallToolRequ
 		types[i] = m.Type
 	}
 	return nil, DetectProjectOutput{
+		CommonOutput: CommonOutput{ServerVersion: h.version},
 		Path:         abs,
 		ProjectTypes: types,
 		Indicators:   matches,

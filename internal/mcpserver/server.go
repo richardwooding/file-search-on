@@ -25,6 +25,7 @@ type handlers struct {
 	defaultTimeout         time.Duration
 	defaultEmbeddingServer string
 	defaultEmbeddingModel  string
+	version                string
 }
 
 // resolveTimeout returns a child ctx bounded by the effective per-call
@@ -256,6 +257,7 @@ func New(version string, idx index.Index, defaultTimeout time.Duration, embedDef
 		defaultTimeout:         defaultTimeout,
 		defaultEmbeddingServer: server,
 		defaultEmbeddingModel:  embedDefaults.Model,
+		version:                version,
 	}
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -271,7 +273,7 @@ func New(version string, idx index.Index, defaultTimeout time.Duration, embedDef
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_attributes",
 		Description: "List every CEL attribute available to the search tool, the built-in functions (levenshtein, soundex, ngrams, ngram_similarity, point_in_polygon) with their signatures, and the registered content types.",
-	}, listAttributesHandler)
+	}, h.listAttributesHandler)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "read_attributes",

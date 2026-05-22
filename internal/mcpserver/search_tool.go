@@ -52,6 +52,7 @@ type SearchInput struct {
 // for some other reason). ElapsedSeconds reports wall-clock time spent
 // inside the search handler — useful for tuning timeouts.
 type SearchOutput struct {
+	CommonOutput
 	Matches            []search.Match `json:"matches"`
 	Count              int            `json:"count"`
 	Cancelled          bool           `json:"cancelled,omitempty"`
@@ -256,5 +257,6 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 		// directory, expensive flags, missing prunes, lax filter.
 		output.Suggestions = search.SuggestionsForSearch(walkOpts, output.Matches, output.ElapsedSeconds, output.CancellationReason)
 	}
+	output.ServerVersion = h.version
 	return nil, output, nil
 }
