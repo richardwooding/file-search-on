@@ -29,6 +29,7 @@ type FindDuplicatesInput struct {
 
 // FindDuplicatesOutput is the structured output of `find_duplicates`.
 type FindDuplicatesOutput struct {
+	CommonOutput
 	TotalFiles         int64            `json:"total_files"`
 	DuplicateGroups    int64            `json:"duplicate_groups"`
 	WastedBytes        int64            `json:"wasted_bytes"`
@@ -108,5 +109,6 @@ func (h *handlers) findDuplicatesHandler(ctx context.Context, _ *mcp.CallToolReq
 			}
 		}
 	}
+	out.ServerVersion = h.version
 	return nil, out, nil
 }

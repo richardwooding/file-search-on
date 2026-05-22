@@ -40,6 +40,7 @@ type SearchSemanticInput struct {
 // what the call actually filtered with, embedding_model echoes which
 // model was used — both surface so agents can audit what they got.
 type SearchSemanticOutput struct {
+	CommonOutput
 	Matches            []search.Match `json:"matches"`
 	Count              int            `json:"count"`
 	ElapsedSeconds     float64        `json:"elapsed_seconds"`
@@ -195,5 +196,6 @@ func (h *handlers) searchSemanticHandler(ctx context.Context, req *mcp.CallToolR
 			output.CancellationReason = "client_cancel"
 		}
 	}
+	output.ServerVersion = h.version
 	return nil, output, nil
 }

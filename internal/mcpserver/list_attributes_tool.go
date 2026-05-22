@@ -17,17 +17,19 @@ type ContentTypeDoc struct {
 
 // ListAttributesOutput is the structured output of the `list_attributes` tool.
 type ListAttributesOutput struct {
+	CommonOutput
 	Schema       celexpr.SchemaDoc `json:"schema"`
 	ContentTypes []ContentTypeDoc  `json:"content_types"`
 }
 
-func listAttributesHandler(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, ListAttributesOutput, error) {
+func (h *handlers) listAttributesHandler(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, ListAttributesOutput, error) {
 	types := content.DefaultRegistry().Types()
 	docs := make([]ContentTypeDoc, len(types))
 	for i, t := range types {
 		docs[i] = ContentTypeDoc{Name: t.Name(), Extensions: t.Extensions()}
 	}
 	return nil, ListAttributesOutput{
+		CommonOutput: CommonOutput{ServerVersion: h.version},
 		Schema:       celexpr.Schema(),
 		ContentTypes: docs,
 	}, nil

@@ -28,6 +28,7 @@ type ReadFileInArchiveInput struct {
 // UTF-8-decoded view (only populated when valid UTF-8). Both make
 // the tool ergonomic for agents that prefer text vs raw bytes.
 type ReadFileInArchiveOutput struct {
+	CommonOutput
 	ArchivePath    string         `json:"archive_path"`
 	Name           string         `json:"name"`
 	Size           int64          `json:"size"`
@@ -86,5 +87,6 @@ func (h *handlers) readFileInArchiveHandler(ctx context.Context, _ *mcp.CallTool
 	} else {
 		out.ContentBase64 = base64.StdEncoding.EncodeToString(r.Content)
 	}
+	out.ServerVersion = h.version
 	return nil, out, nil
 }

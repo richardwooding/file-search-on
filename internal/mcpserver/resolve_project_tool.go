@@ -22,6 +22,7 @@ type ResolveProjectForPathInput struct {
 // Multiple types can fire for the same root (a Go module that also
 // ships docker-compose.yml hits both).
 type ResolveProjectForPathOutput struct {
+	CommonOutput
 	Path         string              `json:"path"`
 	ProjectRoot  string              `json:"project_root"`
 	ProjectTypes []string            `json:"project_types"`
@@ -52,8 +53,9 @@ func (h *handlers) resolveProjectForPathHandler(ctx context.Context, _ *mcp.Call
 
 	root, matches := projecttype.ResolveForPath(abs, nil)
 	out := ResolveProjectForPathOutput{
-		Path:        abs,
-		ProjectRoot: root,
+		CommonOutput: CommonOutput{ServerVersion: h.version},
+		Path:         abs,
+		ProjectRoot:  root,
 	}
 	if len(matches) > 0 {
 		types := make([]string, len(matches))

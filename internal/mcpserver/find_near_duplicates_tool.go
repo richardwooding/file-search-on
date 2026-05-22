@@ -32,6 +32,7 @@ type FindNearDuplicatesInput struct {
 // FindNearDuplicatesOutput mirrors search.NearDuplicates with a
 // JSON-tagged shape suitable for MCP clients.
 type FindNearDuplicatesOutput struct {
+	CommonOutput
 	TotalFiles         int64                    `json:"total_files"`
 	FingerPrinted      int64                    `json:"fingerprinted"`
 	GroupCount         int64                    `json:"group_count"`
@@ -126,5 +127,6 @@ func (h *handlers) findNearDuplicatesHandler(ctx context.Context, _ *mcp.CallToo
 			}
 		}
 	}
+	out.ServerVersion = h.version
 	return nil, out, nil
 }

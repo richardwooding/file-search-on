@@ -23,6 +23,7 @@ type ReadLinesInput struct {
 // excludes trailing newlines; TotalLines is always populated so
 // agents can decide whether to fetch additional ranges.
 type ReadLinesOutput struct {
+	CommonOutput
 	Path       string   `json:"path"`
 	StartLine  int      `json:"start_line"`
 	EndLine    int      `json:"end_line"`
@@ -60,11 +61,12 @@ func (h *handlers) readLinesHandler(ctx context.Context, _ *mcp.CallToolRequest,
 		return nil, ReadLinesOutput{}, fmt.Errorf("read lines: %w", err)
 	}
 	return nil, ReadLinesOutput{
-		Path:       abs,
-		StartLine:  res.StartLine,
-		EndLine:    res.EndLine,
-		TotalLines: res.TotalLines,
-		Lines:      res.Lines,
-		Truncated:  res.Truncated,
+		CommonOutput: CommonOutput{ServerVersion: h.version},
+		Path:         abs,
+		StartLine:    res.StartLine,
+		EndLine:      res.EndLine,
+		TotalLines:   res.TotalLines,
+		Lines:        res.Lines,
+		Truncated:    res.Truncated,
 	}, nil
 }

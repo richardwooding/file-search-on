@@ -26,20 +26,32 @@ type ReadAttributesInput struct {
 	HashDenylistPath  string   `json:"hash_denylist_path,omitempty" jsonschema:"Path to a hash denylist (same format). Populates is_known_bad. Forces compute_hashes on."`
 }
 
-func (h *handlers) readAttributesHandler(ctx context.Context, _ *mcp.CallToolRequest, in ReadAttributesInput) (*mcp.CallToolResult, search.Match, error) {
+// ReadAttributesOutput wraps a search.Match so it can carry the
+// embedded CommonOutput.ServerVersion alongside the existing Match
+// fields. Match fields are promoted to the top level by Go's
+// struct-embedding JSON serialisation, so the wire shape stays
+// backward-compatible — existing clients see `path`, `content_type`,
+// etc. at the top level just as before, with the new `server_version`
+// alongside.
+type ReadAttributesOutput struct {
+	CommonOutput
+	search.Match
+}
+
+func (h *handlers) readAttributesHandler(ctx context.Context, _ *mcp.CallToolRequest, in ReadAttributesInput) (*mcp.CallToolResult, ReadAttributesOutput, error) {
 	if in.Path == "" {
-		return nil, search.Match{}, fmt.Errorf("path is required")
+		return nil, ReadAttributesOutput{}, fmt.Errorf("path is required")
 	}
 	if err := search.ValidateFields(in.Fields); err != nil {
-		return nil, search.Match{}, fmt.Errorf("fields: %w", err)
+		return nil, ReadAttributesOutput{}, fmt.Errorf("fields: %w", err)
 	}
 	path, err := expandHomeDir(in.Path)
 	if err != nil {
-		return nil, search.Match{}, fmt.Errorf("expand path: %w", err)
+		return nil, ReadAttributesOutput{}, fmt.Errorf("expand path: %w", err)
 	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
-		return nil, search.Match{}, fmt.Errorf("resolve path: %w", err)
+		return nil, ReadAttributesOutput{}, fmt.Errorf("resolve path: %w", err)
 	}
 	dir := filepath.Dir(abs)
 	base := filepath.Base(abs)
@@ -56,7 +68,7 @@ func (h *handlers) readAttributesHandler(ctx context.Context, _ *mcp.CallToolReq
 	if in.HashAllowlistPath != "" {
 		al, alErr := hashset.Open(in.HashAllowlistPath)
 		if alErr != nil {
-			return nil, search.Match{}, fmt.Errorf("load hash_allowlist_path: %w", alErr)
+			return nil, ReadAttributesOutput{}, fmt.Errorf("load hash_allowlist_path: %w", alErr)
 		}
 		allowlist = al
 		defer func() { _ = al.Close() }()
@@ -65,7 +77,7 @@ func (h *handlers) readAttributesHandler(ctx context.Context, _ *mcp.CallToolReq
 	if in.HashDenylistPath != "" {
 		dl, dlErr := hashset.Open(in.HashDenylistPath)
 		if dlErr != nil {
-			return nil, search.Match{}, fmt.Errorf("load hash_denylist_path: %w", dlErr)
+			return nil, ReadAttributesOutput{}, fmt.Errorf("load hash_denylist_path: %w", dlErr)
 		}
 		denylist = dl
 		defer func() { _ = dl.Close() }()
@@ -80,7 +92,7 @@ func (h *handlers) readAttributesHandler(ctx context.Context, _ *mcp.CallToolReq
 		Denylist:       denylist,
 	})
 	if err != nil {
-		return nil, search.Match{}, fmt.Errorf("read attributes: %w", err)
+		return nil, ReadAttributesOutput{}, fmt.Errorf("read attributes: %w", err)
 	}
 	m := search.MatchFrom(search.Result{
 		Path:        abs,
@@ -88,5 +100,8 @@ func (h *handlers) readAttributesHandler(ctx context.Context, _ *mcp.CallToolReq
 		Size:        attrs.Size,
 		Attrs:       attrs,
 	})
-	return nil, search.ProjectMatch(m, in.Fields), nil
+	return nil, ReadAttributesOutput{
+		CommonOutput: CommonOutput{ServerVersion: h.version},
+		Match:        search.ProjectMatch(m, in.Fields),
+	}, nil
 }

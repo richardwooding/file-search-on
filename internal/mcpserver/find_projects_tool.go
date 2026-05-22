@@ -26,6 +26,7 @@ type FindProjectsInput struct {
 // find_duplicates: cancellation is reported via the Cancelled flag
 // rather than an error.
 type FindProjectsOutput struct {
+	CommonOutput
 	Projects           []projecttype.FoundProject `json:"projects"`
 	Count              int                        `json:"count"`
 	Cancelled          bool                       `json:"cancelled,omitempty"`
@@ -69,6 +70,7 @@ func (h *handlers) findProjectsHandler(ctx context.Context, _ *mcp.CallToolReque
 		return nil, FindProjectsOutput{}, fmt.Errorf("find_projects: %w", err)
 	}
 	out := FindProjectsOutput{
+		CommonOutput:       CommonOutput{ServerVersion: h.version},
 		Projects:           res.Projects,
 		Count:              res.Count,
 		Cancelled:          res.Cancelled,

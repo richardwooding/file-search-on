@@ -36,6 +36,7 @@ type StatsInput struct {
 // alongside Groups only when group_by is "content_type" / unset
 // for back-compat with older agent integrations.
 type StatsOutput struct {
+	CommonOutput
 	TotalCount         int64                    `json:"total_count"`
 	TotalSize          int64                    `json:"total_size"`
 	GroupBy            string                   `json:"group_by,omitempty"`
@@ -139,5 +140,6 @@ func (h *handlers) statsHandler(ctx context.Context, _ *mcp.CallToolRequest, in 
 			}, out.ElapsedSeconds, out.CancellationReason)
 		}
 	}
+	out.ServerVersion = h.version
 	return nil, out, nil
 }

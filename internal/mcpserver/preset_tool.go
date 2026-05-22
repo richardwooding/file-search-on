@@ -23,6 +23,7 @@ type PresetSummary struct {
 
 // ListPresetsOutput is the catalogue, sorted alphabetically by name.
 type ListPresetsOutput struct {
+	CommonOutput
 	Presets []PresetSummary `json:"presets"`
 }
 
@@ -41,7 +42,10 @@ type QueryPresetInput struct {
 
 func (h *handlers) listPresetsHandler(_ context.Context, _ *mcp.CallToolRequest, _ ListPresetsInput) (*mcp.CallToolResult, ListPresetsOutput, error) {
 	all := search.Presets()
-	out := ListPresetsOutput{Presets: make([]PresetSummary, 0, len(all))}
+	out := ListPresetsOutput{
+		CommonOutput: CommonOutput{ServerVersion: h.version},
+		Presets:      make([]PresetSummary, 0, len(all)),
+	}
 	for _, p := range all {
 		out.Presets = append(out.Presets, PresetSummary{Name: p.Name, Description: p.Description})
 	}
@@ -117,5 +121,6 @@ func (h *handlers) queryPresetHandler(ctx context.Context, _ *mcp.CallToolReques
 			out.CancellationReason = "client_cancel"
 		}
 	}
+	out.ServerVersion = h.version
 	return nil, out, nil
 }
