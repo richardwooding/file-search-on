@@ -196,6 +196,10 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.IsCDF, true
 	case "is_science_data":
 		return a.attrs.IsScienceData, true
+	case "is_sqlite":
+		return a.attrs.IsSQLite, true
+	case "is_database":
+		return a.attrs.IsDatabase, true
 	case "is_symlink":
 		return a.attrs.IsSymlink, true
 	case "is_broken_symlink":
@@ -424,4 +428,14 @@ var zeroDefaults = map[string]any{
 	"cdf_majority":    "",
 	"variable_count":  int64(0),
 	"attribute_count": int64(0),
+
+	// Database family (issue #170).
+	"database_format":       "",
+	"sqlite_page_size":      int64(0),
+	"sqlite_format_version": int64(0),
+	"sqlite_page_count":     int64(0),
+	"sqlite_schema_version": int64(0),
+	"sqlite_text_encoding":  "",
+	"sqlite_user_version":   int64(0),
+	"sqlite_application_id": int64(0),
 }
