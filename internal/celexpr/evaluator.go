@@ -651,6 +651,14 @@ func New(expr string) (*Evaluator, error) {
 		// doesn't expose the underlying inode.
 		cel.Variable("created_at", cel.TimestampType),
 		cel.Variable("metadata_changed_at", cel.TimestampType),
+		// mod_time is the file's last-modified time as reported by
+		// os.Stat (filesystem mtime). Always populated for real files
+		// regardless of opt-in flags. Useful for time-relative
+		// filtering: `mod_time > timestamp("2025-01-01T00:00:00Z")`.
+		// The `mod_time` sort key has worked for a long time but the
+		// CEL variable was missing until issue #168's preset library
+		// surfaced the gap.
+		cel.Variable("mod_time", cel.TimestampType),
 		cel.Variable("is_btime_anomaly", cel.BoolType),
 		// Disguise detection (PR #145). Empty / false when the
 		// caller didn't opt in via CheckDisguised.

@@ -49,6 +49,7 @@ var CLI struct {
 	NoConfigSearch    bool   `name:"no-config-search" help:"Skip automatic discovery of project-type configs at the standard search paths (user-wide UserConfigDir()/file-search-on/project-types.yaml and per-project ./.file-search-on/project-types.yaml). Use for hermetic invocations (tests, CI) where only the explicit --project-type-config should apply."`
 
 	Search          SearchCmd          `cmd:"" help:"Search for files matching a CEL expression." default:"withargs"`
+	Preset          PresetCmd          `cmd:"" name:"preset" help:"Run a pre-canned search recipe by name (recent_changes, recent_photos, old_drafts, large_files, large_binaries, suspicious_files, failed_tests, system_metadata). Without args, lists every preset. Each preset bakes a vetted CEL filter + sensible sort / limit defaults; CLI flags override per-call."`
 	Attrs           AttrsCmd           `cmd:"" name:"attrs" help:"Print attributes for a single file (no walk, no CEL)."`
 	Stats           StatsCmd           `cmd:"" name:"stats" help:"Aggregate content-type counts and total sizes for a directory tree."`
 	Lines           LinesCmd           `cmd:"" name:"lines" help:"Print a range of lines from a single file (no walk, no CEL)."`

@@ -329,6 +329,16 @@ func New(version string, idx index.Index, defaultTimeout time.Duration, embedDef
 	}, h.findMatchesHandler)
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name:        "list_presets",
+		Description: "List every named search recipe ('preset') available to the query_preset tool — each preset bakes a vetted CEL filter + sensible sort / limit defaults for a common workflow. Use this to discover what's available before calling query_preset. v1 presets: recent_changes (files modified in the last 7 days), recent_photos (images taken in the last 30 days), old_drafts (markdown drafts older than 90 days — neglected work), large_files (files > 100 MB), large_binaries (compiled binaries > 100 MB), suspicious_files (forensic-triage shortcut — disguised files or btime anomalies; auto-enables check_disguised), failed_tests (source test files mentioning FAIL/FIXME/XXX; auto-enables include_body), system_metadata (OS leftovers — .DS_Store / Thumbs.db / Desktop.ini / .directory). Output: presets[] with name + description; pass the name to query_preset to run.",
+	}, h.listPresetsHandler)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "query_preset",
+		Description: "Run a named search recipe by name. Each preset bakes a vetted CEL filter + sensible defaults — recent_changes / recent_photos / old_drafts / large_files / large_binaries / suspicious_files / failed_tests / system_metadata. Per-call overrides: dir / dirs to scope the walk, limit to override the preset's default cap, excludes / respect_gitignore / follow_symlinks for the usual walk-pruning options. Returns the same Match shape as the search tool. Discover available presets via list_presets. Issue #168 sub-feature B.",
+	}, h.queryPresetHandler)
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "resolve_project_for_path",
 		Description: "Given an arbitrary file or directory path, walk up the directory chain (unbounded — terminates at the filesystem root) and return the nearest ancestor that matches a registered project type (go.mod → go, package.json → node, Cargo.toml → rust, pyproject.toml/requirements.txt/Pipfile → python, Gemfile → ruby, pom.xml → java-maven, build.gradle → java-gradle, *.csproj → dotnet, *.tf → terraform, docker-compose.yml → docker-compose; plus static-site generators hugo / jekyll / eleventy / astro / gatsby / mkdocs / docusaurus / pelican). The MIDDLE question between detect_project (single-dir, what is THIS dir?) and find_projects (recursive, what's under this tree?): given a file path, what project owns it? Returns project_root (matched directory; empty when no ancestor matches), project_types (all matching types — a Go module that also ships docker-compose.yml hits both), and the indicators that fired. Use when an agent has a path from elsewhere and needs the project context — e.g. to scope a follow-up search or decide which language-specific tool to invoke.",
 	}, h.resolveProjectForPathHandler)
