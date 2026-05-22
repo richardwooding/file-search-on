@@ -42,6 +42,8 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.Ext, true
 	case "content_type":
 		return a.attrs.ContentType, true
+	case "mod_time":
+		return a.attrs.ModTime, true
 	case "is_markdown":
 		return a.attrs.IsMarkdown, true
 	case "is_json":

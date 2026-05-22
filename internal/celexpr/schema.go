@@ -38,6 +38,7 @@ func Schema() SchemaDoc {
 			{"size", "int", "file size in bytes"},
 			{"ext", "string", "file extension (e.g. '.md')"},
 			{"content_type", "string", "detected content type"},
+			{"mod_time", "timestamp", "file last-modified time (filesystem mtime as reported by os.Stat). Always populated for real files. Useful for time-relative filtering: `mod_time > timestamp(\"2025-01-01T00:00:00Z\")` or `mod_time < timestamp(\"...\")`. Same value the `--sort mod_time` key uses."},
 			{"is_markdown", "bool", "true if markdown file"},
 			{"is_json", "bool", "true if JSON file (.json + package.json/package-lock.json which also fire is_node_manifest)"},
 			{"is_xml", "bool", "true if XML file"},

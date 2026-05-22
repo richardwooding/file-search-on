@@ -123,6 +123,7 @@ file-search-on -d .                                   # empty expression matches
 | Command | Purpose | Deep dive |
 |---|---|---|
 | `search` *(default)* | CEL expression over file metadata | every page in [examples/](./examples/) |
+| `preset [name]` | Run a named search recipe — `recent_changes`, `large_files`, `suspicious_files`, etc. Without args, lists all presets. | [examples/presets.md](./examples/presets.md) |
 | `attrs <path>` | Print attributes for one file (no walk, no CEL) | [examples/cookbook.md](./examples/cookbook.md) |
 | `stats [expr]` | Histogram + totals, bucketed by `group_by` | [examples/group-by.md](./examples/group-by.md) |
 | `duplicates [expr]` | Byte-identical files by sha256 | [examples/duplicates.md](./examples/duplicates.md) |
