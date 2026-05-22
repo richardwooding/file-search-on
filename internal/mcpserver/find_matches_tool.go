@@ -43,6 +43,8 @@ type FindMatchesOutput struct {
 	Cancelled          bool        `json:"cancelled,omitempty"`
 	CancellationReason string      `json:"cancellation_reason,omitempty"`
 	ElapsedSeconds     float64     `json:"elapsed_seconds,omitempty"`
+	// Suggestions populated on cancellation. Issue #168 sub-feature C.
+	Suggestions []string `json:"suggestions,omitempty"`
 }
 
 // LineMatch is one hit returned by find_matches. Mirrors
@@ -121,6 +123,25 @@ func (h *handlers) findMatchesHandler(ctx context.Context, _ *mcp.CallToolReques
 				Before:      m.Before,
 				After:       m.After,
 			}
+		}
+		if out.Cancelled {
+			// Project FilesWithMatches into a synthetic []search.Match so
+			// the hot-directory heuristic works against the files that
+			// produced hits. (find_matches doesn't carry full Match
+			// objects; we already have per-line.Path which is enough.)
+			pathSet := make(map[string]bool, out.FilesWithMatches)
+			for _, m := range out.Matches {
+				pathSet[m.Path] = true
+			}
+			synthMatches := make([]search.Match, 0, len(pathSet))
+			for p := range pathSet {
+				synthMatches = append(synthMatches, search.Match{Path: p})
+			}
+			out.Suggestions = search.SuggestionsForSearch(search.Options{
+				Expr:             in.Expr,
+				Excludes:         in.Excludes,
+				RespectGitignore: in.RespectGitignore,
+			}, synthMatches, out.ElapsedSeconds, out.CancellationReason)
 		}
 	}
 	return nil, out, nil

@@ -235,12 +235,19 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 	// helpers print whatever they collected before returning the ctx
 	// error, so stdout already reflects the partial set.
 	if isCancellation(runErr) {
+		// matches are already flushed to stdout via stream/buffered
+		// helpers; we don't carry them at this scope, so the
+		// hot-directory heuristic is skipped for the CLI. The other
+		// four suggestions (timeout-bump, body warning, missing
+		// prunes, lax filter) still fire on opts alone.
 		switch {
 		case errors.Is(parentCtx.Err(), context.Canceled):
 			fmt.Fprintln(os.Stderr, "search interrupted; results above may be incomplete")
+			printSuggestions(os.Stderr, search.SuggestionsForSearch(opts, nil, 0, "client_cancel"))
 			return &exitCodeError{code: 130, msg: "interrupted"}
 		case s.Timeout > 0 && errors.Is(effectiveCtx.Err(), context.DeadlineExceeded):
 			fmt.Fprintf(os.Stderr, "search timed out after %s; results above may be incomplete\n", s.Timeout)
+			printSuggestions(os.Stderr, search.SuggestionsForSearch(opts, nil, s.Timeout.Seconds(), "timeout"))
 			return &exitCodeError{code: 124, msg: "timeout"}
 		}
 	}

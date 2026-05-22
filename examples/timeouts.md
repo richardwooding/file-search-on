@@ -17,6 +17,16 @@ When the deadline fires:
 - The partial result set is sorted and printed to stdout.
 - The footer `<N> file(s) found` reflects the partial count.
 - A warning lands on stderr: `search timed out after 30s; results above may be incomplete`.
+- **Agent-actionable suggestions** follow on stderr — heuristics over the walk options point at concrete next steps (issue #168 sub-feature C):
+
+  ```
+  Suggestions:
+    • Walk hit the timeout at 0.0s. Pass --timeout 1s (≈2x current) for a longer run.
+    • No --exclude or --respect-gitignore is set. Common build / cache dirs (node_modules, .git, target, __pycache__, vendor) may dominate the walk; pass --exclude or --respect-gitignore to prune them.
+    • The CEL filter is empty or 'true' — every file is walked. Add a type predicate (is_pdf, is_image, is_source, …) to limit candidates.
+  ```
+
+  Five heuristics fire on cancellation: bump-timeout, hot-directory (longest common prefix of matches — MCP only; the CLI doesn't carry the match list at the cancellation site), `--body` warning (body reads dominate naive walks), missing-prunes (no excludes / gitignore), lax-filter (empty CEL or `true`).
 - The process **exits 124** (matches GNU `timeout(1)` convention).
 
 Other exit codes:
@@ -73,7 +83,12 @@ On expiry the search tool **does not return an error** — it returns the partia
   "count": 47,
   "cancelled": true,
   "cancellation_reason": "timeout",
-  "elapsed_seconds": 10.003
+  "elapsed_seconds": 10.003,
+  "suggestions": [
+    "Walk hit the timeout at 10.0s. Pass --timeout 21s (≈2x current) for a longer run.",
+    "All 47 matches live under /Users/me/Documents. Consider narrowing with -d /Users/me/Documents (or --exclude 'Documents' for the inverse).",
+    "No --exclude or --respect-gitignore is set. Common build / cache dirs (node_modules, .git, target, __pycache__, vendor) may dominate the walk; pass --exclude or --respect-gitignore to prune them."
+  ]
 }
 ```
 
@@ -82,10 +97,20 @@ On expiry the search tool **does not return an error** — it returns the partia
 - `"timeout"` — our own deadline fired.
 - `"client_cancel"` — the parent context was cancelled (transport closed, MCP client gave up, server shutting down, …).
 
+`suggestions` (issue #168 sub-feature C) carries agent-actionable hints generated from the observed walk state. Five heuristics:
+
+- **Bump timeout** (`timeout` reason only) — concrete `--timeout` value at ≈2× current elapsed.
+- **Hot directory** — when ≥2 matches share a common parent directory, suggest `-d <dir>` to scope OR `--exclude <basename>` to prune.
+- **`--body` warning** — body reads dominate naive walks; suggest a tighter type predicate.
+- **Missing prunes** — fires when neither `excludes` nor `respect_gitignore` is set.
+- **Lax filter** — fires when `expr` is empty or `"true"`.
+
+The same five suggestions surface on `stats` (without hot-directory; the histogram itself answers "what's in this tree?") and on `find_matches`.
+
 Always inspect `cancelled` before treating the result as exhaustive. A common pattern for an agent:
 
 1. Issue a `search` with a tight timeout.
-2. If `cancelled` is true and the partial set is interesting, refine the expression to narrow the search and retry.
+2. If `cancelled` is true, read `suggestions[]` — pick the most relevant hint, apply it, retry.
 3. If `cancelled` is true and the partial set is too small to draw conclusions, retry with a larger `timeout_seconds`.
 4. If `cancelled` is false, the result is the full set.
 

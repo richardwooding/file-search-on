@@ -50,6 +50,7 @@ func (s *StatsCmd) Run(ctx context.Context) error {
 		defer func() { _ = idx.Close() }()
 	}
 
+	start := time.Now()
 	stats, err := search.ComputeStats(effectiveCtx, search.Options{
 		Roots:            s.Dir,
 		Expr:             expr,
@@ -61,6 +62,7 @@ func (s *StatsCmd) Run(ctx context.Context) error {
 		FollowSymlinks:   s.FollowSymlinks,
 		GroupBy:          s.GroupBy,
 	}, contentpkg.DefaultRegistry())
+	elapsed := time.Since(start).Seconds()
 
 	// Print even on cancellation — ComputeStats returns the partial
 	// tally with Cancelled=true rather than nil.
@@ -80,12 +82,19 @@ func (s *StatsCmd) Run(ctx context.Context) error {
 	// Same exit-code contract as search: 124 on timeout, 130 on
 	// Ctrl-C, otherwise 0 (partial results aren't a hard failure).
 	if stats != nil && stats.Cancelled {
+		suggestionOpts := search.Options{
+			Expr:             expr,
+			Excludes:         s.Exclude,
+			RespectGitignore: s.RespectGitignore,
+		}
 		switch {
 		case errors.Is(parentCtx.Err(), context.Canceled):
 			fmt.Fprintln(os.Stderr, "stats interrupted; counts above may be incomplete")
+			printSuggestions(os.Stderr, search.SuggestionsForStats(suggestionOpts, elapsed, "client_cancel"))
 			return &exitCodeError{code: 130, msg: "interrupted"}
 		case s.Timeout > 0 && errors.Is(effectiveCtx.Err(), context.DeadlineExceeded):
 			fmt.Fprintf(os.Stderr, "stats timed out after %s; counts above may be incomplete\n", s.Timeout)
+			printSuggestions(os.Stderr, search.SuggestionsForStats(suggestionOpts, elapsed, "timeout"))
 			return &exitCodeError{code: 124, msg: "timeout"}
 		}
 	}

@@ -93,12 +93,29 @@ func (f *FindMatchesCmd) Run(ctx context.Context) error {
 		return fmt.Errorf("find-matches failed: %w", err)
 	}
 	if res != nil && res.Cancelled {
+		// Synthesise Match objects from the per-hit paths so the
+		// hot-directory heuristic can see the per-file distribution.
+		pathSet := make(map[string]bool)
+		for _, m := range res.Matches {
+			pathSet[m.Path] = true
+		}
+		synthMatches := make([]search.Match, 0, len(pathSet))
+		for p := range pathSet {
+			synthMatches = append(synthMatches, search.Match{Path: p})
+		}
+		suggestionOpts := search.Options{
+			Expr:             f.Expr,
+			Excludes:         f.Exclude,
+			RespectGitignore: f.RespectGitignore,
+		}
 		switch {
 		case errors.Is(parentCtx.Err(), context.Canceled):
 			fmt.Fprintln(os.Stderr, "find-matches interrupted; results above may be incomplete")
+			printSuggestions(os.Stderr, search.SuggestionsForSearch(suggestionOpts, synthMatches, res.ElapsedSeconds, "client_cancel"))
 			return &exitCodeError{code: 130, msg: "interrupted"}
 		case f.Timeout > 0 && errors.Is(effectiveCtx.Err(), context.DeadlineExceeded):
 			fmt.Fprintf(os.Stderr, "find-matches timed out after %s; results above may be incomplete\n", f.Timeout)
+			printSuggestions(os.Stderr, search.SuggestionsForSearch(suggestionOpts, synthMatches, res.ElapsedSeconds, "timeout"))
 			return &exitCodeError{code: 124, msg: "timeout"}
 		}
 	}
