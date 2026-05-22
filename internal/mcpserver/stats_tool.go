@@ -44,6 +44,8 @@ type StatsOutput struct {
 	Cancelled          bool                     `json:"cancelled,omitempty"`
 	CancellationReason string                   `json:"cancellation_reason,omitempty"`
 	ElapsedSeconds     float64                  `json:"elapsed_seconds,omitempty"`
+	// Suggestions populated on cancellation. Issue #168 sub-feature C.
+	Suggestions []string `json:"suggestions,omitempty"`
 }
 
 // StatsBucket is one row of the stats histogram. ContentTypeBucket
@@ -127,6 +129,14 @@ func (h *handlers) statsHandler(ctx context.Context, _ *mcp.CallToolRequest, in 
 					TotalSize: b.TotalSize,
 				}
 			}
+		}
+		if out.Cancelled {
+			out.Suggestions = search.SuggestionsForStats(search.Options{
+				Expr:             expr,
+				IncludeBody:      false, // stats never sets IncludeBody
+				Excludes:         in.Excludes,
+				RespectGitignore: in.RespectGitignore,
+			}, out.ElapsedSeconds, out.CancellationReason)
 		}
 	}
 	return nil, out, nil

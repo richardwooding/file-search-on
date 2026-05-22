@@ -53,10 +53,15 @@ type SearchInput struct {
 // inside the search handler — useful for tuning timeouts.
 type SearchOutput struct {
 	Matches            []search.Match `json:"matches"`
-	Count              int           `json:"count"`
-	Cancelled          bool          `json:"cancelled,omitempty"`
-	CancellationReason string        `json:"cancellation_reason,omitempty"`
-	ElapsedSeconds     float64       `json:"elapsed_seconds,omitempty"`
+	Count              int            `json:"count"`
+	Cancelled          bool           `json:"cancelled,omitempty"`
+	CancellationReason string         `json:"cancellation_reason,omitempty"`
+	ElapsedSeconds     float64        `json:"elapsed_seconds,omitempty"`
+	// Suggestions are agent-actionable hints generated heuristically
+	// from the observed walk state when Cancelled=true. Issue #168
+	// sub-feature C. Empty when the walk completed successfully OR
+	// when no heuristic fires.
+	Suggestions []string `json:"suggestions,omitempty"`
 }
 
 // progressNotifyStride is the number of matches between two
@@ -246,6 +251,10 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 		} else {
 			output.CancellationReason = "client_cancel"
 		}
+		// Partial-result hints (issue #168 sub-feature C). Generated
+		// from the observed walk state — bumped timeout, hot
+		// directory, expensive flags, missing prunes, lax filter.
+		output.Suggestions = search.SuggestionsForSearch(walkOpts, output.Matches, output.ElapsedSeconds, output.CancellationReason)
 	}
 	return nil, output, nil
 }
