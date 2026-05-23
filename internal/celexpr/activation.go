@@ -434,14 +434,15 @@ var zeroDefaults = map[string]any{
 	"attribute_count": int64(0),
 
 	// Database family (issue #170).
-	"database_format":       "",
-	"sqlite_page_size":      int64(0),
-	"sqlite_format_version": int64(0),
-	"sqlite_page_count":     int64(0),
-	"sqlite_schema_version": int64(0),
-	"sqlite_text_encoding":  "",
-	"sqlite_user_version":   int64(0),
-	"sqlite_application_id": int64(0),
+	"database_format":         "",
+	"sqlite_page_size":        int64(0),
+	"sqlite_format_version":   int64(0),
+	"sqlite_page_count":       int64(0),
+	"sqlite_schema_version":   int64(0),
+	"sqlite_text_encoding":    "",
+	"sqlite_user_version":     int64(0),
+	"sqlite_application_id":   int64(0),
+	"sqlite_application_name": "",
 
 	// Schema introspection (sqlite_master walker — follow-up to #174).
 	"sqlite_table_count":        int64(0),

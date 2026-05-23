@@ -264,7 +264,8 @@ type Match struct {
 	SQLiteSchemaVersion int64  `json:"sqlite_schema_version,omitempty"`
 	SQLiteTextEncoding  string `json:"sqlite_text_encoding,omitempty"`
 	SQLiteUserVersion   int64  `json:"sqlite_user_version,omitempty"`
-	SQLiteApplicationID int64  `json:"sqlite_application_id,omitempty"`
+	SQLiteApplicationID   int64  `json:"sqlite_application_id,omitempty"`
+	SQLiteApplicationName string `json:"sqlite_application_name,omitempty"`
 
 	// SQLite schema introspection (follow-up to #174). Populated by
 	// the hand-rolled sqlite_master b-tree walker — see
@@ -1017,6 +1018,9 @@ func MatchFrom(r Result) Match {
 	}
 	if v, ok := a.Extra["sqlite_application_id"].(int64); ok {
 		m.SQLiteApplicationID = v
+	}
+	if v, ok := a.Extra["sqlite_application_name"].(string); ok {
+		m.SQLiteApplicationName = v
 	}
 	if v, ok := a.Extra["sqlite_table_count"].(int64); ok {
 		m.SQLiteTableCount = v

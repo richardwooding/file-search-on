@@ -551,6 +551,8 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("sqlite_text_encoding", cel.StringType),
 		cel.Variable("sqlite_user_version", cel.IntType),
 		cel.Variable("sqlite_application_id", cel.IntType),
+		// Curated app-name lookup (issue #177).
+		cel.Variable("sqlite_application_name", cel.StringType),
 		// Schema introspection (sqlite_master walker — follow-up to #174).
 		cel.Variable("sqlite_table_count", cel.IntType),
 		cel.Variable("sqlite_view_count", cel.IntType),
@@ -1090,6 +1092,21 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 				return nil, err
 			}
 			extra = a
+			// Curated SQLite app-name lookup (issue #177). Lives here
+			// rather than inside ContentType.Attributes because the
+			// path-based registry dimensions (PathContains: "Chrome",
+			// "/Library/Keychains/", …) need the absolute displayPath,
+			// while ContentType.Attributes is handed only the fs.FS-
+			// relative fsPath. Caching is automatic because the
+			// enriched `extra` is what gets Put into the index below.
+			if contentTypeName == "database/sqlite" {
+				if name := content.LookupSQLiteAppName(extra, displayPath); name != "" {
+					if extra == nil {
+						extra = content.Attributes{}
+					}
+					extra["sqlite_application_name"] = name
+				}
+			}
 		}
 	}
 
