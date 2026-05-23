@@ -366,13 +366,16 @@ func assembleFITSAttrs(primary map[string]any, hduCount int) Attributes {
 	if v := fitsInt(primary["BITPIX"]); v != 0 {
 		out["bitpix"] = v
 	}
-	if v := fitsInt(primary["NAXIS"]); v != 0 {
+	// NAXIS / NAXISn are non-negative per FITS Standard §4.4.1 — adversarial
+	// headers can claim e.g. `NAXIS1 = -1000000000000000000` and parse cleanly
+	// as int64. Drop negatives at the surface so CEL consumers never see them.
+	if v := fitsInt(primary["NAXIS"]); v > 0 {
 		out["naxis"] = v
 	}
-	if v := fitsInt(primary["NAXIS1"]); v != 0 {
+	if v := fitsInt(primary["NAXIS1"]); v > 0 {
 		out["naxis1"] = v
 	}
-	if v := fitsInt(primary["NAXIS2"]); v != 0 {
+	if v := fitsInt(primary["NAXIS2"]); v > 0 {
 		out["naxis2"] = v
 	}
 	return out
