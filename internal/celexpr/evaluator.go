@@ -560,6 +560,9 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("sqlite_trigger_count", cel.IntType),
 		cel.Variable("sqlite_table_names", cel.ListType(cel.StringType)),
 		cel.Variable("sqlite_schema_fingerprint", cel.StringType),
+		// FTS3/4/5 virtual-table detection (issue #178).
+		cel.Variable("sqlite_fts_table_count", cel.IntType),
+		cel.Variable("sqlite_fts_table_names", cel.ListType(cel.StringType)),
 		cel.Variable("cdf_version", cel.StringType),
 		cel.Variable("cdf_encoding", cel.StringType),
 		cel.Variable("cdf_majority", cel.StringType),

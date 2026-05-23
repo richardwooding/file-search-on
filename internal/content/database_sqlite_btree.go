@@ -415,6 +415,18 @@ func processLeafTableCell(cell []byte, visited *int, visit func(row sqliteMaster
 	visit(row)
 }
 
+// isFTSCreate reports whether the SQL string is a `CREATE VIRTUAL
+// TABLE ... USING fts<N>` statement (FTS3 / FTS4 / FTS5). SQLite's
+// parser is case-insensitive and whitespace-flexible (multiple spaces
+// / tabs between tokens, `IF NOT EXISTS`, schema prefix). Delegates to
+// the shared regex used by the body extractor (see body_sqlite.go)
+// so the schema walker + the extractor agree on what counts as an
+// FTS table — drift between the two would manifest as `sqlite_fts_
+// table_count > 0` with an empty body, or vice versa.
+func isFTSCreate(sql string) bool {
+	return ftsCreatePattern.MatchString(sql)
+}
+
 // textOf returns the string contents of a record value, or "" if the
 // value isn't a text column.
 func textOf(v recordVal) string {
@@ -430,6 +442,7 @@ func textOf(v recordVal) string {
 func schemaFromSQLiteMaster(data []byte, pageSize int64) Attributes {
 	var tables, views, indexes, triggers int64
 	tableNames := make(map[string]bool)
+	ftsTableNames := make(map[string]bool)
 
 	type entry = sqliteMasterRow
 	var entries []entry
@@ -440,6 +453,12 @@ func schemaFromSQLiteMaster(data []byte, pageSize int64) Attributes {
 			tables++
 			if len(tableNames) < sqliteMaxTableNames {
 				tableNames[row.Name] = true
+			}
+			// FTS3/4/5 virtual tables register as type=table with a
+			// SQL prefix `CREATE VIRTUAL TABLE ... USING fts<N>`. Match
+			// case-insensitively; SQLite's parser is case-insensitive.
+			if isFTSCreate(row.SQL) && len(ftsTableNames) < sqliteMaxTableNames {
+				ftsTableNames[row.Name] = true
 			}
 		case "view":
 			views++
@@ -472,6 +491,15 @@ func schemaFromSQLiteMaster(data []byte, pageSize int64) Attributes {
 		}
 		sort.Strings(names)
 		out["sqlite_table_names"] = names
+	}
+	if len(ftsTableNames) > 0 {
+		names := make([]string, 0, len(ftsTableNames))
+		for n := range ftsTableNames {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		out["sqlite_fts_table_count"] = int64(len(ftsTableNames))
+		out["sqlite_fts_table_names"] = names
 	}
 	if len(entries) > 0 {
 		// Stable order: sort by (type, name) so cosmetic schema

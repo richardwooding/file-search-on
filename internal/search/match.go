@@ -277,6 +277,11 @@ type Match struct {
 	SQLiteTableNames         []string `json:"sqlite_table_names,omitempty"`
 	SQLiteSchemaFingerprint  string   `json:"sqlite_schema_fingerprint,omitempty"`
 
+	// FTS3 / FTS4 / FTS5 virtual-table detection (issue #178). Pair
+	// with `--body` / include_body to grep inside FTS-indexed text.
+	SQLiteFTSTableCount int64    `json:"sqlite_fts_table_count,omitempty"`
+	SQLiteFTSTableNames []string `json:"sqlite_fts_table_names,omitempty"`
+
 	// SQLite WAL sidecar (issue #176). Populated when content_type ==
 	// "database/sqlite-wal" — parsed from the 32-byte WAL header.
 	SQLiteWALFormatVersion int64  `json:"sqlite_wal_format_version,omitempty"`
@@ -1039,6 +1044,12 @@ func MatchFrom(r Result) Match {
 	}
 	if v, ok := a.Extra["sqlite_schema_fingerprint"].(string); ok {
 		m.SQLiteSchemaFingerprint = v
+	}
+	if v, ok := a.Extra["sqlite_fts_table_count"].(int64); ok {
+		m.SQLiteFTSTableCount = v
+	}
+	if v, ok := a.Extra["sqlite_fts_table_names"].([]string); ok && len(v) > 0 {
+		m.SQLiteFTSTableNames = v
 	}
 	if v, ok := a.Extra["sqlite_wal_format_version"].(int64); ok {
 		m.SQLiteWALFormatVersion = v

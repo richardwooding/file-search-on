@@ -452,6 +452,10 @@ var zeroDefaults = map[string]any{
 	"sqlite_table_names":        []string{},
 	"sqlite_schema_fingerprint": "",
 
+	// FTS detection (issue #178).
+	"sqlite_fts_table_count": int64(0),
+	"sqlite_fts_table_names": []string{},
+
 	// SQLite WAL sidecar (issue #176).
 	"sqlite_wal_format_version": int64(0),
 	"sqlite_wal_page_size":      int64(0),
