@@ -38,7 +38,7 @@ Built in the open — issues, PRs, and feature requests warmly welcomed. See [Co
   | **Video** | MP4, MOV, MKV, WebM, AVI | duration, bitrate / nominal_bitrate, video_codec, audio_codec, video_width/height, frame_rate, rotation, HDR / colour-space, subtitles |
   | **Office** | DOCX, XLSX, PPTX, ODT | title, author, language (Dublin Core) |
   | **Archives** | ZIP (incl. JAR / WAR / EAR), TAR, TAR.GZ, GZIP | entry_count, uncompressed_size, top_level_entries, has_root_dir |
-  | **Binaries** | ELF (Linux/BSD), Mach-O (macOS, incl. universal), PE (Windows) | architectures, bitness, binary_format, binary_type, is_dynamically_linked, is_stripped, entry_point |
+  | **Binaries** | ELF (Linux/BSD), Mach-O (macOS, incl. universal), PE (Windows). Mach-O code signature parsing surfaces team ID + entitlements. | architectures, bitness, binary_format, binary_type, is_dynamically_linked, is_stripped, entry_point, is_codesigned, is_apple_signed, is_third_party_signed, codesign_identifier, codesign_team_id, codesign_hash_type, codesign_hardened_runtime, codesign_library_validation, codesign_killed, codesign_adhoc, entitlements, entitlement_app_sandbox, entitlement_full_disk_access, entitlement_network_client, entitlement_network_server |
   | **Email** | RFC 5322 (`.eml`), Unix mbox (`.mbox`) | title (subject), author (from), email_to, email_cc, sent_at, attachment_count, email_count |
   | **Source code** | Go, Python, JS/TS, Rust, C/C++, Java, Ruby, Swift, Kotlin, Scala, Shell, Lua, Elixir, Clojure, Haskell, OCaml, Zig | language, line_count, loc, comment_loc, blank_loc |
   | **Notebooks** | Jupyter `.ipynb`, Apache Zeppelin `.zpln` | cell_count, code_cell_count, markdown_cell_count, kernel, language, title |
@@ -324,7 +324,7 @@ file-search-on 'is_html && dir.contains("build")'
 | **Audio** | `artist`, `album`, `album_artist`, `composer`, `year`, `track`, `genre`, `duration`, `bitrate`, `nominal_bitrate`, `sample_rate`, `channels`, `bit_depth`, `replaygain_track_gain`, `replaygain_album_gain` |
 | **Video** | `video_codec`, `audio_codec`, `video_width`, `video_height`, `frame_rate`, `rotation`, `duration`, `bitrate`, `nominal_bitrate`, `is_hdr`, `color_primaries`, `color_transfer`, `subtitles`, `subtitle_languages` |
 | **Archives** | `entry_count`, `uncompressed_size`, `top_level_entries`, `has_root_dir` |
-| **Binaries** | `architectures`, `bitness`, `binary_format`, `binary_type`, `is_dynamically_linked`, `is_stripped`, `entry_point` |
+| **Binaries** | `architectures`, `bitness`, `binary_format`, `binary_type`, `is_dynamically_linked`, `is_stripped`, `entry_point`. Mach-O code signature (macOS-specific): `is_codesigned`, `is_apple_signed`, `is_third_party_signed`, `codesign_identifier`, `codesign_team_id`, `codesign_hash_type`, `codesign_hardened_runtime`, `codesign_library_validation`, `codesign_killed`, `codesign_adhoc`, `entitlements`, `entitlement_app_sandbox`, `entitlement_full_disk_access`, `entitlement_network_client`, `entitlement_network_server` |
 | **Email** | `email_to`, `email_cc`, `email_message_id`, `email_in_reply_to`, `sent_at`, `attachment_count`, `email_count` (plus shared `title` / `author`) |
 | **Source code** | `language`, `line_count`, `loc`, `comment_loc`, `blank_loc` |
 | **Notebooks** | `cell_count`, `code_cell_count`, `markdown_cell_count`, `kernel` (plus shared `language` / `title`) |

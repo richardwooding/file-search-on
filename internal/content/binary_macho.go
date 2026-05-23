@@ -3,7 +3,9 @@ package content
 import (
 	"context"
 	"debug/macho"
+	"io"
 	"io/fs"
+	"maps"
 )
 
 // readMachoInfo parses a Mach-O binary's headers and returns the unified
@@ -26,7 +28,19 @@ func readMachoInfo(ctx context.Context, fsys fs.FS, path string) (Attributes, er
 
 	if ff, err := macho.NewFatFile(ra); err == nil {
 		defer func() { _ = ff.Close() }()
-		return machoFatAttrs(ff), nil
+		attrs := machoFatAttrs(ff)
+		// Code-signature parsing (issue #187) on the first arch only.
+		// Each arch has its own signature; surfacing per-arch attrs
+		// would require list-of-struct values that don't fit the
+		// current CEL flat-attribute model. First arch is what the
+		// host typically runs and matches `codesign -d` defaults.
+		if len(ff.Arches) > 0 && ff.Arches[0].File != nil {
+			arch := ff.Arches[0]
+			if cs := readMachoCodeSignature(arch.File, sectionReaderAt(ra, int64(arch.Offset), int64(arch.Size))); cs != nil {
+				maps.Copy(attrs, cs)
+			}
+		}
+		return attrs, nil
 	}
 
 	f, err := macho.NewFile(ra)
@@ -35,7 +49,37 @@ func readMachoInfo(ctx context.Context, fsys fs.FS, path string) (Attributes, er
 	}
 	defer func() { _ = f.Close() }()
 
-	return machoThinAttrs(f), nil
+	attrs := machoThinAttrs(f)
+	if cs := readMachoCodeSignature(f, ra); cs != nil {
+		maps.Copy(attrs, cs)
+	}
+	return attrs, nil
+}
+
+// readMachoCodeSignature extracts the LC_CODE_SIGNATURE SuperBlob
+// bytes from a Mach-O slice's reader, parses them, and returns the
+// codesign attribute surface. Returns nil when the binary isn't
+// signed (the common case for object files and dev-builds) so the
+// caller can skip the maps.Copy. Malformed signatures degrade to
+// nil per the walker contract.
+func readMachoCodeSignature(f *macho.File, ra io.ReaderAt) Attributes {
+	raw, err := readCodeSignatureBytes(f, ra)
+	if err != nil || len(raw) == 0 {
+		return nil
+	}
+	info := parseCodeSignature(raw)
+	if !info.Present {
+		return nil
+	}
+	return codesignAttrs(info)
+}
+
+// sectionReaderAt narrows a parent io.ReaderAt down to a sub-range,
+// translating local offsets into the parent's offset space. Used to
+// read code-signature bytes inside a fat-Mach-O arch slice without
+// re-opening the file.
+func sectionReaderAt(parent io.ReaderAt, off, size int64) io.ReaderAt {
+	return io.NewSectionReader(parent, off, size)
 }
 
 // machoThinAttrs collects attributes from a single-arch Mach-O file.
