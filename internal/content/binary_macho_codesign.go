@@ -294,8 +294,8 @@ func hashTypeName(t uint8) string {
 // Returns the prefix up to (but not including) the first NUL, or the
 // full buffer trimmed if no NUL is present.
 func readCString(buf []byte) string {
-	if i := bytes.IndexByte(buf, 0); i >= 0 {
-		return strings.TrimSpace(string(buf[:i]))
+	if before, _, ok := bytes.Cut(buf, []byte{0}); ok {
+		return strings.TrimSpace(string(before))
 	}
 	return strings.TrimSpace(string(buf))
 }
