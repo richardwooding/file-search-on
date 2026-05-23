@@ -49,3 +49,31 @@ func ExtractBody(ctx context.Context, contentTypeName string, fsys fs.FS, filePa
 	}
 	return "", nil
 }
+
+// ExtractBodyOSPath is the sibling entry point for content types whose
+// extractor cannot read through fs.FS — today only `database/sqlite`,
+// because the modernc.org/sqlite driver requires an OS path to open
+// the file. Archive-walk paths (where the file lives inside a ZIP /
+// TAR) cannot reach this code; callers MUST gate on the file having a
+// real on-disk path before invoking.
+//
+// Returns "" + nil error for unknown content types (matches the
+// ExtractBody contract — caller falls through to its existing
+// behaviour).
+func ExtractBodyOSPath(ctx context.Context, contentTypeName, osPath string, maxBytes int) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	switch contentTypeName {
+	case "database/sqlite":
+		return sqliteBody(ctx, osPath, maxBytes)
+	}
+	return "", nil
+}
+
+// RequiresOSPath reports whether the given content type's body
+// extractor needs the real OS path (cannot operate through fs.FS).
+// Callers use this to gate body extraction on archive-walk paths.
+func RequiresOSPath(contentTypeName string) bool {
+	return contentTypeName == "database/sqlite"
+}

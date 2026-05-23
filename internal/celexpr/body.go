@@ -47,7 +47,8 @@ func isStructuredBody(name string) bool {
 	case "office/docx", "office/xlsx", "office/pptx", "office/odt",
 		"epub",
 		"email/rfc822", "email/mbox",
-		"pdf":
+		"pdf",
+		"database/sqlite":
 		return true
 	}
 	return false
@@ -132,7 +133,7 @@ func populateSimilarity(ctx context.Context, fsys fs.FS, fsPath, displayPath, ca
 	// Re-embed path. Extract the body via the body-cache-aware reader
 	// so we share the body cache with anything else asking for it in
 	// this walk. Empty body → no signal → leave Similarity at 0.
-	body, err := readBody(ctx, fsys, fsPath, attrs.ContentType, opts.BodyMaxBytes)
+	body, err := readBody(ctx, fsys, fsPath, attrs.Path, attrs.ContentType, opts.BodyMaxBytes)
 	if err != nil || body == "" {
 		if opts.Index != nil && (cached == nil || len(cached.Vector) == 0) {
 			// Pure cache-miss (no Vector at all). When we got here
@@ -307,7 +308,7 @@ func lookupOrExtractBody(ctx context.Context, fsys fs.FS, fsPath, displayPath, c
 			return body
 		}
 	}
-	body, err := readBody(ctx, fsys, fsPath, contentTypeName, opts.BodyMaxBytes)
+	body, err := readBody(ctx, fsys, fsPath, displayPath, contentTypeName, opts.BodyMaxBytes)
 	if err != nil || body == "" {
 		return ""
 	}
@@ -339,7 +340,7 @@ func lookupOrExtractBody(ctx context.Context, fsys fs.FS, fsPath, displayPath, c
 // every XML token internally. Raw reads will surface ctx.Err()
 // through the underlying file IO eventually but don't poll between
 // bytes.
-func readBody(ctx context.Context, fsys fs.FS, fsPath, contentTypeName string, maxBytes int) (string, error) {
+func readBody(ctx context.Context, fsys fs.FS, fsPath, displayPath, contentTypeName string, maxBytes int) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -347,6 +348,19 @@ func readBody(ctx context.Context, fsys fs.FS, fsPath, contentTypeName string, m
 		maxBytes = defaultBodyMaxBytes
 	}
 	if isStructuredBody(contentTypeName) {
+		// SQLite extraction goes through the modernc.org/sqlite driver
+		// which only opens real OS paths. Archive-walk callers leave
+		// displayPath either empty or set to the in-archive virtual
+		// path; we accept any non-empty displayPath and let the driver
+		// error fast if it can't open. This is the same contract as
+		// every other structured extractor — "best effort, empty on
+		// failure".
+		if content.RequiresOSPath(contentTypeName) {
+			if displayPath == "" {
+				return "", nil
+			}
+			return content.ExtractBodyOSPath(ctx, contentTypeName, displayPath, maxBytes)
+		}
 		return content.ExtractBody(ctx, contentTypeName, fsys, fsPath, maxBytes)
 	}
 	f, err := fsys.Open(fsPath)

@@ -82,6 +82,32 @@ file-search-on 'is_sqlite_wal && sqlite_wal_byte_order == "be"' -d ~
 file-search-on 'is_sqlite_shm' -d ~/Library
 ```
 
+## Full-text search inside SQLite (FTS3/4/5)
+
+SQLite [FTS5](https://www.sqlite.org/fts5.html) (and the older FTS3/4) virtual tables hold indexed text that's a goldmine for agent queries — Chrome History's URL/title text, Firefox places, Apple Notes / Mail / Messages, almost every chat app's history. With `--body`, the `body` CEL variable is populated with the concatenated text from every FTS `_content` shadow table; `body.contains(...)` and `body.matches(...)` work the same way they do for markdown / office / email / PDF.
+
+```sh
+# Find SQLite DBs that mention "kubernetes" anywhere in their FTS-indexed text
+file-search-on 'is_sqlite && body.contains("kubernetes")' --body -d ~/Library
+
+# Browser history search (case-insensitive)
+file-search-on 'is_sqlite && sqlite_application_name in ["chrome-history", "firefox-places"] && body.matches("(?i)transformer")' --body -d ~/Library
+
+# DBs with at least one FTS table — pre-filter before opting into --body
+file-search-on 'is_sqlite && sqlite_fts_table_count > 0' -d ~/Library
+
+# List the FTS table names per DB
+file-search-on 'is_sqlite && sqlite_fts_table_count > 0' -d ~/Library -o json | \
+  jq -r '"\(.path)\t\(.sqlite_fts_table_names | join(","))"'
+```
+
+Implementation:
+- Pure-Go via [`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite) (sqlite.c machine-translated to Go — no CGO).
+- Opens the DB read-only with `mode=ro&immutable=1` — no journal touches, no locks acquired, safe against running browsers.
+- Every text-typed column from every `<fts>_content` shadow is read; rows are concatenated newline-separated, capped at `--body-max-bytes` (1 MiB default).
+- External-content FTS5 tables (`content=<source>`) follow the `<fts>_config` pointer to the user-named source table.
+- SQLCipher-encrypted DBs and DBs locked exclusively by another writer surface as empty body — same "best effort" contract as the other extractors.
+
 ## Curated app-name registry
 
 `sqlite_application_name` is a curated label populated when the file matches a known stamp / filename pattern — saves agents from looking up magic decimals. Today's registry covers the obvious browser and OS-bundled DBs: Firefox places, the Chromium-family History / Cookies stores (Chrome / Chromium / Edge / Brave), Apple Photos / iMessage / Keychain, macOS libcache, and Fossil SCM repositories. Empty when no entry matches — use the empty case to surface unknown DBs for triage.
@@ -124,7 +150,7 @@ file-search-on 'is_sqlite' -d ~ --sort size --order desc --limit 10
 ## Known limitations
 
 - **Schema introspection truncates overflow pages.** Very long `CREATE` statements that overflow the b-tree page into linked pages aren't followed — `sqlite_table_names` may miss tables whose CREATE statement spans pages (rare in practice), and `sqlite_schema_fingerprint` covers only the inline portion of overflowed records. Most schemas fit inline.
-- **Index b-trees aren't walked.** `sqlite_master` itself is always a table b-tree, so this is fine for schema discovery. We don't read user-table contents (FTS5 indexed text is a separate follow-up).
+- **Non-FTS user tables aren't read.** Body extraction reads from FTS3/4/5 `_content` shadow tables only — arbitrary user tables stay private (a deliberate scope choice, not a missing feature). Pair with `sqlite_table_names` if you need to know which user tables exist.
 - **WAL-aware reads.** The schema we see is from the canonical `.db` file; uncommitted writes in `-wal` aren't visible. For most use cases (find DBs containing X) this doesn't matter. The WAL file's 32-byte header is parsed for byte-order + page-size + frame-count metadata, but the WAL frame contents (the pending pages themselves) aren't read.
 - **SQLCipher / encrypted databases.** SQLCipher encrypts everything including the SQLite magic bytes. Encrypted DBs detect as binary noise; we can't help without the key. v1 surfaces nothing.
 - **SHM internal structure.** SHM file detection is extension-only — the on-disk layout is implementation-defined and not a stable contract. Mere presence indicates the parent DB is in WAL mode with active or recent connections; that's enough for triage.
