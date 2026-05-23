@@ -138,6 +138,8 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.IsDesktopIni, true
 	case "is_kde_directory":
 		return a.attrs.IsKDEDirectory, true
+	case "is_plist":
+		return a.attrs.IsPlist, true
 	case "is_macos_metadata":
 		return a.attrs.IsMacOSMetadata, true
 	case "is_windows_metadata":
@@ -455,6 +457,22 @@ var zeroDefaults = map[string]any{
 	// FTS detection (issue #178).
 	"sqlite_fts_table_count": int64(0),
 	"sqlite_fts_table_names": []string{},
+
+	// Apple property list (issue #185).
+	"plist_format":               "",
+	"plist_root_kind":            "",
+	"plist_kind":                 "",
+	"plist_bundle_identifier":    "",
+	"plist_bundle_name":          "",
+	"plist_bundle_version":       "",
+	"plist_bundle_short_version": "",
+	"plist_executable":           "",
+	"plist_min_os_version":       "",
+	"plist_label":                "",
+	"plist_program":              "",
+	"plist_program_arguments":    []string{},
+	"plist_run_at_load":          false,
+	"plist_keep_alive":           false,
 
 	// SQLite WAL sidecar (issue #176).
 	"sqlite_wal_format_version": int64(0),

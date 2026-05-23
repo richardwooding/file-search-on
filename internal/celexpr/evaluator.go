@@ -227,6 +227,7 @@ type FileAttributes struct {
 	IsThumbsDB        bool
 	IsDesktopIni      bool
 	IsKDEDirectory    bool
+	IsPlist           bool
 	IsMacOSMetadata   bool
 	IsWindowsMetadata bool
 	IsLinuxMetadata   bool
@@ -448,6 +449,22 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("is_thumbs_db", cel.BoolType),
 		cel.Variable("is_desktop_ini", cel.BoolType),
 		cel.Variable("is_kde_directory", cel.BoolType),
+		// Apple property list (issue #185).
+		cel.Variable("is_plist", cel.BoolType),
+		cel.Variable("plist_format", cel.StringType),
+		cel.Variable("plist_root_kind", cel.StringType),
+		cel.Variable("plist_kind", cel.StringType),
+		cel.Variable("plist_bundle_identifier", cel.StringType),
+		cel.Variable("plist_bundle_name", cel.StringType),
+		cel.Variable("plist_bundle_version", cel.StringType),
+		cel.Variable("plist_bundle_short_version", cel.StringType),
+		cel.Variable("plist_executable", cel.StringType),
+		cel.Variable("plist_min_os_version", cel.StringType),
+		cel.Variable("plist_label", cel.StringType),
+		cel.Variable("plist_program", cel.StringType),
+		cel.Variable("plist_program_arguments", cel.ListType(cel.StringType)),
+		cel.Variable("plist_run_at_load", cel.BoolType),
+		cel.Variable("plist_keep_alive", cel.BoolType),
 		cel.Variable("is_macos_metadata", cel.BoolType),
 		cel.Variable("is_windows_metadata", cel.BoolType),
 		cel.Variable("is_linux_metadata", cel.BoolType),
@@ -1110,6 +1127,22 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 					extra["sqlite_application_name"] = name
 				}
 			}
+			// Path-based plist_kind override (issue #185). Mirrors the
+			// SQLite hook above for the same reason — directory-anchored
+			// signals (`/LaunchAgents/`, `/LaunchDaemons/`,
+			// `/Preferences/`) are invisible to ContentType.Attributes
+			// when the search root is narrower than the relevant
+			// directory. Path-based kinds beat the content-based kinds
+			// that parsePlist set: a plist under LaunchAgents/ IS a
+			// LaunchAgent regardless of what its content claims.
+			if contentTypeName == "system/plist" {
+				if kind := content.LookupPlistKindFromPath(displayPath); kind != "" {
+					if extra == nil {
+						extra = content.Attributes{}
+					}
+					extra["plist_kind"] = kind
+				}
+			}
 		}
 	}
 
@@ -1290,6 +1323,13 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 		attrs.IsDesktopIni = true
 	case "system/linux-directory":
 		attrs.IsKDEDirectory = true
+	case "system/plist":
+		attrs.IsPlist = true
+		// Plist is Apple-specific by overwhelming convention. The
+		// `system/` prefix block below also fires IsSystemMetadata;
+		// IsMacOSMetadata fires here explicitly because the content-
+		// type name doesn't follow the `system/macos-*` convention.
+		attrs.IsMacOSMetadata = true
 
 	// Disk-image content types. Per-type flag fires here; family flag
 	// IsDiskImage fires via the disk-image/ prefix block below.

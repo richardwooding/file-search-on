@@ -172,6 +172,24 @@ type Match struct {
 	IsBrokenSymlink bool   `json:"is_broken_symlink,omitempty"`
 	TargetPath      string `json:"target_path,omitempty"`
 
+	// Apple property list (issue #185). is_plist + 14 typed attributes
+	// pulled from CFBundle* / LaunchAgent / LaunchDaemon keys.
+	IsPlist                 bool     `json:"is_plist,omitempty"`
+	PlistFormat             string   `json:"plist_format,omitempty"`
+	PlistRootKind           string   `json:"plist_root_kind,omitempty"`
+	PlistKind               string   `json:"plist_kind,omitempty"`
+	PlistBundleIdentifier   string   `json:"plist_bundle_identifier,omitempty"`
+	PlistBundleName         string   `json:"plist_bundle_name,omitempty"`
+	PlistBundleVersion      string   `json:"plist_bundle_version,omitempty"`
+	PlistBundleShortVersion string   `json:"plist_bundle_short_version,omitempty"`
+	PlistExecutable         string   `json:"plist_executable,omitempty"`
+	PlistMinOSVersion       string   `json:"plist_min_os_version,omitempty"`
+	PlistLabel              string   `json:"plist_label,omitempty"`
+	PlistProgram            string   `json:"plist_program,omitempty"`
+	PlistProgramArguments   []string `json:"plist_program_arguments,omitempty"`
+	PlistRunAtLoad          bool     `json:"plist_run_at_load,omitempty"`
+	PlistKeepAlive          bool     `json:"plist_keep_alive,omitempty"`
+
 	// VM-bytecode family. Per-type predicates + umbrella, plus the
 	// per-format attribute surface.
 	IsClass    bool `json:"is_class,omitempty"`
@@ -475,6 +493,7 @@ func MatchFrom(r Result) Match {
 	m.IsDMG, m.IsISO, m.IsVHD, m.IsVHDX, m.IsVMDK, m.IsQCOW2, m.IsWIM, m.IsDiskImage = a.IsDMG, a.IsISO, a.IsVHD, a.IsVHDX, a.IsVMDK, a.IsQCOW2, a.IsWIM, a.IsDiskImage
 	m.IsPkg, m.IsDeb, m.IsRPM, m.IsAppImage, m.IsInstallPackage = a.IsPkg, a.IsDeb, a.IsRPM, a.IsAppImage, a.IsInstallPackage
 	m.IsSymlink, m.IsBrokenSymlink = a.IsSymlink, a.IsBrokenSymlink
+	m.IsPlist = a.IsPlist
 	m.IsClass, m.IsPyc, m.IsWasm, m.IsBytecode = a.IsClass, a.IsPyc, a.IsWasm, a.IsBytecode
 	m.IsFITS, m.IsVotable, m.IsHDF5, m.IsScienceData = a.IsFITS, a.IsVotable, a.IsHDF5, a.IsScienceData
 	m.IsPDS3, m.IsPDS4, m.IsPDS = a.IsPDS3, a.IsPDS4, a.IsPDS
@@ -826,6 +845,51 @@ func MatchFrom(r Result) Match {
 	// booleans come from typed FileAttributes fields above.
 	if v, ok := a.Extra["target_path"].(string); ok {
 		m.TargetPath = v
+	}
+
+	// Apple property list (issue #185). is_plist comes from the typed
+	// FileAttributes field above; the rest live in Extra.
+	if v, ok := a.Extra["plist_format"].(string); ok {
+		m.PlistFormat = v
+	}
+	if v, ok := a.Extra["plist_root_kind"].(string); ok {
+		m.PlistRootKind = v
+	}
+	if v, ok := a.Extra["plist_kind"].(string); ok {
+		m.PlistKind = v
+	}
+	if v, ok := a.Extra["plist_bundle_identifier"].(string); ok {
+		m.PlistBundleIdentifier = v
+	}
+	if v, ok := a.Extra["plist_bundle_name"].(string); ok {
+		m.PlistBundleName = v
+	}
+	if v, ok := a.Extra["plist_bundle_version"].(string); ok {
+		m.PlistBundleVersion = v
+	}
+	if v, ok := a.Extra["plist_bundle_short_version"].(string); ok {
+		m.PlistBundleShortVersion = v
+	}
+	if v, ok := a.Extra["plist_executable"].(string); ok {
+		m.PlistExecutable = v
+	}
+	if v, ok := a.Extra["plist_min_os_version"].(string); ok {
+		m.PlistMinOSVersion = v
+	}
+	if v, ok := a.Extra["plist_label"].(string); ok {
+		m.PlistLabel = v
+	}
+	if v, ok := a.Extra["plist_program"].(string); ok {
+		m.PlistProgram = v
+	}
+	if v, ok := a.Extra["plist_program_arguments"].([]string); ok && len(v) > 0 {
+		m.PlistProgramArguments = v
+	}
+	if v, ok := a.Extra["plist_run_at_load"].(bool); ok {
+		m.PlistRunAtLoad = v
+	}
+	if v, ok := a.Extra["plist_keep_alive"].(bool); ok {
+		m.PlistKeepAlive = v
 	}
 
 	// VM-bytecode family attributes.
