@@ -102,6 +102,9 @@ jobs:
           - name: ParseSQLiteHeader
             pkg: ./internal/content/
             func: FuzzParseSQLiteHeader
+          - name: ParseWALHeader
+            pkg: ./internal/content/
+            func: FuzzParseWALHeader
           - name: CELCompile
             pkg: ./internal/celexpr/
             func: FuzzCELCompile

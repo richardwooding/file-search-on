@@ -276,6 +276,14 @@ type Match struct {
 	SQLiteTableNames         []string `json:"sqlite_table_names,omitempty"`
 	SQLiteSchemaFingerprint  string   `json:"sqlite_schema_fingerprint,omitempty"`
 
+	// SQLite WAL sidecar (issue #176). Populated when content_type ==
+	// "database/sqlite-wal" — parsed from the 32-byte WAL header.
+	SQLiteWALFormatVersion int64  `json:"sqlite_wal_format_version,omitempty"`
+	SQLiteWALPageSize      int64  `json:"sqlite_wal_page_size,omitempty"`
+	SQLiteWALCheckpointSeq int64  `json:"sqlite_wal_checkpoint_seq,omitempty"`
+	SQLiteWALFrameCount    int64  `json:"sqlite_wal_frame_count,omitempty"`
+	SQLiteWALByteOrder     string `json:"sqlite_wal_byte_order,omitempty"`
+
 	// Install-package attributes.
 	PackageFormat   string `json:"package_format,omitempty"`
 	PackageName     string `json:"package_name,omitempty"`
@@ -1027,6 +1035,21 @@ func MatchFrom(r Result) Match {
 	}
 	if v, ok := a.Extra["sqlite_schema_fingerprint"].(string); ok {
 		m.SQLiteSchemaFingerprint = v
+	}
+	if v, ok := a.Extra["sqlite_wal_format_version"].(int64); ok {
+		m.SQLiteWALFormatVersion = v
+	}
+	if v, ok := a.Extra["sqlite_wal_page_size"].(int64); ok {
+		m.SQLiteWALPageSize = v
+	}
+	if v, ok := a.Extra["sqlite_wal_checkpoint_seq"].(int64); ok {
+		m.SQLiteWALCheckpointSeq = v
+	}
+	if v, ok := a.Extra["sqlite_wal_frame_count"].(int64); ok {
+		m.SQLiteWALFrameCount = v
+	}
+	if v, ok := a.Extra["sqlite_wal_byte_order"].(string); ok {
+		m.SQLiteWALByteOrder = v
 	}
 
 	return m

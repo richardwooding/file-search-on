@@ -285,8 +285,15 @@ type FileAttributes struct {
 	// family flag set via the database/ prefix block in setTypeFlags
 	// — positioned to extend over future DuckDB / PostgreSQL-dump /
 	// BoltDB content types without touching consumers.
-	IsSQLite   bool
-	IsDatabase bool
+	//
+	// SQLite WAL + SHM sidecars (issue #176) are deliberately NOT in
+	// the IsSQLite / IsDatabase fold — they're companions to a real
+	// database file, not databases themselves. Compose via OR if a
+	// query wants the trio: `is_sqlite || is_sqlite_wal || is_sqlite_shm`.
+	IsSQLite    bool
+	IsSQLiteWAL bool
+	IsSQLiteSHM bool
+	IsDatabase  bool
 
 	// Symlink awareness. IsSymlink fires when os.Lstat reports the
 	// entry as a symbolic link (filesystem semantics — not "file that
@@ -527,6 +534,16 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("is_sqlite", cel.BoolType),
 		cel.Variable("is_database", cel.BoolType),
 		cel.Variable("database_format", cel.StringType),
+		// SQLite WAL + SHM sidecars (issue #176). Predicates do NOT
+		// imply is_sqlite / is_database — they're companions to the
+		// real database file, not databases themselves.
+		cel.Variable("is_sqlite_wal", cel.BoolType),
+		cel.Variable("is_sqlite_shm", cel.BoolType),
+		cel.Variable("sqlite_wal_format_version", cel.IntType),
+		cel.Variable("sqlite_wal_page_size", cel.IntType),
+		cel.Variable("sqlite_wal_checkpoint_seq", cel.IntType),
+		cel.Variable("sqlite_wal_frame_count", cel.IntType),
+		cel.Variable("sqlite_wal_byte_order", cel.StringType),
 		cel.Variable("sqlite_page_size", cel.IntType),
 		cel.Variable("sqlite_format_version", cel.IntType),
 		cel.Variable("sqlite_page_count", cel.IntType),
@@ -1311,6 +1328,10 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 		attrs.IsCDF = true
 	case "database/sqlite":
 		attrs.IsSQLite = true
+	case "database/sqlite-wal":
+		attrs.IsSQLiteWAL = true
+	case "database/sqlite-shm":
+		attrs.IsSQLiteSHM = true
 	}
 
 	// Family prefix flags. Independent `if` blocks rather than a
@@ -1388,7 +1409,10 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 	if strings.HasPrefix(name, "science/") {
 		attrs.IsScienceData = true
 	}
-	if strings.HasPrefix(name, "database/") {
+	// WAL / SHM sidecars share the `database/` prefix but are explicitly
+	// excluded from the umbrella `is_database` (and from `is_sqlite`) —
+	// they accompany a database, they aren't one. Issue #176.
+	if strings.HasPrefix(name, "database/") && name != "database/sqlite-wal" && name != "database/sqlite-shm" {
 		attrs.IsDatabase = true
 	}
 }

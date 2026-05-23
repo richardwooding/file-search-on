@@ -198,6 +198,10 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.IsScienceData, true
 	case "is_sqlite":
 		return a.attrs.IsSQLite, true
+	case "is_sqlite_wal":
+		return a.attrs.IsSQLiteWAL, true
+	case "is_sqlite_shm":
+		return a.attrs.IsSQLiteSHM, true
 	case "is_database":
 		return a.attrs.IsDatabase, true
 	case "is_symlink":
@@ -446,4 +450,11 @@ var zeroDefaults = map[string]any{
 	"sqlite_trigger_count":      int64(0),
 	"sqlite_table_names":        []string{},
 	"sqlite_schema_fingerprint": "",
+
+	// SQLite WAL sidecar (issue #176).
+	"sqlite_wal_format_version": int64(0),
+	"sqlite_wal_page_size":      int64(0),
+	"sqlite_wal_checkpoint_seq": int64(0),
+	"sqlite_wal_frame_count":    int64(0),
+	"sqlite_wal_byte_order":     "",
 }
