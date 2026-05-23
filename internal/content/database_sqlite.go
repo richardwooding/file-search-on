@@ -86,6 +86,20 @@ func readSQLiteInfo(fsys fs.FS, path string) (Attributes, error) {
 	return parseSQLiteHeader(buf), nil
 }
 
+// LookupSQLiteAppName is the exported registry hook called from the
+// celexpr layer after the SQLite content type's Attributes parse.
+// Lives there (not inside ContentType.Attributes) because path-based
+// registry dimensions need the file's absolute display path, while
+// ContentType.Attributes receives only the fs.FS-relative fsPath
+// (which loses everything above the search root).
+//
+// Returns the matched app name or "" when no registry entry fires.
+// Adding a new entry is a one-line struct literal in
+// `internal/content/database_sqlite_registry.go`.
+func LookupSQLiteAppName(extras Attributes, displayPath string) string {
+	return lookupAppName(extras, displayPath)
+}
+
 // parseSQLiteHeader walks the 100-byte SQLite v3 header. Pure
 // function — fuzz target exercises it directly. Returns empty attrs
 // on magic mismatch; returns just the database_format discriminator

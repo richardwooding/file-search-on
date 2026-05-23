@@ -82,6 +82,32 @@ file-search-on 'is_sqlite_wal && sqlite_wal_byte_order == "be"' -d ~
 file-search-on 'is_sqlite_shm' -d ~/Library
 ```
 
+## Curated app-name registry
+
+`sqlite_application_name` is a curated label populated when the file matches a known stamp / filename pattern — saves agents from looking up magic decimals. Today's registry covers the obvious browser and OS-bundled DBs: Firefox places, the Chromium-family History / Cookies stores (Chrome / Chromium / Edge / Brave), Apple Photos / iMessage / Keychain, macOS libcache, and Fossil SCM repositories. Empty when no entry matches — use the empty case to surface unknown DBs for triage.
+
+```sh
+# Find every Firefox places database — no need to remember 0x0FACADE0
+file-search-on 'is_sqlite && sqlite_application_name == "firefox-places"' -d ~/Library
+
+# All browser History databases regardless of vendor
+file-search-on 'is_sqlite && sqlite_application_name in ["chrome-history", "chromium-history", "edge-history", "brave-history"]' -d ~
+
+# macOS libcache files (per-app Cache.db with user_version == 203) — common cleanup target
+file-search-on 'is_sqlite && sqlite_application_name == "macos-libcache"' -d ~/Library/Caches
+
+# Surface SQLite DBs we don't recognise — manual triage candidates
+file-search-on 'is_sqlite && sqlite_application_name == ""' -d ~/Library --limit 20
+
+# iMessage chat history
+file-search-on 'is_sqlite && sqlite_application_name == "apple-imessage"' -d ~/Library/Messages
+
+# Any keychain on the system
+file-search-on 'is_sqlite && sqlite_application_name == "apple-keychain"' -d ~/Library/Keychains
+```
+
+Adding a new entry is a one-line struct literal append in `internal/content/database_sqlite_registry.go`. Each entry combines optional `(ApplicationID, UserVersion, Filename, PathContains)` dimensions — every non-zero / non-empty dimension must match (AND, not OR).
+
 ## Triage workflow
 
 ```sh
