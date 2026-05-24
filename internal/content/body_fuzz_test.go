@@ -15,19 +15,26 @@ import (
 // kicks in. The mutator generates a long tail of multi-KB nested-tag
 // inputs that are individually safe but collectively starve the fuzz
 // worker, so the harness fails with "context deadline exceeded" at
-// the -fuzztime ceiling (workflow run 26206369524 caught this).
-// Capping fuzz input at 8 KiB still exercises every interesting
-// shape (deep nesting, mixed content, entity bombs, namespace
-// quirks) while keeping each call well under a millisecond.
-const fuzzXMLInputCap = 8 * 1024
+// the -fuzztime ceiling.
+//
+// History: workflow run 26206369524 first hit this; we capped at 8
+// KiB + 500ms timeout. Workflow run 26352331608 hit it again on a
+// new mutator shape — `xml.Decoder.Token()` can spin > 500ms inside
+// a single call (e.g. a long DOCTYPE block in an 8 KiB input)
+// without yielding to ctx, since the ctx check is at the iteration
+// boundary not inside Token(). Tightened to 2 KiB + 200ms; 2 KiB
+// still exercises every interesting shape (deep nesting, mixed
+// content, entity bombs, namespace quirks).
+const fuzzXMLInputCap = 2 * 1024
 
 // fuzzXMLPerCallTimeout is the wall-clock ceiling for a single fuzz
 // invocation. Belt-and-braces alongside fuzzXMLInputCap: even if a
 // future mutator finds a small-but-slow input that the size cap
 // misses, ctx cancellation surfaces inside extractXMLText /
 // extractHTMLText (both check ctx.Err() per token) so the worker
-// completes promptly.
-const fuzzXMLPerCallTimeout = 500 * time.Millisecond
+// completes promptly. 200ms leaves plenty of headroom under any
+// fuzz-worker grace period when -fuzztime expires.
+const fuzzXMLPerCallTimeout = 200 * time.Millisecond
 
 // FuzzExtractXMLText targets the shared XML walker that DOCX / XLSX /
 // PPTX / ODT all funnel through. The walker takes (paraElem, textElem)
