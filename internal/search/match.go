@@ -172,6 +172,26 @@ type Match struct {
 	IsBrokenSymlink bool   `json:"is_broken_symlink,omitempty"`
 	TargetPath      string `json:"target_path,omitempty"`
 
+	// Mach-O code signature (issue #187). Populated for binary/mach-o
+	// files; ELF / PE leave these empty. is_apple_signed and
+	// is_third_party_signed are derived predicates from team_id +
+	// adhoc, not their own fields in the signature.
+	IsCodesigned               bool     `json:"is_codesigned,omitempty"`
+	IsAppleSigned              bool     `json:"is_apple_signed,omitempty"`
+	IsThirdPartySigned         bool     `json:"is_third_party_signed,omitempty"`
+	CodesignIdentifier         string   `json:"codesign_identifier,omitempty"`
+	CodesignTeamID             string   `json:"codesign_team_id,omitempty"`
+	CodesignHashType           string   `json:"codesign_hash_type,omitempty"`
+	CodesignHardenedRuntime    bool     `json:"codesign_hardened_runtime,omitempty"`
+	CodesignLibraryValidation  bool     `json:"codesign_library_validation,omitempty"`
+	CodesignKilled             bool     `json:"codesign_killed,omitempty"`
+	CodesignAdhoc              bool     `json:"codesign_adhoc,omitempty"`
+	Entitlements               []string `json:"entitlements,omitempty"`
+	EntitlementAppSandbox      bool     `json:"entitlement_app_sandbox,omitempty"`
+	EntitlementFullDiskAccess  bool     `json:"entitlement_full_disk_access,omitempty"`
+	EntitlementNetworkClient   bool     `json:"entitlement_network_client,omitempty"`
+	EntitlementNetworkServer   bool     `json:"entitlement_network_server,omitempty"`
+
 	// Apple property list (issue #185). is_plist + 14 typed attributes
 	// pulled from CFBundle* / LaunchAgent / LaunchDaemon keys.
 	IsPlist                 bool     `json:"is_plist,omitempty"`
@@ -845,6 +865,55 @@ func MatchFrom(r Result) Match {
 	// booleans come from typed FileAttributes fields above.
 	if v, ok := a.Extra["target_path"].(string); ok {
 		m.TargetPath = v
+	}
+
+	// Mach-O code signature (issue #187). Everything lives in Extra
+	// since the parser is content-type-specific (not surfaced via
+	// FileAttributes struct fields).
+	if v, ok := a.Extra["is_codesigned"].(bool); ok {
+		m.IsCodesigned = v
+	}
+	if v, ok := a.Extra["is_apple_signed"].(bool); ok {
+		m.IsAppleSigned = v
+	}
+	if v, ok := a.Extra["is_third_party_signed"].(bool); ok {
+		m.IsThirdPartySigned = v
+	}
+	if v, ok := a.Extra["codesign_identifier"].(string); ok {
+		m.CodesignIdentifier = v
+	}
+	if v, ok := a.Extra["codesign_team_id"].(string); ok {
+		m.CodesignTeamID = v
+	}
+	if v, ok := a.Extra["codesign_hash_type"].(string); ok {
+		m.CodesignHashType = v
+	}
+	if v, ok := a.Extra["codesign_hardened_runtime"].(bool); ok {
+		m.CodesignHardenedRuntime = v
+	}
+	if v, ok := a.Extra["codesign_library_validation"].(bool); ok {
+		m.CodesignLibraryValidation = v
+	}
+	if v, ok := a.Extra["codesign_killed"].(bool); ok {
+		m.CodesignKilled = v
+	}
+	if v, ok := a.Extra["codesign_adhoc"].(bool); ok {
+		m.CodesignAdhoc = v
+	}
+	if v, ok := a.Extra["entitlements"].([]string); ok && len(v) > 0 {
+		m.Entitlements = v
+	}
+	if v, ok := a.Extra["entitlement_app_sandbox"].(bool); ok {
+		m.EntitlementAppSandbox = v
+	}
+	if v, ok := a.Extra["entitlement_full_disk_access"].(bool); ok {
+		m.EntitlementFullDiskAccess = v
+	}
+	if v, ok := a.Extra["entitlement_network_client"].(bool); ok {
+		m.EntitlementNetworkClient = v
+	}
+	if v, ok := a.Extra["entitlement_network_server"].(bool); ok {
+		m.EntitlementNetworkServer = v
 	}
 
 	// Apple property list (issue #185). is_plist comes from the typed

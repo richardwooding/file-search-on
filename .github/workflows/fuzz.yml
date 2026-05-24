@@ -108,6 +108,9 @@ jobs:
           - name: ParsePlist
             pkg: ./internal/content/
             func: FuzzParsePlist
+          - name: ParseCodeSignature
+            pkg: ./internal/content/
+            func: FuzzParseCodeSignature
           - name: CELCompile
             pkg: ./internal/celexpr/
             func: FuzzCELCompile
