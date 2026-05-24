@@ -303,6 +303,20 @@ type FileAttributes struct {
 	IsSafariBookmarks   bool
 	IsBookmarkFile      bool
 
+	// Font content types (issue #197). IsFont is the family umbrella
+	// (any content_type starting with `font/`); the per-format flags
+	// match specific content types. Per-TRAIT predicates
+	// (is_variable_font / is_color_font / is_monospace_font /
+	// is_italic_font / is_bold_font) come from sfnt parser output and
+	// live in Extra — they fall through the activation switch to the
+	// Extra map lookup, same shape as is_codesigned (#187).
+	IsTTF            bool
+	IsOTF            bool
+	IsFontCollection bool
+	IsWOFF           bool
+	IsWOFF2          bool
+	IsFont           bool
+
 	// Extended attributes (issue #193). Populated by applyXattrs
 	// when BuildOptions.ReadExtendedAttributes is set. Darwin-only;
 	// other platforms leave both false. IsXattrRich is the umbrella
@@ -583,6 +597,46 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("bookmark_titles", cel.ListType(cel.StringType)),
 		cel.Variable("browser_vendor", cel.StringType),
 		cel.Variable("bookmark_profile", cel.StringType),
+		// Font content types (issue #197).
+		cel.Variable("is_font", cel.BoolType),
+		cel.Variable("is_ttf", cel.BoolType),
+		cel.Variable("is_otf", cel.BoolType),
+		cel.Variable("is_font_collection", cel.BoolType),
+		cel.Variable("is_woff", cel.BoolType),
+		cel.Variable("is_woff2", cel.BoolType),
+		cel.Variable("is_variable_font", cel.BoolType),
+		cel.Variable("is_color_font", cel.BoolType),
+		cel.Variable("is_monospace_font", cel.BoolType),
+		cel.Variable("is_italic_font", cel.BoolType),
+		cel.Variable("is_bold_font", cel.BoolType),
+		cel.Variable("font_format", cel.StringType),
+		cel.Variable("font_outline_kind", cel.StringType),
+		cel.Variable("font_family", cel.StringType),
+		cel.Variable("font_subfamily", cel.StringType),
+		cel.Variable("font_full_name", cel.StringType),
+		cel.Variable("font_version", cel.StringType),
+		cel.Variable("font_postscript_name", cel.StringType),
+		cel.Variable("font_manufacturer", cel.StringType),
+		cel.Variable("font_designer", cel.StringType),
+		cel.Variable("font_license", cel.StringType),
+		cel.Variable("font_license_url", cel.StringType),
+		cel.Variable("font_typographic_family", cel.StringType),
+		cel.Variable("font_weight", cel.IntType),
+		cel.Variable("font_width", cel.IntType),
+		cel.Variable("font_embedding", cel.StringType),
+		cel.Variable("font_panose", cel.StringType),
+		cel.Variable("font_unicode_ranges", cel.ListType(cel.StringType)),
+		cel.Variable("font_revision", cel.DoubleType),
+		cel.Variable("font_units_per_em", cel.IntType),
+		cel.Variable("font_mac_style", cel.ListType(cel.StringType)),
+		cel.Variable("font_italic_angle", cel.DoubleType),
+		cel.Variable("font_glyph_count", cel.IntType),
+		cel.Variable("font_axis_count", cel.IntType),
+		cel.Variable("font_axes", cel.ListType(cel.StringType)),
+		cel.Variable("font_collection_count", cel.IntType),
+		cel.Variable("font_collection_families", cel.ListType(cel.StringType)),
+		cel.Variable("woff2_total_sfnt_size", cel.IntType),
+		cel.Variable("woff2_total_compressed_size", cel.IntType),
 		// Extended attributes (issue #193). Darwin-only surfacing,
 		// gated by BuildOptions.ReadExtendedAttributes opt-in.
 		cel.Variable("xattr_keys", cel.ListType(cel.StringType)),
@@ -1526,6 +1580,16 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 		attrs.IsChromiumBookmarks = true
 	case "browser/bookmarks-safari":
 		attrs.IsSafariBookmarks = true
+	case "font/ttf":
+		attrs.IsTTF = true
+	case "font/otf":
+		attrs.IsOTF = true
+	case "font/collection":
+		attrs.IsFontCollection = true
+	case "font/woff":
+		attrs.IsWOFF = true
+	case "font/woff2":
+		attrs.IsWOFF2 = true
 	}
 
 	// Family prefix flags. Independent `if` blocks rather than a
@@ -1611,6 +1675,9 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 	}
 	if strings.HasPrefix(name, "browser/bookmarks-") {
 		attrs.IsBookmarkFile = true
+	}
+	if strings.HasPrefix(name, "font/") {
+		attrs.IsFont = true
 	}
 }
 

@@ -357,6 +357,47 @@ type Match struct {
 	BrowserVendor       string   `json:"browser_vendor,omitempty"`
 	BookmarkProfile     string   `json:"bookmark_profile,omitempty"`
 
+	// Font content types (issue #197).
+	IsFont                  bool     `json:"is_font,omitempty"`
+	IsTTF                   bool     `json:"is_ttf,omitempty"`
+	IsOTF                   bool     `json:"is_otf,omitempty"`
+	IsFontCollection        bool     `json:"is_font_collection,omitempty"`
+	IsWOFF                  bool     `json:"is_woff,omitempty"`
+	IsWOFF2                 bool     `json:"is_woff2,omitempty"`
+	IsVariableFont          bool     `json:"is_variable_font,omitempty"`
+	IsColorFont             bool     `json:"is_color_font,omitempty"`
+	IsMonospaceFont         bool     `json:"is_monospace_font,omitempty"`
+	IsItalicFont            bool     `json:"is_italic_font,omitempty"`
+	IsBoldFont              bool     `json:"is_bold_font,omitempty"`
+	FontFormat              string   `json:"font_format,omitempty"`
+	FontOutlineKind         string   `json:"font_outline_kind,omitempty"`
+	FontFamily              string   `json:"font_family,omitempty"`
+	FontSubfamily           string   `json:"font_subfamily,omitempty"`
+	FontFullName            string   `json:"font_full_name,omitempty"`
+	FontVersion             string   `json:"font_version,omitempty"`
+	FontPostScriptName      string   `json:"font_postscript_name,omitempty"`
+	FontManufacturer        string   `json:"font_manufacturer,omitempty"`
+	FontDesigner            string   `json:"font_designer,omitempty"`
+	FontLicense             string   `json:"font_license,omitempty"`
+	FontLicenseURL          string   `json:"font_license_url,omitempty"`
+	FontTypographicFamily   string   `json:"font_typographic_family,omitempty"`
+	FontWeight              int64    `json:"font_weight,omitempty"`
+	FontWidth               int64    `json:"font_width,omitempty"`
+	FontEmbedding           string   `json:"font_embedding,omitempty"`
+	FontPanose              string   `json:"font_panose,omitempty"`
+	FontUnicodeRanges       []string `json:"font_unicode_ranges,omitempty"`
+	FontRevision            float64  `json:"font_revision,omitempty"`
+	FontUnitsPerEm          int64    `json:"font_units_per_em,omitempty"`
+	FontMacStyle            []string `json:"font_mac_style,omitempty"`
+	FontItalicAngle         float64  `json:"font_italic_angle,omitempty"`
+	FontGlyphCount          int64    `json:"font_glyph_count,omitempty"`
+	FontAxisCount           int64    `json:"font_axis_count,omitempty"`
+	FontAxes                []string `json:"font_axes,omitempty"`
+	FontCollectionCount     int64    `json:"font_collection_count,omitempty"`
+	FontCollectionFamilies  []string `json:"font_collection_families,omitempty"`
+	WOFF2TotalSfntSize      int64    `json:"woff2_total_sfnt_size,omitempty"`
+	WOFF2TotalCompressedSize int64   `json:"woff2_total_compressed_size,omitempty"`
+
 	// Install-package attributes.
 	PackageFormat   string `json:"package_format,omitempty"`
 	PackageName     string `json:"package_name,omitempty"`
@@ -550,6 +591,7 @@ func MatchFrom(r Result) Match {
 	m.IsSQLite, m.IsDatabase = a.IsSQLite, a.IsDatabase
 	m.IsBookmarkFile, m.IsChromiumBookmarks, m.IsSafariBookmarks = a.IsBookmarkFile, a.IsChromiumBookmarks, a.IsSafariBookmarks
 	m.IsXattrRich, m.IsQuarantined = a.IsXattrRich, a.IsQuarantined
+	m.IsFont, m.IsTTF, m.IsOTF, m.IsFontCollection, m.IsWOFF, m.IsWOFF2 = a.IsFont, a.IsTTF, a.IsOTF, a.IsFontCollection, a.IsWOFF, a.IsWOFF2
 	m.MD5, m.SHA1, m.SHA256 = a.MD5, a.SHA1, a.SHA256
 	m.Similarity = a.Similarity
 	if !a.CreatedAt.IsZero() {
@@ -1253,6 +1295,109 @@ func MatchFrom(r Result) Match {
 	}
 	if v, ok := a.Extra["bookmark_profile"].(string); ok {
 		m.BookmarkProfile = v
+	}
+
+	// Font content types (issue #197). Per-format bool umbrellas
+	// come from the typed FileAttributes fields above; per-trait
+	// predicates and all string/int/list attrs live in Extra.
+	if v, ok := a.Extra["is_variable_font"].(bool); ok {
+		m.IsVariableFont = v
+	}
+	if v, ok := a.Extra["is_color_font"].(bool); ok {
+		m.IsColorFont = v
+	}
+	if v, ok := a.Extra["is_monospace_font"].(bool); ok {
+		m.IsMonospaceFont = v
+	}
+	if v, ok := a.Extra["is_italic_font"].(bool); ok {
+		m.IsItalicFont = v
+	}
+	if v, ok := a.Extra["is_bold_font"].(bool); ok {
+		m.IsBoldFont = v
+	}
+	if v, ok := a.Extra["font_format"].(string); ok {
+		m.FontFormat = v
+	}
+	if v, ok := a.Extra["font_outline_kind"].(string); ok {
+		m.FontOutlineKind = v
+	}
+	if v, ok := a.Extra["font_family"].(string); ok {
+		m.FontFamily = v
+	}
+	if v, ok := a.Extra["font_subfamily"].(string); ok {
+		m.FontSubfamily = v
+	}
+	if v, ok := a.Extra["font_full_name"].(string); ok {
+		m.FontFullName = v
+	}
+	if v, ok := a.Extra["font_version"].(string); ok {
+		m.FontVersion = v
+	}
+	if v, ok := a.Extra["font_postscript_name"].(string); ok {
+		m.FontPostScriptName = v
+	}
+	if v, ok := a.Extra["font_manufacturer"].(string); ok {
+		m.FontManufacturer = v
+	}
+	if v, ok := a.Extra["font_designer"].(string); ok {
+		m.FontDesigner = v
+	}
+	if v, ok := a.Extra["font_license"].(string); ok {
+		m.FontLicense = v
+	}
+	if v, ok := a.Extra["font_license_url"].(string); ok {
+		m.FontLicenseURL = v
+	}
+	if v, ok := a.Extra["font_typographic_family"].(string); ok {
+		m.FontTypographicFamily = v
+	}
+	if v, ok := a.Extra["font_weight"].(int64); ok {
+		m.FontWeight = v
+	}
+	if v, ok := a.Extra["font_width"].(int64); ok {
+		m.FontWidth = v
+	}
+	if v, ok := a.Extra["font_embedding"].(string); ok {
+		m.FontEmbedding = v
+	}
+	if v, ok := a.Extra["font_panose"].(string); ok {
+		m.FontPanose = v
+	}
+	if v, ok := a.Extra["font_unicode_ranges"].([]string); ok && len(v) > 0 {
+		m.FontUnicodeRanges = v
+	}
+	if v, ok := a.Extra["font_revision"].(float64); ok {
+		m.FontRevision = v
+	}
+	if v, ok := a.Extra["font_units_per_em"].(int64); ok {
+		m.FontUnitsPerEm = v
+	}
+	if v, ok := a.Extra["font_mac_style"].([]string); ok && len(v) > 0 {
+		m.FontMacStyle = v
+	}
+	if v, ok := a.Extra["font_italic_angle"].(float64); ok {
+		m.FontItalicAngle = v
+	}
+	if v, ok := a.Extra["font_glyph_count"].(int64); ok {
+		m.FontGlyphCount = v
+	}
+	if v, ok := a.Extra["font_axis_count"].(int64); ok {
+		m.FontAxisCount = v
+	}
+	if v, ok := a.Extra["font_axes"].([]string); ok && len(v) > 0 {
+		m.FontAxes = v
+	}
+	if v, ok := a.Extra["font_collection_count"].(int64); ok {
+		m.FontCollectionCount = v
+	}
+	if v, ok := a.Extra["font_collection_families"].([]string); ok && len(v) > 0 {
+		m.FontCollectionFamilies = v
+	}
+	if v, ok := a.Extra["woff2_total_sfnt_size"].(int64); ok {
+		m.WOFF2TotalSfntSize = v
+	}
+	if v, ok := a.Extra["woff2_total_compressed_size"].(int64); ok {
+		m.WOFF2TotalCompressedSize = v
 	}
 
 	// Extended attributes (issue #193). Bool umbrellas come from the
