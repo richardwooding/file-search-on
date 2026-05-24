@@ -138,6 +138,14 @@ type Options struct {
 	// MCP via `check_disguised`.
 	CheckDisguised bool
 
+	// ReadExtendedAttributes, when true, populates the xattr family
+	// of CEL attributes on each matched file via content.ReadXattrs.
+	// Darwin-only — non-Darwin builds always surface empty xattr
+	// attrs regardless of this flag. Two syscalls per file
+	// (Listxattr + Getxattr); off by default. CLI exposes via
+	// `--with-xattrs`, MCP via `with_xattrs`. Issue #193.
+	ReadExtendedAttributes bool
+
 	// Allowlist / Denylist are hash-allowlist / hash-denylist
 	// query layers (PR #146). When non-nil AND ComputeHashes is
 	// true, BuildAttributesWith populates is_known_good /
@@ -437,6 +445,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 						SkipAttributesParse:    opts.SkipAttributesParse,
 						ComputeHashes:          opts.ComputeHashes,
 						CheckDisguised:         opts.CheckDisguised,
+						ReadExtendedAttributes: opts.ReadExtendedAttributes,
 						Allowlist:              opts.Allowlist,
 						Denylist:               opts.Denylist,
 						Embedder:               opts.Embedder,

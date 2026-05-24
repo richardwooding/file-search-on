@@ -303,6 +303,15 @@ type FileAttributes struct {
 	IsSafariBookmarks   bool
 	IsBookmarkFile      bool
 
+	// Extended attributes (issue #193). Populated by applyXattrs
+	// when BuildOptions.ReadExtendedAttributes is set. Darwin-only;
+	// other platforms leave both false. IsXattrRich is the umbrella
+	// — true when the file has any xattr at all. IsQuarantined fires
+	// specifically for the com.apple.quarantine xattr (Gatekeeper's
+	// downloaded-from-the-web marker).
+	IsXattrRich   bool
+	IsQuarantined bool
+
 	// Symlink awareness. IsSymlink fires when os.Lstat reports the
 	// entry as a symbolic link (filesystem semantics — not "file that
 	// looks like a shortcut"). IsBrokenSymlink fires when the target
@@ -574,6 +583,21 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("bookmark_titles", cel.ListType(cel.StringType)),
 		cel.Variable("browser_vendor", cel.StringType),
 		cel.Variable("bookmark_profile", cel.StringType),
+		// Extended attributes (issue #193). Darwin-only surfacing,
+		// gated by BuildOptions.ReadExtendedAttributes opt-in.
+		cel.Variable("xattr_keys", cel.ListType(cel.StringType)),
+		cel.Variable("xattr_count", cel.IntType),
+		cel.Variable("is_xattr_rich", cel.BoolType),
+		cel.Variable("is_quarantined", cel.BoolType),
+		cel.Variable("quarantine_agent", cel.StringType),
+		cel.Variable("quarantine_event_id", cel.StringType),
+		cel.Variable("quarantine_source_url", cel.StringType),
+		cel.Variable("quarantine_referrer_url", cel.StringType),
+		cel.Variable("quarantine_download_date", cel.TimestampType),
+		cel.Variable("quarantine_user_approved", cel.BoolType),
+		cel.Variable("finder_tags", cel.ListType(cel.StringType)),
+		cel.Variable("finder_color", cel.StringType),
+		cel.Variable("has_finder_comment", cel.BoolType),
 		cel.Variable("sqlite_wal_format_version", cel.IntType),
 		cel.Variable("sqlite_wal_page_size", cel.IntType),
 		cel.Variable("sqlite_wal_checkpoint_seq", cel.IntType),
@@ -886,6 +910,19 @@ type BuildOptions struct {
 	// via check_disguised input.
 	CheckDisguised bool
 
+	// ReadExtendedAttributes, when true, populates extended-attribute
+	// attrs (xattr_keys, is_quarantined, quarantine_source_url,
+	// finder_tags, finder_color, …) on every walked file via
+	// content.ReadXattrs. Darwin-only — non-Darwin builds always
+	// surface empty xattr attrs regardless of this flag (see
+	// internal/content/xattrs_other.go).
+	//
+	// Off by default — xattrs are syscalls (Listxattr + Getxattr)
+	// that add 50-100 microseconds per file. Opt-in for forensic /
+	// triage workflows; CLI exposes via --with-xattrs on the search
+	// subcommand, MCP via with_xattrs input. Issue #193.
+	ReadExtendedAttributes bool
+
 	// Allowlist / Denylist are hash-allowlist / hash-denylist
 	// query layers (PR #146). When non-nil AND ComputeHashes is
 	// also set, BuildAttributesWith populates IsKnownGood /
@@ -1089,6 +1126,13 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 					_ = opts.Index.Put(cacheKey, &updated)
 				}
 			}
+			// xattr re-read on cache hit. xattrs can change between
+			// walks (user re-tags, OS sets quarantine on first run)
+			// independently of (size, mtime), so we don't cache them
+			// — re-read on every walk when opted in. Issue #193.
+			if opts.ReadExtendedAttributes {
+				applyXattrs(attrs, displayPath)
+			}
 			applyFileTimes(attrs, ftimes)
 			applySymlinkInfo(attrs, sym)
 			return attrs, nil
@@ -1274,9 +1318,48 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	if opts.CheckDisguised {
 		applyDisguise(attrs, magicCT, extCT)
 	}
+	if opts.ReadExtendedAttributes {
+		applyXattrs(attrs, displayPath)
+	}
 	applyFileTimes(attrs, ftimes)
 	applySymlinkInfo(attrs, sym)
 	return attrs, nil
+}
+
+// applyXattrs reads extended attributes for the file at displayPath
+// (Darwin only; non-Darwin returns empty) and merges them into the
+// FileAttributes Extra map. Bool predicates are also surfaced as
+// typed struct fields where applicable.
+//
+// Empty displayPath (archive-walk paths) skip — xattrs require a
+// real OS path. Issue #193.
+func applyXattrs(attrs *FileAttributes, displayPath string) {
+	if displayPath == "" {
+		return
+	}
+	xa := content.ReadXattrs(displayPath)
+	if len(xa) == 0 {
+		return
+	}
+	if attrs.Extra == nil {
+		attrs.Extra = content.Attributes{}
+	}
+	for k, v := range xa {
+		// Lift the two boolean umbrellas to typed FileAttributes
+		// fields so the activation resolver short-circuits on them
+		// rather than falling through to the Extra-map lookup.
+		switch k {
+		case "is_xattr_rich":
+			if b, ok := v.(bool); ok {
+				attrs.IsXattrRich = b
+			}
+		case "is_quarantined":
+			if b, ok := v.(bool); ok {
+				attrs.IsQuarantined = b
+			}
+		}
+		attrs.Extra[k] = v
+	}
 }
 
 // setTypeFlags populates the IsX boolean fields on attrs based on the
