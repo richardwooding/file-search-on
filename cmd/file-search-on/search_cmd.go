@@ -40,6 +40,7 @@ type SearchCmd struct {
 	NoBodyCache      bool          `name:"no-body-cache" help:"Disable the body cache entirely. PutBody is a no-op and LookupBody always misses. Use when caching adds no value (one-shot search of a tree that won't be queried again) or when storage is at a premium."`
 	WithHashes       bool          `name:"with-hashes" help:"Compute MD5, SHA1, and SHA256 of every matched file in a single io.MultiWriter pass and expose them as md5 / sha1 / sha256 CEL variables (and on the JSON/template output). Hashes cache in the index alongside (size, mtime), so subsequent runs are free on unchanged files. Off by default — hashing every file reads multi-GB videos / archives in full. Opt-in for forensic / NSRL / VirusTotal / threat-intel-feed workflows."`
 	CheckDisguised   bool          `name:"check-disguised" help:"Run both the name-based and magic-byte detection passes on every matched file, populating magic_content_type / extension_content_type / is_disguised CEL variables. is_disguised fires when the bytes disagree with the extension — classic 'this .txt is actually a PE binary' indicator. One extra 512-byte file read per match (cached in the index)."`
+	WithXattrs       bool          `name:"with-xattrs" help:"Read macOS extended attributes for every matched file and surface them as CEL variables: xattr_keys, xattr_count, is_xattr_rich, is_quarantined, quarantine_agent / event_id / source_url / referrer_url / download_date / user_approved, finder_tags, finder_color, has_finder_comment. Darwin-only — non-Darwin builds silently leave these empty. Adds two syscalls (Listxattr + Getxattr) per file; off by default. Issue #193."`
 	HashAllowlist    string        `name:"hash-allowlist" help:"Path to a hash allowlist (newline-separated md5/sha1/sha256 hex, mixed algorithms auto-detected by length, # comments allowed) OR a pre-built bbolt hashset file (via 'hash-set build'). When set, populates the is_known_good CEL predicate by looking up each matched file's hashes. Forces --with-hashes on. NSRL / corp allowlist / threat-intel allowlist interop."`
 	HashDenylist     string        `name:"hash-denylist" help:"Path to a hash denylist (same format as --hash-allowlist). Populates is_known_bad. Threat-intel-feed / IOC-list interop."`
 	SemanticQuery    string        `name:"semantic-query" help:"Natural-language query to embed and rank every matched file against. Populates the 'similarity' CEL variable (cosine in 0..1) so filters like 'is_pdf && similarity > 0.7' fire. Requires --embedding-model + a running Ollama instance (--embedding-server defaults to http://localhost:11434). Auto-sorts results by similarity desc and applies --similarity-threshold."`
@@ -69,7 +70,7 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 	// Record path which already requires attrs). --body doesn't
 	// need Attrs surfaced on Result (the body lives in Extra only
 	// for CEL evaluation), but it's harmless to keep them.
-	includeAttrs := s.Format != "" || s.Output == "verbose" || s.Output == "json" || s.Sort != "" || s.Snippet || s.WithHashes || s.CheckDisguised || s.HashAllowlist != "" || s.HashDenylist != "" || s.SemanticQuery != ""
+	includeAttrs := s.Format != "" || s.Output == "verbose" || s.Output == "json" || s.Sort != "" || s.Snippet || s.WithHashes || s.CheckDisguised || s.WithXattrs || s.HashAllowlist != "" || s.HashDenylist != "" || s.SemanticQuery != ""
 
 	// Parse the template up front so a bad template fails before we walk.
 	var tmpl *template.Template
@@ -187,6 +188,7 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		BodyMaxBytes:      s.BodyMaxBytes,
 		ComputeHashes:     s.WithHashes,
 		CheckDisguised:    s.CheckDisguised,
+		ReadExtendedAttributes: s.WithXattrs,
 		Allowlist:         allowlist,
 		Denylist:          denylist,
 		Embedder:               embedder,

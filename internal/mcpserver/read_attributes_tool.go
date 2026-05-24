@@ -22,6 +22,7 @@ type ReadAttributesInput struct {
 	Fields        []string `json:"fields,omitempty" jsonschema:"Project the response to only the listed attribute names — saves tokens when only a few attributes matter. 'path', 'content_type', and 'size' are always included regardless. Empty / omitted returns every populated attribute. Same field-name vocabulary as the search tool's 'fields' input; unknown names error at request validation time."`
 	ComputeHashes     bool     `json:"compute_hashes,omitempty" jsonschema:"When true, populate md5 / sha1 / sha256 on the response. All three compute in one io.MultiWriter pass and cache alongside (size, mtime). Off by default — reads the file in full."`
 	CheckDisguised    bool     `json:"check_disguised,omitempty" jsonschema:"When true, populate magic_content_type / extension_content_type / is_disguised on the response. is_disguised fires when bytes disagree with the extension. One extra 512-byte file read."`
+	WithXattrs        bool     `json:"with_xattrs,omitempty" jsonschema:"When true, populate the xattr family — xattr_keys, xattr_count, is_xattr_rich, is_quarantined, quarantine_agent / source_url / referrer_url / download_date / user_approved, finder_tags, finder_color, has_finder_comment. Darwin-only; non-Darwin builds silently leave these empty. Two extra syscalls per request."`
 	HashAllowlistPath string   `json:"hash_allowlist_path,omitempty" jsonschema:"Path to a hash allowlist (newline-separated md5/sha1/sha256 hex; # comments allowed) OR a pre-built bbolt hashset file. Populates is_known_good. Forces compute_hashes on."`
 	HashDenylistPath  string   `json:"hash_denylist_path,omitempty" jsonschema:"Path to a hash denylist (same format). Populates is_known_bad. Forces compute_hashes on."`
 }
@@ -86,10 +87,11 @@ func (h *handlers) readAttributesHandler(ctx context.Context, _ *mcp.CallToolReq
 
 	attrs, err := celexpr.BuildAttributesWith(ctx, os.DirFS(dir), base, abs, content.DefaultRegistry(), celexpr.BuildOptions{
 		Index:          h.idx,
-		ComputeHashes:  in.ComputeHashes,
-		CheckDisguised: in.CheckDisguised,
-		Allowlist:      allowlist,
-		Denylist:       denylist,
+		ComputeHashes:          in.ComputeHashes,
+		CheckDisguised:         in.CheckDisguised,
+		ReadExtendedAttributes: in.WithXattrs,
+		Allowlist:              allowlist,
+		Denylist:               denylist,
 	})
 	if err != nil {
 		return nil, ReadAttributesOutput{}, fmt.Errorf("read attributes: %w", err)

@@ -212,6 +212,10 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.IsSafariBookmarks, true
 	case "is_bookmark_file":
 		return a.attrs.IsBookmarkFile, true
+	case "is_xattr_rich":
+		return a.attrs.IsXattrRich, true
+	case "is_quarantined":
+		return a.attrs.IsQuarantined, true
 	case "is_symlink":
 		return a.attrs.IsSymlink, true
 	case "is_broken_symlink":
@@ -496,6 +500,19 @@ var zeroDefaults = map[string]any{
 	"plist_program_arguments":    []string{},
 	"plist_run_at_load":          false,
 	"plist_keep_alive":           false,
+
+	// Extended attributes (issue #193).
+	"xattr_keys":               []string{},
+	"xattr_count":              int64(0),
+	"quarantine_agent":         "",
+	"quarantine_event_id":      "",
+	"quarantine_source_url":    "",
+	"quarantine_referrer_url":  "",
+	"quarantine_download_date": time.Time{},
+	"quarantine_user_approved": false,
+	"finder_tags":              []string{},
+	"finder_color":             "",
+	"has_finder_comment":       false,
 
 	// Browser bookmarks (issue #188).
 	"bookmark_count":        int64(0),

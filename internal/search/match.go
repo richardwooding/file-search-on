@@ -328,6 +328,23 @@ type Match struct {
 	SQLiteWALFrameCount    int64  `json:"sqlite_wal_frame_count,omitempty"`
 	SQLiteWALByteOrder     string `json:"sqlite_wal_byte_order,omitempty"`
 
+	// Extended attributes (issue #193). Populated when the caller
+	// opts in via --with-xattrs / with_xattrs. Darwin-only; non-
+	// Darwin walks leave these empty.
+	IsXattrRich            bool      `json:"is_xattr_rich,omitempty"`
+	IsQuarantined          bool      `json:"is_quarantined,omitempty"`
+	XattrKeys              []string  `json:"xattr_keys,omitempty"`
+	XattrCount             int64     `json:"xattr_count,omitempty"`
+	QuarantineAgent        string    `json:"quarantine_agent,omitempty"`
+	QuarantineEventID      string    `json:"quarantine_event_id,omitempty"`
+	QuarantineSourceURL    string    `json:"quarantine_source_url,omitempty"`
+	QuarantineReferrerURL  string    `json:"quarantine_referrer_url,omitempty"`
+	QuarantineDownloadDate time.Time `json:"quarantine_download_date,omitzero"`
+	QuarantineUserApproved bool      `json:"quarantine_user_approved,omitempty"`
+	FinderTags             []string  `json:"finder_tags,omitempty"`
+	FinderColor            string    `json:"finder_color,omitempty"`
+	HasFinderComment       bool      `json:"has_finder_comment,omitempty"`
+
 	// Browser bookmarks (issue #188).
 	IsBookmarkFile      bool     `json:"is_bookmark_file,omitempty"`
 	IsChromiumBookmarks bool     `json:"is_chromium_bookmarks,omitempty"`
@@ -532,6 +549,7 @@ func MatchFrom(r Result) Match {
 	m.IsCDF = a.IsCDF
 	m.IsSQLite, m.IsDatabase = a.IsSQLite, a.IsDatabase
 	m.IsBookmarkFile, m.IsChromiumBookmarks, m.IsSafariBookmarks = a.IsBookmarkFile, a.IsChromiumBookmarks, a.IsSafariBookmarks
+	m.IsXattrRich, m.IsQuarantined = a.IsXattrRich, a.IsQuarantined
 	m.MD5, m.SHA1, m.SHA256 = a.MD5, a.SHA1, a.SHA256
 	m.Similarity = a.Similarity
 	if !a.CreatedAt.IsZero() {
@@ -1235,6 +1253,42 @@ func MatchFrom(r Result) Match {
 	}
 	if v, ok := a.Extra["bookmark_profile"].(string); ok {
 		m.BookmarkProfile = v
+	}
+
+	// Extended attributes (issue #193). Bool umbrellas come from the
+	// typed FileAttributes fields above; the rest live in Extra.
+	if v, ok := a.Extra["xattr_keys"].([]string); ok && len(v) > 0 {
+		m.XattrKeys = v
+	}
+	if v, ok := a.Extra["xattr_count"].(int64); ok {
+		m.XattrCount = v
+	}
+	if v, ok := a.Extra["quarantine_agent"].(string); ok {
+		m.QuarantineAgent = v
+	}
+	if v, ok := a.Extra["quarantine_event_id"].(string); ok {
+		m.QuarantineEventID = v
+	}
+	if v, ok := a.Extra["quarantine_source_url"].(string); ok {
+		m.QuarantineSourceURL = v
+	}
+	if v, ok := a.Extra["quarantine_referrer_url"].(string); ok {
+		m.QuarantineReferrerURL = v
+	}
+	if v, ok := a.Extra["quarantine_download_date"].(time.Time); ok {
+		m.QuarantineDownloadDate = v
+	}
+	if v, ok := a.Extra["quarantine_user_approved"].(bool); ok {
+		m.QuarantineUserApproved = v
+	}
+	if v, ok := a.Extra["finder_tags"].([]string); ok && len(v) > 0 {
+		m.FinderTags = v
+	}
+	if v, ok := a.Extra["finder_color"].(string); ok {
+		m.FinderColor = v
+	}
+	if v, ok := a.Extra["has_finder_comment"].(bool); ok {
+		m.HasFinderComment = v
 	}
 
 	return m
