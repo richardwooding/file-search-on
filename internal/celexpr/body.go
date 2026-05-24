@@ -48,7 +48,8 @@ func isStructuredBody(name string) bool {
 		"epub",
 		"email/rfc822", "email/mbox",
 		"pdf",
-		"database/sqlite":
+		"database/sqlite",
+		"browser/bookmarks-chromium", "browser/bookmarks-safari":
 		return true
 	}
 	return false

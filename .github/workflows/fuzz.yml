@@ -111,6 +111,12 @@ jobs:
           - name: ParseCodeSignature
             pkg: ./internal/content/
             func: FuzzParseCodeSignature
+          - name: ParseChromiumBookmarks
+            pkg: ./internal/content/
+            func: FuzzParseChromiumBookmarks
+          - name: ParseSafariBookmarks
+            pkg: ./internal/content/
+            func: FuzzParseSafariBookmarks
           - name: CELCompile
             pkg: ./internal/celexpr/
             func: FuzzCELCompile

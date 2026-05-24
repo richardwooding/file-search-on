@@ -328,6 +328,18 @@ type Match struct {
 	SQLiteWALFrameCount    int64  `json:"sqlite_wal_frame_count,omitempty"`
 	SQLiteWALByteOrder     string `json:"sqlite_wal_byte_order,omitempty"`
 
+	// Browser bookmarks (issue #188).
+	IsBookmarkFile      bool     `json:"is_bookmark_file,omitempty"`
+	IsChromiumBookmarks bool     `json:"is_chromium_bookmarks,omitempty"`
+	IsSafariBookmarks   bool     `json:"is_safari_bookmarks,omitempty"`
+	BookmarkCount       int64    `json:"bookmark_count,omitempty"`
+	BookmarkFolderCount int64    `json:"bookmark_folder_count,omitempty"`
+	BookmarkFolders     []string `json:"bookmark_folders,omitempty"`
+	BookmarkURLs        []string `json:"bookmark_urls,omitempty"`
+	BookmarkTitles      []string `json:"bookmark_titles,omitempty"`
+	BrowserVendor       string   `json:"browser_vendor,omitempty"`
+	BookmarkProfile     string   `json:"bookmark_profile,omitempty"`
+
 	// Install-package attributes.
 	PackageFormat   string `json:"package_format,omitempty"`
 	PackageName     string `json:"package_name,omitempty"`
@@ -519,6 +531,7 @@ func MatchFrom(r Result) Match {
 	m.IsPDS3, m.IsPDS4, m.IsPDS = a.IsPDS3, a.IsPDS4, a.IsPDS
 	m.IsCDF = a.IsCDF
 	m.IsSQLite, m.IsDatabase = a.IsSQLite, a.IsDatabase
+	m.IsBookmarkFile, m.IsChromiumBookmarks, m.IsSafariBookmarks = a.IsBookmarkFile, a.IsChromiumBookmarks, a.IsSafariBookmarks
 	m.MD5, m.SHA1, m.SHA256 = a.MD5, a.SHA1, a.SHA256
 	m.Similarity = a.Similarity
 	if !a.CreatedAt.IsZero() {
@@ -1198,6 +1211,30 @@ func MatchFrom(r Result) Match {
 	}
 	if v, ok := a.Extra["sqlite_wal_byte_order"].(string); ok {
 		m.SQLiteWALByteOrder = v
+	}
+
+	// Browser bookmarks (issue #188). Bool predicates come from the
+	// typed FileAttributes fields above; per-file attrs live in Extra.
+	if v, ok := a.Extra["bookmark_count"].(int64); ok {
+		m.BookmarkCount = v
+	}
+	if v, ok := a.Extra["bookmark_folder_count"].(int64); ok {
+		m.BookmarkFolderCount = v
+	}
+	if v, ok := a.Extra["bookmark_folders"].([]string); ok && len(v) > 0 {
+		m.BookmarkFolders = v
+	}
+	if v, ok := a.Extra["bookmark_urls"].([]string); ok && len(v) > 0 {
+		m.BookmarkURLs = v
+	}
+	if v, ok := a.Extra["bookmark_titles"].([]string); ok && len(v) > 0 {
+		m.BookmarkTitles = v
+	}
+	if v, ok := a.Extra["browser_vendor"].(string); ok {
+		m.BrowserVendor = v
+	}
+	if v, ok := a.Extra["bookmark_profile"].(string); ok {
+		m.BookmarkProfile = v
 	}
 
 	return m

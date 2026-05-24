@@ -296,6 +296,13 @@ type FileAttributes struct {
 	IsSQLiteSHM bool
 	IsDatabase  bool
 
+	// Browser bookmark content types (issue #188). IsBookmarkFile is
+	// the cross-browser family umbrella, populated via the `browser/`
+	// prefix block in setTypeFlags.
+	IsChromiumBookmarks bool
+	IsSafariBookmarks   bool
+	IsBookmarkFile      bool
+
 	// Symlink awareness. IsSymlink fires when os.Lstat reports the
 	// entry as a symbolic link (filesystem semantics — not "file that
 	// looks like a shortcut"). IsBrokenSymlink fires when the target
@@ -556,6 +563,17 @@ func New(expr string) (*Evaluator, error) {
 		// real database file, not databases themselves.
 		cel.Variable("is_sqlite_wal", cel.BoolType),
 		cel.Variable("is_sqlite_shm", cel.BoolType),
+		// Browser bookmark content types (issue #188).
+		cel.Variable("is_bookmark_file", cel.BoolType),
+		cel.Variable("is_chromium_bookmarks", cel.BoolType),
+		cel.Variable("is_safari_bookmarks", cel.BoolType),
+		cel.Variable("bookmark_count", cel.IntType),
+		cel.Variable("bookmark_folder_count", cel.IntType),
+		cel.Variable("bookmark_folders", cel.ListType(cel.StringType)),
+		cel.Variable("bookmark_urls", cel.ListType(cel.StringType)),
+		cel.Variable("bookmark_titles", cel.ListType(cel.StringType)),
+		cel.Variable("browser_vendor", cel.StringType),
+		cel.Variable("bookmark_profile", cel.StringType),
 		cel.Variable("sqlite_wal_format_version", cel.IntType),
 		cel.Variable("sqlite_wal_page_size", cel.IntType),
 		cel.Variable("sqlite_wal_checkpoint_seq", cel.IntType),
@@ -1159,6 +1177,19 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 					extra["plist_kind"] = kind
 				}
 			}
+			// Browser-vendor lookup for bookmark files (issue #188).
+			// Same architecture as the two hooks above — Chromium and
+			// Safari forks share the file format; only the absolute
+			// path tells us which browser owns the file.
+			if contentTypeName == "browser/bookmarks-chromium" ||
+				contentTypeName == "browser/bookmarks-safari" {
+				if vendor := content.LookupBrowserVendor(displayPath); vendor != "" {
+					if extra == nil {
+						extra = content.Attributes{}
+					}
+					extra["browser_vendor"] = vendor
+				}
+			}
 		}
 	}
 
@@ -1408,6 +1439,10 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 		attrs.IsSQLiteWAL = true
 	case "database/sqlite-shm":
 		attrs.IsSQLiteSHM = true
+	case "browser/bookmarks-chromium":
+		attrs.IsChromiumBookmarks = true
+	case "browser/bookmarks-safari":
+		attrs.IsSafariBookmarks = true
 	}
 
 	// Family prefix flags. Independent `if` blocks rather than a
@@ -1490,6 +1525,9 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 	// they accompany a database, they aren't one. Issue #176.
 	if strings.HasPrefix(name, "database/") && name != "database/sqlite-wal" && name != "database/sqlite-shm" {
 		attrs.IsDatabase = true
+	}
+	if strings.HasPrefix(name, "browser/bookmarks-") {
+		attrs.IsBookmarkFile = true
 	}
 }
 

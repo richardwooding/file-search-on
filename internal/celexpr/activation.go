@@ -206,6 +206,12 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.IsSQLiteSHM, true
 	case "is_database":
 		return a.attrs.IsDatabase, true
+	case "is_chromium_bookmarks":
+		return a.attrs.IsChromiumBookmarks, true
+	case "is_safari_bookmarks":
+		return a.attrs.IsSafariBookmarks, true
+	case "is_bookmark_file":
+		return a.attrs.IsBookmarkFile, true
 	case "is_symlink":
 		return a.attrs.IsSymlink, true
 	case "is_broken_symlink":
@@ -490,6 +496,15 @@ var zeroDefaults = map[string]any{
 	"plist_program_arguments":    []string{},
 	"plist_run_at_load":          false,
 	"plist_keep_alive":           false,
+
+	// Browser bookmarks (issue #188).
+	"bookmark_count":        int64(0),
+	"bookmark_folder_count": int64(0),
+	"bookmark_folders":      []string{},
+	"bookmark_urls":         []string{},
+	"bookmark_titles":       []string{},
+	"browser_vendor":        "",
+	"bookmark_profile":      "",
 
 	// SQLite WAL sidecar (issue #176).
 	"sqlite_wal_format_version": int64(0),

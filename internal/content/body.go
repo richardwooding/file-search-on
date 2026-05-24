@@ -46,6 +46,10 @@ func ExtractBody(ctx context.Context, contentTypeName string, fsys fs.FS, filePa
 		return mboxBody(ctx, fsys, filePath, maxBytes)
 	case "pdf":
 		return pdfBody(ctx, fsys, filePath, maxBytes)
+	case "browser/bookmarks-chromium":
+		return chromiumBookmarksBody(ctx, fsys, filePath, maxBytes)
+	case "browser/bookmarks-safari":
+		return safariBookmarksBody(ctx, fsys, filePath, maxBytes)
 	}
 	return "", nil
 }
