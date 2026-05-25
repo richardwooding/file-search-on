@@ -33,7 +33,7 @@ Built in the open — issues, PRs, and feature requests warmly welcomed. See [Co
   | **Markup** | Markdown, HTML, XML | title, word_count, frontmatter, language, root_element |
   | **Data** | JSON, YAML, TOML, CSV, TSV | json_kind, yaml_kind, yaml_document_count, column_count, csv_columns |
   | **Plain text** | TXT, log, … | line_count, word_count |
-  | **Images** | JPEG, PNG, GIF, WebP, TIFF, BMP, SVG, HEIC | dimensions + EXIF: camera, lens, GPS, ISO, focal_length, taken_at |
+  | **Images** | JPEG, PNG, GIF, WebP, TIFF, BMP, SVG, HEIC, RAW (Canon CR2 / CR3, Nikon NEF, Sony ARW, Adobe DNG, Fujifilm RAF, Olympus ORF, Panasonic RW2) — predicates `is_raw_photo`, `is_cr2`, `is_cr3`, `is_nef`, `is_arw`, `is_dng`, `is_raf`, `is_orf`, `is_rw2` | dimensions + EXIF: camera, lens, GPS, ISO, focal_length, taken_at; RAW adds `raw_kind`, `raw_vendor` |
   | **Audio** | MP3, M4A, FLAC, OGG | tags (artist, album, genre, year, …) + duration, bitrate / nominal_bitrate, sample_rate, channels, bit_depth, ReplayGain |
   | **Video** | MP4, MOV, MKV, WebM, AVI | duration, bitrate / nominal_bitrate, video_codec, audio_codec, video_width/height, frame_rate, rotation, HDR / colour-space, subtitles |
   | **Office** | DOCX, XLSX, PPTX, ODT | title, author, language (Dublin Core) |
@@ -324,7 +324,7 @@ file-search-on 'is_html && dir.contains("build")'
 | **Data** | `json_kind`, `yaml_kind`, `yaml_document_count`, `csv_columns`, `root_element` |
 | **Markdown frontmatter** | `tags`, `categories`, `draft`, `date`, `frontmatter`, `frontmatter_format` (plus the document `title`/`author`/`language` keys are promoted) |
 | **Body filter** | `body` (text content types; opt-in via `--body` CLI / `include_body` MCP). Use CEL string methods: `body.contains(...)`, `body.matches(...)` (RE2), `body.startsWith(...)`, `size(body)`. |
-| **Images** | `img_width`, `img_height`, `camera_make`, `camera_model`, `lens`, `taken_at`, `orientation`, `gps_lat`, `gps_lon`, `iso`, `focal_length`, `f_stop`, `exposure_time` |
+| **Images** | `img_width`, `img_height`, `camera_make`, `camera_model`, `lens`, `taken_at`, `orientation`, `gps_lat`, `gps_lon`, `iso`, `focal_length`, `f_stop`, `exposure_time`. RAW photos additionally stamp `raw_kind` (`cr2` / `cr3` / `nef` / `arw` / `dng` / `raf` / `orf` / `rw2`) and `raw_vendor` (`canon` / `nikon` / `sony` / `adobe` / `fujifilm` / `olympus` / `panasonic`) — the camera EXIF fields populate via the same `imagemeta` path as JPEG / TIFF. |
 | **Audio** | `artist`, `album`, `album_artist`, `composer`, `year`, `track`, `genre`, `duration`, `bitrate`, `nominal_bitrate`, `sample_rate`, `channels`, `bit_depth`, `replaygain_track_gain`, `replaygain_album_gain` |
 | **Video** | `video_codec`, `audio_codec`, `video_width`, `video_height`, `frame_rate`, `rotation`, `duration`, `bitrate`, `nominal_bitrate`, `is_hdr`, `color_primaries`, `color_transfer`, `subtitles`, `subtitle_languages` |
 | **Archives** | `entry_count`, `uncompressed_size`, `top_level_entries`, `has_root_dir` |

@@ -8,6 +8,7 @@ import (
 	_ "image/png"
 	"io"
 	"io/fs"
+	"strings"
 
 	"github.com/evanoberholster/imagemeta"
 	"github.com/evanoberholster/imagemeta/meta/exif"
@@ -54,9 +55,7 @@ func (i *imageType) Attributes(ctx context.Context, fsys fs.FS, path string) (At
 
 	// EXIF-bearing types: try imagemeta first. Header-only read; sub-ms.
 	if supportsEXIF(i.name) {
-		if e, err := imagemeta.Decode(rs); err == nil {
-			populateEXIF(attrs, e)
-		}
+		extractImageEXIF(rs, attrs)
 		// Reset for the stdlib fallback regardless of imagemeta's outcome.
 		_, _ = rs.Seek(0, io.SeekStart)
 	}
@@ -76,13 +75,24 @@ func (i *imageType) Attributes(ctx context.Context, fsys fs.FS, path string) (At
 
 // supportsEXIF reports whether the named image content type is worth feeding
 // to imagemeta. JPEG / TIFF / HEIC always carry EXIF; PNG carries it via the
-// optional eXIf chunk.
+// optional eXIf chunk. RAW photo formats (`image/raw-*`) are TIFF-based or
+// otherwise have embedded EXIF that imagemeta handles natively (#196 follow-up).
 func supportsEXIF(name string) bool {
 	switch name {
 	case "image/jpeg", "image/tiff", "image/heic", "image/png":
 		return true
 	}
-	return false
+	return strings.HasPrefix(name, "image/raw-")
+}
+
+// extractImageEXIF runs imagemeta against rs and copies the curated EXIF
+// fields onto attrs. Shared by imageType (JPEG / PNG / TIFF / HEIC) and
+// rawImageType (CR2 / NEF / ARW / DNG / etc.) — both go through the same
+// imagemeta path. Caller owns the Seeker reset; this function only reads.
+func extractImageEXIF(rs io.ReadSeeker, attrs Attributes) {
+	if e, err := imagemeta.Decode(rs); err == nil {
+		populateEXIF(attrs, e)
+	}
 }
 
 // populateEXIF copies the curated set of EXIF fields onto attrs. Zero-value
