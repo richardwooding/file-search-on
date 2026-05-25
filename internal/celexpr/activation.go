@@ -216,6 +216,21 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.IsXattrRich, true
 	case "is_quarantined":
 		return a.attrs.IsQuarantined, true
+	case "is_font":
+		return a.attrs.IsFont, true
+	case "is_ttf":
+		return a.attrs.IsTTF, true
+	case "is_otf":
+		return a.attrs.IsOTF, true
+	case "is_font_collection":
+		return a.attrs.IsFontCollection, true
+	case "is_woff":
+		return a.attrs.IsWOFF, true
+	case "is_woff2":
+		return a.attrs.IsWOFF2, true
+	// is_variable_font / is_color_font / is_monospace_font /
+	// is_italic_font / is_bold_font fall through to the Extra-map
+	// lookup — they're populated by the sfnt parser (sfntAttrs).
 	case "is_symlink":
 		return a.attrs.IsSymlink, true
 	case "is_broken_symlink":
@@ -522,6 +537,45 @@ var zeroDefaults = map[string]any{
 	"bookmark_titles":       []string{},
 	"browser_vendor":        "",
 	"bookmark_profile":      "",
+
+	// Font content types (issue #197). Per-trait predicates
+	// (is_variable_font / is_color_font / is_monospace_font /
+	// is_italic_font / is_bold_font) are populated by the sfnt
+	// parser into Extra; defaults are false here so unset fonts
+	// don't trigger them through the activation fallback.
+	"is_variable_font":            false,
+	"is_color_font":               false,
+	"is_monospace_font":           false,
+	"is_italic_font":              false,
+	"is_bold_font":                false,
+	"font_format":                 "",
+	"font_outline_kind":           "",
+	"font_family":                 "",
+	"font_subfamily":              "",
+	"font_full_name":              "",
+	"font_version":                "",
+	"font_postscript_name":        "",
+	"font_manufacturer":           "",
+	"font_designer":               "",
+	"font_license":                "",
+	"font_license_url":            "",
+	"font_typographic_family":     "",
+	"font_weight":                 int64(0),
+	"font_width":                  int64(0),
+	"font_embedding":              "",
+	"font_panose":                 "",
+	"font_unicode_ranges":         []string{},
+	"font_revision":               float64(0),
+	"font_units_per_em":           int64(0),
+	"font_mac_style":              []string{},
+	"font_italic_angle":           float64(0),
+	"font_glyph_count":            int64(0),
+	"font_axis_count":             int64(0),
+	"font_axes":                   []string{},
+	"font_collection_count":       int64(0),
+	"font_collection_families":    []string{},
+	"woff2_total_sfnt_size":       int64(0),
+	"woff2_total_compressed_size": int64(0),
 
 	// SQLite WAL sidecar (issue #176).
 	"sqlite_wal_format_version": int64(0),

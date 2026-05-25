@@ -120,6 +120,12 @@ jobs:
           - name: ParseQuarantineValue
             pkg: ./internal/content/
             func: FuzzParseQuarantineValue
+          - name: ParseSFNT
+            pkg: ./internal/content/
+            func: FuzzParseSFNT
+          - name: ParseNameTable
+            pkg: ./internal/content/
+            func: FuzzParseNameTable
           - name: CELCompile
             pkg: ./internal/celexpr/
             func: FuzzCELCompile
