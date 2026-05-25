@@ -231,6 +231,25 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 	// is_variable_font / is_color_font / is_monospace_font /
 	// is_italic_font / is_bold_font fall through to the Extra-map
 	// lookup — they're populated by the sfnt parser (sfntAttrs).
+	case "is_raw_photo":
+		return a.attrs.IsRawPhoto, true
+	case "is_cr2":
+		return a.attrs.IsCR2, true
+	case "is_cr3":
+		return a.attrs.IsCR3, true
+	case "is_nef":
+		return a.attrs.IsNEF, true
+	case "is_arw":
+		return a.attrs.IsARW, true
+	case "is_dng":
+		return a.attrs.IsDNG, true
+	case "is_raf":
+		return a.attrs.IsRAF, true
+	case "is_orf":
+		return a.attrs.IsORF, true
+	case "is_rw2":
+		return a.attrs.IsRW2, true
+	// raw_kind / raw_vendor fall through to the Extra-map lookup.
 	case "is_symlink":
 		return a.attrs.IsSymlink, true
 	case "is_broken_symlink":
@@ -576,6 +595,13 @@ var zeroDefaults = map[string]any{
 	"font_collection_families":    []string{},
 	"woff2_total_sfnt_size":       int64(0),
 	"woff2_total_compressed_size": int64(0),
+
+	// RAW photo content types (issue #196). The bool predicates
+	// (is_raw_photo / is_cr2 / …) come through the typed-flag short-
+	// circuit above; only the string attributes need defaults so the
+	// Extra-map fallback returns "" rather than CEL "no such attribute".
+	"raw_kind":   "",
+	"raw_vendor": "",
 
 	// SQLite WAL sidecar (issue #176).
 	"sqlite_wal_format_version": int64(0),

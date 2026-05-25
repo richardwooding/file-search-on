@@ -317,6 +317,21 @@ type FileAttributes struct {
 	IsWOFF2          bool
 	IsFont           bool
 
+	// RAW photo content types (issue #196). IsRawPhoto is the umbrella
+	// family flag, set via the `image/raw-` prefix block in setTypeFlags;
+	// per-format flags fire on the matched content_type (image/raw-cr2,
+	// image/raw-nef, …). The shared `image/` prefix also fires IsImage
+	// for cross-family queries like `is_image && is_raw_photo`.
+	IsCR2 bool
+	IsCR3 bool
+	IsNEF bool
+	IsARW bool
+	IsDNG bool
+	IsRAF bool
+	IsORF bool
+	IsRW2 bool
+	IsRawPhoto bool
+
 	// Extended attributes (issue #193). Populated by applyXattrs
 	// when BuildOptions.ReadExtendedAttributes is set. Darwin-only;
 	// other platforms leave both false. IsXattrRich is the umbrella
@@ -637,6 +652,18 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("font_collection_families", cel.ListType(cel.StringType)),
 		cel.Variable("woff2_total_sfnt_size", cel.IntType),
 		cel.Variable("woff2_total_compressed_size", cel.IntType),
+		// RAW photo content types (issue #196).
+		cel.Variable("is_raw_photo", cel.BoolType),
+		cel.Variable("is_cr2", cel.BoolType),
+		cel.Variable("is_cr3", cel.BoolType),
+		cel.Variable("is_nef", cel.BoolType),
+		cel.Variable("is_arw", cel.BoolType),
+		cel.Variable("is_dng", cel.BoolType),
+		cel.Variable("is_raf", cel.BoolType),
+		cel.Variable("is_orf", cel.BoolType),
+		cel.Variable("is_rw2", cel.BoolType),
+		cel.Variable("raw_kind", cel.StringType),
+		cel.Variable("raw_vendor", cel.StringType),
 		// Extended attributes (issue #193). Darwin-only surfacing,
 		// gated by BuildOptions.ReadExtendedAttributes opt-in.
 		cel.Variable("xattr_keys", cel.ListType(cel.StringType)),
@@ -1590,6 +1617,26 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 		attrs.IsWOFF = true
 	case "font/woff2":
 		attrs.IsWOFF2 = true
+
+	// RAW photo content types. Per-format flag fires here; family flag
+	// IsRawPhoto + IsImage fire via the `image/raw-` and `image/`
+	// prefix blocks below.
+	case "image/raw-cr2":
+		attrs.IsCR2 = true
+	case "image/raw-cr3":
+		attrs.IsCR3 = true
+	case "image/raw-nef":
+		attrs.IsNEF = true
+	case "image/raw-arw":
+		attrs.IsARW = true
+	case "image/raw-dng":
+		attrs.IsDNG = true
+	case "image/raw-raf":
+		attrs.IsRAF = true
+	case "image/raw-orf":
+		attrs.IsORF = true
+	case "image/raw-rw2":
+		attrs.IsRW2 = true
 	}
 
 	// Family prefix flags. Independent `if` blocks rather than a
@@ -1678,6 +1725,9 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 	}
 	if strings.HasPrefix(name, "font/") {
 		attrs.IsFont = true
+	}
+	if strings.HasPrefix(name, "image/raw-") {
+		attrs.IsRawPhoto = true
 	}
 }
 

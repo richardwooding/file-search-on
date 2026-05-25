@@ -1,8 +1,8 @@
 # Recipes — Images and EXIF
 
-Image content types: `image/jpeg`, `image/png`, `image/gif`, `image/webp`, `image/svg+xml`, `image/tiff`, `image/bmp`, `image/heic`. The umbrella boolean `is_image` matches any of them.
+Image content types: `image/jpeg`, `image/png`, `image/gif`, `image/webp`, `image/svg+xml`, `image/tiff`, `image/bmp`, `image/heic`, plus eight RAW formats — `image/raw-cr2`, `image/raw-cr3`, `image/raw-nef`, `image/raw-arw`, `image/raw-dng`, `image/raw-raf`, `image/raw-orf`, `image/raw-rw2`. The umbrella boolean `is_image` matches any of them; `is_raw_photo` matches only the eight RAW formats.
 
-EXIF metadata is extracted from JPEG, TIFF, HEIC, and PNG (eXIf chunk) via [`evanoberholster/imagemeta`](https://github.com/evanoberholster/imagemeta). GIF/WebP/BMP/SVG fall back to stdlib `image.DecodeConfig` for `img_width`/`img_height` only.
+EXIF metadata is extracted from JPEG, TIFF, HEIC, PNG (eXIf chunk), and every RAW format via [`evanoberholster/imagemeta`](https://github.com/evanoberholster/imagemeta). GIF/WebP/BMP/SVG fall back to stdlib `image.DecodeConfig` for `img_width`/`img_height` only.
 
 ## Camera and lens
 
@@ -167,5 +167,43 @@ file-search-on '
   ])
 ' -d ~/Pictures
 ```
+
+## RAW photo queries
+
+Eight RAW formats are recognised: Canon CR2 / CR3, Nikon NEF (+ NRW), Sony ARW (+ SRF / SR2), Adobe DNG, Fujifilm RAF, Olympus ORF (+ ORI), Panasonic RW2. The umbrella `is_raw_photo` matches all of them; per-format predicates (`is_cr2`, `is_nef`, `is_arw`, `is_dng`, …) discriminate. `raw_kind` and `raw_vendor` are stamped from the registration so they're populated even when EXIF is missing.
+
+```sh
+# Every RAW photo across a master collection
+file-search-on 'is_raw_photo' -d ~/Pictures/RAW
+
+# Only Canon RAW — discriminate via raw_vendor (covers CR2 + CR3)
+file-search-on 'is_raw_photo && raw_vendor == "canon"' -d ~/Pictures
+
+# Specific format
+file-search-on 'is_dng' -d ~/Pictures
+file-search-on 'is_arw' -d ~/Pictures
+
+# RAW shot on a specific body (camera EXIF works the same as JPEG)
+file-search-on 'is_raw_photo && camera_model == "Canon EOS R5"' -d ~/Pictures
+
+# RAW with GPS — for the geographic-tagged subset of an archive
+file-search-on 'is_raw_photo && gps_lat != 0.0' -d ~/Pictures
+
+# RAW shot in 2024 at high ISO (low-light captures worth a second pass)
+file-search-on 'is_raw_photo && iso >= 1600 && taken_at >= timestamp("2024-01-01T00:00:00Z")' -d ~/Pictures
+
+# Histogram — RAW files grouped by vendor, useful as a storage audit
+file-search-on stats 'is_raw_photo' --group-by raw_vendor -d ~/Pictures
+
+# Cross-vendor: every photo by anyone, JPEG OR RAW, on a given trip date
+file-search-on '(is_image) && taken_at >= timestamp("2024-07-01T00:00:00Z") && taken_at < timestamp("2024-08-01T00:00:00Z")'
+```
+
+### Known limitations
+
+- **CRW (Canon CIFF, pre-2004)**, PEF (Pentax), SRW (Samsung, discontinued), IIQ (Phase One medium format), RWL (Leica) — out of scope. Files dispatch as generic `image/tiff` or `binary` and lose RAW discrimination.
+- **`.raw` is claimed by `image/raw-rw2`** because Panasonic is the dominant `.raw` producer. A `.raw` from a different source will misattribute as Panasonic. Detection by content would need format-specific magic that most `.raw` shippers don't include.
+- **The shared TIFF magic stays with `image/tiff`.** A `.cr2` renamed to `.bin` falls through to `image/tiff` rather than `image/raw-cr2`. This avoids ambiguous magic dispatch but means stripped-extension RAW files lose their per-vendor discrimination.
+- **`raw_vendor` is a property of the format, not the camera.** A DNG produced by an iPhone reports `raw_vendor == "adobe"` because DNG is Adobe's container — the actual camera shows up in `camera_make`. Same for Leica / Pentax cameras that emit native DNG.
 
 The algorithm is planar ray-casting — accurate for neighbourhoods, cities, and small countries. For continent-scale polygons or anything near the poles, project to a flat coordinate system before feeding the vertices in.
