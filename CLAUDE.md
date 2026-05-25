@@ -6,8 +6,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `file-search-on` is a Go CLI that recursively searches a directory and matches files against a [CEL](https://github.com/google/cel-spec) expression evaluated over file metadata and content-type-specific attributes (e.g. `is_pdf && page_count > 10`, `is_markdown && word_count > 500`).
 
-**Markdown front-matter search is a primary feature**, not a side concern — see the dedicated section below before changing anything in `internal/content/markdown.go` or `internal/content/frontmatter.go`.
-
 Module: `github.com/richardwooding/file-search-on`. Toolchain: Go 1.26.2.
 
 ## Commands
@@ -87,22 +85,6 @@ Notes for future agents:
 Local dry-run: `goreleaser check` then `goreleaser release --snapshot --clean --skip=publish`. Snapshot will try to load OCI images into local Docker and fail without it — add `--skip=ko` to bypass.
 
 Cutting a release: `git tag vX.Y.Z && git push origin vX.Y.Z`, then watch the Release workflow. The `cut-release` skill automates this end-to-end including verification. To roll back: delete the tag, delete the GitHub Release, untag ghcr.io, revert the homebrew-tap commit — usually cheaper to cut `vX.Y.Z+1`.
-
-### Markdown front-matter (primary feature)
-
-`internal/content/frontmatter.go` is the parser. `splitFrontmatter(data []byte) (*Frontmatter, []byte)` is the only entry point — returns the parsed metadata (or `nil`) and the body bytes.
-
-Detection is purely by leading bytes: `---\n` ⇒ YAML, `+++\n` ⇒ TOML, `{` at byte 0 ⇒ JSON. No magic-byte fallback. Malformed input degrades silently (returns nil + original bytes) so a broken block doesn't make a file vanish from results.
-
-Seven keys are promoted to first-class CEL variables in `markdown.go`'s `Attributes`: `title`, `author`, `language`, `tags`, `categories`, `draft`, `date`. Anything else is reachable via `frontmatter.<key>`. Title precedence is *front-matter > H1*. `tags`/`categories` accept either a list or a bare string (coercion in `stringListValue`). `date` accepts native `time.Time` (TOML) or several string layouts — add new layouts in `timeValue`, not at call sites.
-
-When you change the promoted-variable set:
-
-1. Update `markdown.go` `Attributes` to populate the new key (with a zero-value fallback — never leave a key undeclared).
-2. Declare a matching `cel.Variable(...)` in `celexpr.New` **and** a zero-value default in the activation map in `Evaluate`. The Extra key must match the CEL var name verbatim.
-3. Add an entry to `celexpr.Schema()` (drives `--list` AND the MCP `list_attributes` tool).
-4. Add a test in `internal/content/frontmatter_test.go`.
-5. Update `examples/markdown.md` with at least one recipe using the new key.
 
 ### Adding a new content type
 
