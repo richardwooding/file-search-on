@@ -168,6 +168,34 @@ file-search-on '
 ' -d ~/Pictures
 ```
 
+## Apple Live Photo pairing
+
+iPhone Live Photos pair an HEIC still with a short MOV video that share the same basename. file-search-on detects the pair via a sibling-file check and surfaces it on BOTH sides — the HEIC reports `is_live_photo` + the paired video's path and size; the MOV reports `is_live_photo_video` + the paired still's path.
+
+```sh
+# Every Live Photo (HEIC side)
+file-search-on 'is_live_photo' -d ~/Pictures
+
+# Live Photos taken in a date range with GPS — composes with all the EXIF
+file-search-on 'is_live_photo && taken_at > timestamp("2026-01-01T00:00:00Z") && gps_lat != 0.0'
+
+# Storage audit: large Live Photo videos worth converting to plain stills
+file-search-on 'is_live_photo && live_photo_video_size > 5000000' --sort live_photo_video_size --order desc
+
+# The video side of every pair (useful for batch operations on just the MOVs)
+file-search-on 'is_live_photo_video' -d ~/Pictures
+
+# Orphan MOVs — Live-Photo-shaped videos whose still got deleted (iOS sync glitches)
+file-search-on 'video_codec == "h264" && duration < 5.0 && !is_live_photo_video' -d ~/Pictures
+```
+
+### Live Photo limitations
+
+- **Pairing is by SIBLING FILE**, not by embedded `MakerNote` Live Photo metadata. Files separated across directories (e.g. `IMG.HEIC` in one folder, `IMG.MOV` in another) won't pair. Apple's canonical workflow always keeps them side-by-side.
+- **Cache trade-off**: like the SQLite app-name (`#177`), plist kind (`#185`), and browser vendor (`#188`) path-based hooks, the lookup result is cached against THIS file's `(size, mtime)`. Deleting the sibling later won't invalidate the cached `is_live_photo` flag until this file itself changes. Re-run with `--no-index` or refresh the index when filesystem changes need to surface immediately.
+- **Live Photo videos are always `.mov`**, never `.mp4` / `.m4v`. The `is_live_photo_video` predicate is restricted to the `.mov` extension to avoid false positives where an unrelated `IMG.mp4` happens to share a basename with an HEIC.
+- **`.heif` paired with `.mov`** isn't detected by the canonical pair — Apple's exports always use `.HEIC`. If you've re-encoded an HEIC to `.heif`, the Live Photo pairing won't fire even if the MOV sibling exists.
+
 ## RAW photo queries
 
 Eight RAW formats are recognised: Canon CR2 / CR3, Nikon NEF (+ NRW), Sony ARW (+ SRF / SR2), Adobe DNG, Fujifilm RAF, Olympus ORF (+ ORI), Panasonic RW2. The umbrella `is_raw_photo` matches all of them; per-format predicates (`is_cr2`, `is_nef`, `is_arw`, `is_dng`, …) discriminate. `raw_kind` and `raw_vendor` are stamped from the registration so they're populated even when EXIF is missing.

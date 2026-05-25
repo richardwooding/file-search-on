@@ -664,6 +664,14 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("is_rw2", cel.BoolType),
 		cel.Variable("raw_kind", cel.StringType),
 		cel.Variable("raw_vendor", cel.StringType),
+		// Apple Live Photo pairing (issue #194). Surfaces on both
+		// sides of the pair via path-based sibling lookup in
+		// BuildAttributesWith — no new content type.
+		cel.Variable("is_live_photo", cel.BoolType),
+		cel.Variable("is_live_photo_video", cel.BoolType),
+		cel.Variable("live_photo_video_path", cel.StringType),
+		cel.Variable("live_photo_video_size", cel.IntType),
+		cel.Variable("live_photo_image_path", cel.StringType),
 		// Extended attributes (issue #193). Darwin-only surfacing,
 		// gated by BuildOptions.ReadExtendedAttributes opt-in.
 		cel.Variable("xattr_keys", cel.ListType(cel.StringType)),
@@ -1313,6 +1321,36 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 						extra = content.Attributes{}
 					}
 					extra["browser_vendor"] = vendor
+				}
+			}
+			// Apple Live Photo pairing (issue #194). HEIC still +
+			// sibling MOV share the same basename; one extra os.Stat
+			// per HEIC / MOV file confirms the pair. Same path-based
+			// architecture as the three hooks above. Cache caveat:
+			// like the others, the lookup result is cached against
+			// THIS file's (size, mtime) — deleting the sibling later
+			// won't invalidate the cached `is_live_photo` flag until
+			// this file itself changes. Accepted trade-off matching
+			// the existing precedent.
+			if contentTypeName == "image/heic" {
+				if sib, sz, ok := content.FindLivePhotoVideo(displayPath); ok {
+					if extra == nil {
+						extra = content.Attributes{}
+					}
+					extra["is_live_photo"] = true
+					extra["live_photo_video_path"] = sib
+					extra["live_photo_video_size"] = sz
+				}
+			} else if contentTypeName == "video/quicktime" && content.IsLivePhotoVideoExt(displayPath) {
+				// `.mov` detects as video/quicktime (per videotype.go).
+				// The IsLivePhotoVideoExt gate guards against future
+				// expansions of the quicktime ext set away from .mov.
+				if sib, ok := content.FindLivePhotoImage(displayPath); ok {
+					if extra == nil {
+						extra = content.Attributes{}
+					}
+					extra["is_live_photo_video"] = true
+					extra["live_photo_image_path"] = sib
 				}
 			}
 		}
