@@ -2,6 +2,7 @@ package content
 
 import (
 	"bytes"
+	"encoding/binary"
 	"testing"
 )
 
@@ -82,6 +83,97 @@ func FuzzParseSFNT(f *testing.F) {
 		}
 		// sfntAttrs must not panic on any parser output.
 		_ = sfntAttrs(info, "ttf")
+	})
+}
+
+// FuzzParseWOFF2 targets the full WOFF2 extraction path: the
+// variable-length table-directory walker (with UIntBase128 origLength /
+// transformLength decoding), the brotli decompression hop, and the
+// per-metadata-table dispatch. Brotli mutations are the highest-
+// leverage attack surface — the decoder is a third-party dep and a
+// malformed stream that drives the decoder into an infinite loop or
+// memory blow-up would surface here. Contract: never panic.
+func FuzzParseWOFF2(f *testing.F) {
+	// Seed 1: minimal WOFF2 with a name table only.
+	f.Add(buildWOFF2([]byte("OTTO"), []woff2TableBody{
+		{tag: "name", body: buildName([]testNameRecord{{3, 1, 0x409, nameIDFamily, "Inter"}})},
+	}))
+
+	// Seed 2: WOFF2 with multiple metadata tables (full happy-path shape).
+	os2 := make([]byte, 78)
+	binary.BigEndian.PutUint16(os2[4:6], 700)
+	f.Add(buildWOFF2([]byte("OTTO"), []woff2TableBody{
+		{tag: "name", body: buildName([]testNameRecord{{3, 1, 0x409, nameIDFamily, "Bold"}})},
+		{tag: "OS/2", body: os2},
+	}))
+
+	// Seed 3: WOFF2 with a glyf table (= transformVersion 3 / as-is).
+	f.Add(buildWOFF2([]byte{0x00, 0x01, 0x00, 0x00}, []woff2TableBody{
+		{tag: "name", body: buildName([]testNameRecord{{3, 1, 0x409, nameIDFamily, "TTF"}})},
+		{tag: "glyf", body: []byte{0x00}},
+	}))
+
+	// Seed 4: header-only — magic + size hints, no directory body.
+	headerOnly := make([]byte, woff2HeaderLen)
+	copy(headerOnly[0:4], []byte("wOF2"))
+	copy(headerOnly[4:8], []byte("OTTO"))
+	binary.BigEndian.PutUint32(headerOnly[16:20], 100000)
+	binary.BigEndian.PutUint32(headerOnly[20:24], 35000)
+	f.Add(headerOnly)
+
+	// Seed 5: truncated header.
+	f.Add([]byte{0x77, 0x4f, 0x46, 0x32}) // 'wOF2' magic + nothing
+
+	// Seed 6: magic + claimed numTables=63 (the inline-tag sentinel
+	// boundary) but no directory body.
+	junk := make([]byte, woff2HeaderLen)
+	copy(junk[0:4], []byte("wOF2"))
+	junk[13] = 63
+	f.Add(junk)
+
+	// Seed 7: empty input.
+	f.Add([]byte{})
+
+	// Seed 8: all-0xFF junk.
+	f.Add(bytes.Repeat([]byte{0xFF}, 128))
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > fuzzFontInputCap {
+			return
+		}
+		attrs := parseWOFF2(data)
+		// Shape contract: caps honoured for any sfnt-derived string fields.
+		for _, k := range []string{"font_family", "font_subfamily", "font_designer", "font_license"} {
+			if s, ok := attrs[k].(string); ok && len(s) > fontMaxNameStringLen {
+				t.Fatalf("attr %s exceeds cap: len=%d", k, len(s))
+			}
+		}
+	})
+}
+
+// FuzzReadUIntBase128 targets the variable-length integer decoder used
+// by the WOFF2 table directory walker. Contract: never panic, never
+// claim to consume more bytes than were provided.
+func FuzzReadUIntBase128(f *testing.F) {
+	f.Add([]byte{0x00})
+	f.Add([]byte{0x7F})
+	f.Add([]byte{0x81, 0x00})
+	f.Add([]byte{0xFF, 0x7F})
+	f.Add([]byte{0x80, 0x01}) // leading zero — must reject
+	f.Add([]byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF})
+	f.Add([]byte{})
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > 16 {
+			return
+		}
+		_, n, ok := readUIntBase128(data)
+		if ok && n > len(data) {
+			t.Fatalf("readUIntBase128 claimed to consume %d bytes from %d-byte input", n, len(data))
+		}
+		if !ok && n != 0 {
+			t.Fatalf("readUIntBase128 returned ok=false but n=%d (must be 0)", n)
+		}
 	})
 }
 

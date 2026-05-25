@@ -4,6 +4,7 @@ go 1.26.2
 
 require (
 	github.com/alecthomas/kong v1.15.0
+	github.com/andybalholm/brotli v1.2.1
 	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
 	github.com/djherbis/times v1.6.0
 	github.com/evanoberholster/imagemeta v1.0.0

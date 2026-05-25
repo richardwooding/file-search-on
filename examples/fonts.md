@@ -104,11 +104,15 @@ file-search-on 'is_font && "Basic Latin" in font_unicode_ranges && !("CJK Unifie
 ## Web / WOFF queries
 
 ```sh
-# Every WOFF1 file in a frontend project (attrs extract fully)
+# Every WOFF1 file in a frontend project
 file-search-on 'is_woff' -d ./assets/fonts
 
-# Every WOFF2 file (v1 detect-only — attrs limited to header)
+# Every WOFF2 file — full attribute extraction (brotli decompression
+# happens automatically; family / designer / weight / axes all populate)
 file-search-on 'is_woff2' -d ./assets/fonts
+
+# WOFF2 variable fonts only — answer "which web-served fonts have a wght axis?"
+file-search-on 'is_woff2 && is_variable_font && "wght" in font_axes' -d ./assets/fonts
 
 # Compressed-vs-uncompressed ratio for WOFF2 collections
 file-search-on 'is_woff2' -d ./assets/fonts -o json | \
@@ -130,7 +134,8 @@ file-search-on 'is_font && font_weight >= 800' --sort font_weight --order desc
 
 ## Known limitations
 
-- **WOFF2 is detect-only in v1.** `.woff2` files surface `is_woff2`, `font_format = "woff2"`, and the header byte counts (`woff2_total_sfnt_size`, `woff2_total_compressed_size`), but `font_family` / `font_designer` / `font_weight` / `font_axes` stay UNSET. Full WOFF2 attribute extraction requires brotli decompression plus the WOFF2 transformed-table encoding — tracked as a follow-up issue. Web designers querying `~/Project/assets/fonts/*.woff2` collections will see only the umbrella predicate in v1.
+- **WOFF2 transformed tables (glyf / loca / hmtx) are skipped.** WOFF2 reorganises these tables to improve compression; reconstructing them adds ~500 LOC for no agent-query value (file-search-on doesn't surface glyph data). The metadata tables (name / OS/2 / head / post / maxp / fvar) decompress and populate normally — `font_family`, `font_weight`, `font_axes` etc. work on `.woff2` exactly as they do on `.ttf`.
+- **WOFF2 collections (flavor `ttcf`) are not parsed.** Rare in real-world web fonts; the file detects as `font/woff2` but only the header byte counts surface.
 - **`font_embedding` is informational only.** The OS/2 `fsType` bits are a legal declaration by the foundry, not a technical enforcement mechanism. A font marked `restricted` is no harder to embed than one marked `installable` — agents auditing fonts on a deployed codebase should treat the field as documentation.
 - **TTC `font_family` is the primary (first) member.** Collections carry multiple families (e.g. Helvetica + Helvetica Neue can coexist). The full list lives in `font_collection_families`; query that when family is ambiguous.
 - **Name-table encoding priority is opinionated.** The decoder picks Windows Unicode English (3, 1, 0x409) when available, falling through to any Windows Unicode encoding, then Mac Roman English, then any other Windows Unicode, then the first record. Non-English fonts with only their native-language name records will surface that name as `font_family` — generally what users want, but worth knowing.

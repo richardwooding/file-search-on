@@ -126,6 +126,12 @@ jobs:
           - name: ParseNameTable
             pkg: ./internal/content/
             func: FuzzParseNameTable
+          - name: ParseWOFF2
+            pkg: ./internal/content/
+            func: FuzzParseWOFF2
+          - name: ReadUIntBase128
+            pkg: ./internal/content/
+            func: FuzzReadUIntBase128
           - name: CELCompile
             pkg: ./internal/celexpr/
             func: FuzzCELCompile
