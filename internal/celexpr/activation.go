@@ -603,6 +603,16 @@ var zeroDefaults = map[string]any{
 	"raw_kind":   "",
 	"raw_vendor": "",
 
+	// Apple Live Photo pairing (issue #194). All five attrs fall
+	// through to the Extra-map lookup — populated only when the
+	// sibling file actually exists on disk. Defaults are zero so
+	// `is_live_photo == false` works for the non-paired majority.
+	"is_live_photo":         false,
+	"is_live_photo_video":   false,
+	"live_photo_video_path": "",
+	"live_photo_video_size": int64(0),
+	"live_photo_image_path": "",
+
 	// SQLite WAL sidecar (issue #176).
 	"sqlite_wal_format_version": int64(0),
 	"sqlite_wal_page_size":      int64(0),

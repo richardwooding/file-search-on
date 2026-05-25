@@ -146,6 +146,8 @@ func Schema() SchemaDoc {
 			{"is_raf", "bool", "true if Fujifilm RAF (.raf) — RAW format from Fuji X-series mirrorless cameras. Has a unique 15-byte `FUJIFILMCCD-RAW` magic at offset 0 — the most discriminative of the RAW magics."},
 			{"is_orf", "bool", "true if Olympus / OM System ORF (.orf, .ori) — TIFF-based RAW with vendor-specific 4-byte magic words (`IIRO` / `IIRS` / `MMOR`) in place of the standard TIFF prefix."},
 			{"is_rw2", "bool", "true if Panasonic RW2 (.rw2, .raw) — TIFF-based RAW from Panasonic Lumix / Leica cameras. Also claims `.raw` (Panasonic is the dominant `.raw` producer)."},
+			{"is_live_photo", "bool", "true if HEIC still image has a sibling MOV with the same basename in the same directory — Apple Live Photo. Detection is one extra `os.Stat` per HEIC file. The paired video's path is at `live_photo_video_path`, its size at `live_photo_video_size`."},
+			{"is_live_photo_video", "bool", "true if `.mov` file has a sibling HEIC with the same basename in the same directory — the video side of an Apple Live Photo pair. The MOV detects as `video/quicktime`; this predicate is restricted to the `.mov` extension to avoid future drift if quicktime's extension set widens. The paired still's path is at `live_photo_image_path`."},
 			{"md5", "string", "MD5 hex digest of the file's content (32 lowercase hex chars). Empty unless the caller opts in via --with-hashes / compute_hashes — hashing is not free. NSRL / VirusTotal / threat-intel-feed interop primary; consumed by hash-allowlist / hash-denylist matching when those flags are set. Cached alongside SHA1 + SHA256 in the index; single io.MultiWriter pass over the file so all three populate together."},
 			{"sha1", "string", "SHA-1 hex digest of the file's content (40 lowercase hex chars). Same lifecycle as md5 — populated when --with-hashes / compute_hashes is set. NSRL ships MD5 + SHA1 as the canonical allowlist key; many forensic tools index by SHA1."},
 			{"sha256", "string", "SHA-256 hex digest of the file's content (64 lowercase hex chars). Modern default; populated when --with-hashes / compute_hashes is set OR as a side effect of find_duplicates / find_near_duplicates. Stable across the file's (size, mtime) lifetime so the cached value survives any repeat walk."},
@@ -414,6 +416,9 @@ func Schema() SchemaDoc {
 			{"woff2_total_compressed_size", "int", "WOFF2 only — declared compressed data block size from the WOFF2 header (excludes the 48-byte WOFF2 header itself)."},
 			{"raw_kind", "string", "RAW format short name: `cr2` / `cr3` / `nef` / `arw` / `dng` / `raf` / `orf` / `rw2`. Stamped from the content-type registration, so unambiguous even when camera EXIF is missing."},
 			{"raw_vendor", "string", "RAW format vendor: `canon` / `nikon` / `sony` / `adobe` / `fujifilm` / `olympus` / `panasonic`. Property of the FORMAT, not the camera — DNG always reports `adobe` regardless of which camera body produced the file."},
+			{"live_photo_video_path", "string", "Absolute path to the paired Live Photo `.mov` when `is_live_photo` is true; otherwise empty. Populated only on the HEIC (image) side of the pair."},
+			{"live_photo_video_size", "int", "Byte size of the paired Live Photo `.mov` when `is_live_photo` is true; otherwise zero. Cheap follow-on `os.Stat` from the sibling lookup, so available without extra cost."},
+			{"live_photo_image_path", "string", "Absolute path to the paired HEIC still when `is_live_photo_video` is true; otherwise empty. Populated only on the MOV (video) side of the pair."},
 		},
 		Frontmatter: []AttributeDoc{
 			{"frontmatter", "map", "full parsed front-matter, e.g. frontmatter.category"},
