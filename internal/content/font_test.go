@@ -11,6 +11,8 @@ import (
 	"testing"
 	"testing/fstest"
 	"unicode/utf16"
+
+	"github.com/andybalholm/brotli"
 )
 
 // buildSFNT writes a valid sfnt header + table directory wrapping the
@@ -564,24 +566,273 @@ func TestParseWOFF1_MagicMismatch(t *testing.T) {
 // WOFF2 tests
 // ----------------------------------------------------------------------------
 
-func TestParseWOFF2Header_HappyPath(t *testing.T) {
-	out := make([]byte, woff2HeaderLen)
-	copy(out[0:4], []byte("wOF2"))
-	copy(out[4:8], []byte("OTTO"))                  // flavor = OpenType CFF
-	binary.BigEndian.PutUint32(out[16:20], 100000)  // totalSfntSize
-	binary.BigEndian.PutUint32(out[20:24], 35000)   // totalCompressedSize
-	attrs := parseWOFF2Header(out)
+// woff2TableBody pairs a WOFF2 table tag with its uncompressed body.
+// The buildWOFF2 helper accepts these in directory order and produces
+// a valid WOFF2 file with a brotli-compressed concatenated stream of
+// all bodies. Transformed tables are NOT exercised — none of file-
+// search-on's metadata tables (name / OS/2 / head / post / maxp / fvar)
+// are eligible for transformation.
+type woff2TableBody struct {
+	tag  string
+	body []byte
+}
+
+// buildWOFF2 produces a minimal valid WOFF2 file. flavor is the
+// underlying sfnt's scaler version ('OTTO' for CFF, 0x00010000 for
+// TrueType). Tables are written in the directory order given; no
+// optional metadata / private blocks are emitted.
+func buildWOFF2(flavor []byte, tables []woff2TableBody) []byte {
+	// Build the directory bytes. We only ever emit transformVersion = 0
+	// for non-glyf/loca tables (= "as-is"), and transformVersion = 3
+	// for glyf/loca (= "as-is"). Neither path emits a transformLength.
+	var dir bytes.Buffer
+	for _, t := range tables {
+		var flags byte
+		idx := knownTagIndex(t.tag)
+		if t.tag == "glyf" || t.tag == "loca" {
+			// transformVersion 3 = as-is for glyf/loca.
+			flags = byte(3<<6) | byte(idx&0x3F)
+		} else if idx >= 0 {
+			flags = byte(idx & 0x3F) // transformVersion 0 = as-is for everything else
+		} else {
+			// Custom tag — write inline.
+			flags = 0x3F
+		}
+		dir.WriteByte(flags)
+		if idx < 0 {
+			dir.WriteString(t.tag)
+		}
+		writeUIntBase128(&dir, uint32(len(t.body)))
+	}
+
+	// Concatenate the table bodies into the to-be-compressed payload.
+	var raw bytes.Buffer
+	for _, t := range tables {
+		raw.Write(t.body)
+	}
+
+	// Brotli-compress the concatenated bodies.
+	var compressed bytes.Buffer
+	bw := brotli.NewWriterLevel(&compressed, brotli.DefaultCompression)
+	_, _ = bw.Write(raw.Bytes())
+	_ = bw.Close()
+
+	totalSfntSize := uint32(12 + len(tables)*16) // sfnt header + dir entries
+	for _, t := range tables {
+		padded := (uint32(len(t.body)) + 3) &^ 3
+		totalSfntSize += padded
+	}
+
+	// Assemble the file.
+	out := make([]byte, 0, woff2HeaderLen+dir.Len()+compressed.Len())
+	hdr := make([]byte, woff2HeaderLen)
+	copy(hdr[0:4], []byte("wOF2"))
+	copy(hdr[4:8], flavor)
+	binary.BigEndian.PutUint32(hdr[8:12], 0) // length — recomputed below
+	binary.BigEndian.PutUint16(hdr[12:14], uint16(len(tables)))
+	binary.BigEndian.PutUint32(hdr[16:20], totalSfntSize)
+	binary.BigEndian.PutUint32(hdr[20:24], uint32(compressed.Len()))
+	// majorVersion/minorVersion + meta/priv offsets all zero.
+	out = append(out, hdr...)
+	out = append(out, dir.Bytes()...)
+	out = append(out, compressed.Bytes()...)
+	binary.BigEndian.PutUint32(out[8:12], uint32(len(out)))
+	return out
+}
+
+// knownTagIndex returns the WOFF2 known-tag index for tag, or -1 if
+// the tag isn't in the known table.
+func knownTagIndex(tag string) int {
+	for i, k := range woff2KnownTags {
+		if k == tag {
+			return i
+		}
+	}
+	return -1
+}
+
+// writeUIntBase128 encodes v into buf per the WOFF2 spec §3 — the
+// inverse of readUIntBase128.
+func writeUIntBase128(buf *bytes.Buffer, v uint32) {
+	if v == 0 {
+		buf.WriteByte(0)
+		return
+	}
+	var bytes7 [5]byte
+	n := 0
+	for v > 0 {
+		bytes7[n] = byte(v & 0x7F)
+		v >>= 7
+		n++
+	}
+	// Write MSB-first; set MSB on all but the last (= least-significant)
+	// byte.
+	for i := n - 1; i >= 0; i-- {
+		b := bytes7[i]
+		if i != 0 {
+			b |= 0x80
+		}
+		buf.WriteByte(b)
+	}
+}
+
+func TestParseWOFF2_HappyPath(t *testing.T) {
+	nameTable := buildName([]testNameRecord{
+		{3, 1, 0x409, nameIDFamily, "Inter"},
+		{3, 1, 0x409, nameIDDesigner, "Rasmus Andersson"},
+	})
+	// OS/2 with weight 700 (Bold) — minimum v0 length 78 bytes.
+	os2 := make([]byte, 78)
+	binary.BigEndian.PutUint16(os2[4:6], 700) // usWeightClass
+	binary.BigEndian.PutUint16(os2[6:8], 5)   // usWidthClass = Medium
+
+	data := buildWOFF2([]byte("OTTO"), []woff2TableBody{
+		{tag: "name", body: nameTable},
+		{tag: "OS/2", body: os2},
+	})
+
+	attrs := parseWOFF2(data)
 	if attrs["font_format"] != "woff2" {
 		t.Errorf("font_format = %v", attrs["font_format"])
 	}
 	if attrs["font_outline_kind"] != "cff" {
 		t.Errorf("font_outline_kind = %v", attrs["font_outline_kind"])
 	}
+	if attrs["font_family"] != "Inter" {
+		t.Errorf("font_family = %v", attrs["font_family"])
+	}
+	if attrs["font_designer"] != "Rasmus Andersson" {
+		t.Errorf("font_designer = %v", attrs["font_designer"])
+	}
+	if attrs["font_weight"] != int64(700) {
+		t.Errorf("font_weight = %v", attrs["font_weight"])
+	}
+	if attrs["is_bold_font"] != true {
+		t.Errorf("is_bold_font = %v", attrs["is_bold_font"])
+	}
+	if attrs["title"] != "Inter" {
+		t.Errorf("title (family dual-surface) = %v", attrs["title"])
+	}
+}
+
+func TestParseWOFF2_VariableFont(t *testing.T) {
+	data := buildWOFF2([]byte{0x00, 0x01, 0x00, 0x00}, []woff2TableBody{
+		{tag: "name", body: buildName([]testNameRecord{{3, 1, 0x409, nameIDFamily, "VarTest"}})},
+		{tag: "fvar", body: buildFvar([]string{"wght", "wdth", "opsz"})},
+		{tag: "glyf", body: []byte{0x00}},
+	})
+	attrs := parseWOFF2(data)
+	if attrs["font_family"] != "VarTest" {
+		t.Errorf("font_family = %v", attrs["font_family"])
+	}
+	if attrs["font_outline_kind"] != "truetype" {
+		t.Errorf("font_outline_kind = %v", attrs["font_outline_kind"])
+	}
+	if attrs["is_variable_font"] != true {
+		t.Errorf("is_variable_font = %v", attrs["is_variable_font"])
+	}
+	axes, ok := attrs["font_axes"].([]string)
+	if !ok || len(axes) != 3 {
+		t.Errorf("font_axes = %v", attrs["font_axes"])
+	}
+}
+
+func TestParseWOFF2_HeaderOnlySurfaces(t *testing.T) {
+	// Header-only attrs surface even when the directory / brotli payload
+	// is missing — agents can still discriminate WOFF2 from other
+	// formats and read the size hints.
+	out := make([]byte, woff2HeaderLen)
+	copy(out[0:4], []byte("wOF2"))
+	copy(out[4:8], []byte("OTTO"))
+	binary.BigEndian.PutUint32(out[16:20], 100000)
+	binary.BigEndian.PutUint32(out[20:24], 35000)
+	attrs := parseWOFF2(out)
+	if attrs["font_format"] != "woff2" {
+		t.Errorf("font_format = %v", attrs["font_format"])
+	}
 	if attrs["woff2_total_sfnt_size"] != int64(100000) {
 		t.Errorf("woff2_total_sfnt_size = %v", attrs["woff2_total_sfnt_size"])
 	}
 	if attrs["woff2_total_compressed_size"] != int64(35000) {
 		t.Errorf("woff2_total_compressed_size = %v", attrs["woff2_total_compressed_size"])
+	}
+}
+
+func TestParseWOFF2_MagicMismatch(t *testing.T) {
+	out := make([]byte, woff2HeaderLen)
+	attrs := parseWOFF2(out)
+	if len(attrs) != 0 {
+		t.Errorf("expected empty attrs on magic mismatch, got %v", attrs)
+	}
+}
+
+func TestParseWOFF2_TruncatedBrotli(t *testing.T) {
+	// Build a valid WOFF2, then truncate the brotli payload mid-stream
+	// — parseWOFF2 must return the header attrs but no font_family.
+	data := buildWOFF2([]byte("OTTO"), []woff2TableBody{
+		{tag: "name", body: buildName([]testNameRecord{{3, 1, 0x409, nameIDFamily, "Test"}})},
+	})
+	// Lop off the last few bytes of the brotli stream.
+	truncated := data[:len(data)-3]
+	attrs := parseWOFF2(truncated)
+	if attrs["font_format"] != "woff2" {
+		t.Errorf("font_format = %v", attrs["font_format"])
+	}
+	if _, ok := attrs["font_family"]; ok {
+		t.Errorf("font_family should be unset on truncated brotli, got %v", attrs["font_family"])
+	}
+}
+
+func TestReadUIntBase128(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+		want uint32
+		n    int
+		ok   bool
+	}{
+		{"zero", []byte{0x00}, 0, 1, true},
+		{"one-byte-127", []byte{0x7F}, 127, 1, true},
+		{"two-byte-128", []byte{0x81, 0x00}, 128, 2, true},
+		{"two-byte-16383", []byte{0xFF, 0x7F}, 16383, 2, true},
+		{"leading-zero-rejected", []byte{0x80, 0x01}, 0, 0, false},
+		{"empty", []byte{}, 0, 0, false},
+		{"overflow", []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, 0, 0, false}, // 5-byte with continuation still set
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, n, ok := readUIntBase128(tc.data)
+			if ok != tc.ok {
+				t.Fatalf("ok = %v, want %v", ok, tc.ok)
+			}
+			if !ok {
+				return
+			}
+			if got != tc.want {
+				t.Errorf("value = %d, want %d", got, tc.want)
+			}
+			if n != tc.n {
+				t.Errorf("consumed = %d, want %d", n, tc.n)
+			}
+		})
+	}
+}
+
+func TestWOFF2_RoundtripUIntBase128(t *testing.T) {
+	// Every value writeUIntBase128 emits must readUIntBase128 back to
+	// the same value. Sampled across the uint32 range plus the
+	// known-edge values.
+	values := []uint32{0, 1, 127, 128, 16383, 16384, 2097151, 2097152, 268435455, 0xFFFFFFFF}
+	for _, v := range values {
+		var buf bytes.Buffer
+		writeUIntBase128(&buf, v)
+		got, _, ok := readUIntBase128(buf.Bytes())
+		if !ok {
+			t.Fatalf("readUIntBase128 failed on writeUIntBase128(%d) bytes %x", v, buf.Bytes())
+		}
+		if got != v {
+			t.Errorf("roundtrip %d -> %d", v, got)
+		}
 	}
 }
 
@@ -599,6 +850,7 @@ func TestFontDetection_RegistryByMagic(t *testing.T) {
 		{"otf-magic.bin", buildSFNT(sfntMagicOpenType, map[string][]byte{"CFF ": {0}}), "font/otf"},
 		{"ttc-magic.bin", buildTTC([][]byte{buildSFNT(sfntMagicTrueType, map[string][]byte{"glyf": {0}})}), "font/collection"},
 		{"woff-magic.bin", buildWOFF1(buildName(nil)), "font/woff"},
+		{"woff2-magic.bin", buildWOFF2([]byte("OTTO"), []woff2TableBody{{tag: "name", body: buildName(nil)}}), "font/woff2"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -632,6 +884,27 @@ func TestFontType_AttributesViaRegistry(t *testing.T) {
 		t.Errorf("font_family = %v", attrs["font_family"])
 	}
 	if attrs["font_format"] != "ttf" {
+		t.Errorf("font_format = %v", attrs["font_format"])
+	}
+}
+
+func TestWOFF2_AttributesViaRegistry(t *testing.T) {
+	data := buildWOFF2([]byte("OTTO"), []woff2TableBody{
+		{tag: "name", body: buildName([]testNameRecord{{3, 1, 0x409, nameIDFamily, "Inter"}})},
+	})
+	fsys := fstest.MapFS{"Inter-Regular.woff2": {Data: data}}
+	ct := DefaultRegistry().Detect(fsys, "Inter-Regular.woff2")
+	if ct == nil || ct.Name() != "font/woff2" {
+		t.Fatalf("Detect = %v, want font/woff2", ct)
+	}
+	attrs, err := ct.Attributes(context.Background(), fsys, "Inter-Regular.woff2")
+	if err != nil {
+		t.Fatalf("Attributes: %v", err)
+	}
+	if attrs["font_family"] != "Inter" {
+		t.Errorf("font_family = %v", attrs["font_family"])
+	}
+	if attrs["font_format"] != "woff2" {
 		t.Errorf("font_format = %v", attrs["font_format"])
 	}
 }
