@@ -331,6 +331,11 @@ func New(version string, idx index.Index, defaultTimeout time.Duration, embedDef
 	}, h.findMatchesHandler)
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name:        "watch_search",
+		Description: "Watch directories for a BOUNDED window and return every new / changed file that matches a CEL expression — the inverse of search ('tell me when X appears' instead of 'what already matches'). Same CEL vocabulary as the search tool (is_image, is_pdf, is_source && language == \"go\", size > 1000000, body.contains(\"error\"), …). Watches recursively (subdirectories created during the window are picked up). Blocks until duration_seconds elapses (default 30s, hard-capped at 600s), max_events matches are collected, or the call is cancelled — whichever comes first; then returns the collected matches. Inputs: expr (optional CEL filter), dir / dirs, duration_seconds (how long to watch), max_events (return early after N matches), plus the usual ocr_images / compute_hashes / with_phash / with_xattrs / include_body / excludes / respect_gitignore flags. Output: matches[] (same shape as search) + watched_seconds + hit_max_events. Use for short 'wait for the next screenshot / build artefact / download' flows; for open-ended streaming use the CLI 'watch' subcommand. Issue #211.",
+	}, h.watchSearchHandler)
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_presets",
 		Description: "List every named search recipe ('preset') available to the query_preset tool — each preset bakes a vetted CEL filter + sensible sort / limit defaults for a common workflow. Use this to discover what's available before calling query_preset. v1 presets: recent_changes (files modified in the last 7 days), recent_photos (images taken in the last 30 days), old_drafts (markdown drafts older than 90 days — neglected work), large_files (files > 100 MB), large_binaries (compiled binaries > 100 MB), suspicious_files (forensic-triage shortcut — disguised files or btime anomalies; auto-enables check_disguised), failed_tests (source test files mentioning FAIL/FIXME/XXX; auto-enables include_body), system_metadata (OS leftovers — .DS_Store / Thumbs.db / Desktop.ini / .directory). Output: presets[] with name + description; pass the name to query_preset to run.",
 	}, h.listPresetsHandler)
