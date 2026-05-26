@@ -250,6 +250,16 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 	case "is_rw2":
 		return a.attrs.IsRW2, true
 	// raw_kind / raw_vendor fall through to the Extra-map lookup.
+	case "is_3d_model":
+		return a.attrs.Is3DModel, true
+	case "is_stl":
+		return a.attrs.IsSTL, true
+	case "is_obj":
+		return a.attrs.IsOBJ, true
+	case "is_gltf":
+		return a.attrs.IsGLTF, true
+	// model3d_format / vertex_count / face_count / has_normals /
+	// has_textures / materials / bounding_box fall through to Extra.
 	case "is_symlink":
 		return a.attrs.IsSymlink, true
 	case "is_broken_symlink":
@@ -626,6 +636,18 @@ var zeroDefaults = map[string]any{
 	// image_similar_to(...). Default empty so `phash == ""` cleanly
 	// distinguishes "not computed" from any actual hex value.
 	"phash": "",
+
+	// 3D model attributes (issue #213). The predicates (is_3d_model /
+	// is_stl / …) come through the typed-flag short-circuit above;
+	// these per-mesh attributes flow through the Extra-map fallback,
+	// so they need defaults for non-model files.
+	"model3d_format": "",
+	"vertex_count":   int64(0),
+	"face_count":     int64(0),
+	"has_normals":    false,
+	"has_textures":   false,
+	"materials":      []string{},
+	"bounding_box":   []float64{},
 
 	// SQLite WAL sidecar (issue #176).
 	"sqlite_wal_format_version": int64(0),
