@@ -1,22 +1,38 @@
 #!/usr/bin/env python3
-"""Audit file-search-on's CEL attribute schema for drift between the four call sites.
+"""Audit file-search-on's CEL attribute schema for drift between the call sites.
 
 Usage: python audit_attributes.py [--repo-root .]
 
-Exits 0 if every CEL attribute appears in every place it must, non-zero on drift.
-Prints a markdown table summarising the state of each attribute.
+Exits 0 if every CEL attribute is declared, resolvable, and documented
+consistently; non-zero on drift. Prints a markdown table summarising each
+attribute.
 
-The four places (see extend-cel-schema/SKILL.md):
-  1. cel.Variable("foo", ...) declarations in celexpr.New             (-> declared)
-  2. activation defaults map literal in celexpr.Evaluate              (-> defaulted)
-  3. attrs.Extra switch case assignments in celexpr.Evaluate          (-> assigned)
-  4. AttributeDoc{...} entries in celexpr.Schema()                    (-> documented)
+The places a CEL attribute must appear (see extend-cel-schema/SKILL.md):
+  1. cel.Variable("foo", ...) declarations in celexpr.New
+     (internal/celexpr/evaluator.go)                                  -> declared
+  2. resolvable in (*fileAttrsActivation).ResolveName
+     (internal/celexpr/activation.go), via EITHER:
+       a. a `case "foo":` label returning a typed FileAttributes field
+          (common scalars + is_* predicates + md5/sha1/...)           -> cased
+       b. a key in the `zeroDefaults` map literal (type-specific attrs
+          that flow through the verbatim `Extra[name]` fallthrough)    -> defaulted
+  3. AttributeDoc{...} entries in celexpr.Schema()
+     (internal/celexpr/schema.go)                                     -> documented
+
+Note (2024 refactor): the activation machinery moved out of celexpr.Evaluate
+into internal/celexpr/activation.go. There is no longer an
+`activation["foo"] = v` rename switch — type-specific attributes resolve by
+verbatim key match against FileAttributes.Extra (so the content type must
+emit the final CEL name directly), falling back to zeroDefaults when a file
+didn't emit them. "Resolvable" therefore means cased OR defaulted.
 
 Invariants:
-  declared == defaulted                                          (sanity, hard error on drift)
-  documented (any slice) ⊆ declared                              (hard error)
-  documented (TypeSpecific ∪ Frontmatter) ⊆ assigned             (hard error)
-  declared - documented                                          (warn — undocumented attribute)
+  declared == (cased ∪ defaulted)        (every declared var resolves; no orphans — hard error)
+  documented ⊆ declared                  (can't document an undeclared var — hard error)
+  documented (TypeSpecific ∪ Frontmatter) ⊆ defaulted
+                                         (Extra-flowing docs need a zero default so files
+                                          that don't emit them don't error — hard error)
+  declared - documented                  (warn — undocumented, hidden from --list)
 """
 from __future__ import annotations
 
@@ -27,22 +43,19 @@ from pathlib import Path
 
 
 CEL_VARIABLE_RE = re.compile(r'cel\.Variable\(\s*"([^"]+)"')
+# A `case "a":` or `case "a", "b":` label line inside ResolveName.
+CASE_LINE_RE = re.compile(r'^\s*case\s+(.+?):\s*$')
+QUOTED_RE = re.compile(r'"([^"]+)"')
 ACTIVATION_KEY_RE = re.compile(r'^\s*"([^"]+)"\s*:')
-ASSIGN_RE = re.compile(r'activation\[\s*"([^"]+)"\s*\]\s*=')
 DOC_ENTRY_RE = re.compile(r'\{\s*"([^"]+)"\s*,\s*"([^"]*)"\s*,\s*"[^"]*"\s*\}')
 
 
-def parse_evaluator(text: str) -> tuple[set[str], set[str], set[str]]:
-    """Return (declared, defaulted, assigned) sets parsed from evaluator.go."""
-    declared = set(CEL_VARIABLE_RE.findall(text))
-
-    # Locate the activation map literal: starts at `activation := map[string]any{`
-    # ends at the matching closing brace at the same indentation level.
-    start_marker = "activation := map[string]any{"
+def find_block(text: str, start_marker: str, what: str) -> str:
+    """Return the brace-balanced block body following start_marker (the
+    marker must end with the opening `{`)."""
     start = text.find(start_marker)
     if start < 0:
-        raise SystemExit("ERROR: could not find `activation := map[string]any{` in evaluator.go")
-    # Track brace depth from the opening { in the marker
+        raise SystemExit(f"ERROR: could not find `{start_marker}` ({what})")
     open_brace = start + len(start_marker) - 1
     depth = 1
     i = open_brace + 1
@@ -52,38 +65,52 @@ def parse_evaluator(text: str) -> tuple[set[str], set[str], set[str]]:
         elif text[i] == "}":
             depth -= 1
         i += 1
-    activation_block = text[open_brace + 1 : i - 1]
-    defaulted = set()
-    for line in activation_block.splitlines():
+    return text[open_brace + 1 : i - 1]
+
+
+def parse_declared(evaluator_text: str) -> set[str]:
+    """cel.Variable declarations in celexpr.New."""
+    return set(CEL_VARIABLE_RE.findall(evaluator_text))
+
+
+def parse_activation(activation_text: str) -> tuple[set[str], set[str]]:
+    """Return (cased, defaulted) from activation.go.
+
+    cased     — string labels of every `case "..."` in ResolveName's switch.
+    defaulted — keys of the `var zeroDefaults = map[string]any{...}` literal.
+    """
+    # 1. ResolveName switch case labels (handles multi-label `case "a", "b":`).
+    body = find_block(
+        activation_text,
+        "func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {",
+        "ResolveName in activation.go",
+    )
+    cased: set[str] = set()
+    for line in body.splitlines():
+        m = CASE_LINE_RE.match(line)
+        if m:
+            cased.update(QUOTED_RE.findall(m.group(1)))
+
+    # 2. zeroDefaults map keys.
+    defaults_block = find_block(
+        activation_text,
+        "var zeroDefaults = map[string]any{",
+        "zeroDefaults in activation.go",
+    )
+    defaulted: set[str] = set()
+    for line in defaults_block.splitlines():
         m = ACTIVATION_KEY_RE.match(line)
         if m:
             defaulted.add(m.group(1))
 
-    assigned = set(ASSIGN_RE.findall(text))
-    return declared, defaulted, assigned
+    return cased, defaulted
 
 
 def parse_schema(text: str) -> dict[str, list[tuple[str, str]]]:
-    """Return mapping of slice name (Common / TypeSpecific / Frontmatter) to a list
-    of (attribute_name, attribute_type) tuples in source order."""
+    """Map slice name (Common / TypeSpecific / Frontmatter) to (name, type) tuples."""
     result: dict[str, list[tuple[str, str]]] = {}
-    # Find each `Common: []AttributeDoc{` / `TypeSpecific: []AttributeDoc{` / `Frontmatter: []AttributeDoc{`
     for slice_name in ("Common", "TypeSpecific", "Frontmatter"):
-        marker = f"{slice_name}: []AttributeDoc{{"
-        start = text.find(marker)
-        if start < 0:
-            raise SystemExit(f"ERROR: could not find `{marker}` in schema.go")
-        # Find matching closing brace
-        open_brace = start + len(marker) - 1
-        depth = 1
-        i = open_brace + 1
-        while i < len(text) and depth > 0:
-            if text[i] == "{":
-                depth += 1
-            elif text[i] == "}":
-                depth -= 1
-            i += 1
-        block = text[open_brace + 1 : i - 1]
+        block = find_block(text, f"{slice_name}: []AttributeDoc{{", f"{slice_name} in schema.go")
         result[slice_name] = [(m.group(1), m.group(2)) for m in DOC_ENTRY_RE.finditer(block)]
     return result
 
@@ -95,72 +122,72 @@ def main() -> int:
 
     root = args.repo_root.resolve()
     evaluator_path = root / "internal" / "celexpr" / "evaluator.go"
+    activation_path = root / "internal" / "celexpr" / "activation.go"
     schema_path = root / "internal" / "celexpr" / "schema.go"
-    for p in (evaluator_path, schema_path):
+    for p in (evaluator_path, activation_path, schema_path):
         if not p.exists():
             print(f"ERROR: {p} not found (run from the repo root, or pass --repo-root)", file=sys.stderr)
             return 1
 
-    declared, defaulted, assigned = parse_evaluator(evaluator_path.read_text(encoding="utf-8"))
+    declared = parse_declared(evaluator_path.read_text(encoding="utf-8"))
+    cased, defaulted = parse_activation(activation_path.read_text(encoding="utf-8"))
     schema = parse_schema(schema_path.read_text(encoding="utf-8"))
+
+    resolvable = cased | defaulted
 
     documented_common = {n for n, _ in schema["Common"]}
     documented_typespec = {n for n, _ in schema["TypeSpecific"]}
     documented_frontmatter = {n for n, _ in schema["Frontmatter"]}
     documented_all = documented_common | documented_typespec | documented_frontmatter
-    must_be_assigned = documented_typespec | documented_frontmatter
+    extra_flowing_docs = documented_typespec | documented_frontmatter
 
     errors: list[str] = []
     warnings: list[str] = []
 
-    # Invariant 1: declared == defaulted
-    only_declared = declared - defaulted
-    only_defaulted = defaulted - declared
-    if only_declared:
+    # Invariant 1: declared == resolvable.
+    declared_unresolvable = declared - resolvable
+    if declared_unresolvable:
         errors.append(
-            f"declared but missing zero-value default in activation map: {sorted(only_declared)}"
+            "declared via cel.Variable but neither a ResolveName `case` nor a "
+            f"zeroDefaults key (→ runtime 'no such attribute'): {sorted(declared_unresolvable)}"
         )
-    if only_defaulted:
+    resolvable_undeclared = resolvable - declared
+    if resolvable_undeclared:
         errors.append(
-            f"defaulted in activation map but not declared via cel.Variable: {sorted(only_defaulted)}"
+            "resolvable in activation.go (case or zeroDefaults) but not declared via "
+            f"cel.Variable: {sorted(resolvable_undeclared)}"
         )
 
-    # Invariant 2: documented ⊆ declared
+    # Invariant 2: documented ⊆ declared.
     documented_not_declared = documented_all - declared
     if documented_not_declared:
         errors.append(
             f"documented in schema.go but not declared via cel.Variable: {sorted(documented_not_declared)}"
         )
 
-    # Invariant 3: type-specific & front-matter docs ⊆ assigned
-    must_assign_missing = must_be_assigned - assigned
-    if must_assign_missing:
+    # Invariant 3: Extra-flowing docs (TypeSpecific ∪ Frontmatter) need a zero
+    # default — they resolve via the verbatim Extra fallthrough, so a file that
+    # doesn't emit them must fall back to a default or cel-go errors. (A doc
+    # that's instead handled by a typed `case` is fine — exclude those.)
+    extra_flowing_missing_default = extra_flowing_docs - defaulted - cased
+    if extra_flowing_missing_default:
         errors.append(
-            f"documented as type-specific/front-matter but no `activation[\"foo\"] = v` "
-            f"assignment in the attrs.Extra switch: {sorted(must_assign_missing)}"
+            "documented as type-specific/front-matter but no zeroDefaults entry "
+            f"(and not a typed ResolveName case): {sorted(extra_flowing_missing_default)}"
         )
 
-    # Sanity: assignments should target declared variables (unless they are common — but
-    # common attrs are populated from struct fields, never via the switch, so any switch
-    # assignment is to a type-specific or front-matter slot).
-    assigned_not_declared = assigned - declared
-    if assigned_not_declared:
-        errors.append(
-            f"attrs.Extra switch assigns to undeclared CEL variable: {sorted(assigned_not_declared)}"
-        )
-
-    # Warning: declared but undocumented (the `--list` view will hide it).
+    # Warning: declared but undocumented (hidden from --list / list_attributes).
     declared_not_documented = declared - documented_all
     if declared_not_documented:
         warnings.append(
-            f"declared via cel.Variable but not documented in schema.go (won't show "
+            "declared via cel.Variable but not documented in schema.go (won't show "
             f"in --list or list_attributes): {sorted(declared_not_documented)}"
         )
 
-    # Build the markdown report.
-    print("| Attribute | Declared | Defaulted | Assigned | Documented |")
+    # Markdown report.
+    print("| Attribute | Declared | Cased | Defaulted | Documented |")
     print("| --- | --- | --- | --- | --- |")
-    every = sorted(declared | defaulted | assigned | documented_all)
+    every = sorted(declared | resolvable | documented_all)
     for name in every:
         slot = ""
         if name in documented_common:
@@ -170,12 +197,12 @@ def main() -> int:
         elif name in documented_frontmatter:
             slot = "Frontmatter"
         d = "✓" if name in declared else "—"
+        c = "✓" if name in cased else "—"
         f_ = "✓" if name in defaulted else "—"
-        a = "✓" if name in assigned else ("·" if slot == "Common" else "—")
         doc = slot if slot else "—"
-        print(f"| `{name}` | {d} | {f_} | {a} | {doc} |")
+        print(f"| `{name}` | {d} | {c} | {f_} | {doc} |")
     print()
-    print("Legend: ✓ = present, — = missing, · = N/A (common attrs are not assigned via the switch)")
+    print("Legend: ✓ = present, — = absent. A declared attr must be Cased OR Defaulted.")
     print()
 
     for w in warnings:

@@ -1,11 +1,11 @@
 ---
 name: add-content-type
-description: Registers a new file-format content type in file-search-on by creating a file under `internal/content/` that implements the four-method `ContentType` interface (`Name`, `Extensions`, `MagicBytes`, `Attributes`), self-registers via `init()` calling `content.Register(...)`, and for image variants extends the `BuildAttributes` `image/*` prefix branch in `internal/celexpr/evaluator.go` — covers CSV, YAML, plain-text, EPUB, new audio/image families, and similar formats. Use when adding support for a new file format so the search recognises it and reports a `content_type`; does NOT cover CEL attribute wiring for type-specific attributes, which is the `extend-cel-schema` skill's job.
+description: Registers a new file-format content type in file-search-on by creating a file under `internal/content/` that implements the four-method `ContentType` interface (`Name`, `Extensions`, `MagicBytes`, `Attributes(ctx, fsys, path)`), self-registers via `init()` calling `content.Register(...)`, and for image variants relies on the `image/` prefix block in `setTypeFlags` (`internal/celexpr/evaluator.go`) — covers CSV, YAML, plain-text, EPUB, new audio/image families, and similar formats. Use when adding support for a new file format so the search recognises it and reports a `content_type`; does NOT cover CEL attribute wiring for type-specific attributes, which is the `extend-cel-schema` skill's job.
 ---
 
 # Add Content Type
 
-A "content type" is anything `Detect()` can identify and `Walk` can tag. Registering one is mostly mechanical: drop a file in `internal/content/`, implement four methods, register it, done. The wrinkle is the `Attributes(path)` method — if it returns *any* type-specific keys, you also need the `extend-cel-schema` workflow to make those keys CEL-visible.
+A "content type" is anything `Detect()` can identify and `Walk` can tag. Registering one is mostly mechanical: drop a file in `internal/content/`, implement four methods, register it, done. The wrinkle is the `Attributes(ctx, fsys, path)` method — if it returns *any* type-specific keys, you also need the `extend-cel-schema` workflow to make those keys CEL-visible.
 
 ## What gets registered
 
@@ -31,7 +31,7 @@ For a type like CSV that you want detected but where you don't (yet) care about 
 
 ## Quick start (with attributes)
 
-If `Attributes(path)` returns type-specific keys (e.g. `csv_columns`, `csv_rows`):
+If `Attributes(ctx, fsys, path)` returns type-specific keys (e.g. `csv_columns`, `csv_rows`):
 
 1. Steps 1–3 as above, but make `Attributes` return the keys.
 2. **Then** run the `extend-cel-schema` skill for *each* new key — declare the CEL variable, add to the activation defaults, add a switch case, and document in `Schema()`.
@@ -43,33 +43,33 @@ If `Attributes(path)` returns type-specific keys (e.g. `csv_columns`, `csv_rows`
 
 ```go
 type ContentType interface {
-    Name() string                                                      // stable identifier; image family must use "image/<subtype>"
-    Extensions() []string                                              // lowercase, with leading dot, e.g. []string{".csv"}
-    MagicBytes() [][]byte                                              // each entry is a prefix to match against the first 512 bytes; nil if not used
-    Attributes(ctx context.Context, path string) (Attributes, error)   // called per matching file; return a map[string]any, never nil
+    Name() string                                                                 // stable identifier; image family must use "image/<subtype>"
+    Extensions() []string                                                         // lowercase, with leading dot, e.g. []string{".csv"}
+    MagicBytes() [][]byte                                                         // each entry is a prefix to match against the first 512 bytes; nil if not used
+    Attributes(ctx context.Context, fsys fs.FS, path string) (Attributes, error)  // called per matching file; read via fsys, not os; return a map[string]any, never nil
 }
 ```
 
 Semantic notes:
 
-- **`Name()`** — used by `BuildAttributes` to set the `is_*` flag and the `content_type` CEL attribute. For an image family, the name MUST start with `image/` (e.g. `image/avif`); for the office family, MUST start with `office/`. The corresponding `strings.HasPrefix` branch in `BuildAttributes` turns `is_image` / `is_office` on automatically.
+- **`Name()`** — used by `setTypeFlags` (in `internal/celexpr/evaluator.go`) to set the `is_*` flag and the `content_type` CEL attribute. For an image family, the name MUST start with `image/` (e.g. `image/avif`); for the office family, MUST start with `office/`. The corresponding `strings.HasPrefix(name, ...)` block in `setTypeFlags` turns `is_image` / `is_office` on automatically.
 - **`Extensions()`** — lowercase, dotted. The detector matches case-insensitively against `filepath.Ext(path)` lower-cased.
 - **`MagicBytes()`** — return `nil` (not `[][]byte{}`) if the type is detected by extension only. Each `[]byte` is a prefix; the detector matches if any prefix is a prefix of the first 512 bytes.
-- **`Attributes(ctx, path)`** — called *per matching file* during the walk. Honour ctx: check `ctx.Err()` at entry, and inside any unbounded scan/decode loop. Return `ctx.Err()` on cancellation so the walker can terminate cleanly. Avoid expensive parses without bounds (use `bufio.Scanner` with a buffer cap, decode just enough of the file to extract what you need). Return `Attributes{}` (empty) if no type-specific data; never return `nil`.
+- **`Attributes(ctx, fsys, path)`** — called *per matching file* during the walk. **Read the file through `fsys`, not `os`** — open with `fsys.Open(path)`, or use the helpers in `internal/content/fsutil.go` (`openReadSeeker` for seekable/streamed access, `openReaderAt` for `zip`/`pdf`-style random access, `readAll` for whole-file slurps). This is what lets the same parser run against real files, archive entries, and in-memory test filesystems. Honour ctx: check `ctx.Err()` at entry, and inside any unbounded scan/decode loop. Return `ctx.Err()` on cancellation. Avoid expensive parses without bounds (use `bufio.Scanner` with a buffer cap, decode just enough of the file). Return `Attributes{}` (empty) if no type-specific data; never return `nil`.
 
 ## Image-family addition
 
 When the new type is an image variant (e.g. `image/avif`):
 
 - `Name()` MUST return `image/<subtype>`.
-- `BuildAttributes` (`internal/celexpr/evaluator.go`) already has a `case strings.HasPrefix(contentTypeName, "image/")` branch — no edit needed there for new image variants. The branch sets `is_image = true` and dispatches to the registered type's `Attributes` for `width` / `height` (which are renamed to `img_width` / `img_height` by the `attrs.Extra` switch).
-- If the new image type emits *additional* attributes beyond `width` / `height` (e.g. `color_space`, `bit_depth`), each one is a CEL-schema extension — use the `extend-cel-schema` skill.
+- `setTypeFlags` (`internal/celexpr/evaluator.go`) already has an `if strings.HasPrefix(name, "image/")` block — no edit needed there for new image variants; it sets `is_image = true` automatically. The type's `Attributes` should emit `img_width` / `img_height` directly (the final CEL names — there is no rename layer; see the `extend-cel-schema` foot-guns).
+- If the new image type emits *additional* attributes beyond `img_width` / `img_height` (e.g. `color_space`, `bit_depth`), each one is a CEL-schema extension — use the `extend-cel-schema` skill.
 
 For a non-image type with its own `is_*` flag (e.g. an `audio/*` family):
 
 - Add an `IsAudio bool` field to `FileAttributes`.
-- Add the `is_audio` CEL variable via the four-place invariant (`extend-cel-schema`).
-- Add a `case strings.HasPrefix(contentTypeName, "audio/"):` branch in `BuildAttributes`.
+- Add a `case "is_audio": return a.attrs.IsAudio, true` to `ResolveName` (`activation.go`) and declare the `is_audio` CEL variable (`extend-cel-schema`).
+- Add an `if strings.HasPrefix(name, "audio/") { attrs.IsAudio = true }` block to `setTypeFlags`.
 
 ## Templates
 
@@ -77,7 +77,7 @@ For a non-image type with its own `is_*` flag (e.g. an `audio/*` family):
 
 ## References
 
-- [references/detection.md](references/detection.md) — how `Registry.Detect` works (extension-then-magic), magic-byte gotchas, and what `Attributes(path)` should and should not do during a walk.
+- [references/detection.md](references/detection.md) — how `Registry.Detect` works (extension-then-magic), magic-byte gotchas, and what `Attributes(ctx, fsys, path)` should and should not do during a walk.
 
 ## Conventions
 

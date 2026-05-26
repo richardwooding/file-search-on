@@ -10,29 +10,21 @@ When a CEL variable is referenced by a compiled expression but missing from the 
 search failed: walk: ...: evaluating CEL expression: no such attribute(s): foo
 ```
 
-This is the failure mode for forgetting place 2 (the activation defaults map) or place 3 (the `attrs.Extra` switch — when the expression explicitly references the attribute and no content type emits it). Compile-only smoke tests don't catch this; the test that catches it is one that actually `Walk`s a real directory.
+This is the failure mode for forgetting to make the attribute *resolvable* in `(*fileAttrsActivation).ResolveName` (`internal/celexpr/activation.go`) — either a `case "foo":` returning a typed field, or a `zeroDefaults` key for an Extra-flowing attribute that no content type emitted on this file. Compile-only smoke tests don't catch this; the test that catches it is one that actually `Walk`s a real directory.
 
-The guard against this is the activation defaults map: every `cel.Variable(...)` declared in `New` MUST have a key in the activation map literal in `Evaluate`, with a zero value of the right type. The audit script enforces this.
+The guard is the `zeroDefaults` map: every `cel.Variable(...)` declared in `New` that resolves through `Extra` MUST have a key in `zeroDefaults`, with a zero value of the right type. (Typed-field attributes resolve via a `ResolveName` case instead and don't need a default.) The audit script enforces `declared == cased ∪ defaulted`.
 
-## The renames in the Extra switch
+## No rename layer — emit the final CEL name
 
-The keys content types emit in their `Attributes()` map are NOT always the same as the CEL variable names. The `attrs.Extra` switch in `Evaluate` is a translation layer.
+**There is no `attrs.Extra` rename switch.** (There used to be one in `Evaluate`; the 2024 activation refactor removed it.) `ResolveName` does a *verbatim* `Extra[name]` lookup, so a content type's `Attributes()` map MUST emit the exact CEL variable name — there is no translation step.
 
-Current renames (in `internal/celexpr/evaluator.go`):
+Concretely: `imagetype.go` emits `img_width` / `img_height` directly (not `width` / `height`); a JSON type that wants the `json_kind` CEL variable must put `"json_kind"` into its returned map, not `"kind"`. If the emitted key and the CEL name diverge, the attribute silently stays at its zero value — no error, just wrong.
 
-| Source key (from `Attributes()`) | CEL variable |
-| --- | --- |
-| `kind` | `json_kind` |
-| `width` | `img_width` |
-| `height` | `img_height` |
-
-All other keys pass through unchanged (`title` → `title`, `word_count` → `word_count`, etc.).
-
-When adding a new attribute, you can either keep the same name on both sides (preferred) or introduce a rename. Renames are warranted when the source key is a generic word that would clash across content types — `kind` makes sense locally inside `jsonType.Attributes` but `json_kind` is clearer in CEL.
+When adding a new attribute, keep the same name on both sides. If you want a "namespaced" CEL name (`json_kind` rather than a bare `kind`), do the naming inside the content type's `Attributes()` map — that's the only place the name is set now.
 
 ## Type mismatches between zero value and `cel.Variable` type
 
-The zero value in the activation map must match the declared CEL type:
+The zero value in the `zeroDefaults` map must match the declared CEL type:
 
 | `cel.Variable` type | Zero value |
 | --- | --- |
@@ -45,37 +37,42 @@ The zero value in the activation map must match the declared CEL type:
 
 cel-go errors with a confusing "unsupported type conversion" message on mismatch. The audit script does not check zero-value types — `go vet` and the existing test suite do.
 
-## Image-family branching
+## Family-prefix branching
 
-Image content types use a name prefix (`image/jpeg`, `image/png`, …). The `BuildAttributes` function in `evaluator.go` (around line 189) maps any name starting with `image/` to `is_image = true` via:
+Family `is_*` predicates are set by name-prefix blocks in `setTypeFlags` (`internal/celexpr/evaluator.go`). For example, any name starting with `image/` sets `attrs.IsImage = true`:
 
 ```go
-case strings.HasPrefix(contentTypeName, "image/"):
-    isImage = true
+if strings.HasPrefix(name, "image/") {
+    attrs.IsImage = true
+}
 ```
 
 When adding a new image variant (e.g. `image/avif`):
 
 1. Register it like any other content type — name MUST start with `image/`.
-2. The `BuildAttributes` branch picks it up automatically; no edit needed there.
+2. The `setTypeFlags` prefix block picks it up automatically; no edit needed there.
 
-When adding a NEW family with its own `is_*` boolean (e.g. an audio family with `is_audio`), you DO need to edit `BuildAttributes`: add a `case strings.HasPrefix(contentTypeName, "audio/"): isAudio = true` and follow the four-place invariant for the `is_audio` CEL variable.
+When adding a NEW family with its own `is_*` boolean (e.g. a 3D-model family with `is_3d_model`), you DO need to:
 
-## When to update the README front-matter table
+1. Add the `Is3DModel bool` field to `FileAttributes`.
+2. Add a `case "is_3d_model": return a.attrs.Is3DModel, true` to `ResolveName` (activation.go).
+3. Add a `if strings.HasPrefix(name, "model3d/") { attrs.Is3DModel = true }` block to `setTypeFlags`.
+4. Declare the `is_3d_model` `cel.Variable` and document it in `Schema()`.
 
-The README has a hand-maintained front-matter table at the bottom of "Markdown front-matter search". Update it when:
+(See the `model3d/`, `image/raw-`, and `font/` families for worked examples.)
 
-- Adding a new front-matter promoted variable (place 4 row in `schema.Frontmatter`).
-- Changing the precedence note (e.g. front-matter > H1 for `title`).
+## You MUST update the README — `schema_docs_test` enforces it
 
-The README does NOT list common attributes (`name`, `size`, …) or type-specific attributes (`page_count`, `img_width`, …) — those live only in `--list` and the MCP `list_attributes` tool. Don't add them to the README.
+`internal/celexpr/schema_docs_test.go` cross-checks every `AttributeDoc` and `FunctionDoc` in `Schema()` against `README.md`: each documented attribute / function name must appear as a backticked literal somewhere in the README, or the test fails with e.g. `README.md missing TypeSpecific attribute "face_count"`.
+
+So when you add a `schema.Common` / `schema.TypeSpecific` / `schema.Frontmatter` entry, also add the name to the matching README table (the per-family attribute tables under "Available attributes", or the front-matter table). This is not optional — `go test ./internal/celexpr/` will go red otherwise. (Historically the README only listed front-matter attributes; the test now covers the full schema.)
 
 ## What the audit script does NOT catch
 
-The audit script enforces the four-place invariant for CEL attribute *names*. It does not check:
+The audit script enforces the declared / resolvable / documented invariant for CEL attribute *names*. It does not check:
 
 - Whether the CEL variable type matches the zero value's Go type.
-- Whether the source key in the Extra switch matches what content types actually emit.
+- Whether the key a content type actually emits into `Extra` matches the declared CEL name (the verbatim lookup means a typo'd emit key silently yields the zero value — see "No rename layer" above).
 - Whether the `AttributeDoc.Type` string in `Schema()` matches the declared `cel.Variable` type.
 
-Those checks are the job of `go build`, `go vet`, and the existing test suite. The audit catches the one class of error that no compiler will.
+Those checks are the job of `go build`, `go vet`, and the existing test suite (including `schema_docs_test.go`, which cross-checks `Schema()` against the README). The audit catches the one class of error that no compiler will.

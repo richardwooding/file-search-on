@@ -1,9 +1,9 @@
 package content
 
-// REPLACE: package import this type needs (e.g. "encoding/csv", "io", "os") and remove unused imports.
+// REPLACE: package imports this type needs (e.g. "encoding/csv", "io") and remove unused imports.
 import (
 	"context"
-	"os"
+	"io/fs"
 )
 
 func init() {
@@ -32,17 +32,22 @@ func (t *<typename>Type) MagicBytes() [][]byte {
 // decode only what you need to extract the attributes you'll surface to CEL.
 // Return Attributes{} (never nil) if there are no type-specific attributes.
 //
+// Read through fsys (NOT os) so the same parser works against real files,
+// archive entries, and in-memory test filesystems. fsys.Open(path) works for
+// sequential reads; for seekable / random access use the helpers in
+// fsutil.go (openReadSeeker, openReaderAt, readAll).
+//
 // ctx must be honoured: check ctx.Err() at entry, and inside any unbounded
 // scan/decode loop. Return ctx.Err() on cancellation so the walker can
 // terminate cleanly instead of finishing this file then bailing.
 //
 // REPLACE: open the file, do the minimum work needed, return the keys. If you
 // add any keys, also follow the extend-cel-schema skill so cel-go sees them.
-func (t *<typename>Type) Attributes(ctx context.Context, path string) (Attributes, error) {
+func (t *<typename>Type) Attributes(ctx context.Context, fsys fs.FS, path string) (Attributes, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	f, err := os.Open(path)
+	f, err := fsys.Open(path)
 	if err != nil {
 		return nil, err
 	}
