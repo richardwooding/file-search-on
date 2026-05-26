@@ -28,7 +28,7 @@ jobs:
           strip -x file-search-on-ocr-helper
           file file-search-on-ocr-helper
           ls -la file-search-on-ocr-helper
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ocr-helper
           path: file-search-on-ocr-helper
@@ -47,7 +47,7 @@ jobs:
           go-version: "1.26.2"
           cache: true
       - name: Download OCR helper artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ocr-helper
           path: dist-extra/
