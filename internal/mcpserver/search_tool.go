@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -35,6 +36,7 @@ type SearchInput struct {
 	WithXattrs       bool     `json:"with_xattrs,omitempty" jsonschema:"When true, populate the xattr family of CEL variables — xattr_keys, xattr_count, is_xattr_rich, is_quarantined, quarantine_agent / event_id / source_url / referrer_url / download_date / user_approved, finder_tags, finder_color, has_finder_comment. Darwin-only — non-Darwin walks leave these empty. Two syscalls (Listxattr + Getxattr) per match; off by default. Filter examples: 'is_mach_o && !is_codesigned && is_quarantined' (downloaded unsigned binaries — malware-triage classic), 'quarantine_source_url.contains(\"github.com\")', 'finder_color == \"red\"'."`
 	OCRImages        bool     `json:"ocr_images,omitempty" jsonschema:"When true, run OCR over image/* files via the registered OCR provider (macOS Vision today; Linux Tesseract / Windows.Media.Ocr are future providers under the same hook). Populates 'body' with recognized text plus ocr_confidence (0..1 average), ocr_language (BCP-47 detected dominant language), ocr_provider (registered provider name). Works independently of include_body — passing ocr_images alone is enough for body.contains() queries on screenshots. Cached in the body cache (bodies_v1); second walk is free. Expensive on first walk (200ms-2s per image). On platforms without a registered provider, the flag is a no-op. Issue #189."`
 	OCRTimeoutMS     int      `json:"ocr_timeout_ms,omitempty" jsonschema:"Per-file OCR timeout in milliseconds. Default 10000 (10s) when zero. The helper subprocess gets SIGKILL on ctx cancellation so a misbehaving image can't stall the walk."`
+	WithPHash        bool     `json:"with_phash,omitempty" jsonschema:"When true, compute the 64-bit perceptual hash of every walked image and surface it as the 'phash' CEL string (16-char hex). Pair with the image_similar_to(phash, ref_path, threshold) CEL function to find visually-similar images. Auto-enabled when the expression references image_similar_to. Cached in the index. ~1ms per image. Issue #208."`
 	HashAllowlistPath string  `json:"hash_allowlist_path,omitempty" jsonschema:"Path to a hash allowlist (newline-separated md5/sha1/sha256 hex, mixed algorithms auto-detected; # comments allowed) OR a pre-built bbolt hashset file. When set, populates is_known_good on each match. Forces compute_hashes on. NSRL / corp-allowlist / threat-intel-allowlist interop. Combine with '!is_known_good && is_binary' to cut a forensic disk image's review surface to known-unknown executables."`
 	HashDenylistPath  string  `json:"hash_denylist_path,omitempty" jsonschema:"Path to a hash denylist (same format as hash_allowlist_path). Populates is_known_bad. Threat-intel-feed / IOC-list interop."`
 	Excludes         []string `json:"excludes,omitempty" jsonschema:"Glob patterns matched against the basename of each file/directory; matched directories are pruned. Example: ['node_modules', '.git', 'target', '*.bak']. Use respect_gitignore for path-aware patterns."`
@@ -157,6 +159,7 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 		BodyMaxBytes:      in.BodyMaxBytes,
 		OCRImages:         in.OCRImages,
 		OCRTimeout:        time.Duration(in.OCRTimeoutMS) * time.Millisecond,
+		WithPHash:         in.WithPHash || strings.Contains(in.Expr, "image_similar_to"),
 		ComputeHashes:     in.ComputeHashes,
 		CheckDisguised:    in.CheckDisguised,
 		ReadExtendedAttributes: in.WithXattrs,

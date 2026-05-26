@@ -621,6 +621,12 @@ var zeroDefaults = map[string]any{
 	"ocr_language":   "",
 	"ocr_provider":   "",
 
+	// Perceptual image hash (issue #208). Populated only when
+	// --with-phash is set or the CEL expression references
+	// image_similar_to(...). Default empty so `phash == ""` cleanly
+	// distinguishes "not computed" from any actual hex value.
+	"phash": "",
+
 	// SQLite WAL sidecar (issue #176).
 	"sqlite_wal_format_version": int64(0),
 	"sqlite_wal_page_size":      int64(0),

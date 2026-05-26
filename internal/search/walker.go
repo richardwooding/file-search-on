@@ -145,6 +145,15 @@ type Options struct {
 	// CLI exposes via `--with-hashes`, MCP via `compute_hashes`.
 	ComputeHashes bool
 
+	// WithPHash, when true, computes the 64-bit perceptual hash of
+	// every walked image and surfaces it as the `phash` CEL string
+	// (16-char hex). Pairs with the `image_similar_to(reference,
+	// threshold)` CEL function for finding visually-similar images.
+	// Auto-enabled when the expression references image_similar_to.
+	// Cached in index.Entry.PHash. CLI: --with-phash. MCP: with_phash.
+	// Issue #208.
+	WithPHash bool
+
 	// CheckDisguised, when true, populates magic_content_type /
 	// extension_content_type / is_disguised on each Result by
 	// running both Registry.Detect tiers (name-based and
@@ -469,6 +478,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 						SemanticQueryEmbedding: opts.SemanticQueryEmbedding,
 						OCRImages:              opts.OCRImages,
 						OCRTimeout:             opts.OCRTimeout,
+						WithPHash:              opts.WithPHash,
 					})
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 						return

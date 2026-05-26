@@ -93,3 +93,44 @@ file-search-on '
 ## Performance note
 
 Levenshtein is O(n × m) per call. N-gram similarity is O(n + m) for set construction plus O(min(|A|, |B|)) for the intersection. Both are fast on the short strings these queries usually touch (artist names, titles, camera makes). For long bodies — e.g. running `ngram_similarity` against PDF abstracts — query throughput can drop noticeably. Filter to a content-type subset first (`is_markdown && ...`) to keep the hot path narrow.
+
+## Perceptual image similarity — `image_similar_to`
+
+Different shape of fuzzy match: find images that LOOK like a reference image, regardless of filename or metadata. Backed by a 64-bit pHash (DCT over an 8×8 low-frequency block, median-thresholded) — robust to resize, JPEG re-encode, and mild brightness / colour shifts. NOT robust to heavy crops, rotation, or mirror flips.
+
+```sh
+# Every image in my Pictures tree that looks like the reference
+file-search-on 'is_image && image_similar_to(phash, "~/Pictures/reference.jpg", 0.85)' -d ~/Pictures
+
+# Stricter — only near-identical variants (distance ≤ 3 bits)
+file-search-on 'is_image && image_similar_to(phash, "~/Pictures/reference.jpg", 0.95)' -d ~/Pictures
+
+# Find RAW + processed JPEG pairs of the same scene
+file-search-on '
+  is_image &&
+  (is_raw_photo || content_type == "image/jpeg") &&
+  image_similar_to(phash, "~/Pictures/scene.jpg", 0.85)
+' -d ~/Pictures
+```
+
+The `phash` attribute populates automatically when `image_similar_to(...)` is in the expression (no `--with-phash` needed). For raw inspection of the hash itself:
+
+```sh
+# Dump every image's pHash for offline grouping
+file-search-on 'is_image' --with-phash -o json -d ~/Pictures | jq -r '"\(.phash)\t\(.path)"'
+
+# Find images with the SAME pHash (exact match — likely the same image)
+file-search-on 'is_image' --with-phash -o json -d ~/Pictures | \
+  jq -r '"\(.phash) \(.path)"' | sort | uniq -d -w 16
+```
+
+Useful Hamming-distance thresholds (computed internally as `(1 - threshold) × 64`):
+
+| Threshold | Max distance | Use case |
+|---|---|---|
+| 0.95 | 3 | Near-identical (JPEG re-save, mild resize) |
+| 0.85 | 9 | Same scene, minor variation |
+| 0.75 | 16 | Same subject, significant edits |
+| 0.5 | 32 | Loose — usually too noisy |
+
+pHash computes in ~1ms per image and caches in the index keyed by `(size, mtime)` — second walks over an unchanged tree are free.

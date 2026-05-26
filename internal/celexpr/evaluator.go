@@ -680,6 +680,10 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("ocr_confidence", cel.DoubleType),
 		cel.Variable("ocr_language", cel.StringType),
 		cel.Variable("ocr_provider", cel.StringType),
+		// Perceptual image hash (issue #208). 16-char hex string;
+		// empty unless --with-phash is set or the expression
+		// references image_similar_to(...).
+		cel.Variable("phash", cel.StringType),
 		// Extended attributes (issue #193). Darwin-only surfacing,
 		// gated by BuildOptions.ReadExtendedAttributes opt-in.
 		cel.Variable("xattr_keys", cel.ListType(cel.StringType)),
@@ -897,6 +901,7 @@ func New(expr string) (*Evaluator, error) {
 	}
 	opts = append(opts, fuzzyFunctions()...)
 	opts = append(opts, geoFunctions()...)
+	opts = append(opts, imageFunctions()...)
 	env, err := cel.NewEnv(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("creating CEL environment: %w", err)
@@ -990,6 +995,18 @@ type BuildOptions struct {
 	// forensic / dedup workflows; CLI exposes via --with-hashes
 	// on the search subcommand, MCP via compute_hashes input.
 	ComputeHashes bool
+
+	// WithPHash, when true, computes the 64-bit perceptual hash of
+	// every image walked and surfaces it as the `phash` CEL string
+	// (16-char hex). The hash is robust to mild resize / JPEG
+	// re-encode / brightness shifts so `image_similar_to(reference,
+	// threshold)` finds visually-similar variants. Pure-Go DCT over
+	// a 32×32 grayscale grid; ~1ms per image. Cached in index.Entry.
+	// PHash under (size, mtime). Auto-enabled when the CEL
+	// expression references `image_similar_to(...)` so callers don't
+	// have to remember the flag. CLI: --with-phash. MCP: with_phash.
+	// Issue #208.
+	WithPHash bool
 
 	// CheckDisguised, when true, makes BuildAttributesWith call
 	// registry.DetectBoth (instead of Detect) and populate
@@ -1230,6 +1247,14 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 			// compute and re-Put so the next call is free.
 			if opts.ComputeHashes {
 				populateHashes(ctx, displayPath, cacheKey, info, cached, attrs, opts.Index)
+			}
+			// Perceptual image hash (issue #208). Only fires on
+			// image/* content types; cache-aware on cached.PHash.
+			if opts.WithPHash {
+				if attrs.Extra == nil {
+					attrs.Extra = content.Attributes{}
+				}
+				populatePHash(ctx, fsys, fsPath, displayPath, cacheKey, cached.ContentType, info, cached, attrs.Extra, opts.Index)
 			}
 			// Hash-allowlist / -denylist membership (PR #146).
 			// Membership depends on the loaded sets, not (size, mtime),
@@ -1484,6 +1509,14 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	// fresh values flow back into the cache so subsequent walks hit.
 	if opts.ComputeHashes {
 		populateHashes(ctx, displayPath, cacheKey, info, nil, attrs, opts.Index)
+	}
+	// Perceptual image hash (issue #208). Cache-miss path: compute
+	// + Put back. Gated to image/* content types inside populatePHash.
+	if opts.WithPHash {
+		if attrs.Extra == nil {
+			attrs.Extra = content.Attributes{}
+		}
+		populatePHash(ctx, fsys, fsPath, displayPath, cacheKey, contentTypeName, info, nil, attrs.Extra, opts.Index)
 	}
 	if opts.Allowlist != nil || opts.Denylist != nil {
 		applyKnownStatus(attrs, opts)

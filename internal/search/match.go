@@ -498,6 +498,13 @@ type Match struct {
 	SHA1   string `json:"sha1,omitempty"`
 	SHA256 string `json:"sha256,omitempty"`
 
+	// Perceptual image hash. Populated when the caller sets
+	// `with_phash: true` (MCP) or `--with-phash` (CLI), or when the
+	// CEL expression references `image_similar_to(...)` (auto-
+	// enables). 16-character hex; empty for non-image files or when
+	// not requested. Issue #208.
+	PHash string `json:"phash,omitempty"`
+
 	// Filesystem-level timestamps (PR #144). RFC3339 strings when
 	// the OS / filesystem tracks them; empty otherwise. CreatedAt
 	// is btime; MetadataChangedAt is ctime. IsBtimeAnomaly fires
@@ -593,6 +600,9 @@ func MatchFrom(r Result) Match {
 	m.IsXattrRich, m.IsQuarantined = a.IsXattrRich, a.IsQuarantined
 	m.IsFont, m.IsTTF, m.IsOTF, m.IsFontCollection, m.IsWOFF, m.IsWOFF2 = a.IsFont, a.IsTTF, a.IsOTF, a.IsFontCollection, a.IsWOFF, a.IsWOFF2
 	m.MD5, m.SHA1, m.SHA256 = a.MD5, a.SHA1, a.SHA256
+	if v, ok := a.Extra["phash"].(string); ok {
+		m.PHash = v
+	}
 	m.Similarity = a.Similarity
 	if !a.CreatedAt.IsZero() {
 		m.CreatedAt = a.CreatedAt.Format(time.RFC3339)
