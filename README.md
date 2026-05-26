@@ -139,6 +139,7 @@ file-search-on -d .                                   # empty expression matches
 | `archive-contents <path> [--expr]` | List or filter entries inside ZIP / TAR / TAR.GZ / GZIP — full CEL vocabulary on per-entry attributes | [examples/archive-search.md](./examples/archive-search.md) |
 | `archive-read <path> <entry>` | Read a single entry's bytes out of an archive without extracting | [examples/archive-search.md](./examples/archive-search.md) |
 | `find-matches <re> --expr <cel> -C N` | Line-level regex hits with context | [examples/find-matches.md](./examples/find-matches.md) |
+| `organize <expr> --link-into <template>` | Build a templated symlink / copy tree from results — `{raw_vendor}/{taken_at_year}/{basename}` etc. | [examples/organize.md](./examples/organize.md) |
 | `lines <path> --start --end` | Print a line range | [examples/read-lines.md](./examples/read-lines.md) |
 | `detect-project [dir]` | Identify project type(s) of a directory | [examples/projects.md](./examples/projects.md) |
 | `find-projects [root]` | Walk a tree listing every project subdirectory | [examples/projects.md](./examples/projects.md) |
@@ -266,6 +267,7 @@ Focused recipe collections live under [`examples/`](./examples/):
 | [`examples/read-lines.md`](./examples/read-lines.md) | Print a specific line range from a file — pairs with `search` to fetch match context |
 | [`examples/duplicates.md`](./examples/duplicates.md) | Find byte-identical files by sha256 — `file-search-on duplicates [--min-size N]` |
 | [`examples/near-duplicates.md`](./examples/near-duplicates.md) | Find SIMILAR files by SimHash fingerprint — `file-search-on near-duplicates --threshold 0.85` |
+| [`examples/organize.md`](./examples/organize.md) | Organize by query — templated symlink / copy trees from search results (`organize … --link-into '{raw_vendor}/{taken_at_year}/{basename}'`) |
 
 A handful of representative one-liners:
 
