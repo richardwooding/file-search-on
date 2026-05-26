@@ -613,6 +613,14 @@ var zeroDefaults = map[string]any{
 	"live_photo_video_size": int64(0),
 	"live_photo_image_path": "",
 
+	// Image OCR (issue #189). Populated only when --ocr is set AND a
+	// provider is Available on this platform. Defaults are zero so
+	// queries against `ocr_confidence > 0.8` cleanly miss on files
+	// that weren't OCRed (no false positives).
+	"ocr_confidence": float64(0),
+	"ocr_language":   "",
+	"ocr_provider":   "",
+
 	// SQLite WAL sidecar (issue #176).
 	"sqlite_wal_format_version": int64(0),
 	"sqlite_wal_page_size":      int64(0),

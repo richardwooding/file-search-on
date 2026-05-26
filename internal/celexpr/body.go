@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/richardwooding/file-search-on/internal/content"
+	"github.com/richardwooding/file-search-on/internal/content/ocr"
 	"github.com/richardwooding/file-search-on/internal/cryptohash"
 	"github.com/richardwooding/file-search-on/internal/embed"
 	"github.com/richardwooding/file-search-on/internal/hashset"
@@ -285,6 +286,100 @@ func populateHashes(ctx context.Context, displayPath, cacheKey string, info fs.F
 		entry.SHA1 = trio.SHA1
 		entry.Hash = trio.SHA256
 		_ = idx.Put(cacheKey, entry)
+	}
+}
+
+// defaultOCRTimeout is the per-file OCR ceiling when
+// BuildOptions.OCRTimeout is unset. 10 seconds matches the issue #189
+// design — a typical screenshot OCRs in 200ms-2s; pathological images
+// (huge resolution, dense glyphs) can take longer. Beyond 10s the
+// helper process gets SIGKILL via ctx cancellation.
+const defaultOCRTimeout = 10 * time.Second
+
+// runImageOCR runs the registered OCR provider over an image file and
+// stamps the result (text + confidence + language + provider) into
+// extras. Cache-aware on bodies_v1 the same way lookupOrExtractBody is:
+// a hit returns the cached text without re-running the helper; a miss
+// runs the helper and PutBody's the result.
+//
+// Caller contract: only call when opts.OCRImages is true AND the
+// content type is `image/*`. The function gates on ocr.HasProvider()
+// internally so callers on non-target platforms still no-op cleanly.
+//
+// Three extras get stamped:
+//   - "body" — the recognized text (joined lines, newline-separated).
+//   - "ocr_confidence" — average per-line confidence (float64, 0..1).
+//   - "ocr_language" — BCP-47 dominant language ("en" / "ja" / "zh-Hans") or
+//     empty when the recognizer couldn't decide.
+//   - "ocr_provider" — registered provider name ("vision-macos").
+//
+// On any error (helper not found, ctx timeout, parse failure), the
+// function returns silently — extras are left as-is, matching the
+// "best effort, empty on failure" contract of every other body
+// extractor.
+//
+// Issue #189.
+func runImageOCR(ctx context.Context, displayPath, cacheKey string, info fs.FileInfo, extras content.Attributes, opts BuildOptions) {
+	if !ocr.HasProvider() {
+		return
+	}
+	if displayPath == "" {
+		// In-memory test filesystems / archive-walk paths can't be
+		// handed to the helper — it needs a real OS path.
+		return
+	}
+
+	// Body-cache fast path. On hit, the text body comes back without a
+	// helper call; the OCR extras (confidence / language / provider)
+	// live in the attrs_v1 cache alongside the rest of Extra, so the
+	// cache-hit path at BuildAttributesWith's assembleFromCache returns
+	// them for free.
+	if opts.Index != nil && cacheKey != "" {
+		if body, ok := opts.Index.LookupBody(cacheKey, info.Size(), info.ModTime()); ok {
+			if body != "" {
+				extras["body"] = body
+			}
+			return
+		}
+	}
+
+	p := ocr.Default()
+	if p == nil {
+		return
+	}
+
+	timeout := opts.OCRTimeout
+	if timeout <= 0 {
+		timeout = defaultOCRTimeout
+	}
+	ocrCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	result, err := p.Recognize(ocrCtx, displayPath)
+	if err != nil {
+		return
+	}
+	if result.Text != "" {
+		extras["body"] = result.Text
+	}
+	extras["ocr_confidence"] = result.Confidence
+	if result.Language != "" {
+		extras["ocr_language"] = result.Language
+	}
+	if result.Provider != "" {
+		extras["ocr_provider"] = result.Provider
+	}
+
+	// Cache the body for the next walk. The attrs cache (attrs_v1) is
+	// written separately by BuildAttributesWith after this function
+	// returns; the OCR extras above land in extras → Extra → attrs_v1.
+	if opts.Index != nil && cacheKey != "" && result.Text != "" {
+		_ = opts.Index.PutBody(cacheKey, &index.BodyEntry{
+			Size:            info.Size(),
+			ModTimeUnixNano: info.ModTime().UnixNano(),
+			CreatedUnixNano: time.Now().UnixNano(),
+			Body:            result.Text,
+		})
 	}
 }
 

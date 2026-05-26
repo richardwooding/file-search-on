@@ -419,6 +419,9 @@ func Schema() SchemaDoc {
 			{"live_photo_video_path", "string", "Absolute path to the paired Live Photo `.mov` when `is_live_photo` is true; otherwise empty. Populated only on the HEIC (image) side of the pair."},
 			{"live_photo_video_size", "int", "Byte size of the paired Live Photo `.mov` when `is_live_photo` is true; otherwise zero. Cheap follow-on `os.Stat` from the sibling lookup, so available without extra cost."},
 			{"live_photo_image_path", "string", "Absolute path to the paired HEIC still when `is_live_photo_video` is true; otherwise empty. Populated only on the MOV (video) side of the pair."},
+			{"ocr_confidence", "double", "Average per-line OCR confidence (0..1) across all recognized text in an image. Populated only when `--ocr` is set AND an OCR provider is available on this platform (macOS Vision today; Linux Tesseract / Windows.Media.Ocr are future providers under the same hook). Agents can filter `ocr_confidence > 0.8` to skip noisy / handwritten content."},
+			{"ocr_language", "string", "Detected dominant language of the OCR text as a BCP-47 code (e.g. `en`, `ja`, `zh-Hans`). Empty when the recognizer couldn't decide (short text, ambiguous script). macOS Vision uses `NLLanguageRecognizer` over the recognized text — same engine that powers Spotlight + Live Text."},
+			{"ocr_provider", "string", "Registered provider name that produced the OCR result: `vision-macos` today. Future providers will surface their own names (`tesseract`, `win-media-ocr`) under the same attribute so agent queries against `ocr_provider == \"vision-macos\"` stay forward-compatible."},
 		},
 		Frontmatter: []AttributeDoc{
 			{"frontmatter", "map", "full parsed front-matter, e.g. frontmatter.category"},

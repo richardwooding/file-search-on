@@ -22,6 +22,7 @@ builds:
 
 archives:
   - id: default
+    ids: [file-search-on]
     formats: [tar.gz]
     format_overrides:
       - goos: windows
@@ -31,6 +32,14 @@ archives:
     files:
       - README.md
       - LICENSE
+      # macOS Vision OCR helper (issue #189) — bundled in every
+      # archive, used only on darwin. The ~70KB cost is trivial vs.
+      # the workflow complexity of per-OS archive splitting. The Go
+      # binary's helper-locator (sibling to os.Executable()) finds
+      # it; on non-darwin builds the helper is never invoked because
+      # no OCR provider registers.
+      - src: dist-extra/file-search-on-ocr-helper
+        dst: file-search-on-ocr-helper
 
 checksum:
   name_template: "checksums.txt"
@@ -83,6 +92,10 @@ homebrew_casks:
   - name: file-search-on
     binaries:
       - file-search-on
+      # OCR helper (issue #189). The Go binary's helper-locator
+      # finds it as a sibling of os.Executable() — Homebrew installs
+      # both under the same bin/ directory.
+      - file-search-on-ocr-helper
     repository:
       owner: richardwooding
       name: homebrew-tap

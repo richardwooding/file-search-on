@@ -10,7 +10,33 @@ permissions:
   id-token: write
 
 jobs:
+  # Compile the macOS Vision OCR helper (issue #189) as a universal
+  # arm64+amd64 binary. Uploaded as an artifact so the goreleaser job
+  # (running on ubuntu-latest, can't run swiftc) can bundle it into
+  # the darwin_* release archives.
+  build-ocr-helper:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Compile + lipo
+        run: |
+          set -euo pipefail
+          src=internal/content/ocr/vision-helper/main.swift
+          swiftc -O -target arm64-apple-macosx11.0 "$src"   -o helper-arm64
+          swiftc -O -target x86_64-apple-macosx11.0 "$src"  -o helper-amd64
+          lipo -create helper-arm64 helper-amd64 -output file-search-on-ocr-helper
+          strip -x file-search-on-ocr-helper
+          file file-search-on-ocr-helper
+          ls -la file-search-on-ocr-helper
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ocr-helper
+          path: file-search-on-ocr-helper
+          if-no-files-found: error
+          retention-days: 1
+
   goreleaser:
+    needs: build-ocr-helper
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -20,6 +46,13 @@ jobs:
         with:
           go-version: "1.26.2"
           cache: true
+      - name: Download OCR helper artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ocr-helper
+          path: dist-extra/
+      - name: Mark helper executable
+        run: chmod +x dist-extra/file-search-on-ocr-helper
       - name: Log in to ghcr.io
         uses: docker/login-action@v4
         with:
