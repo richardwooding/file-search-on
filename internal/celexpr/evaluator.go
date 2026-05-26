@@ -332,6 +332,17 @@ type FileAttributes struct {
 	IsRW2 bool
 	IsRawPhoto bool
 
+	// 3D model content types (issue #213). Is3DModel is the umbrella
+	// family flag, set via the `model3d/` prefix block in setTypeFlags;
+	// per-format flags fire on the matched content_type (model3d/stl,
+	// model3d/obj, model3d/gltf). Per-mesh attributes (vertex_count,
+	// face_count, has_normals, has_textures, materials, bounding_box)
+	// come from the parser and live in Extra.
+	IsSTL     bool
+	IsOBJ     bool
+	IsGLTF    bool
+	Is3DModel bool
+
 	// Extended attributes (issue #193). Populated by applyXattrs
 	// when BuildOptions.ReadExtendedAttributes is set. Darwin-only;
 	// other platforms leave both false. IsXattrRich is the umbrella
@@ -684,6 +695,18 @@ func New(expr string) (*Evaluator, error) {
 		// empty unless --with-phash is set or the expression
 		// references image_similar_to(...).
 		cel.Variable("phash", cel.StringType),
+		// 3D model content types (issue #213).
+		cel.Variable("is_3d_model", cel.BoolType),
+		cel.Variable("is_stl", cel.BoolType),
+		cel.Variable("is_obj", cel.BoolType),
+		cel.Variable("is_gltf", cel.BoolType),
+		cel.Variable("model3d_format", cel.StringType),
+		cel.Variable("vertex_count", cel.IntType),
+		cel.Variable("face_count", cel.IntType),
+		cel.Variable("has_normals", cel.BoolType),
+		cel.Variable("has_textures", cel.BoolType),
+		cel.Variable("materials", cel.ListType(cel.StringType)),
+		cel.Variable("bounding_box", cel.ListType(cel.DoubleType)),
 		// Extended attributes (issue #193). Darwin-only surfacing,
 		// gated by BuildOptions.ReadExtendedAttributes opt-in.
 		cel.Variable("xattr_keys", cel.ListType(cel.StringType)),
@@ -1766,6 +1789,15 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 		attrs.IsORF = true
 	case "image/raw-rw2":
 		attrs.IsRW2 = true
+
+	// 3D model content types. Per-format flag fires here; family flag
+	// Is3DModel fires via the `model3d/` prefix block below.
+	case "model3d/stl":
+		attrs.IsSTL = true
+	case "model3d/obj":
+		attrs.IsOBJ = true
+	case "model3d/gltf":
+		attrs.IsGLTF = true
 	}
 
 	// Family prefix flags. Independent `if` blocks rather than a
@@ -1857,6 +1889,9 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 	}
 	if strings.HasPrefix(name, "image/raw-") {
 		attrs.IsRawPhoto = true
+	}
+	if strings.HasPrefix(name, "model3d/") {
+		attrs.Is3DModel = true
 	}
 }
 

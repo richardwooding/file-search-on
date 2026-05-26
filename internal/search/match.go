@@ -505,6 +505,16 @@ type Match struct {
 	// not requested. Issue #208.
 	PHash string `json:"phash,omitempty"`
 
+	// 3D model attributes (issue #213). Populated for model3d/* files
+	// (STL / OBJ / glTF). Empty / zero for everything else.
+	Model3DFormat string    `json:"model3d_format,omitempty"`
+	VertexCount   int64     `json:"vertex_count,omitempty"`
+	FaceCount     int64     `json:"face_count,omitempty"`
+	HasNormals    bool      `json:"has_normals,omitempty"`
+	HasTextures   bool      `json:"has_textures,omitempty"`
+	Materials     []string  `json:"materials,omitempty"`
+	BoundingBox   []float64 `json:"bounding_box,omitempty"`
+
 	// Filesystem-level timestamps (PR #144). RFC3339 strings when
 	// the OS / filesystem tracks them; empty otherwise. CreatedAt
 	// is btime; MetadataChangedAt is ctime. IsBtimeAnomaly fires
@@ -602,6 +612,27 @@ func MatchFrom(r Result) Match {
 	m.MD5, m.SHA1, m.SHA256 = a.MD5, a.SHA1, a.SHA256
 	if v, ok := a.Extra["phash"].(string); ok {
 		m.PHash = v
+	}
+	if v, ok := a.Extra["model3d_format"].(string); ok {
+		m.Model3DFormat = v
+	}
+	if v, ok := a.Extra["vertex_count"].(int64); ok {
+		m.VertexCount = v
+	}
+	if v, ok := a.Extra["face_count"].(int64); ok {
+		m.FaceCount = v
+	}
+	if v, ok := a.Extra["has_normals"].(bool); ok {
+		m.HasNormals = v
+	}
+	if v, ok := a.Extra["has_textures"].(bool); ok {
+		m.HasTextures = v
+	}
+	if v, ok := a.Extra["materials"].([]string); ok {
+		m.Materials = v
+	}
+	if v, ok := a.Extra["bounding_box"].([]float64); ok {
+		m.BoundingBox = v
 	}
 	m.Similarity = a.Similarity
 	if !a.CreatedAt.IsZero() {

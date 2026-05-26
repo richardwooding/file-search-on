@@ -132,6 +132,12 @@ jobs:
           - name: ReadUIntBase128
             pkg: ./internal/content/
             func: FuzzReadUIntBase128
+          - name: ParseSTL
+            pkg: ./internal/content/
+            func: FuzzParseSTL
+          - name: ReadGLBJSONChunk
+            pkg: ./internal/content/
+            func: FuzzReadGLBJSONChunk
           - name: CELCompile
             pkg: ./internal/celexpr/
             func: FuzzCELCompile
