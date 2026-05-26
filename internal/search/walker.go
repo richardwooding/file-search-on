@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/richardwooding/file-search-on/internal/celexpr"
 	"github.com/richardwooding/file-search-on/internal/content"
@@ -118,6 +119,22 @@ type Options struct {
 	// filter; snippet is for the caller to see.
 	IncludeBody  bool
 	BodyMaxBytes int // hard cap on the body string in bytes; 0 → 1 MiB default
+
+	// OCRImages, when true, runs OCR over `image/*` files via the
+	// registered OCR provider (macOS Vision today). The recognized
+	// text populates the `body` CEL variable; per-line confidence,
+	// detected language, and provider name populate `ocr_confidence`
+	// / `ocr_language` / `ocr_provider`. Issue #189.
+	//
+	// Independent of IncludeBody — passing --ocr alone populates body
+	// for images. On platforms without a registered OCR provider
+	// (Linux / Windows today), the flag is a no-op.
+	OCRImages bool
+
+	// OCRTimeout caps each per-file OCR call. Defaults to 10s when
+	// zero; the helper subprocess gets SIGKILL on ctx cancellation
+	// so a misbehaving image can't stall the walk.
+	OCRTimeout time.Duration
 
 	// ComputeHashes, when true, populates MD5 / SHA1 / SHA256 on
 	// each Result by reading the file fully (one io.MultiWriter
@@ -450,6 +467,8 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 						Denylist:               opts.Denylist,
 						Embedder:               opts.Embedder,
 						SemanticQueryEmbedding: opts.SemanticQueryEmbedding,
+						OCRImages:              opts.OCRImages,
+						OCRTimeout:             opts.OCRTimeout,
 					})
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 						return

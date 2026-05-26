@@ -672,6 +672,14 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("live_photo_video_path", cel.StringType),
 		cel.Variable("live_photo_video_size", cel.IntType),
 		cel.Variable("live_photo_image_path", cel.StringType),
+		// Image OCR (issue #189). Populated only when BuildOptions.
+		// OCRImages is set AND a provider (macOS Vision today) is
+		// registered + Available. `body` reuses the existing CEL var
+		// so `body.contains(...)` queries work the same as for
+		// markdown / SQLite FTS / etc.
+		cel.Variable("ocr_confidence", cel.DoubleType),
+		cel.Variable("ocr_language", cel.StringType),
+		cel.Variable("ocr_provider", cel.StringType),
 		// Extended attributes (issue #193). Darwin-only surfacing,
 		// gated by BuildOptions.ReadExtendedAttributes opt-in.
 		cel.Variable("xattr_keys", cel.ListType(cel.StringType)),
@@ -1044,6 +1052,31 @@ type BuildOptions struct {
 	// search requested".
 	Embedder               embed.Embedder
 	SemanticQueryEmbedding []float32
+
+	// OCRImages, when true, runs OCR over `image/*` files via the
+	// registered OCR provider (macOS Vision today, future Tesseract /
+	// Windows.Media.Ocr providers slot into the same hook). The
+	// recognized text populates the `body` CEL variable; the average
+	// per-line confidence, detected language, and provider name
+	// populate `ocr_confidence` / `ocr_language` / `ocr_provider`.
+	//
+	// Off by default. OCR is expensive (200ms-2s per image first
+	// walk; cached on subsequent walks via bodies_v1). CLI exposes
+	// via --ocr; MCP via ocr_images.
+	//
+	// Independent of IncludeBody — passing --ocr alone is enough to
+	// populate `body` on images. Document body extraction for non-
+	// image types still requires --body.
+	//
+	// On platforms without a registered OCR provider (Linux / Windows
+	// today), the flag is a no-op: ocr.HasProvider() returns false
+	// and the OCR hook short-circuits.
+	OCRImages bool
+
+	// OCRTimeout caps each per-file OCR call. Defaults to 10 seconds
+	// when zero; the helper process gets SIGKILL when the ctx times
+	// out so a misbehaving image can't stall the walk.
+	OCRTimeout time.Duration
 }
 
 // defaultBodyMaxBytes caps the body string supplied to CEL when
@@ -1161,6 +1194,18 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 					}
 					attrs.Extra["body"] = body
 				}
+			}
+			// Image OCR on cache hit: cached.Extra carries OCR extras
+			// from the prior walk's runImageOCR call (attrs_v1). The
+			// bodies_v1 cache carries the OCR text. runImageOCR's
+			// internal cache-hit path returns immediately — no helper
+			// invocation needed unless the previous walk didn't run
+			// OCR (e.g. user just added --ocr).
+			if opts.OCRImages && strings.HasPrefix(cached.ContentType, "image/") {
+				if attrs.Extra == nil {
+					attrs.Extra = content.Attributes{}
+				}
+				runImageOCR(ctx, displayPath, cacheKey, info, attrs.Extra, opts)
 			}
 			// Same project-context wiring as the cache-miss path —
 			// the index doesn't (and shouldn't) cache project context.
@@ -1388,6 +1433,18 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 			}
 			extra["body"] = body
 		}
+	}
+
+	// Image OCR (issue #189). Independent of IncludeBody — passing
+	// --ocr alone is enough to populate `body` for screenshots. The
+	// runImageOCR helper handles its own body-cache integration; the
+	// OCR extras (confidence/language/provider) flow into Extra and
+	// get cached via attrs_v1 below.
+	if opts.OCRImages && strings.HasPrefix(contentTypeName, "image/") {
+		if extra == nil {
+			extra = content.Attributes{}
+		}
+		runImageOCR(ctx, displayPath, cacheKey, info, extra, opts)
 	}
 
 	// Project-context resolution. NOT cached in the index — the
