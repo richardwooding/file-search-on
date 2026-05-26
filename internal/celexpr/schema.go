@@ -469,6 +469,18 @@ func Schema() SchemaDoc {
 				Description: "True when this file's pHash (passed as the first arg, typically the `phash` CEL variable) and the reference image's pHash differ by ≤ (1 - threshold) × 64 bits (Hamming). The reference image is loaded + hashed once per process and cached. Reference path supports a leading `~/`. Pair with `--with-phash` (or any expression referencing `image_similar_to` auto-enables it) so the file's `phash` attribute is populated. Returns false when the file's phash is empty (non-image, or pHash computation hasn't run) or when the reference can't be decoded.",
 				Example:     `is_image && image_similar_to(phash, "~/Pictures/reference.jpg", 0.85)`,
 			},
+			{
+				Name:        "has_secrets",
+				Signature:   "has_secrets(string) -> bool",
+				Description: "True when the argument (typically the `body` variable, so requires --body / include_body) contains a credential / token / key matching the built-in catalogue: AWS access + secret keys, GitHub PATs, GitLab / Slack / Stripe / Google / npm / OpenAI tokens, PEM private keys, JWTs, credit-card numbers, and context-anchored password/secret assignments. Anchored RE2 patterns (low false-positive). Short-circuits on first match. Detection only — no validation / redaction.",
+				Example:     `is_source && has_secrets(body)`,
+			},
+			{
+				Name:        "secret_kinds",
+				Signature:   "secret_kinds(string) -> list<string>",
+				Description: "Returns the sorted list of secret categories matched in the argument (typically `body`): e.g. [\"aws-access-key\", \"github-token\", \"private-key-pem\"]. Empty list when none match. Companion to has_secrets when you want to know WHICH kind fired. Filter with CEL membership: `\"aws-access-key\" in secret_kinds(body)`.",
+				Example:     `is_json && "private-key-pem" in secret_kinds(body)`,
+			},
 		},
 	}
 }

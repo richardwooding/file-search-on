@@ -75,7 +75,7 @@ func readSnippet(ctx context.Context, fsys fs.FS, fsPath string, n int) (string,
 // not text.
 func isTextContentType(name string) bool {
 	switch name {
-	case "markdown", "text", "html", "csv", "json", "xml":
+	case "markdown", "text", "html", "csv", "json", "xml", "yaml", "toml":
 		return true
 	}
 	// Source code (Go, Python, JS, …) — all 18 languages are text.

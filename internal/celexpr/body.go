@@ -29,7 +29,7 @@ import (
 // LimitReader semantics.
 func isTextForBody(name string) bool {
 	switch name {
-	case "markdown", "text", "html", "csv", "json", "xml":
+	case "markdown", "text", "html", "csv", "json", "xml", "yaml", "toml":
 		return true
 	}
 	return strings.HasPrefix(name, "source/")

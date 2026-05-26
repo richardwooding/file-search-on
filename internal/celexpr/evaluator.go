@@ -902,6 +902,7 @@ func New(expr string) (*Evaluator, error) {
 	opts = append(opts, fuzzyFunctions()...)
 	opts = append(opts, geoFunctions()...)
 	opts = append(opts, imageFunctions()...)
+	opts = append(opts, secretFunctions()...)
 	env, err := cel.NewEnv(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("creating CEL environment: %w", err)

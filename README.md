@@ -253,7 +253,8 @@ Focused recipe collections live under [`examples/`](./examples/):
 | [`examples/notebooks.md`](./examples/notebooks.md) | Jupyter (`.ipynb`) and Apache Zeppelin (`.zpln`) — `cell_count`, `code_cell_count`, `kernel`, `language` |
 | [`examples/projects.md`](./examples/projects.md) | Project type detection — `detect-project` / `find-projects` for go / node / rust / python / terraform / docker-compose / … |
 | [`examples/cookbook.md`](./examples/cookbook.md) | Cross-cutting recipes — dedupe, mixed media filters, pipeline integration |
-| [`examples/fuzzy-search.md`](./examples/fuzzy-search.md) | Fuzzy / phonetic / n-gram similarity matching — `levenshtein`, `soundex`, `ngrams`, `ngram_similarity` |
+| [`examples/fuzzy-search.md`](./examples/fuzzy-search.md) | Fuzzy / phonetic / n-gram similarity matching — `levenshtein`, `soundex`, `ngrams`, `ngram_similarity`; perceptual image similarity (`image_similar_to`) |
+| [`examples/secret-scan.md`](./examples/secret-scan.md) | Credential / token triage — `has_secrets(body)` + `secret_kinds(body)` over file content |
 | [`examples/indexing.md`](./examples/indexing.md) | Persistent attribute index (`--index-path`) — cold/warm CLI runs, MCP auto-on cache, refresh + inspection |
 | [`examples/timeouts.md`](./examples/timeouts.md) | Timeouts and partial results — CLI `--timeout`, MCP `timeout_seconds`, exit codes, cancellation semantics |
 | [`examples/top-k.md`](./examples/top-k.md) | Top-K queries — `--sort` + `--limit` for "biggest 5 videos", "10 most recent photos", etc. |
@@ -364,6 +365,8 @@ file-search-on 'is_html && dir.contains("build")'
 | `ngram_similarity(a, b, n)` | double | Jaccard similarity over n-gram sets, 0.0–1.0 |
 | `point_in_polygon(lat, lon, polygon)` | bool | Ray-casting; `polygon` is a flat `lat,lon,lat,lon,…` list |
 | `image_similar_to(phash, ref_path, threshold)` | bool | Perceptual image similarity via pHash Hamming distance; auto-enables `--with-phash` |
+| `has_secrets(body)` | bool | True when the body contains a credential / token / key (AWS, GitHub, Slack, Stripe, PEM, JWT, …). Requires `--body` |
+| `secret_kinds(body)` | list&lt;string&gt; | The secret categories matched in the body — `["aws-access-key", "private-key-pem", …]`. Requires `--body` |
 
 CEL's standard string methods (`contains`, `startsWith`, `endsWith`, `matches`, `size`) work on every string attribute. Recipes: [examples/fuzzy-search.md](./examples/fuzzy-search.md).
 
