@@ -11,6 +11,7 @@ import (
 	"github.com/richardwooding/file-search-on/internal/content/ocr"
 	"github.com/richardwooding/file-search-on/internal/cryptohash"
 	"github.com/richardwooding/file-search-on/internal/embed"
+	"github.com/richardwooding/file-search-on/internal/fingerprint"
 	"github.com/richardwooding/file-search-on/internal/hashset"
 	"github.com/richardwooding/file-search-on/internal/index"
 )
@@ -285,6 +286,54 @@ func populateHashes(ctx context.Context, displayPath, cacheKey string, info fs.F
 		entry.MD5 = trio.MD5
 		entry.SHA1 = trio.SHA1
 		entry.Hash = trio.SHA256
+		_ = idx.Put(cacheKey, entry)
+	}
+}
+
+// populatePHash fills attrs.Extra["phash"] (16-char hex) with the
+// perceptual hash of the image, when:
+//   - the file is image-shaped (contentTypeName starts with "image/")
+//   - opts.WithPHash is set OR the CEL expression references
+//     image_similar_to(...) — the caller sets WithPHash accordingly
+//
+// Cache-aware: when the cached entry carries a non-zero PHash, it's
+// reused without re-decoding the image; otherwise the image is
+// decoded + hashed and the result Put back to the cache.
+//
+// Errors degrade silently — an unreadable image leaves phash empty.
+// Issue #208.
+func populatePHash(ctx context.Context, fsys fs.FS, fsPath, displayPath, cacheKey, contentTypeName string, info fs.FileInfo, cached *index.Entry, extra content.Attributes, idx index.Index) {
+	if err := ctx.Err(); err != nil {
+		return
+	}
+	if !strings.HasPrefix(contentTypeName, "image/") {
+		return
+	}
+	// Cache hit — reuse without decoding the image.
+	if cached != nil && cached.PHash != 0 {
+		extra["phash"] = fingerprint.PHashHex(cached.PHash)
+		return
+	}
+	f, err := fsys.Open(fsPath)
+	if err != nil {
+		return
+	}
+	defer func() { _ = f.Close() }()
+	hash, err := fingerprint.PHash(f)
+	if err != nil || hash == 0 {
+		return
+	}
+	extra["phash"] = fingerprint.PHashHex(hash)
+	if idx != nil && cacheKey != "" {
+		entry := cached
+		if entry == nil {
+			entry = &index.Entry{
+				Size:            info.Size(),
+				ModTimeUnixNano: info.ModTime().UnixNano(),
+				ContentType:     contentTypeName,
+			}
+		}
+		entry.PHash = hash
 		_ = idx.Put(cacheKey, entry)
 	}
 }

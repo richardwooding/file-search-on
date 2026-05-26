@@ -90,6 +90,17 @@ type Entry struct {
 	// the near-duplicates path treats as "not fingerprinted yet"
 	// and re-computes on the next access.
 	Fingerprint uint64
+	// PHash is the 64-bit perceptual hash of the IMAGE pixels (DCT
+	// over an 8×8 low-frequency block, median-threshold). Populated
+	// only for image/* content types when the caller opts in via
+	// BuildOptions.WithPHash. Zero for non-images and for entries
+	// where pHash hasn't been computed yet — agents can detect "no
+	// pHash" via `phash == ""` since the wire format is the hex
+	// encoding of this u64. Stable under (size, mtime) — the pixels
+	// haven't changed, so the pHash hasn't either. gob-additive:
+	// pre-#208 entries decode with PHash=0 and the next pHash pass
+	// repopulates them. Issue #208.
+	PHash uint64
 	// EntryAttributes carries the per-entry attribute records for an
 	// archive file's contents, used by the find-in-archive tools to
 	// avoid re-walking and re-detecting on repeat queries. Nil

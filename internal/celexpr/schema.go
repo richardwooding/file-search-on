@@ -422,6 +422,7 @@ func Schema() SchemaDoc {
 			{"ocr_confidence", "double", "Average per-line OCR confidence (0..1) across all recognized text in an image. Populated only when `--ocr` is set AND an OCR provider is available on this platform (macOS Vision today; Linux Tesseract / Windows.Media.Ocr are future providers under the same hook). Agents can filter `ocr_confidence > 0.8` to skip noisy / handwritten content."},
 			{"ocr_language", "string", "Detected dominant language of the OCR text as a BCP-47 code (e.g. `en`, `ja`, `zh-Hans`). Empty when the recognizer couldn't decide (short text, ambiguous script). macOS Vision uses `NLLanguageRecognizer` over the recognized text — same engine that powers Spotlight + Live Text."},
 			{"ocr_provider", "string", "Registered provider name that produced the OCR result: `vision-macos` today. Future providers will surface their own names (`tesseract`, `win-media-ocr`) under the same attribute so agent queries against `ocr_provider == \"vision-macos\"` stay forward-compatible."},
+			{"phash", "string", "16-character hex perceptual hash of an image (64-bit pHash via DCT over a 32×32 grid). Robust to mild resize / JPEG re-encode / brightness shifts. Empty unless `--with-phash` is set OR the expression references `image_similar_to(...)` (which auto-enables computation). Compare two images with `image_similar_to(reference_path, threshold)`; Hamming distance ≤ 8 ≈ 87% similar, ≤ 12 ≈ 81%, ≥ 20 likely different scenes. NOT robust to heavy cropping, rotation, or mirror flips."},
 		},
 		Frontmatter: []AttributeDoc{
 			{"frontmatter", "map", "full parsed front-matter, e.g. frontmatter.category"},
@@ -461,6 +462,12 @@ func Schema() SchemaDoc {
 				Signature:   "point_in_polygon(double, double, list<double>) -> bool",
 				Description: "Test whether (lat, lon) lies inside an arbitrary polygon. The third argument is a flat list of alternating lat,lon pairs: [lat0, lon0, lat1, lon1, ...]. Polygon need not be explicitly closed; planar ray-casting (good for neighbourhoods / cities / small countries).",
 				Example:     `is_image && point_in_polygon(gps_lat, gps_lon, [-34.10, 18.30, -34.10, 18.50, -33.90, 18.50, -33.90, 18.30])`,
+			},
+			{
+				Name:        "image_similar_to",
+				Signature:   "image_similar_to(string, string, double) -> bool",
+				Description: "True when this file's pHash (passed as the first arg, typically the `phash` CEL variable) and the reference image's pHash differ by ≤ (1 - threshold) × 64 bits (Hamming). The reference image is loaded + hashed once per process and cached. Reference path supports a leading `~/`. Pair with `--with-phash` (or any expression referencing `image_similar_to` auto-enables it) so the file's `phash` attribute is populated. Returns false when the file's phash is empty (non-image, or pHash computation hasn't run) or when the reference can't be decoded.",
+				Example:     `is_image && image_similar_to(phash, "~/Pictures/reference.jpg", 0.85)`,
 			},
 		},
 	}
