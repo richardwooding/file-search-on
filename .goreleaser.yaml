@@ -107,17 +107,25 @@ homebrew_casks:
     commit_msg_template: "Brew cask update for {{ .ProjectName }} {{ .Tag }}"
     homepage: "https://github.com/richardwooding/file-search-on"
     description: "Content-type aware file search with CEL attribute filtering"
-    # Strip the quarantine xattr so macOS Gatekeeper doesn't block the
-    # unsigned binary on first run. See issue tracking real
-    # signing+notarization for the long-term fix.
+    # Strip the quarantine xattr from BOTH binaries so macOS Gatekeeper
+    # doesn't block them on first run. Both `file-search-on` and the
+    # `file-search-on-ocr-helper` it execs are unsigned; without the
+    # strip, the helper subprocess fails Gatekeeper's launch check and
+    # OCR silently returns empty bodies (best-effort body contract).
+    # See issue tracking real signing+notarization for the long-term fix.
     hooks:
       post:
         install: |
           if OS.mac?
             system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/file-search-on"]
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/file-search-on-ocr-helper"]
           end
     caveats: |
       file-search-on is not yet signed/notarized with an Apple Developer ID.
-      The cask removes the quarantine attribute on install so Gatekeeper
-      lets it run. If macOS still blocks it, run:
+      The cask removes the quarantine attribute from file-search-on AND
+      file-search-on-ocr-helper on install so Gatekeeper lets them run
+      (the helper is what powers --ocr; it's spawned as a subprocess
+      and inherits the quarantine state from the install tarball). If
+      macOS still blocks anything, run:
         sudo xattr -dr com.apple.quarantine $(brew --prefix)/bin/file-search-on
+        sudo xattr -dr com.apple.quarantine $(brew --prefix)/bin/file-search-on-ocr-helper
