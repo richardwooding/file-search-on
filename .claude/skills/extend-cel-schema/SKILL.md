@@ -1,6 +1,6 @@
 ---
 name: extend-cel-schema
-description: Extends file-search-on's CEL attribute schema by editing the call sites that must move together — `cel.Variable(...)` declarations in `celexpr.New` (evaluator.go), the `ResolveName` switch + `zeroDefaults` map in `activation.go`, and `celexpr.Schema()` — then runs an audit script that catches drift between them. Use when adding a new content-type attribute, promoting a new front-matter key like `summary` or `slug`, or extending an existing content type's attribute set; cel-go errors at runtime (not compile time) when these fall out of sync, so the audit script is the only deterministic guard.
+description: Extends file-search-on's CEL attribute schema by editing the call sites that must move together — `cel.Variable(...)` declarations in `celexpr.New` (env.go), the `ResolveName` switch + `zeroDefaults` map in `activation.go`, and `celexpr.Schema()` — then runs an audit script that catches drift between them. Use when adding a new content-type attribute, promoting a new front-matter key like `summary` or `slug`, or extending an existing content type's attribute set; cel-go errors at runtime (not compile time) when these fall out of sync, so the audit script is the only deterministic guard.
 ---
 
 # Extend CEL Schema
@@ -13,7 +13,7 @@ A CEL-visible attribute must be **declared**, **resolvable**, and **documented**
 
 | Where | What goes there | Failure mode if missing |
 | --- | --- | --- |
-| `internal/celexpr/evaluator.go` — `cel.Variable("foo", cel.<Type>Type)` inside `New` | Declares the variable to cel-go | Compile error: `undeclared reference to 'foo'` |
+| `internal/celexpr/env.go` — `cel.Variable("foo", cel.<Type>Type)` inside `New` | Declares the variable to cel-go | Compile error: `undeclared reference to 'foo'` |
 | `internal/celexpr/activation.go` — resolution in `(*fileAttrsActivation).ResolveName`, via **either** a `case "foo":` returning a typed `FileAttributes` field **or** a key in the `zeroDefaults` map | How the attribute's value is produced at evaluation time | Runtime error: `no such attribute: foo` |
 | `internal/celexpr/schema.go` — entry in the right `AttributeDoc` slice | Drives both `--list` output and the MCP `list_attributes` tool | Attribute is invisible to humans and to MCP clients |
 
@@ -30,7 +30,7 @@ Schema slot → what you must add:
 ## Quick start
 
 1. Decide the CEL variable name (snake_case) and type, and whether it's `Common`, `TypeSpecific`, or `Frontmatter`.
-2. Add `cel.Variable("foo", cel.<Type>Type)` in `celexpr.New` (evaluator.go).
+2. Add `cel.Variable("foo", cel.<Type>Type)` in `celexpr.New` (env.go).
 3. Make it resolve in `activation.go`:
    - **Common / typed predicate**: add a `case "foo": return a.attrs.Foo, true` to `ResolveName` (and the backing `FileAttributes` field).
    - **Type-specific / front-matter**: add `"foo": <zero-value>` to the `zeroDefaults` map, and make the content type's `Attributes()` put `"foo"` into its returned map verbatim (it flows through the `Extra[name]` fallthrough).
@@ -43,7 +43,7 @@ For a new content type's *registration mechanics* (creating the file in `interna
 
 ## Scripts
 
-- **Run** `python scripts/audit_attributes.py` from the repo root — parses `cel.Variable` declarations from `internal/celexpr/evaluator.go`, the `ResolveName` switch cases + `zeroDefaults` map from `internal/celexpr/activation.go`, and the `AttributeDoc` slices from `internal/celexpr/schema.go`. Prints a markdown table (Declared / Cased / Defaulted / Documented per attribute) and exits non-zero on drift — every declared var must be cased OR defaulted, and every documented type-specific/front-matter attr must have a default. Run before committing any change to those files.
+- **Run** `python scripts/audit_attributes.py` from the repo root — parses `cel.Variable` declarations from `internal/celexpr/env.go`, the `ResolveName` switch cases + `zeroDefaults` map from `internal/celexpr/activation.go`, and the `AttributeDoc` slices from `internal/celexpr/schema.go`. Prints a markdown table (Declared / Cased / Defaulted / Documented per attribute) and exits non-zero on drift — every declared var must be cased OR defaulted, and every documented type-specific/front-matter attr must have a default. Run before committing any change to those files.
 
 ## References
 

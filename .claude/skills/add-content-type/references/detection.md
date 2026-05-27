@@ -54,7 +54,7 @@ Pragmatic recommendation: start with extension-only. Add magic bytes when you ha
 
 ## Family-prefix branching
 
-The `setTypeFlags` function in `internal/celexpr/evaluator.go` has a series of name-prefix `if` blocks that catch every variant of a family. For images:
+The `setTypeFlags` function in `internal/celexpr/typeflags.go` has a series of name-prefix `if` blocks that catch every variant of a family. For images:
 
 ```go
 if strings.HasPrefix(name, "image/") {
@@ -62,11 +62,11 @@ if strings.HasPrefix(name, "image/") {
 }
 ```
 
-Adding a new image variant (e.g. `image/avif`) is therefore additive: register the type with `Name() = "image/avif"` and the `is_image` flag flips on for that variant automatically. No edit to `evaluator.go` is needed.
+Adding a new image variant (e.g. `image/avif`) is therefore additive: register the type with `Name() = "image/avif"` and the `is_image` flag flips on for that variant automatically. No edit to `typeflags.go` is needed.
 
 For a brand-new family (audio, archive, 3D models, …), you DO need to:
 
-1. Add an `IsAudio bool` field to the `FileAttributes` struct (in `evaluator.go`).
+1. Add an `IsAudio bool` field to the `FileAttributes` struct (in `attributes.go`).
 2. Add an `if strings.HasPrefix(name, "audio/") { attrs.IsAudio = true }` block to `setTypeFlags`.
 3. Add a `case "is_audio": return a.attrs.IsAudio, true` to `ResolveName` (`internal/celexpr/activation.go`) and declare the `is_audio` `cel.Variable` (use the `extend-cel-schema` skill).
 
