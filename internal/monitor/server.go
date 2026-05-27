@@ -39,10 +39,16 @@ type Config struct {
 	BodyCacheCap int64  // 0 → in-memory / no cap
 }
 
-// Server is the read-only monitoring HTTP server.
+// Server is the read-only monitoring HTTP server. Bind with Listen
+// (which assigns the URL) then run with Serve; Run is the eager
+// convenience wrapper that does both.
 type Server struct {
 	cfg       Config
 	startedAt time.Time
+	srv       *http.Server
+	ln        net.Listener
+	url       string
+	ready     chan struct{} // closed by Serve once registered; see Ready
 }
 
 // NewServer builds a monitoring server from cfg.
@@ -50,43 +56,94 @@ func NewServer(cfg Config) *Server {
 	return &Server{cfg: cfg, startedAt: time.Now()}
 }
 
-// Run binds a localhost-only HTTP listener and serves the dashboard +
-// JSON API until ctx is cancelled, then shuts down gracefully. addr's
-// host is forced to 127.0.0.1 — only the port is honoured — so the
-// dashboard (which can surface searched file paths) never binds a
-// routable interface.
-func (s *Server) Run(ctx context.Context, addr string) error {
-	addr = forceLoopback(addr)
-
+// routes builds the dashboard mux. Returns an error only if the embedded
+// static assets are missing (compile-time guaranteed, but surfaced
+// rather than panicked).
+func (s *Server) routes() (http.Handler, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/overview", s.handleOverview)
 	mux.HandleFunc("GET /api/cache", s.handleCache)
 	mux.HandleFunc("GET /api/activity", s.handleActivity)
 	mux.HandleFunc("GET /api/capabilities", s.handleCapabilities)
+	mux.HandleFunc("GET /api/peers", s.handlePeers)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
-
 	sub, err := fs.Sub(staticFiles, "static")
 	if err != nil {
-		return fmt.Errorf("monitor static assets: %w", err)
+		return nil, fmt.Errorf("monitor static assets: %w", err)
 	}
 	mux.Handle("GET /", http.FileServerFS(sub))
+	return mux, nil
+}
 
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           mux,
+// Listen binds a localhost-only TCP listener and returns the dashboard
+// URL. addr's host is forced to 127.0.0.1 — only the port is honoured —
+// so the dashboard (which can surface searched file paths) never binds a
+// routable interface. Pass ":0" for an OS-assigned port (used by the
+// dynamic --monitor mode so concurrent instances don't collide). Call
+// Serve next to start serving.
+func (s *Server) Listen(addr string) (string, error) {
+	ln, err := net.Listen("tcp", forceLoopback(addr))
+	if err != nil {
+		return "", fmt.Errorf("monitor listen: %w", err)
+	}
+	handler, err := s.routes()
+	if err != nil {
+		_ = ln.Close()
+		return "", err
+	}
+	s.ln = ln
+	s.url = fmt.Sprintf("http://127.0.0.1:%d/", ln.Addr().(*net.TCPAddr).Port)
+	s.ready = make(chan struct{})
+	s.srv = &http.Server{
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+	return s.url, nil
+}
+
+// URL returns the bound dashboard URL, or "" before Listen.
+func (s *Server) URL() string { return s.url }
+
+// Ready returns a channel closed once Serve has registered this instance
+// in the peer registry and is about to accept connections. Callers that
+// launch Serve in a goroutine (the lazy Controller) wait on it so a
+// follow-up Peers() read reflects this instance.
+func (s *Server) Ready() <-chan struct{} { return s.ready }
+
+// Serve serves the dashboard on the bound listener until ctx is
+// cancelled, registering the instance in the peer registry for the
+// duration so concurrent file-search-on processes can discover it. Listen
+// must have been called first.
+func (s *Server) Serve(ctx context.Context) error {
+	if s.ln == nil {
+		return errors.New("monitor: Serve called before Listen")
+	}
+
+	deregister, regErr := Register(Entry{
+		PID:        os.Getpid(),
+		URL:        s.url,
+		Mode:       s.cfg.Mode,
+		Version:    s.cfg.Version,
+		StartedAt:  s.startedAt,
+		WorkingDir: workingDir(),
+		IndexPath:  s.cfg.IndexPath,
+	})
+	if regErr != nil {
+		fmt.Fprintln(os.Stderr, "monitor: peer registry unavailable:", regErr)
+	}
+	defer deregister()
+	close(s.ready) // registered; Peers() now reflects this instance
 
 	errCh := make(chan error, 1)
-	go func() { errCh <- srv.ListenAndServe() }()
+	go func() { errCh <- s.srv.Serve(s.ln) }()
 
-	fmt.Fprintf(os.Stderr, "monitor dashboard: http://%s/\n", addr)
+	fmt.Fprintf(os.Stderr, "monitor dashboard: %s\n", s.url)
 
 	select {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := srv.Shutdown(shutdownCtx); err != nil {
+		if err := s.srv.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("monitor shutdown: %w", err)
 		}
 		return nil
@@ -96,6 +153,37 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 		}
 		return err
 	}
+}
+
+// Run binds and serves in one call — the eager path used when the
+// dashboard is enabled at launch.
+func (s *Server) Run(ctx context.Context, addr string) error {
+	if _, err := s.Listen(addr); err != nil {
+		return err
+	}
+	return s.Serve(ctx)
+}
+
+// workingDir returns the process working directory, or "" on error.
+// Surfaced in the peer switcher so an operator can tell instances apart.
+func workingDir() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return wd
+}
+
+// handlePeers returns every live registered dashboard instance, flagging
+// the one that matches this server so the UI can mark "you".
+func (s *Server) handlePeers(w http.ResponseWriter, _ *http.Request) {
+	peers := Peers()
+	for i := range peers {
+		if peers[i].URL == s.url {
+			peers[i].IsSelf = true
+		}
+	}
+	writeJSON(w, map[string]any{"self_url": s.url, "peers": peers})
 }
 
 // forceLoopback returns a 127.0.0.1 address preserving only the port of
