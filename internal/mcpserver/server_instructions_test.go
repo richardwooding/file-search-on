@@ -36,7 +36,6 @@ func TestServerInstructionsExposesPredicates(t *testing.T) {
 	init := cs.InitializeResult()
 	if init == nil {
 		t.Fatal("client received no InitializeResult")
-		return // unreachable; quiets staticcheck SA5011 (see note below)
 	}
 	got := init.Instructions
 	if got == "" {
