@@ -94,6 +94,7 @@ func TestPresets_TimeRelativeExpressionsBakeNow(t *testing.T) {
 	p := search.PresetByName("recent_changes")
 	if p == nil {
 		t.Fatal("recent_changes preset missing")
+		return // unreachable; quiets staticcheck SA5011
 	}
 	first := p.Build()
 	if !strings.Contains(first.Expr, "timestamp(") {

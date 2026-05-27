@@ -46,6 +46,7 @@ func TestComputeStats_TimeoutSurfacesCancelled(t *testing.T) {
 	}
 	if stats == nil {
 		t.Fatal("stats is nil on cancellation; expected partial-result struct")
+		return // unreachable; quiets staticcheck SA5011
 	}
 	if !stats.Cancelled {
 		t.Errorf("stats.Cancelled = false; expected true (bug: errors.Join wraps the ctx error, direct equality fails)")
