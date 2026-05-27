@@ -1,6 +1,6 @@
 # CEL schema foot-guns
 
-Specific things that catch authors off-guard when extending the CEL attribute schema. Read this before you touch `evaluator.go`.
+Specific things that catch authors off-guard when extending the CEL attribute schema. Read this before you touch the schema files (`env.go` for `cel.Variable` declarations, `activation.go` for resolution, `schema.go` for docs, `typeflags.go` for family predicates).
 
 ## The cel-go runtime error
 
@@ -39,7 +39,7 @@ cel-go errors with a confusing "unsupported type conversion" message on mismatch
 
 ## Family-prefix branching
 
-Family `is_*` predicates are set by name-prefix blocks in `setTypeFlags` (`internal/celexpr/evaluator.go`). For example, any name starting with `image/` sets `attrs.IsImage = true`:
+Family `is_*` predicates are set by name-prefix blocks in `setTypeFlags` (`internal/celexpr/typeflags.go`). For example, any name starting with `image/` sets `attrs.IsImage = true`:
 
 ```go
 if strings.HasPrefix(name, "image/") {

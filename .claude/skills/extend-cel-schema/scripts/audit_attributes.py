@@ -9,7 +9,7 @@ attribute.
 
 The places a CEL attribute must appear (see extend-cel-schema/SKILL.md):
   1. cel.Variable("foo", ...) declarations in celexpr.New
-     (internal/celexpr/evaluator.go)                                  -> declared
+     (internal/celexpr/env.go)                                        -> declared
   2. resolvable in (*fileAttrsActivation).ResolveName
      (internal/celexpr/activation.go), via EITHER:
        a. a `case "foo":` label returning a typed FileAttributes field
@@ -121,15 +121,17 @@ def main() -> int:
     args = ap.parse_args()
 
     root = args.repo_root.resolve()
-    evaluator_path = root / "internal" / "celexpr" / "evaluator.go"
+    # cel.Variable declarations live in celexpr.New, which is in env.go
+    # (split out of evaluator.go for navigability).
+    env_path = root / "internal" / "celexpr" / "env.go"
     activation_path = root / "internal" / "celexpr" / "activation.go"
     schema_path = root / "internal" / "celexpr" / "schema.go"
-    for p in (evaluator_path, activation_path, schema_path):
+    for p in (env_path, activation_path, schema_path):
         if not p.exists():
             print(f"ERROR: {p} not found (run from the repo root, or pass --repo-root)", file=sys.stderr)
             return 1
 
-    declared = parse_declared(evaluator_path.read_text(encoding="utf-8"))
+    declared = parse_declared(env_path.read_text(encoding="utf-8"))
     cased, defaulted = parse_activation(activation_path.read_text(encoding="utf-8"))
     schema = parse_schema(schema_path.read_text(encoding="utf-8"))
 

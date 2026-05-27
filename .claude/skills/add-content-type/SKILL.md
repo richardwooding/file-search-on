@@ -1,6 +1,6 @@
 ---
 name: add-content-type
-description: Registers a new file-format content type in file-search-on by creating a file under `internal/content/` that implements the four-method `ContentType` interface (`Name`, `Extensions`, `MagicBytes`, `Attributes(ctx, fsys, path)`), self-registers via `init()` calling `content.Register(...)`, and for image variants relies on the `image/` prefix block in `setTypeFlags` (`internal/celexpr/evaluator.go`) — covers CSV, YAML, plain-text, EPUB, new audio/image families, and similar formats. Use when adding support for a new file format so the search recognises it and reports a `content_type`; does NOT cover CEL attribute wiring for type-specific attributes, which is the `extend-cel-schema` skill's job.
+description: Registers a new file-format content type in file-search-on by creating a file under `internal/content/` that implements the four-method `ContentType` interface (`Name`, `Extensions`, `MagicBytes`, `Attributes(ctx, fsys, path)`), self-registers via `init()` calling `content.Register(...)`, and for image variants relies on the `image/` prefix block in `setTypeFlags` (`internal/celexpr/typeflags.go`) — covers CSV, YAML, plain-text, EPUB, new audio/image families, and similar formats. Use when adding support for a new file format so the search recognises it and reports a `content_type`; does NOT cover CEL attribute wiring for type-specific attributes, which is the `extend-cel-schema` skill's job.
 ---
 
 # Add Content Type
@@ -52,7 +52,7 @@ type ContentType interface {
 
 Semantic notes:
 
-- **`Name()`** — used by `setTypeFlags` (in `internal/celexpr/evaluator.go`) to set the `is_*` flag and the `content_type` CEL attribute. For an image family, the name MUST start with `image/` (e.g. `image/avif`); for the office family, MUST start with `office/`. The corresponding `strings.HasPrefix(name, ...)` block in `setTypeFlags` turns `is_image` / `is_office` on automatically.
+- **`Name()`** — used by `setTypeFlags` (in `internal/celexpr/typeflags.go`) to set the `is_*` flag and the `content_type` CEL attribute. For an image family, the name MUST start with `image/` (e.g. `image/avif`); for the office family, MUST start with `office/`. The corresponding `strings.HasPrefix(name, ...)` block in `setTypeFlags` turns `is_image` / `is_office` on automatically.
 - **`Extensions()`** — lowercase, dotted. The detector matches case-insensitively against `filepath.Ext(path)` lower-cased.
 - **`MagicBytes()`** — return `nil` (not `[][]byte{}`) if the type is detected by extension only. Each `[]byte` is a prefix; the detector matches if any prefix is a prefix of the first 512 bytes.
 - **`Attributes(ctx, fsys, path)`** — called *per matching file* during the walk. **Read the file through `fsys`, not `os`** — open with `fsys.Open(path)`, or use the helpers in `internal/content/fsutil.go` (`openReadSeeker` for seekable/streamed access, `openReaderAt` for `zip`/`pdf`-style random access, `readAll` for whole-file slurps). This is what lets the same parser run against real files, archive entries, and in-memory test filesystems. Honour ctx: check `ctx.Err()` at entry, and inside any unbounded scan/decode loop. Return `ctx.Err()` on cancellation. Avoid expensive parses without bounds (use `bufio.Scanner` with a buffer cap, decode just enough of the file). Return `Attributes{}` (empty) if no type-specific data; never return `nil`.
@@ -62,7 +62,7 @@ Semantic notes:
 When the new type is an image variant (e.g. `image/avif`):
 
 - `Name()` MUST return `image/<subtype>`.
-- `setTypeFlags` (`internal/celexpr/evaluator.go`) already has an `if strings.HasPrefix(name, "image/")` block — no edit needed there for new image variants; it sets `is_image = true` automatically. The type's `Attributes` should emit `img_width` / `img_height` directly (the final CEL names — there is no rename layer; see the `extend-cel-schema` foot-guns).
+- `setTypeFlags` (`internal/celexpr/typeflags.go`) already has an `if strings.HasPrefix(name, "image/")` block — no edit needed there for new image variants; it sets `is_image = true` automatically. The type's `Attributes` should emit `img_width` / `img_height` directly (the final CEL names — there is no rename layer; see the `extend-cel-schema` foot-guns).
 - If the new image type emits *additional* attributes beyond `img_width` / `img_height` (e.g. `color_space`, `bit_depth`), each one is a CEL-schema extension — use the `extend-cel-schema` skill.
 
 For a non-image type with its own `is_*` flag (e.g. an `audio/*` family):
