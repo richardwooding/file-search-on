@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>file-search-on · monitor</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>file-search-on <span class="muted">monitor</span></h1>
+    <div class="hdr-meta">
+      <span id="health" class="pill pill-unknown">connecting…</span>
+      <span id="hdr-version" class="muted"></span>
+      <span id="hdr-mode" class="tag"></span>
+      <span id="hdr-uptime" class="muted"></span>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel">
+      <h2>Overview</h2>
+      <div id="overview" class="kv-grid"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Cache</h2>
+      <div id="cache" class="cache-grid"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Activity <span id="inflight" class="badge"></span></h2>
+      <div id="activity-tools"></div>
+      <h3 class="sub">Recent calls</h3>
+      <div id="activity-recent" class="feed"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Capabilities</h2>
+      <div id="capabilities"></div>
+    </section>
+  </main>
+
+  <footer class="muted">polling every 2s · localhost only · read-only</footer>
+  <script src="app.js"></script>
+</body>
+</html>

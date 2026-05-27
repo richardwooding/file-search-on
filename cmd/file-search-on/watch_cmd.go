@@ -11,6 +11,7 @@ import (
 
 	contentpkg "github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/index"
+	"github.com/richardwooding/file-search-on/internal/monitor"
 	"github.com/richardwooding/file-search-on/internal/search"
 )
 
@@ -33,6 +34,7 @@ type WatchCmd struct {
 	WithHashes       bool          `name:"with-hashes" help:"Compute md5 / sha1 / sha256 for each matched file."`
 	WithPHash        bool          `name:"with-phash" help:"Compute the perceptual hash (phash) of each new image."`
 	WithXattrs       bool          `name:"with-xattrs" help:"Read macOS extended attributes for each new file (Darwin only)."`
+	MonitorAddr      string        `name:"monitor-addr" help:"Enable the read-only monitoring dashboard on this port (e.g. ':9090'). Binds 127.0.0.1 only. Off when empty. Shows index cache stats + registered capabilities at http://localhost:<port>/ (no MCP activity panel in watch mode)."`
 }
 
 func (c *WatchCmd) Run(ctx context.Context) error {
@@ -86,6 +88,27 @@ func (c *WatchCmd) Run(ctx context.Context) error {
 		default:
 			_ = enc.Encode(search.MatchFrom(r)) // NDJSON
 		}
+	}
+
+	// Optional monitoring dashboard. Watch mode has no MCP tool calls,
+	// so no collector is attached — the dashboard shows cache stats +
+	// capabilities only. Runs concurrently under the same ctx; the
+	// deferred wait runs before idx.Close() (LIFO).
+	if c.MonitorAddr != "" {
+		mon := monitor.NewServer(monitor.Config{
+			Version:   version,
+			Mode:      "watch",
+			Index:     idx,
+			IndexPath: c.IndexPath,
+		})
+		monDone := make(chan struct{})
+		go func() {
+			defer close(monDone)
+			if err := mon.Run(ctx, c.MonitorAddr); err != nil {
+				fmt.Fprintln(os.Stderr, "monitor:", err)
+			}
+		}()
+		defer func() { <-monDone }()
 	}
 
 	fmt.Fprintf(os.Stderr, "watching %v for %q (Ctrl-C to stop)…\n", c.Dir, orTrue(c.Expr))
