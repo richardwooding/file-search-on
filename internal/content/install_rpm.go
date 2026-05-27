@@ -78,7 +78,7 @@ func readRPMInfo(fsys fs.FS, path string) (Attributes, error) {
 	defer func() { _ = f.Close() }()
 	var lead [rpmLeadSize]byte
 	if _, err := io.ReadFull(f, lead[:]); err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	if !bytes.Equal(lead[0:4], rpmMagic) {
 		return Attributes{}, nil

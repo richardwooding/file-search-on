@@ -68,12 +68,12 @@ func readSQLiteWALInfo(fsys fs.FS, path string) (Attributes, error) {
 	defer func() { _ = f.Close() }()
 	info, err := f.Stat()
 	if err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	buf := make([]byte, sqliteWALHeaderLen)
 	n, err := io.ReadFull(f, buf)
 	if err != nil && err != io.ErrUnexpectedEOF {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	return parseSQLiteWALHeader(buf[:n], info.Size()), nil
 }

@@ -66,7 +66,7 @@ func (*woffType) Attributes(ctx context.Context, fsys fs.FS, path string) (Attri
 	defer func() { _ = f.Close() }()
 	buf, err := io.ReadAll(io.LimitReader(f, fontMaxBlobSize))
 	if err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	return parseWOFF(buf), nil
 }

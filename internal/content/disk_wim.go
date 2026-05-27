@@ -43,11 +43,11 @@ func readWIMInfo(fsys fs.FS, path string) (Attributes, error) {
 		return Attributes{}, nil
 	}
 	if _, err := rs.Seek(0, io.SeekStart); err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	var hdr [wimHeaderSize]byte
 	if _, err := io.ReadFull(rs, hdr[:]); err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	return parseWIMHeader(hdr[:]), nil
 }

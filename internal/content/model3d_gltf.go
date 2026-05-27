@@ -65,14 +65,14 @@ func parseGLTF(ctx context.Context, fsys fs.FS, path string) (Attributes, error)
 	} else {
 		b, err := readAll(fsys, path)
 		if err != nil {
-			return Attributes{}, nil //nolint:nilerr
+			return Attributes{}, nil
 		}
 		jsonBytes = b
 	}
 
 	var doc gltfDoc
 	if err := json.Unmarshal(jsonBytes, &doc); err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	return gltfAttrs(&doc), nil
 }

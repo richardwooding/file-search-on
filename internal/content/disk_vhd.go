@@ -47,11 +47,11 @@ func readVHDInfo(fsys fs.FS, path string) (Attributes, error) {
 		return Attributes{}, nil
 	}
 	if _, err := rs.Seek(size-vhdFooterSize, io.SeekStart); err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	var footer [vhdFooterSize]byte
 	if _, err := io.ReadFull(rs, footer[:]); err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	return parseVHDFooter(footer[:]), nil
 }

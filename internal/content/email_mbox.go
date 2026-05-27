@@ -62,7 +62,7 @@ func readMBOXArchive(fsys fs.FS, path string) (Attributes, error) {
 	}
 	msg, err := mail.ReadMessage(&firstMsg)
 	if err != nil {
-		return attrs, nil //nolint:nilerr // graceful degradation: keep email_count, drop per-message attrs
+		return attrs, nil // graceful degradation: keep email_count, drop per-message attrs
 	}
 	first := emailAttrs(msg)
 	maps.Copy(attrs, first)

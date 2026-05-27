@@ -37,7 +37,7 @@ func (*ttfType) Attributes(ctx context.Context, fsys fs.FS, path string) (Attrib
 	defer func() { _ = f.Close() }()
 	buf, err := io.ReadAll(io.LimitReader(f, fontMaxBlobSize))
 	if err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	info := parseSFNT(buf, 0)
 	return sfntAttrs(info, "ttf"), nil

@@ -66,7 +66,7 @@ func readWASMInfo(fsys fs.FS, path string) (Attributes, error) {
 	defer func() { _ = f.Close() }()
 	buf, err := io.ReadAll(io.LimitReader(f, wasmReadCap))
 	if err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	return parseWASMModule(buf), nil
 }

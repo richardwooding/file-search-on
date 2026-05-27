@@ -46,7 +46,7 @@ func readFITSInfo(fsys fs.FS, path string) (Attributes, error) {
 	defer func() { _ = f.Close() }()
 	buf, err := io.ReadAll(io.LimitReader(f, fitsReadCap))
 	if err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	return parseFITSHeaders(buf), nil
 }

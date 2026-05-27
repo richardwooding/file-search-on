@@ -50,11 +50,11 @@ func readISO9660Info(fsys fs.FS, path string) (Attributes, error) {
 		return Attributes{}, nil
 	}
 	if _, err := rs.Seek(isoPVDOffset, io.SeekStart); err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	var pvd [isoPVDSize]byte
 	if _, err := io.ReadFull(rs, pvd[:]); err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	return parseISOPVD(pvd[:]), nil
 }

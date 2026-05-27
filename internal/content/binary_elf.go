@@ -18,7 +18,7 @@ func readELFInfo(fsys fs.FS, path string) (Attributes, error) {
 
 	f, err := elf.NewFile(ra)
 	if err != nil {
-		return Attributes{}, nil //nolint:nilerr // graceful degradation: malformed ELF returns empty attrs
+		return Attributes{}, nil // graceful degradation: malformed ELF returns empty attrs
 	}
 	defer func() { _ = f.Close() }()
 

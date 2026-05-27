@@ -63,7 +63,7 @@ func (r *rawImageType) Attributes(ctx context.Context, fsys fs.FS, path string) 
 	}
 	rs, _, closer, err := openReadSeeker(fsys, path)
 	if err != nil {
-		return attrs, nil //nolint:nilerr
+		return attrs, nil
 	}
 	defer func() { _ = closer() }()
 	extractImageEXIF(rs, attrs)

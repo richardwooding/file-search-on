@@ -92,7 +92,7 @@ func (*woff2Type) Attributes(ctx context.Context, fsys fs.FS, path string) (Attr
 	defer func() { _ = f.Close() }()
 	buf, err := io.ReadAll(io.LimitReader(f, fontMaxBlobSize))
 	if err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	return parseWOFF2(buf), nil
 }

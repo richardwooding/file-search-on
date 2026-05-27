@@ -42,11 +42,11 @@ func readDMGInfo(fsys fs.FS, path string) (Attributes, error) {
 		return Attributes{}, nil
 	}
 	if _, err := rs.Seek(size-dmgTrailerSize, io.SeekStart); err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	var trailer [dmgTrailerSize]byte
 	if _, err := io.ReadFull(rs, trailer[:]); err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	return parseDMGTrailer(trailer[:]), nil
 }

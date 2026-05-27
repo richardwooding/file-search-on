@@ -24,7 +24,7 @@ func readZIPArchive(ctx context.Context, fsys fs.FS, path string) (Attributes, e
 
 	zr, err := zip.NewReader(ra, size)
 	if err != nil {
-		return Attributes{}, nil //nolint:nilerr // graceful degradation: malformed archive returns empty attrs
+		return Attributes{}, nil // graceful degradation: malformed archive returns empty attrs
 	}
 
 	var entryCount, uncompressed int64

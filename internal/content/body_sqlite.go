@@ -52,19 +52,19 @@ func sqliteBody(ctx context.Context, osPath string, maxBytes int) (string, error
 	dsn := "file:" + url.PathEscape(osPath) + "?mode=ro&immutable=1"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
-		return "", nil //nolint:nilerr
+		return "", nil
 	}
 	defer func() { _ = db.Close() }()
 
 	// One-shot ping with ctx so a non-SQLite file (mis-detected, e.g.
 	// encrypted) errors fast instead of hanging on a bad open.
 	if err := db.PingContext(ctx); err != nil {
-		return "", nil //nolint:nilerr
+		return "", nil
 	}
 
 	ftsTables, err := listFTSTables(ctx, db)
 	if err != nil || len(ftsTables) == 0 {
-		return "", err //nolint:nilerr // empty body, no FTS tables
+		return "", err // empty body, no FTS tables
 	}
 
 	var sb strings.Builder

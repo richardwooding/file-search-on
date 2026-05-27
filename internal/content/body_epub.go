@@ -21,16 +21,16 @@ func epubBody(ctx context.Context, fsys fs.FS, filePath string, maxBytes int) (s
 	defer func() { _ = closer() }()
 	zr, err := zip.NewReader(ra, size)
 	if err != nil {
-		return "", nil //nolint:nilerr
+		return "", nil
 	}
 
 	opfPath, err := readOPFPath(zr)
 	if err != nil || opfPath == "" {
-		return "", nil //nolint:nilerr
+		return "", nil
 	}
 	chapters, err := readEPUBSpineHrefs(ctx, zr, opfPath)
 	if err != nil || len(chapters) == 0 {
-		return "", nil //nolint:nilerr
+		return "", nil
 	}
 
 	opfDir := path.Dir(opfPath)

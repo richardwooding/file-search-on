@@ -29,7 +29,7 @@ func readTARArchive(ctx context.Context, fsys fs.FS, path string, gz bool) (Attr
 	if gz {
 		zr, err := gzip.NewReader(f)
 		if err != nil {
-			return Attributes{}, nil //nolint:nilerr // malformed gzip → empty attrs
+			return Attributes{}, nil // malformed gzip → empty attrs
 		}
 		defer func() { _ = zr.Close() }()
 		r = zr

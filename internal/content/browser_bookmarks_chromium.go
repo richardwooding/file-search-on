@@ -84,7 +84,7 @@ func (*chromiumBookmarksType) Attributes(ctx context.Context, fsys fs.FS, path s
 	defer func() { _ = f.Close() }()
 	buf, err := io.ReadAll(io.LimitReader(f, chromiumBookmarksReadCap))
 	if err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	return parseChromiumBookmarks(buf, path), nil
 }
@@ -177,7 +177,7 @@ func chromiumBookmarksBody(ctx context.Context, fsys fs.FS, path string, maxByte
 	defer func() { _ = f.Close() }()
 	buf, err := io.ReadAll(io.LimitReader(f, chromiumBookmarksReadCap))
 	if err != nil {
-		return "", nil //nolint:nilerr
+		return "", nil
 	}
 	attrs := parseChromiumBookmarks(buf, path)
 	return bookmarkBody(attrs, maxBytes), nil

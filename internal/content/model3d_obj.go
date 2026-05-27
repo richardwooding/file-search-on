@@ -34,7 +34,7 @@ import (
 func parseOBJ(ctx context.Context, fsys fs.FS, path string) (Attributes, error) {
 	f, err := fsys.Open(path)
 	if err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	defer func() { _ = f.Close() }()
 

@@ -18,7 +18,7 @@ func readPEInfo(fsys fs.FS, path string) (Attributes, error) {
 
 	f, err := pe.NewFile(ra)
 	if err != nil {
-		return Attributes{}, nil //nolint:nilerr // graceful degradation: malformed PE returns empty attrs
+		return Attributes{}, nil // graceful degradation: malformed PE returns empty attrs
 	}
 	defer func() { _ = f.Close() }()
 
