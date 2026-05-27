@@ -224,6 +224,15 @@ func TestServerVersionInResponses(t *testing.T) {
 			},
 		},
 		{
+			name: "diff_trees",
+			args: DiffTreesInput{TreeA: dir, TreeB: dir, Op: "a-minus-b"},
+			decode: func(t *testing.T, res *mcp.CallToolResult) string {
+				var o DiffTreesOutput
+				mustDecodeStructured(t, res, &o)
+				return o.ServerVersion
+			},
+		},
+		{
 			name: "query_preset",
 			args: QueryPresetInput{Name: "recent_changes", Dir: dir, Limit: 1},
 			decode: func(t *testing.T, res *mcp.CallToolResult) string {

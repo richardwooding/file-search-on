@@ -141,6 +141,7 @@ file-search-on -d .                                   # empty expression matches
 | `archive-read <path> <entry>` | Read a single entry's bytes out of an archive without extracting | [examples/archive-search.md](./examples/archive-search.md) |
 | `find-matches <re> --expr <cel> -C N` | Line-level regex hits with context | [examples/find-matches.md](./examples/find-matches.md) |
 | `watch [expr] -d <dir>` | Continuously watch directories; emit each new / changed file that matches — the inverse of `search` | [examples/watch.md](./examples/watch.md) |
+| `diff <tree-a> <tree-b> --op <set-op>` | Cross-tree set operations by sha256 — what's in A but not B, the intersection, content drift between same-named files | [examples/diff.md](./examples/diff.md) |
 | `organize <expr> --link-into <template>` | Build a templated symlink / copy tree from results — `{raw_vendor}/{taken_at_year}/{basename}` etc. | [examples/organize.md](./examples/organize.md) |
 | `lines <path> --start --end` | Print a line range | [examples/read-lines.md](./examples/read-lines.md) |
 | `detect-project [dir]` | Identify project type(s) of a directory | [examples/projects.md](./examples/projects.md) |
