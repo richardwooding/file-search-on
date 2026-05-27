@@ -41,6 +41,7 @@ CEL expression recipes by content family, plus cross-cutting cookbook patterns.
 | [`near-duplicates.md`](./near-duplicates.md) | Find SIMILAR files via SimHash fingerprint — catches typo edits, regenerated headers, template copies. `file-search-on near-duplicates [--threshold 0.85]` |
 | [`archive-search.md`](./archive-search.md) | List or read entries inside ZIP / TAR / TAR.GZ / GZIP without extracting — `file-search-on archive-contents <archive> [--expr]` and `file-search-on archive-read <archive> <entry>` |
 | [`find-matches.md`](./find-matches.md) | Line-level regex matching with context — `file-search-on find-matches '<re>' --expr 'is_source' -C 2` |
+| [`watch.md`](./watch.md) | Watch directories continuously and emit each new / changed file that matches — the inverse of `search`. `file-search-on watch '<expr>' -d DIR`; bounded `watch_search` MCP tool |
 | [`forensics.md`](./forensics.md) | Forensic triage — `--with-hashes` populates `md5` / `sha1` / `sha256` (NSRL / VirusTotal / threat-intel interop), magic-byte-vs-extension detection, GPS / EXIF / email triage, time-bucketed activity |
 | [`hashsets.md`](./hashsets.md) | Hash allowlist / denylist — `is_known_good` / `is_known_bad` predicates; build NSRL or threat-intel-feed `.hashset` files via `file-search-on hash-set build` |
 | [`semantic-search.md`](./semantic-search.md) | Semantic similarity via local Ollama embeddings — `similarity` CEL variable + `search_semantic` MCP tool; conceptual / paraphrase-tolerant document discovery |

@@ -59,6 +59,7 @@ var CLI struct {
 	ArchiveRead     ArchiveReadCmd     `cmd:"" name:"archive-read" help:"Read a single file's content out of a ZIP / TAR / TAR.GZ / GZIP archive without extracting. Returns the bytes plus detected content_type + attributes."`
 	FindMatches     FindMatchesCmd     `cmd:"" name:"find-matches" help:"Scan text files for an RE2 regex; report line-level hits with optional context windows (combines CEL type-pruning with grep-style output)."`
 	Organize        OrganizeCmd        `cmd:"" name:"organize" help:"Build a templated symlink (or copy) tree from search results — a virtual organized view of a flat directory without moving the originals. e.g. organize 'is_raw_photo' --link-into '~/sorted/{raw_vendor}/{mtime_year}/{basename}'."`
+	Watch           WatchCmd           `cmd:"" name:"watch" help:"Continuously watch directories and emit each new / changed file that matches a CEL expression (the inverse of search — 'tell me when X appears'). Runs until Ctrl-C. e.g. watch 'is_image && body.contains(\"error\")' --ocr -d ~/Desktop."`
 	Detect          DetectProjectCmd   `cmd:"" name:"detect-project" help:"Identify project type(s) (go / node / rust / …) for a directory by checking canonical indicator files."`
 	Projects        FindProjectsCmd    `cmd:"" name:"find-projects" help:"Walk a root and list every project subdirectory under it."`
 	WhichProject    WhichProjectCmd    `cmd:"" name:"which-project" help:"Given a file or directory path, walk up the chain and identify the nearest enclosing project root and type(s)."`

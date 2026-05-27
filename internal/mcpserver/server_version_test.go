@@ -213,6 +213,17 @@ func TestServerVersionInResponses(t *testing.T) {
 			},
 		},
 		{
+			// Short fixed window so the bounded watch returns promptly;
+			// we only assert the version wiring, not match behaviour.
+			name: "watch_search",
+			args: WatchSearchInput{Dir: dir, DurationSeconds: 0.2},
+			decode: func(t *testing.T, res *mcp.CallToolResult) string {
+				var o WatchSearchOutput
+				mustDecodeStructured(t, res, &o)
+				return o.ServerVersion
+			},
+		},
+		{
 			name: "query_preset",
 			args: QueryPresetInput{Name: "recent_changes", Dir: dir, Limit: 1},
 			decode: func(t *testing.T, res *mcp.CallToolResult) string {
