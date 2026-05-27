@@ -30,6 +30,11 @@ type handlers struct {
 	// metrics, when non-nil, records per-tool-call telemetry for the
 	// monitoring dashboard. nil disables instrumentation entirely.
 	metrics *monitor.Collector
+	// monitorCtl, when non-nil, owns the monitoring dashboard's lazy
+	// lifecycle so the monitor_info tool can report its URL + peers and
+	// (optionally) start it on demand. nil when monitoring isn't wired
+	// (e.g. tests, or transports that never attach it).
+	monitorCtl *monitor.Controller
 }
 
 // Option configures the MCP server at construction. Used to attach
@@ -42,6 +47,13 @@ type Option func(*handlers)
 // the dashboard can read it back.
 func WithCollector(c *monitor.Collector) Option {
 	return func(h *handlers) { h.metrics = c }
+}
+
+// WithMonitor attaches the monitoring dashboard controller so the
+// monitor_info tool can report the dashboard URL + peer instances and
+// (when asked) start the dashboard on demand.
+func WithMonitor(ctl *monitor.Controller) Option {
+	return func(h *handlers) { h.monitorCtl = ctl }
 }
 
 // resolveTimeout returns a child ctx bounded by the effective per-call
@@ -373,6 +385,11 @@ func New(version string, idx index.Index, defaultTimeout time.Duration, embedDef
 		Name:        "resolve_project_for_path",
 		Description: "Given an arbitrary file or directory path, walk up the directory chain (unbounded — terminates at the filesystem root) and return the nearest ancestor that matches a registered project type (go.mod → go, package.json → node, Cargo.toml → rust, pyproject.toml/requirements.txt/Pipfile → python, Gemfile → ruby, pom.xml → java-maven, build.gradle → java-gradle, *.csproj → dotnet, *.tf → terraform, docker-compose.yml → docker-compose; plus static-site generators hugo / jekyll / eleventy / astro / gatsby / mkdocs / docusaurus / pelican). The MIDDLE question between detect_project (single-dir, what is THIS dir?) and find_projects (recursive, what's under this tree?): given a file path, what project owns it? Returns project_root (matched directory; empty when no ancestor matches), project_types (all matching types — a Go module that also ships docker-compose.yml hits both), and the indicators that fired. Use when an agent has a path from elsewhere and needs the project context — e.g. to scope a follow-up search or decide which language-specific tool to invoke.",
 	}, instrument(h.metrics, "resolve_project_for_path", h.resolveProjectForPathHandler))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "monitor_info",
+		Description: "Report this file-search-on server's monitoring-dashboard URL and the registry of sibling instances (other concurrently-running file-search-on processes that have a dashboard). Use to find the live dashboard to open, or to switch between multiple agents' dashboards. Pass enable=true to start this server's dashboard on an OS-assigned localhost port if it wasn't launched with --monitor / --monitor-addr (idempotent — returns the same URL on repeat calls). Output: enabled + url for this server, and peers[] (each with url / mode / pid / working_dir / version / started_at; the entry for this server is flagged is_self). Dashboards are localhost-only.",
+	}, instrument(h.metrics, "monitor_info", h.monitorInfoHandler))
 
 	return s
 }

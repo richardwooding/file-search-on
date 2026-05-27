@@ -34,7 +34,8 @@ type WatchCmd struct {
 	WithHashes       bool          `name:"with-hashes" help:"Compute md5 / sha1 / sha256 for each matched file."`
 	WithPHash        bool          `name:"with-phash" help:"Compute the perceptual hash (phash) of each new image."`
 	WithXattrs       bool          `name:"with-xattrs" help:"Read macOS extended attributes for each new file (Darwin only)."`
-	MonitorAddr      string        `name:"monitor-addr" help:"Enable the read-only monitoring dashboard on this port (e.g. ':9090'). Binds 127.0.0.1 only. Off when empty. Shows index cache stats + registered capabilities at http://localhost:<port>/ (no MCP activity panel in watch mode)."`
+	Monitor          bool          `name:"monitor" help:"Enable the read-only monitoring dashboard on an OS-assigned localhost port (no collision when many instances run concurrently). The URL is printed to stderr; sibling instances appear in each dashboard's peer switcher. Use --monitor-addr to pin a fixed port. (Watch mode has no MCP tools, so the dashboard can only be enabled at launch, not on demand.)"`
+	MonitorAddr      string        `name:"monitor-addr" help:"Enable the monitoring dashboard on this fixed port (e.g. ':9090'). Binds 127.0.0.1 only. Overrides --monitor. Shows index cache stats + capabilities + a peer switcher at http://localhost:<port>/ (no MCP activity panel in watch mode)."`
 }
 
 func (c *WatchCmd) Run(ctx context.Context) error {
@@ -94,7 +95,11 @@ func (c *WatchCmd) Run(ctx context.Context) error {
 	// so no collector is attached — the dashboard shows cache stats +
 	// capabilities only. Runs concurrently under the same ctx; the
 	// deferred wait runs before idx.Close() (LIFO).
-	if c.MonitorAddr != "" {
+	monAddr := c.MonitorAddr // fixed port wins
+	if monAddr == "" && c.Monitor {
+		monAddr = ":0" // dynamic, OS-assigned
+	}
+	if monAddr != "" {
 		mon := monitor.NewServer(monitor.Config{
 			Version:   version,
 			Mode:      "watch",
@@ -104,7 +109,7 @@ func (c *WatchCmd) Run(ctx context.Context) error {
 		monDone := make(chan struct{})
 		go func() {
 			defer close(monDone)
-			if err := mon.Run(ctx, c.MonitorAddr); err != nil {
+			if err := mon.Run(ctx, monAddr); err != nil {
 				fmt.Fprintln(os.Stderr, "monitor:", err)
 			}
 		}()

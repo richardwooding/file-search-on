@@ -204,6 +204,17 @@ func TestServerVersionInResponses(t *testing.T) {
 			},
 		},
 		{
+			// No controller attached in this test server, so monitor_info
+			// reports unavailable — but still stamps ServerVersion.
+			name: "monitor_info",
+			args: MonitorInfoInput{},
+			decode: func(t *testing.T, res *mcp.CallToolResult) string {
+				var o MonitorInfoOutput
+				mustDecodeStructured(t, res, &o)
+				return o.ServerVersion
+			},
+		},
+		{
 			name: "list_presets",
 			args: ListPresetsInput{},
 			decode: func(t *testing.T, res *mcp.CallToolResult) string {

@@ -152,16 +152,49 @@ function setHealth(ok) {
   el.className = "pill " + (ok ? "pill-ok" : "pill-err");
 }
 
+// shortDir trims a working dir to its last two path segments for compact
+// display (e.g. /Users/me/Code/projA → …/Code/projA).
+function shortDir(d) {
+  if (!d) return "";
+  const parts = d.split("/").filter(Boolean);
+  return (parts.length > 2 ? "…/" : "/") + parts.slice(-2).join("/");
+}
+
+function renderPeers(d) {
+  const peers = (d && d.peers) || [];
+  const el = $("peers");
+  // A lone instance (just us) doesn't need a switcher.
+  if (peers.length <= 1) { el.innerHTML = ""; return; }
+  const opts = peers.map((p) => {
+    const label = `${p.mode} ${shortDir(p.working_dir)} :${(p.url.match(/:(\d+)\//) || [])[1] || "?"}${p.is_self ? " (you)" : ""}`;
+    return `<option value="${p.url}" ${p.is_self ? "selected" : ""}>${label}</option>`;
+  }).join("");
+  el.innerHTML = `<label class="peers-label">${peers.length} instances</label>
+    <select id="peer-select">${opts}</select>`;
+  const sel = $("peer-select");
+  sel.onchange = () => {
+    const url = sel.value;
+    if (url && !peers.find((p) => p.url === url && p.is_self)) {
+      window.open(url, "_blank");
+      // reset selection back to self so the dropdown keeps showing "you"
+      const self = peers.find((p) => p.is_self);
+      if (self) sel.value = self.url;
+    }
+  };
+}
+
 async function tick() {
   try {
-    const [o, c, a, caps] = await Promise.all([
+    const [o, c, a, caps, peers] = await Promise.all([
       getJSON("api/overview"), getJSON("api/cache"),
       getJSON("api/activity"), getJSON("api/capabilities"),
+      getJSON("api/peers"),
     ]);
     renderOverview(o);
     renderCache(c);
     renderActivity(a);
     renderCapabilities(caps);
+    renderPeers(peers);
     setHealth(true);
   } catch (e) {
     setHealth(false);

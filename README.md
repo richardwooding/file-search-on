@@ -445,22 +445,30 @@ Built on [`github.com/modelcontextprotocol/go-sdk`](https://github.com/modelcont
 
 ## Monitoring dashboard
 
-Both long-running modes (`mcp` and `watch`) can expose a read-only monitoring dashboard with `--monitor-addr`. It's off by default, binds **127.0.0.1 only** (the host part of the address is ignored — only the port is used), needs no auth, and adds no dependencies — the UI is a single embedded page that polls a small JSON API.
+Both long-running modes (`mcp` and `watch`) can expose a read-only monitoring dashboard. It's off by default, binds **127.0.0.1 only** (the host part of any address is ignored — only the port is used), needs no auth, and adds no dependencies — the UI is a single embedded page that polls a small JSON API.
 
 ```sh
-file-search-on mcp --monitor-addr :9090                       # stdio MCP + dashboard
-file-search-on mcp --transport http --addr :8080 --monitor-addr :9090
-file-search-on watch 'is_image' -d ~/Screenshots --monitor-addr :9090
+file-search-on mcp --monitor                                  # dynamic OS-assigned port (no collisions)
+file-search-on mcp --monitor-addr :9090                       # pin a fixed port
+file-search-on mcp --transport http --addr :8080 --monitor
+file-search-on watch 'is_image' -d ~/Screenshots --monitor
 ```
 
-Open `http://localhost:9090/`. Four panels:
+`--monitor` picks a free localhost port (so **many concurrent stdio agents** each get their own dashboard without colliding); `--monitor-addr :PORT` pins a fixed one. Find the URL in the stderr log line, or — for an `mcp` server — ask it via the **`monitor_info` MCP tool**, which also reports sibling instances.
+
+Open the URL. Five panels:
 
 - **Overview** — version, uptime, run mode, PID / Go version / GOMAXPROCS, default worker count, index backing (path or in-memory), body-cache cap.
 - **Cache** — the attribute / body / embedding cache counters as live cards with derived **hit-rate %** and sparklines; body evictions / oversize rejects / embed model-mismatches flagged.
 - **Activity** — live MCP tool-call feed (tool, elapsed, outcome, result count), per-tool call / error / cancel counts and p50 / p95 / max latency, and an in-flight gauge. (Watch mode has no MCP calls, so this panel shows a notice.)
 - **Capabilities** — registered content types grouped by family, project types, OCR provider availability, embedder model / server + a reachability check.
+- **Peer switcher** — when more than one instance is running, a header dropdown lists every sibling dashboard (mode · working dir · port) and switches to it. Instances discover each other through a shared registry under the user cache dir; crashed instances self-prune.
 
-The JSON API is scriptable too: `curl -s localhost:9090/api/cache | jq`, plus `/api/overview`, `/api/activity`, `/api/capabilities`, and `/healthz` (liveness). See [examples/monitoring.md](./examples/monitoring.md).
+### Multiple concurrent instances
+
+Each instance with a dashboard registers itself, so they're mutually discoverable. For `mcp` servers, the **`monitor_info`** tool is the entry point: it returns this server's dashboard URL + the peer list, and `monitor_info{enable:true}` **starts the dashboard on demand** (a dynamic port) even if the server was launched without a monitor flag. That makes monitoring reachable per-agent without editing every launch config.
+
+The JSON API is scriptable too: `curl -s localhost:<port>/api/cache | jq`, plus `/api/overview`, `/api/activity`, `/api/capabilities`, `/api/peers`, and `/healthz` (liveness). See [examples/monitoring.md](./examples/monitoring.md).
 
 ## Contributing
 
