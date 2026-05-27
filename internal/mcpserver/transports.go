@@ -19,8 +19,8 @@ import (
 //
 // addr is a host:port pair (e.g. ":8080"). path is the URL prefix the handler
 // is mounted at (e.g. "/" or "/mcp").
-func RunHTTP(ctx context.Context, version, addr, path string, idx index.Index, defaultTimeout time.Duration, embedDefaults EmbedDefaults) error {
-	server := New(version, idx, defaultTimeout, embedDefaults)
+func RunHTTP(ctx context.Context, version, addr, path string, idx index.Index, defaultTimeout time.Duration, embedDefaults EmbedDefaults, opts ...Option) error {
+	server := New(version, idx, defaultTimeout, embedDefaults, opts...)
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return server
 	}, nil)
@@ -30,8 +30,8 @@ func RunHTTP(ctx context.Context, version, addr, path string, idx index.Index, d
 // RunSSE serves the MCP server over the deprecated HTTP+SSE transport
 // (MCP spec 2024-11-05). Kept for backward compatibility with older clients;
 // new deployments should prefer RunHTTP.
-func RunSSE(ctx context.Context, version, addr, path string, idx index.Index, defaultTimeout time.Duration, embedDefaults EmbedDefaults) error {
-	server := New(version, idx, defaultTimeout, embedDefaults)
+func RunSSE(ctx context.Context, version, addr, path string, idx index.Index, defaultTimeout time.Duration, embedDefaults EmbedDefaults, opts ...Option) error {
+	server := New(version, idx, defaultTimeout, embedDefaults, opts...)
 	handler := mcp.NewSSEHandler(func(*http.Request) *mcp.Server {
 		return server
 	}, nil)

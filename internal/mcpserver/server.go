@@ -14,6 +14,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/richardwooding/file-search-on/internal/index"
+	"github.com/richardwooding/file-search-on/internal/monitor"
 )
 
 // handlers wraps tool handlers so they can share an index reference
@@ -26,6 +27,21 @@ type handlers struct {
 	defaultEmbeddingServer string
 	defaultEmbeddingModel  string
 	version                string
+	// metrics, when non-nil, records per-tool-call telemetry for the
+	// monitoring dashboard. nil disables instrumentation entirely.
+	metrics *monitor.Collector
+}
+
+// Option configures the MCP server at construction. Used to attach
+// optional cross-cutting state (e.g. the monitoring collector) without
+// churning the New / Run signatures for the common case.
+type Option func(*handlers)
+
+// WithCollector attaches a monitoring collector so every tool call is
+// timed and recorded. Pass the same collector to monitor.NewServer so
+// the dashboard can read it back.
+func WithCollector(c *monitor.Collector) Option {
+	return func(h *handlers) { h.metrics = c }
 }
 
 // resolveTimeout returns a child ctx bounded by the effective per-call
@@ -240,7 +256,7 @@ type EmbedDefaults struct {
 	Model  string // Ollama embedding model name; "" → no default
 }
 
-func New(version string, idx index.Index, defaultTimeout time.Duration, embedDefaults EmbedDefaults) *mcp.Server {
+func New(version string, idx index.Index, defaultTimeout time.Duration, embedDefaults EmbedDefaults, opts ...Option) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{
 		Name:    "file-search-on",
 		Version: version,
@@ -259,101 +275,104 @@ func New(version string, idx index.Index, defaultTimeout time.Duration, embedDef
 		defaultEmbeddingModel:  embedDefaults.Model,
 		version:                version,
 	}
+	for _, opt := range opts {
+		opt(h)
+	}
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "search",
 		Description: "Recursively search a directory for files matching a CEL expression evaluated over file metadata and content-type-specific attributes. Boolean type predicates you can use directly in expr: is_markdown, is_pdf, is_html, is_xml, is_json, is_yaml, is_csv, is_text, is_image, is_audio, is_video, is_office, is_epub, is_archive, is_binary, is_email, is_source, is_disk_image (umbrella for is_dmg/is_iso/is_vhd/is_vhdx/is_vmdk/is_qcow2/is_wim), is_install_package (umbrella for is_pkg/is_deb/is_rpm/is_appimage), is_bytecode (umbrella for is_class/is_pyc/is_wasm — VM bytecode artefacts with parsed runtime_version + per-format metadata), is_test_file (source files matching the per-language test convention), is_symlink + is_broken_symlink (filesystem-level symlink awareness; target_path attribute carries the raw link target). Common scalar attributes: size (int bytes), name, path, dir, ext, content_type, title, author, language, word_count, line_count, page_count. Per-family attributes (image EXIF, audio tags, video codec, frontmatter, archive sizes, binary architectures, email headers, source-LOC, disk-image virtual_size / disk_image_format / volume_label / cluster_bits / is_encrypted / image_count, install-package package_format / package_name / package_version / package_arch / package_kind, license_id for repo-license files) populate when the matching family fires — see list_attributes for the full schema. Built-in functions: levenshtein(a, b), soundex(s), ngrams(s, n), ngram_similarity(a, b, n) for fuzzy / phonetic matching; point_in_polygon(lat, lon, polygon) for GPS-bbox filtering. Example exprs: 'is_markdown && word_count > 500'; 'is_pdf && page_count > 10'; 'is_image && iso > 1600'; 'is_video && video_height >= 2160 && duration > 1800'; 'is_source && language == \"go\" && loc > 200'. Top-K queries: pass sort_by + limit, e.g. {expr:'is_video', sort_by:'duration', order:'desc', limit:5} for the 5 longest videos. Sort keys: size, name, path, mod_time, created_at, metadata_changed_at, word_count, line_count, page_count, duration, bitrate, sample_rate, video_height, video_width, frame_rate, iso, focal_length, taken_at, sent_at, year, entry_count, uncompressed_size, loc, attachment_count, email_count, virtual_size, image_count, disk_image_created_at, cluster_bits. Snippets: pass include_snippet=true to populate match.snippet with the first N lines of body text (text content types only). Body filters: pass include_body=true to expose the full file body as the CEL 'body' variable, then use built-in string methods to filter: body.contains(\"X\"), body.matches(\"\\\\bX\\\\b\") (RE2 regex). Body reads every candidate file — pair with a tight type predicate (e.g. is_markdown). Exclusions: pass excludes (basename globs like ['node_modules', '.git', '*.bak']) and/or respect_gitignore=true to prune the walk. Repeated searches reuse a per-process attribute cache so unchanged files skip the parse step (see index_stats). Timeouts: every call is bounded by the server's default timeout (set at startup via --timeout, typically 60s); pass timeout_seconds in the input to override (positive = seconds, 0 = no timeout). On timeout the call DOES NOT error — it returns the partial match set with cancelled=true, cancellation_reason set, and elapsed_seconds populated. Always check 'cancelled' before treating the result as exhaustive.",
-	}, h.searchHandler)
+	}, instrument(h.metrics, "search", h.searchHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "search_semantic",
 		Description: "Semantic similarity search via local Ollama embeddings. Returns files RANKED by conceptual similarity to a natural-language query — paraphrase, synonyms, and topic-level matches surface even when the exact words don't appear in the body. Required input: 'query' (the natural-language search). Optional: 'threshold' (default 0.5; cosine similarity floor — 0.7+ for strict topical match, 0.4-0.5 for loose / related), 'limit' (default 50; top-K cap), 'expr' (CEL pre-filter using the same vocabulary as the search tool — e.g. 'is_pdf || is_office' to scope to documents), 'model' / 'embedding_server' (per-call overrides for the server-startup defaults — useful when you've pulled multiple embedding models). Setup: requires Ollama running locally (https://ollama.com) and one embedding model pulled (e.g. 'ollama pull nomic-embed-text'). The MCP server boots WITHOUT Ollama; the first search_semantic call performs the connection check and returns a clear error if Ollama is unreachable or the model isn't pulled. The per-file embedding is cached alongside (size, mtime) so repeat searches against an unchanged tree are I/O-cheap.",
-	}, h.searchSemanticHandler)
+	}, instrument(h.metrics, "search_semantic", h.searchSemanticHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_attributes",
 		Description: "List every CEL attribute available to the search tool, the built-in functions (levenshtein, soundex, ngrams, ngram_similarity, point_in_polygon) with their signatures, and the registered content types.",
-	}, h.listAttributesHandler)
+	}, instrument(h.metrics, "list_attributes", h.listAttributesHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "read_attributes",
 		Description: "Extract content-type-specific attributes for a single file path. Use when the agent already knows the path and wants metadata without running a CEL filter or walking a directory. Returns the same Match shape as the search tool — title, author, EXIF, audio tags, video codec, frontmatter, etc., depending on the detected content type.",
-	}, h.readAttributesHandler)
+	}, instrument(h.metrics, "read_attributes", h.readAttributesHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "index_stats",
 		Description: "Return cumulative attribute-cache counters (hits, misses, puts, stales, errors) for the running MCP server. Counters reset on server restart.",
-	}, h.indexStatsHandler)
+	}, instrument(h.metrics, "index_stats", h.indexStatsHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "stats",
 		Description: "Aggregate counts and total sizes for a directory tree, bucketed by an attribute. Default bucket is content_type; pass group_by to bucket by ext, dir, language, camera_make, camera_model, lens, artist, album, genre, kernel, binary_format, binary_type, or frontmatter_format. Useful for 'what's in this folder?' and 'how many photos per camera?' style reconnaissance without retrieving individual paths. Accepts an optional CEL expr to scope the histogram (e.g. expr='is_image' + group_by='camera_make' for photos-by-camera). Multi-dir: pass 'dirs' to aggregate across multiple roots in one call. Honours the same excludes / respect_gitignore / timeout_seconds semantics as the search tool, including partial-result returns on cancellation. Output's `groups[]` is the histogram keyed by the resolved group_by; `content_types[]` is populated alongside only for the default group_by, kept for back-compat with older clients.",
-	}, h.statsHandler)
+	}, instrument(h.metrics, "stats", h.statsHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "read_lines",
 		Description: "Print a specific line range from a single file. Completes the search-then-inspect loop without a separate read tool — agent flow: search for matches, then call read_lines for context around each match. Inputs: path (required), start_line (1-indexed inclusive; default 1), end_line (1-indexed inclusive; 0 = end of file), max_lines (cap; default 1000). Returns lines[] (no trailing newlines), total_lines, and truncated:true when the requested range exceeds max_lines. Errors only on missing/unreadable files or invalid ranges (start_line > end_line); pathological lines (huge / non-UTF-8) are truncated at 64 KiB per line and the scan continues.",
-	}, h.readLinesHandler)
+	}, instrument(h.metrics, "read_lines", h.readLinesHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "find_duplicates",
 		Description: "Find groups of byte-identical files keyed by sha256. Useful for 'what's eating my disk?' and 'find redundant copies' workflows. Two-pass for performance: files with unique sizes are skipped entirely (cheaper than computing their hash). Pair with expr to scope (e.g. expr='is_image' for photo dedup) and min_size to skip tiny duplicates. Hashes are cached in the attribute index alongside (size, mtime) — first run on a large tree can be slow (every candidate file is read in full), but subsequent runs are free for unchanged files. Output: duplicates[] sorted by wasted_bytes descending — biggest reclamation candidates first.",
-	}, h.findDuplicatesHandler)
+	}, instrument(h.metrics, "find_duplicates", h.findDuplicatesHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "find_near_duplicates",
 		Description: "Find groups of SIMILAR (not identical) files via SimHash fingerprint of their extracted body. Complements 'find_duplicates' for fuzzy matching — catches files with trailing-newline edits, regenerated headers, typo fixes, template copies, and minor revisions that exact-hash dedup misses. Algorithm: 64-bit Charikar SimHash over tokenized body text → pairwise Hamming distance → union-find groups files within the similarity threshold. Inputs: expr (optional CEL pre-prune; e.g. is_markdown to limit to docs), threshold (0..1, default 0.85 ≈ 9-bit Hamming distance; 0.95 ≈ 3 bits for whitespace/typo-only edits; 0.75 ≈ 16 bits for significant structural overlap), min_size (skip tiny files), the usual dir / dirs / excludes / timeout_seconds. Only text-shaped and structured-document types fingerprint (markdown / text / html / csv / json / xml / source/* / pdf / office / epub / email); binary families return zero fingerprints and are excluded. Fingerprints cache in the attribute index alongside hash; repeat runs on unchanged trees skip body extraction AND SimHash compute. Output: groups[] sorted by member count desc — biggest near-duplicate clusters first. Similarity = 1.0 means identical body text (which would also surface via find_duplicates).",
-	}, h.findNearDuplicatesHandler)
+	}, instrument(h.metrics, "find_near_duplicates", h.findNearDuplicatesHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "diff_trees",
 		Description: "Cross-tree set operations by sha256 content hash — the inverse of find_duplicates (which finds dupes WITHIN a tree). Answers 'what's in tree A that's NOT in tree B?', 'what content do they share?', 'which same-named files drifted?'. Inputs: tree_a + tree_b (required), op ('a-minus-b' default = content in A but not B, 'b-minus-a', 'intersect' = in both, 'union' = all distinct, 'mismatch' = same relative path but differing content), expr (optional CEL pre-prune applied to both trees, e.g. 'size > 1000000'), plus excludes / respect_gitignore / follow_symlinks / min_size / timeout_seconds. Hashes cache in the attribute index alongside (size, mtime) — two warm trees diff in seconds. Output: records[] of {status, path_a, path_b, sha256, size} sorted by (path_a, path_b, sha256); status ∈ only_in_a / only_in_b / both / name_match_content_differs. Read-only — never mutates either tree. Use cases: pre-backup sanity ('what's on the external drive I don't have locally?'), incremental-migration verification, sync-correctness checks, drift detection. Issue #210.",
-	}, h.diffTreesHandler)
+	}, instrument(h.metrics, "diff_trees", h.diffTreesHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_archive_contents",
 		Description: "List or filter entries inside a ZIP / TAR / TAR.GZ / GZIP archive without extracting. Per-entry CEL evaluation against the SAME vocabulary the top-level search uses — every is_X predicate (is_source, is_dockerfile, is_pdf, …) and per-family attribute (loc, language, page_count, frontmatter, …) works inside archives. Detection runs on the entry's bytes (first 512 sniffed against a synthetic in-memory FS), so 'src/main.go' inside a tarball detects as source/go and surfaces loc / comment_loc just like a real file. Inputs: path (required), expr (optional CEL filter), glob (basename pattern applied BEFORE the CEL pass), include_attributes (off by default — terse listing of name/size/content_type only), include_body (read entry bodies so body.contains / body.matches fire; bypasses the entry-list cache), max_entries (cap), timeout_seconds. The entry-list cache uses the existing attribute index: hit path filters cached records by glob + expr without opening the archive; miss path walks + populates the cache asynchronously. Archives with > 10000 entries skip the cache (too large to encode). Output: entries[] sorted by walk order; cache_hit=true when the response came from cache. Use when an agent needs to answer 'does this tarball contain Dockerfile?' or 'find every Go file with loc > 200 inside any tarball' without extracting first.",
-	}, h.listArchiveContentsHandler)
+	}, instrument(h.metrics, "list_archive_contents", h.listArchiveContentsHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "read_file_in_archive",
 		Description: "Read a single named file's bytes out of a ZIP / TAR / TAR.GZ / GZIP archive without extracting. entry_path must match an entry exactly (not a glob). Returns content as UTF-8 text when valid (content field) or base64-encoded raw bytes when not (content_base64). Capped at max_bytes (default 1 MiB) with truncated=true when the entry exceeds the cap. Also surfaces detected content_type + per-format attributes so callers don't need a separate list_archive_contents to know what they're looking at. Useful for agent flows like 'pull pyproject.toml out of source.tar.gz to check the Python version' or 'read the .github/workflows/ci.yml from a release archive'. Errors with entry-not-found when entry_path doesn't match any archive entry.",
-	}, h.readFileInArchiveHandler)
+	}, instrument(h.metrics, "read_file_in_archive", h.readFileInArchiveHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "detect_project",
 		Description: "Inspect a single directory and report which project type(s) it matches based on canonical indicator files (go.mod → go, package.json → node, Cargo.toml → rust, pyproject.toml/requirements.txt/Pipfile → python, Gemfile → ruby, pom.xml → java-maven, build.gradle → java-gradle, *.csproj → dotnet, *.tf → terraform, docker-compose.yml → docker-compose; plus static-site generators: hugo.toml → hugo, _config.yml → jekyll, .eleventy.js / eleventy.config.* → eleventy, astro.config.* → astro, gatsby-config.* → gatsby, mkdocs.yml → mkdocs, docusaurus.config.* → docusaurus, pelicanconf.py → pelican). A directory can match multiple types simultaneously (a Go module that also ships docker-compose.yml hits both). Output includes the matched indicator filename for each type so callers can audit detection decisions. Non-recursive — only the given directory's own listing is read.",
-	}, h.detectProjectHandler)
+	}, instrument(h.metrics, "detect_project", h.detectProjectHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "find_projects",
 		Description: "Walk a root directory and return every project root found. A project root is a directory whose contents match a registered project-type indicator. By default the walker stops at the first match per branch (the 'find me all my Go repos' shape) — pass nested=true to also surface sub-projects inside matched roots (monorepo workspaces, vendored deps). Filter to specific types with 'types': ['go','rust',…]. Prune the walk with 'excludes' (basename globs like ['node_modules', '.git', 'target']) or respect_gitignore. Honours the same timeout / cancellation contract as the search tool — on expiry the partial result set is returned with cancelled=true, never an error.",
-	}, h.findProjectsHandler)
+	}, instrument(h.metrics, "find_projects", h.findProjectsHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "find_matches",
 		Description: "Scan a directory tree for lines matching an RE2 regex, with optional context windows. Combines a CEL pre-prune (type predicates + typed attributes, same vocabulary as the search tool) with a line-level regex scan: 'expr' picks the candidate files cheaply (e.g. is_source && language == \"go\"), then 'pattern' runs against each line and reports every hit with its line number and the requested before/after context. Returns line-level matches sorted by (path, line). Only text content types participate (markdown / text / html / csv / json / xml / source/*); binary families are filtered out. Inputs: pattern (required, RE2), expr (optional CEL pre-prune), context_before / context_after (surrounding lines per hit), max_matches_per_file (cap; the scanner keeps reading past the cap until pending After windows are filled). Same dir / dirs / excludes / respect_gitignore / timeout_seconds / cancellation contract as search. Use when an agent needs 'find references to X' or 'show every TODO with context' — replaces the two-call search-then-read_lines dance with one call.",
-	}, h.findMatchesHandler)
+	}, instrument(h.metrics, "find_matches", h.findMatchesHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "watch_search",
 		Description: "Watch directories for a BOUNDED window and return every new / changed file that matches a CEL expression — the inverse of search ('tell me when X appears' instead of 'what already matches'). Same CEL vocabulary as the search tool (is_image, is_pdf, is_source && language == \"go\", size > 1000000, body.contains(\"error\"), …). Watches recursively (subdirectories created during the window are picked up). Blocks until duration_seconds elapses (default 30s, hard-capped at 600s), max_events matches are collected, or the call is cancelled — whichever comes first; then returns the collected matches. Inputs: expr (optional CEL filter), dir / dirs, duration_seconds (how long to watch), max_events (return early after N matches), plus the usual ocr_images / compute_hashes / with_phash / with_xattrs / include_body / excludes / respect_gitignore flags. Output: matches[] (same shape as search) + watched_seconds + hit_max_events. Use for short 'wait for the next screenshot / build artefact / download' flows; for open-ended streaming use the CLI 'watch' subcommand. Issue #211.",
-	}, h.watchSearchHandler)
+	}, instrument(h.metrics, "watch_search", h.watchSearchHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_presets",
 		Description: "List every named search recipe ('preset') available to the query_preset tool — each preset bakes a vetted CEL filter + sensible sort / limit defaults for a common workflow. Use this to discover what's available before calling query_preset. v1 presets: recent_changes (files modified in the last 7 days), recent_photos (images taken in the last 30 days), old_drafts (markdown drafts older than 90 days — neglected work), large_files (files > 100 MB), large_binaries (compiled binaries > 100 MB), suspicious_files (forensic-triage shortcut — disguised files or btime anomalies; auto-enables check_disguised), failed_tests (source test files mentioning FAIL/FIXME/XXX; auto-enables include_body), system_metadata (OS leftovers — .DS_Store / Thumbs.db / Desktop.ini / .directory). Output: presets[] with name + description; pass the name to query_preset to run.",
-	}, h.listPresetsHandler)
+	}, instrument(h.metrics, "list_presets", h.listPresetsHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "query_preset",
 		Description: "Run a named search recipe by name. Each preset bakes a vetted CEL filter + sensible defaults — recent_changes / recent_photos / old_drafts / large_files / large_binaries / suspicious_files / failed_tests / system_metadata. Per-call overrides: dir / dirs to scope the walk, limit to override the preset's default cap, excludes / respect_gitignore / follow_symlinks for the usual walk-pruning options. Returns the same Match shape as the search tool. Discover available presets via list_presets. Issue #168 sub-feature B.",
-	}, h.queryPresetHandler)
+	}, instrument(h.metrics, "query_preset", h.queryPresetHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "resolve_project_for_path",
 		Description: "Given an arbitrary file or directory path, walk up the directory chain (unbounded — terminates at the filesystem root) and return the nearest ancestor that matches a registered project type (go.mod → go, package.json → node, Cargo.toml → rust, pyproject.toml/requirements.txt/Pipfile → python, Gemfile → ruby, pom.xml → java-maven, build.gradle → java-gradle, *.csproj → dotnet, *.tf → terraform, docker-compose.yml → docker-compose; plus static-site generators hugo / jekyll / eleventy / astro / gatsby / mkdocs / docusaurus / pelican). The MIDDLE question between detect_project (single-dir, what is THIS dir?) and find_projects (recursive, what's under this tree?): given a file path, what project owns it? Returns project_root (matched directory; empty when no ancestor matches), project_types (all matching types — a Go module that also ships docker-compose.yml hits both), and the indicators that fired. Use when an agent has a path from elsewhere and needs the project context — e.g. to scope a follow-up search or decide which language-specific tool to invoke.",
-	}, h.resolveProjectForPathHandler)
+	}, instrument(h.metrics, "resolve_project_for_path", h.resolveProjectForPathHandler))
 
 	return s
 }
@@ -361,6 +380,6 @@ func New(version string, idx index.Index, defaultTimeout time.Duration, embedDef
 // Run starts an MCP server on stdio with the given index and default
 // per-call timeout, and blocks until the transport closes or ctx is
 // cancelled.
-func Run(ctx context.Context, version string, idx index.Index, defaultTimeout time.Duration, embedDefaults EmbedDefaults) error {
-	return New(version, idx, defaultTimeout, embedDefaults).Run(ctx, &mcp.StdioTransport{})
+func Run(ctx context.Context, version string, idx index.Index, defaultTimeout time.Duration, embedDefaults EmbedDefaults, opts ...Option) error {
+	return New(version, idx, defaultTimeout, embedDefaults, opts...).Run(ctx, &mcp.StdioTransport{})
 }

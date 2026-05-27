@@ -443,6 +443,25 @@ For HTTP-based clients, point at `http://<host>:<port>/` after starting the serv
 
 Built on [`github.com/modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk).
 
+## Monitoring dashboard
+
+Both long-running modes (`mcp` and `watch`) can expose a read-only monitoring dashboard with `--monitor-addr`. It's off by default, binds **127.0.0.1 only** (the host part of the address is ignored — only the port is used), needs no auth, and adds no dependencies — the UI is a single embedded page that polls a small JSON API.
+
+```sh
+file-search-on mcp --monitor-addr :9090                       # stdio MCP + dashboard
+file-search-on mcp --transport http --addr :8080 --monitor-addr :9090
+file-search-on watch 'is_image' -d ~/Screenshots --monitor-addr :9090
+```
+
+Open `http://localhost:9090/`. Four panels:
+
+- **Overview** — version, uptime, run mode, PID / Go version / GOMAXPROCS, default worker count, index backing (path or in-memory), body-cache cap.
+- **Cache** — the attribute / body / embedding cache counters as live cards with derived **hit-rate %** and sparklines; body evictions / oversize rejects / embed model-mismatches flagged.
+- **Activity** — live MCP tool-call feed (tool, elapsed, outcome, result count), per-tool call / error / cancel counts and p50 / p95 / max latency, and an in-flight gauge. (Watch mode has no MCP calls, so this panel shows a notice.)
+- **Capabilities** — registered content types grouped by family, project types, OCR provider availability, embedder model / server + a reachability check.
+
+The JSON API is scriptable too: `curl -s localhost:9090/api/cache | jq`, plus `/api/overview`, `/api/activity`, `/api/capabilities`, and `/healthz` (liveness). See [examples/monitoring.md](./examples/monitoring.md).
+
 ## Contributing
 
 The project is small enough to read in an afternoon and welcoming to first-time contributors. See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup, branch/commit conventions, the local CI matrix, and PR expectations. A few quick entry points:
