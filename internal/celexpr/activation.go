@@ -212,6 +212,14 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.IsSafariBookmarks, true
 	case "is_bookmark_file":
 		return a.attrs.IsBookmarkFile, true
+	case "is_chat_export":
+		return a.attrs.IsChatExport, true
+	case "is_slack_export":
+		return a.attrs.IsSlackExport, true
+	case "is_discord_export":
+		return a.attrs.IsDiscordExport, true
+	case "is_signal_export":
+		return a.attrs.IsSignalExport, true
 	case "is_xattr_rich":
 		return a.attrs.IsXattrRich, true
 	case "is_quarantined":
@@ -566,6 +574,14 @@ var zeroDefaults = map[string]any{
 	"bookmark_titles":       []string{},
 	"browser_vendor":        "",
 	"bookmark_profile":      "",
+
+	// Chat-export content types (issue #214).
+	"chat_message_count": int64(0),
+	"chat_participants":  []string{},
+	"chat_channel":       "",
+	"chat_workspace":     "",
+	"chat_start_at":      time.Time{},
+	"chat_end_at":        time.Time{},
 
 	// Font content types (issue #197). Per-trait predicates
 	// (is_variable_font / is_color_font / is_monospace_font /

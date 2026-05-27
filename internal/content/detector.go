@@ -19,6 +19,32 @@ type FilenameMatcher interface {
 	Filenames() []string
 }
 
+// ContentDiscriminator is an optional interface for content types that
+// share an extension with a generic type (e.g. chat exports vs plain
+// `.json`) and have no fixed basename to match on. Such types can't win
+// via extension matching alone — `.json` always resolves to the generic
+// json type. The detector consults discriminators only when extension
+// matching would otherwise yield a generic type, reading the file head
+// once and asking each discriminator whose advertised extension matches.
+//
+// Implementations should inspect STRUCTURE (e.g. top-level JSON keys via
+// a streaming json.Decoder), not byte prefixes, and must never buffer
+// the whole file — head is already a bounded prefix.
+type ContentDiscriminator interface {
+	// DiscriminatorExtensions returns the extensions this type
+	// discriminates within (lowercase, dotted, e.g. ".json").
+	DiscriminatorExtensions() []string
+	// MatchesContent reports whether head (a prefix of the file) has
+	// this type's structure.
+	MatchesContent(head []byte) bool
+}
+
+// discriminatorReadCap bounds the head read for the content-discriminator
+// tier. Generous enough to contain the top-level keys of a realistic
+// chat export (guild / channel metadata precedes the messages array)
+// while staying cheap — it only fires for would-be-generic JSON files.
+const discriminatorReadCap = 64 << 10
+
 // Detect detects the content type of a file using extension first, then
 // magic bytes. Path is an fs.FS-style key (forward slashes); fsys is the
 // filesystem that provides Open access for magic-byte sniffing when no
@@ -67,6 +93,17 @@ func (r *Registry) Detect(fsys fs.FS, p string) ContentType {
 			}
 		}
 	}
+	// Content-discriminator tier: when extension matching yielded only
+	// the generic `json` type (or nothing), a more-specific type may
+	// still claim the file by inspecting its structure — e.g. a Slack /
+	// Discord / Signal chat export is a plain `.json` file with no fixed
+	// basename. Read the head once and ask each discriminator whose
+	// advertised extension matches.
+	if fsys != nil && (best == nil || best.Name() == "json") {
+		if ct := discriminate(fsys, p, pLower, types); ct != nil {
+			return ct
+		}
+	}
 	if best != nil {
 		return best
 	}
@@ -89,6 +126,47 @@ func (r *Registry) Detect(fsys fs.FS, p string) ContentType {
 			if bytes.HasPrefix(buf, magic) {
 				return ct
 			}
+		}
+	}
+	return nil
+}
+
+// discriminate runs the content-discriminator tier: for each registered
+// ContentDiscriminator whose advertised extension suffix-matches pLower,
+// it reads the file head once and returns the first type whose
+// MatchesContent reports a structural match. Returns nil when no
+// discriminator claims the file (the caller falls back to the generic
+// extension match). The head is read at most once, lazily, only when a
+// candidate discriminator exists.
+func discriminate(fsys fs.FS, p, pLower string, types []ContentType) ContentType {
+	var candidates []ContentDiscriminator
+	for _, ct := range types {
+		d, ok := ct.(ContentDiscriminator)
+		if !ok {
+			continue
+		}
+		for _, e := range d.DiscriminatorExtensions() {
+			if strings.HasSuffix(pLower, e) {
+				candidates = append(candidates, d)
+				break
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	f, err := fsys.Open(p)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = f.Close() }()
+	head, err := io.ReadAll(io.LimitReader(f, discriminatorReadCap))
+	if err != nil {
+		return nil
+	}
+	for _, d := range candidates {
+		if d.MatchesContent(head) {
+			return d.(ContentType)
 		}
 	}
 	return nil
