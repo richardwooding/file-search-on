@@ -1,0 +1,30 @@
+# golangci-lint configuration.
+#
+# The repo otherwise relies on golangci-lint defaults (CI installs the
+# `latest` version). This file exists for one targeted exclusion:
+#
+# staticcheck SA5011 ("possible nil pointer dereference") produces
+# nondeterministic false positives in our test files. The pattern is the
+# standard table-test guard:
+#
+#     got, err := Do()
+#     if got == nil { t.Fatal("nil result") }
+#     use(got)            // <- SA5011 sometimes flags this
+#
+# t.Fatal terminates the goroutine (runtime.Goexit), so the deref is
+# unreachable when nil — but SA5011's nilness facts propagate across the
+# whole program via go/analysis, and which sites it flags shifts run to
+# run as unrelated code changes (adding a new package surfaced it on
+# files that had linted clean for months). Chasing individual sites with
+# `return` statements is unwinnable whack-a-mole.
+#
+# SA5011 stays ENABLED for non-test code, where a real nil deref is a
+# bug worth catching; it's excluded only in *_test.go.
+version: "2"
+linters:
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - staticcheck
+        text: SA5011
