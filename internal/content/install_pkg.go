@@ -36,7 +36,7 @@ func readPKGInfo(fsys fs.FS, path string) (Attributes, error) {
 	defer func() { _ = f.Close() }()
 	var hdr [xarHeaderSize]byte
 	if _, err := io.ReadFull(f, hdr[:]); err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	if !bytes.Equal(hdr[0:4], []byte("xar!")) {
 		return Attributes{}, nil

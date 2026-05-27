@@ -74,10 +74,10 @@ func readVHDXInfo(fsys fs.FS, path string) (Attributes, error) {
 	// defensive but the magic check makes the failure path cheaper.
 	var magic [8]byte
 	if _, err := rs.Seek(0, io.SeekStart); err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	if _, err := io.ReadFull(rs, magic[:]); err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	if !bytes.Equal(magic[:], []byte("vhdxfile")) {
 		return Attributes{}, nil

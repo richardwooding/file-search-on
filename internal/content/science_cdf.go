@@ -70,7 +70,7 @@ func readCDFInfo(fsys fs.FS, path string) (Attributes, error) {
 
 	buf, err := io.ReadAll(io.LimitReader(f, cdfReadCap))
 	if err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 
 	attrs, gdrOffset := parseCDFCDR(buf)

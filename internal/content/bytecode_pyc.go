@@ -36,7 +36,7 @@ func readPYCInfo(fsys fs.FS, path string) (Attributes, error) {
 	// io.ErrUnexpectedEOF means the file is shorter than the cap —
 	// fine, we trim and parse what we have.
 	if err != nil && err != io.ErrUnexpectedEOF {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	return parsePYCHeader(hdr[:n]), nil
 }

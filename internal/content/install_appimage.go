@@ -47,7 +47,7 @@ func readAppImageInfo(fsys fs.FS, path string) (Attributes, error) {
 	defer func() { _ = f.Close() }()
 	var hdr [appimageReadSize]byte
 	if _, err := io.ReadFull(f, hdr[:]); err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	marker := hdr[appimageMagicOffset : appimageMagicOffset+4]
 	extras := Attributes{"package_kind": "linux-portable"}

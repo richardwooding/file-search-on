@@ -35,11 +35,11 @@ func readGZIPArchive(fsys fs.FS, path string) (Attributes, error) {
 		return Attributes{}, nil
 	}
 	if _, err := rs.Seek(size-4, io.SeekStart); err != nil {
-		return Attributes{}, nil //nolint:nilerr // unreadable footer → empty attrs
+		return Attributes{}, nil // unreadable footer → empty attrs
 	}
 	var footer [4]byte
 	if _, err := io.ReadFull(rs, footer[:]); err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	uncompressed := int64(binary.LittleEndian.Uint32(footer[:]))
 	return archiveAttrs(1, uncompressed, map[string]struct{}{}), nil

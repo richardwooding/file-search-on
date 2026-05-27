@@ -54,7 +54,7 @@ func (*safariBookmarksType) Attributes(ctx context.Context, fsys fs.FS, path str
 	defer func() { _ = f.Close() }()
 	buf, err := io.ReadAll(io.LimitReader(f, safariBookmarksReadCap))
 	if err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	return parseSafariBookmarks(buf), nil
 }
@@ -73,7 +73,7 @@ func safariBookmarksBody(ctx context.Context, fsys fs.FS, path string, maxBytes 
 	defer func() { _ = f.Close() }()
 	buf, err := io.ReadAll(io.LimitReader(f, safariBookmarksReadCap))
 	if err != nil {
-		return "", nil //nolint:nilerr
+		return "", nil
 	}
 	return bookmarkBody(parseSafariBookmarks(buf), maxBytes), nil
 }

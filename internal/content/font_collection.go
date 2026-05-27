@@ -54,7 +54,7 @@ func (*fontCollectionType) Attributes(ctx context.Context, fsys fs.FS, path stri
 	defer func() { _ = f.Close() }()
 	buf, err := io.ReadAll(io.LimitReader(f, fontMaxBlobSize))
 	if err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	return parseTTC(buf), nil
 }

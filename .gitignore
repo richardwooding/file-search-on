@@ -47,3 +47,7 @@ dist/
 # OCR helper artifact landing zone (issue #189) — populated by the
 # release workflow's build-ocr-helper job before goreleaser runs.
 dist-extra/
+
+# Hugo docs-site build output
+/public/
+.hugo_build.lock

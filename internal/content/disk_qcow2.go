@@ -47,11 +47,11 @@ func readQCOW2Info(fsys fs.FS, path string) (Attributes, error) {
 		return Attributes{}, nil
 	}
 	if _, err := rs.Seek(0, io.SeekStart); err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	var hdr [qcow2HeaderSize]byte
 	if _, err := io.ReadFull(rs, hdr[:]); err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	return parseQCOW2Header(hdr[:]), nil
 }

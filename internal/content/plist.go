@@ -64,7 +64,7 @@ func (*plistType) Attributes(ctx context.Context, fsys fs.FS, path string) (Attr
 	defer func() { _ = f.Close() }()
 	buf, err := io.ReadAll(io.LimitReader(f, plistReadCap))
 	if err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	return parsePlist(buf, path), nil
 }

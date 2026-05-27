@@ -40,12 +40,12 @@ func (*licenseType) Attributes(ctx context.Context, fsys fs.FS, path string) (At
 	}
 	f, err := fsys.Open(path)
 	if err != nil {
-		return Attributes{}, nil //nolint:nilerr // unreadable file → no license id, not error
+		return Attributes{}, nil // unreadable file → no license id, not error
 	}
 	defer func() { _ = f.Close() }()
 	b, err := io.ReadAll(io.LimitReader(f, licenseReadCap))
 	if err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	id := detectLicenseID(string(b))
 	if id == "" {

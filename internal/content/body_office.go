@@ -21,7 +21,7 @@ func ooxmlBody(ctx context.Context, fsys fs.FS, filePath string, entries []strin
 	defer func() { _ = closer() }()
 	zr, err := zip.NewReader(ra, size)
 	if err != nil {
-		return "", nil //nolint:nilerr // malformed zip → empty body, not error
+		return "", nil // malformed zip → empty body, not error
 	}
 	var out strings.Builder
 	for _, entry := range entries {
@@ -67,7 +67,7 @@ func xlsxBody(ctx context.Context, fsys fs.FS, filePath string, maxBytes int) (s
 	defer func() { _ = closer() }()
 	zr, err := zip.NewReader(ra, size)
 	if err != nil {
-		return "", nil //nolint:nilerr
+		return "", nil
 	}
 
 	var out strings.Builder
@@ -149,7 +149,7 @@ func pptxBody(ctx context.Context, fsys fs.FS, filePath string, maxBytes int) (s
 	defer func() { _ = closer() }()
 	zr, err := zip.NewReader(ra, size)
 	if err != nil {
-		return "", nil //nolint:nilerr // malformed zip → empty body, not error
+		return "", nil // malformed zip → empty body, not error
 	}
 
 	// Collect ppt/slides/slideN.xml entries, sorted numerically by N.
@@ -222,11 +222,11 @@ func odtBody(ctx context.Context, fsys fs.FS, filePath string, maxBytes int) (st
 	defer func() { _ = closer() }()
 	zr, err := zip.NewReader(ra, size)
 	if err != nil {
-		return "", nil //nolint:nilerr // malformed zip → empty body, not error
+		return "", nil // malformed zip → empty body, not error
 	}
 	rc, err := openZipEntry(zr, "content.xml")
 	if err != nil {
-		return "", nil //nolint:nilerr // missing content.xml → empty body, not error
+		return "", nil // missing content.xml → empty body, not error
 	}
 	defer func() { _ = rc.Close() }()
 

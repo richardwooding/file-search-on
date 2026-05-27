@@ -17,7 +17,7 @@ func readEMLMessage(fsys fs.FS, path string) (Attributes, error) {
 
 	msg, err := mail.ReadMessage(f)
 	if err != nil {
-		return Attributes{}, nil //nolint:nilerr // graceful degradation: malformed .eml returns empty attrs
+		return Attributes{}, nil // graceful degradation: malformed .eml returns empty attrs
 	}
 	return emailAttrs(msg), nil
 }

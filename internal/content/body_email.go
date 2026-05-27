@@ -44,7 +44,7 @@ func emlBodyFromReader(ctx context.Context, r io.Reader, maxBytes int) (string, 
 	}
 	msg, err := mail.ReadMessage(r)
 	if err != nil {
-		return "", nil //nolint:nilerr // malformed message → empty body, not error
+		return "", nil // malformed message → empty body, not error
 	}
 	return walkEmailBody(ctx, msg.Body, msg.Header.Get("Content-Type"), msg.Header.Get("Content-Transfer-Encoding"), maxBytes)
 }
@@ -187,7 +187,7 @@ func decodeTextPart(ctx context.Context, r io.Reader, transferEncoding string, i
 	}
 	b, err := io.ReadAll(io.LimitReader(decoded, int64(cap)))
 	if err != nil {
-		return strings.TrimRight(string(b), "\r\n "), nil //nolint:nilerr // partial body on transfer-encoding error is fine
+		return strings.TrimRight(string(b), "\r\n "), nil // partial body on transfer-encoding error is fine
 	}
 	return strings.TrimRight(string(b), "\r\n "), nil
 }

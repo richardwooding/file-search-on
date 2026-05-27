@@ -68,7 +68,7 @@ func readVOTableInfo(fsys fs.FS, path string) (Attributes, error) {
 	defer func() { _ = f.Close() }()
 	buf, err := io.ReadAll(io.LimitReader(f, votableReadCap))
 	if err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	return parseVOTableHeader(buf), nil
 }

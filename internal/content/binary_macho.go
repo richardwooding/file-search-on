@@ -45,7 +45,7 @@ func readMachoInfo(ctx context.Context, fsys fs.FS, path string) (Attributes, er
 
 	f, err := macho.NewFile(ra)
 	if err != nil {
-		return Attributes{}, nil //nolint:nilerr // graceful degradation: malformed Mach-O returns empty attrs
+		return Attributes{}, nil // graceful degradation: malformed Mach-O returns empty attrs
 	}
 	defer func() { _ = f.Close() }()
 

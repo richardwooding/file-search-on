@@ -72,7 +72,7 @@ func readHDF5Info(fsys fs.FS, path string) (Attributes, error) {
 	defer func() { _ = f.Close() }()
 	buf, err := io.ReadAll(io.LimitReader(f, hdf5ReadCap))
 	if err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	return parseHDF5Superblock(buf), nil
 }

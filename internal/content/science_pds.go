@@ -70,7 +70,7 @@ func (p *pdsType) Attributes(ctx context.Context, fsys fs.FS, path string) (Attr
 	defer func() { _ = f.Close() }()
 	buf, err := io.ReadAll(io.LimitReader(f, pdsReadCap))
 	if err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	switch p.name {
 	case "science/pds3":

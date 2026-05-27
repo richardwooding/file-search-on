@@ -30,7 +30,7 @@ import (
 func parseSTL(ctx context.Context, fsys fs.FS, path string) (Attributes, error) {
 	rs, size, closer, err := openReadSeeker(fsys, path)
 	if err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	defer func() { _ = closer() }()
 
@@ -38,7 +38,7 @@ func parseSTL(ctx context.Context, fsys fs.FS, path string) (Attributes, error) 
 		return parseBinarySTL(ctx, rs, size)
 	}
 	if _, err := rs.Seek(0, io.SeekStart); err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	return parseASCIISTL(ctx, rs)
 }
@@ -63,7 +63,7 @@ func isBinarySTL(rs io.ReadSeeker, size int64) bool {
 func parseBinarySTL(ctx context.Context, rs io.ReadSeeker, size int64) (Attributes, error) {
 	var head [84]byte
 	if _, err := io.ReadFull(rs, head[:]); err != nil {
-		return Attributes{}, nil //nolint:nilerr
+		return Attributes{}, nil
 	}
 	count := int64(binary.LittleEndian.Uint32(head[80:84]))
 	if count <= 0 {
