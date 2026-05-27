@@ -65,6 +65,7 @@ var CLI struct {
 	Projects        FindProjectsCmd    `cmd:"" name:"find-projects" help:"Walk a root and list every project subdirectory under it."`
 	WhichProject    WhichProjectCmd    `cmd:"" name:"which-project" help:"Given a file or directory path, walk up the chain and identify the nearest enclosing project root and type(s)."`
 	ConfigPaths     ConfigPathsCmd     `cmd:"" name:"config-paths" help:"Print the project-type config search paths for this platform. Use to discover where to drop your user-wide config (mkdir -p \"$(file-search-on config-paths -o bare | head -1 | xargs dirname)\")."`
+	Monitors        MonitorsCmd        `cmd:"" name:"monitors" help:"List the monitoring-dashboard URLs of every currently-running file-search-on instance (mcp / watch started with --monitor). Reads the shared peer registry and prunes dead entries. Pipe -o bare into a browser opener, e.g. file-search-on monitors -o bare | head -1 | xargs open."`
 	HashSet         HashSetCmd         `cmd:"" name:"hash-set" help:"Manage hash allowlist / denylist files used by --hash-allowlist / --hash-denylist. Subcommands: build (compile text or NSRL CSV into bbolt format), info (print per-algorithm counts)."`
 	MCP             MCPCmd             `cmd:"" name:"mcp" help:"Run as a Model Context Protocol server (stdio, http, or sse)."`
 	Version         kong.VersionFlag   `short:"V" help:"Print version and exit."`

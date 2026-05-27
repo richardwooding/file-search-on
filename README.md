@@ -150,6 +150,7 @@ file-search-on -d .                                   # empty expression matches
 | `find-projects [root]` | Walk a tree listing every project subdirectory | [examples/projects.md](./examples/projects.md) |
 | `which-project <path>` | Walk UP from a file/dir to its nearest enclosing project root | [examples/projects.md](./examples/projects.md) |
 | `config-paths` | Print platform-specific project-type config paths | [examples/projects.md](./examples/projects.md) |
+| `monitors` | List the dashboard URLs of every running instance (mcp / watch started with `--monitor`) | [examples/monitoring.md](./examples/monitoring.md) |
 | `mcp` | Run as a Model Context Protocol server | [MCP server mode](#mcp-server-mode) |
 
 `file-search-on --list` prints the canonical schema (every attribute, every built-in function, every registered content type) — useful for "what can I filter on?" exploration.

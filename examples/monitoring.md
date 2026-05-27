@@ -62,6 +62,26 @@ Response shape:
 
 So an agent that was launched **without** any monitor flag can still be observed on demand — call `monitor_info{enable:true}` and open the returned URL. From there the peers panel lets you hop between every running agent's dashboard. (Watch mode has no MCP tools, so its dashboard must be enabled at launch with `--monitor` / `--monitor-addr`.)
 
+### Listing dashboards from the shell
+
+The `monitors` subcommand prints every active instance's dashboard (reading the same registry, pruning any dead entries as it goes) — no MCP round-trip needed:
+
+```sh
+file-search-on monitors                 # table: mode / pid / age / dir / url
+file-search-on monitors -o bare         # one URL per line
+file-search-on monitors -o json         # machine-readable
+
+# open the most-recently-started dashboard in a browser (macOS)
+file-search-on monitors -o bare | tail -1 | xargs open
+```
+
+```
+MODE       PID    AGE   DIR                     URL
+mcp-stdio  97394  1m3s  /Users/me/projA         http://127.0.0.1:54211/
+mcp-stdio  97396  58s   /Users/me/projB         http://127.0.0.1:54218/
+watch      97401  12s   /Users/me/Desktop       http://127.0.0.1:54223/
+```
+
 ## JSON API (scriptable)
 
 The same data the UI renders is available as JSON — handy for scripts, smoke checks, or piping into `jq`:
