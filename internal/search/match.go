@@ -357,6 +357,18 @@ type Match struct {
 	BrowserVendor       string   `json:"browser_vendor,omitempty"`
 	BookmarkProfile     string   `json:"bookmark_profile,omitempty"`
 
+	// Chat exports (issue #214).
+	IsChatExport     bool     `json:"is_chat_export,omitempty"`
+	IsSlackExport    bool     `json:"is_slack_export,omitempty"`
+	IsDiscordExport  bool     `json:"is_discord_export,omitempty"`
+	IsSignalExport   bool     `json:"is_signal_export,omitempty"`
+	ChatMessageCount int64    `json:"chat_message_count,omitempty"`
+	ChatParticipants []string `json:"chat_participants,omitempty"`
+	ChatChannel      string   `json:"chat_channel,omitempty"`
+	ChatWorkspace    string   `json:"chat_workspace,omitempty"`
+	ChatStartAt      string   `json:"chat_start_at,omitempty"` // RFC3339 when set
+	ChatEndAt        string   `json:"chat_end_at,omitempty"`   // RFC3339 when set
+
 	// Font content types (issue #197).
 	IsFont                  bool     `json:"is_font,omitempty"`
 	IsTTF                   bool     `json:"is_ttf,omitempty"`
@@ -607,6 +619,7 @@ func MatchFrom(r Result) Match {
 	m.IsCDF = a.IsCDF
 	m.IsSQLite, m.IsDatabase = a.IsSQLite, a.IsDatabase
 	m.IsBookmarkFile, m.IsChromiumBookmarks, m.IsSafariBookmarks = a.IsBookmarkFile, a.IsChromiumBookmarks, a.IsSafariBookmarks
+	m.IsChatExport, m.IsSlackExport, m.IsDiscordExport, m.IsSignalExport = a.IsChatExport, a.IsSlackExport, a.IsDiscordExport, a.IsSignalExport
 	m.IsXattrRich, m.IsQuarantined = a.IsXattrRich, a.IsQuarantined
 	m.IsFont, m.IsTTF, m.IsOTF, m.IsFontCollection, m.IsWOFF, m.IsWOFF2 = a.IsFont, a.IsTTF, a.IsOTF, a.IsFontCollection, a.IsWOFF, a.IsWOFF2
 	m.MD5, m.SHA1, m.SHA256 = a.MD5, a.SHA1, a.SHA256
@@ -1336,6 +1349,27 @@ func MatchFrom(r Result) Match {
 	}
 	if v, ok := a.Extra["bookmark_profile"].(string); ok {
 		m.BookmarkProfile = v
+	}
+
+	// Chat exports (issue #214). Bool predicates come from the typed
+	// FileAttributes fields above; per-file attrs live in Extra.
+	if v, ok := a.Extra["chat_message_count"].(int64); ok {
+		m.ChatMessageCount = v
+	}
+	if v, ok := a.Extra["chat_participants"].([]string); ok && len(v) > 0 {
+		m.ChatParticipants = v
+	}
+	if v, ok := a.Extra["chat_channel"].(string); ok {
+		m.ChatChannel = v
+	}
+	if v, ok := a.Extra["chat_workspace"].(string); ok {
+		m.ChatWorkspace = v
+	}
+	if v, ok := a.Extra["chat_start_at"].(time.Time); ok && !v.IsZero() {
+		m.ChatStartAt = v.Format(time.RFC3339)
+	}
+	if v, ok := a.Extra["chat_end_at"].(time.Time); ok && !v.IsZero() {
+		m.ChatEndAt = v.Format(time.RFC3339)
 	}
 
 	// Font content types (issue #197). Per-format bool umbrellas

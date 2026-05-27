@@ -303,6 +303,14 @@ type FileAttributes struct {
 	IsSafariBookmarks   bool
 	IsBookmarkFile      bool
 
+	// Chat-export content types (issue #214). IsChatExport is the
+	// family umbrella, populated via the `chat/` prefix block in
+	// setTypeFlags.
+	IsChatExport    bool
+	IsSlackExport   bool
+	IsDiscordExport bool
+	IsSignalExport  bool
+
 	// Font content types (issue #197). IsFont is the family umbrella
 	// (any content_type starting with `font/`); the per-format flags
 	// match specific content types. Per-TRAIT predicates
@@ -623,6 +631,17 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("bookmark_titles", cel.ListType(cel.StringType)),
 		cel.Variable("browser_vendor", cel.StringType),
 		cel.Variable("bookmark_profile", cel.StringType),
+		// Chat-export content types (issue #214).
+		cel.Variable("is_chat_export", cel.BoolType),
+		cel.Variable("is_slack_export", cel.BoolType),
+		cel.Variable("is_discord_export", cel.BoolType),
+		cel.Variable("is_signal_export", cel.BoolType),
+		cel.Variable("chat_message_count", cel.IntType),
+		cel.Variable("chat_participants", cel.ListType(cel.StringType)),
+		cel.Variable("chat_channel", cel.StringType),
+		cel.Variable("chat_workspace", cel.StringType),
+		cel.Variable("chat_start_at", cel.TimestampType),
+		cel.Variable("chat_end_at", cel.TimestampType),
 		// Font content types (issue #197).
 		cel.Variable("is_font", cel.BoolType),
 		cel.Variable("is_ttf", cel.BoolType),
@@ -1759,6 +1778,12 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 		attrs.IsChromiumBookmarks = true
 	case "browser/bookmarks-safari":
 		attrs.IsSafariBookmarks = true
+	case "chat/slack-export":
+		attrs.IsSlackExport = true
+	case "chat/discord-export":
+		attrs.IsDiscordExport = true
+	case "chat/signal-cli":
+		attrs.IsSignalExport = true
 	case "font/ttf":
 		attrs.IsTTF = true
 	case "font/otf":
@@ -1883,6 +1908,9 @@ func setTypeFlags(attrs *FileAttributes, name string) {
 	}
 	if strings.HasPrefix(name, "browser/bookmarks-") {
 		attrs.IsBookmarkFile = true
+	}
+	if strings.HasPrefix(name, "chat/") {
+		attrs.IsChatExport = true
 	}
 	if strings.HasPrefix(name, "font/") {
 		attrs.IsFont = true

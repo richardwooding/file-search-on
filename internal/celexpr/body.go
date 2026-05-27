@@ -51,7 +51,8 @@ func isStructuredBody(name string) bool {
 		"email/rfc822", "email/mbox",
 		"pdf",
 		"database/sqlite",
-		"browser/bookmarks-chromium", "browser/bookmarks-safari":
+		"browser/bookmarks-chromium", "browser/bookmarks-safari",
+		"chat/slack-export", "chat/discord-export", "chat/signal-cli":
 		return true
 	}
 	return false

@@ -50,6 +50,12 @@ func ExtractBody(ctx context.Context, contentTypeName string, fsys fs.FS, filePa
 		return chromiumBookmarksBody(ctx, fsys, filePath, maxBytes)
 	case "browser/bookmarks-safari":
 		return safariBookmarksBody(ctx, fsys, filePath, maxBytes)
+	case "chat/slack-export":
+		return slackExportBody(ctx, fsys, filePath, maxBytes)
+	case "chat/discord-export":
+		return discordExportBody(ctx, fsys, filePath, maxBytes)
+	case "chat/signal-cli":
+		return signalExportBody(ctx, fsys, filePath, maxBytes)
 	}
 	return "", nil
 }

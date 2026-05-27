@@ -117,6 +117,9 @@ jobs:
           - name: ParseSafariBookmarks
             pkg: ./internal/content/
             func: FuzzParseSafariBookmarks
+          - name: ParseChatExport
+            pkg: ./internal/content/
+            func: FuzzParseChatExport
           - name: ParseQuarantineValue
             pkg: ./internal/content/
             func: FuzzParseQuarantineValue
