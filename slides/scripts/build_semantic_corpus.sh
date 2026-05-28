@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the semantic-search demo corpus in ~/Documents/semantic-demo.
+# Build the semantic-search demo corpus in ~/Demo/semantic-demo.
 #
 # Twelve short markdown notes on distinct technical topics. None of the
 # query phrases the demo uses appear verbatim in the matching file's
@@ -9,7 +9,7 @@
 
 set -euo pipefail
 
-DEST="${HOME}/Documents/semantic-demo"
+DEST="${HOME}/Demo/semantic-demo"
 mkdir -p "$DEST"
 
 # --- 1. database outage post-mortem ------------------------------------

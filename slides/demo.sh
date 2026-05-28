@@ -44,7 +44,7 @@ file-search-on find-matches '//\s*(TODO|FIXME)\b' \
 
 # Demo 2, command 1 — natural-language query. The matching file
 # (k8s-scheduling.md) contains none of the query words. ~1.5s cold.
-file-search-on search -d ~/Documents/semantic-demo \
+file-search-on search -d ~/Demo/semantic-demo \
   --semantic-query "container orchestration deployment strategies" \
   --embedding-model nomic-embed-text \
   --similarity-threshold 0.50 --limit 5 \
@@ -52,11 +52,11 @@ file-search-on search -d ~/Documents/semantic-demo \
 
 # Demo 2, punchline — confirm with grep that NONE of those words appear
 # in any file. Use BSD grep (default on macOS). Expected output: empty.
-grep -rli 'orchestration\|container\|deployment strateg' ~/Documents/semantic-demo
+grep -rli 'orchestration\|container\|deployment strateg' ~/Demo/semantic-demo
 
 # Demo 2, command 2 — second semantic query, warm (~90ms). Top hit is
 # transaction-isolation.md, found by meaning not keyword.
-file-search-on search -d ~/Documents/semantic-demo \
+file-search-on search -d ~/Demo/semantic-demo \
   --semantic-query "what happens when two writers update the same record" \
   --embedding-model nomic-embed-text \
   --similarity-threshold 0.50 --limit 5 \
@@ -65,14 +65,14 @@ file-search-on search -d ~/Documents/semantic-demo \
 # ---------------------------------------------------------------------------
 # Demo 3, command 1 — photos by camera_make
 # ---------------------------------------------------------------------------
-file-search-on stats -d ~/Pictures/south-africa-holiday \
+file-search-on stats -d ~/Demo/south-africa-holiday \
   'is_image' --group-by camera_make
 
 # ---------------------------------------------------------------------------
 # Demo 3, command 2 — photos inside a Cape Town bounding box (rectangle)
 # Expected hits: ~5 on the curated corpus (central CT only).
 # ---------------------------------------------------------------------------
-file-search-on -d ~/Pictures/south-africa-holiday \
+file-search-on -d ~/Demo/south-africa-holiday \
   'is_image && gps_lat > -33.96 && gps_lat < -33.7 && gps_lon > 18.3 && gps_lon < 18.7'
 
 # ---------------------------------------------------------------------------
@@ -82,7 +82,7 @@ file-search-on -d ~/Pictures/south-africa-holiday \
 # False Bay coast, Cape Point, Cape of Good Hope. Expected hits: ~12,
 # including the 7 Cape Point / Boulders Beach shots the bbox misses.
 # ---------------------------------------------------------------------------
-file-search-on -d ~/Pictures/south-africa-holiday \
+file-search-on -d ~/Demo/south-africa-holiday \
   'is_image && point_in_polygon(gps_lat, gps_lon,
        [-33.85, 18.30,  -33.85, 18.55,
         -34.15, 18.55,  -34.40, 18.50,
@@ -91,7 +91,7 @@ file-search-on -d ~/Pictures/south-africa-holiday \
 # ---------------------------------------------------------------------------
 # Demo 4, prep — build the OCR corpus once (synthetic JPGs with text):
 #   ./scripts/build_ocr_corpus.sh
-# This drops 12 images in ~/Pictures/ocr-demo/. Run any time the corpus
+# This drops 12 images in ~/Demo/ocr-demo/. Run any time the corpus
 # gets nuked; rebuilds are idempotent.
 #
 # Wipe the persistent index between rehearsals to keep the cold/warm
@@ -103,20 +103,20 @@ file-search-on -d ~/Pictures/south-africa-holiday \
 # Expected hits: 2 (error_terminal.jpg, log_entry.jpg).
 # The footer line "index: 0 hits, 12 misses, 12 stored" proves OCR ran.
 file-search-on search --ocr --index-path /tmp/ocr.db \
-  -d ~/Pictures/ocr-demo \
+  -d ~/Demo/ocr-demo \
   'is_image && body.contains("ERROR")'
 
 # Demo 4, command 2 — WARM pass: cache hit. <50ms.
 # Expected hits: 3 (receipt.jpg, invoice.jpg, printed_email.jpg — the
 # email mentions "invoice 2026-0042" so it's a legit hit, not noise).
 file-search-on search --ocr --index-path /tmp/ocr.db \
-  -d ~/Pictures/ocr-demo \
+  -d ~/Demo/ocr-demo \
   'is_image && body.matches("(?i)\b(invoice|total)\b")'
 
 # Demo 4, command 3 — WARM pass: another sub-second query against the
 # same cached body strings. Expected hits: 1 (meeting_notes.jpg).
 file-search-on search --ocr --index-path /tmp/ocr.db \
-  -d ~/Pictures/ocr-demo \
+  -d ~/Demo/ocr-demo \
   'is_image && body.contains("Athena")'
 
 # ---------------------------------------------------------------------------
@@ -128,9 +128,9 @@ file-search-on search --ocr --index-path /tmp/ocr.db \
 # runs (if you reuse --index-path).
 # ---------------------------------------------------------------------------
 file-search-on search \
-  -d ~/Pictures/south-africa-holiday \
+  -d ~/Demo/south-africa-holiday \
   "is_image && image_similar_to(phash, \
-     '$HOME/Pictures/south-africa-holiday/cape-of-good-hope_Cape_Point_Cape_Town_IMG_20180717_174658.jpg', \
+     '$HOME/Demo/south-africa-holiday/cape-of-good-hope_Cape_Point_Cape_Town_IMG_20180717_174658.jpg', \
      0.60)"
 
 # ---------------------------------------------------------------------------
@@ -141,8 +141,8 @@ file-search-on search \
 #
 # Question to paste into the agent UI:
 #   "I love this Cape Point shot:
-#    ~/Pictures/south-africa-holiday/cape-of-good-hope_Cape_Point_Cape_Town_IMG_20180717_174658.jpg
-#    Find me other photos in ~/Pictures/south-africa-holiday that are
+#    ~/Demo/south-africa-holiday/cape-of-good-hope_Cape_Point_Cape_Town_IMG_20180717_174658.jpg
+#    Find me other photos in ~/Demo/south-africa-holiday that are
 #    visually in the same style — coastal scenes, similar composition.
 #    Use a loose threshold; I want scene resemblance, not byte-identical
 #    duplicates."
