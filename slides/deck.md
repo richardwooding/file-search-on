@@ -5,6 +5,7 @@ paginate: true
 size: 16:9
 title: file-search-on
 author: Richard Wooding
+footer: '![SPAN](assets/span-logo.png)'
 style: |
   /* SPAN Digital brand palette (per Span Handbook brand platform +
      revealjs-presentation framework). */
@@ -76,9 +77,29 @@ style: |
     color: var(--span-orange);
     border-bottom: none;
   }
+  /* SPAN logo in the footer of every slide (suppressed on title via
+     _footer: ''). Constrain the image so the global footer directive
+     renders compactly at the bottom-left. */
+  footer img {
+    height: 32px;
+    width: auto;
+    vertical-align: middle;
+  }
+  /* Hero logo on the title slide — placed inline as <img class="title-logo" />. */
+  img.title-logo {
+    display: block;
+    margin: 0 auto 1.2em auto;
+    max-width: 320px;
+    width: 60%;
+    height: auto;
+  }
 ---
 
 <!-- _class: lead -->
+<!-- _footer: '' -->
+<!-- _paginate: false -->
+
+<img class="title-logo" src="assets/span-logo.png" alt="SPAN Digital" />
 
 # `file-search-on`
 
