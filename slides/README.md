@@ -7,10 +7,10 @@ A Marp deck for a ~15 minute Show-&-Tell talk on `file-search-on`.
 - `deck.md` — the slides. Speaker notes are inline as HTML comments.
 - `demo.sh` — the live commands, one block per demo slide.
 - `scripts/build_semantic_corpus.sh` — generates the Demo 2 corpus
-  (12 markdown notes in `~/Documents/semantic-demo/`). Run once before
+  (12 markdown notes in `~/Demo/semantic-demo/`). Run once before
   the talk.
 - `scripts/build_ocr_corpus.sh` — generates the Demo 4 OCR corpus
-  (12 synthetic text-bearing JPGs in `~/Pictures/ocr-demo/`). Run once
+  (12 synthetic text-bearing JPGs in `~/Demo/ocr-demo/`). Run once
   before the talk. Requires ImageMagick.
 - `README.md` — you are here.
 
@@ -21,7 +21,7 @@ A Marp deck for a ~15 minute Show-&-Tell talk on `file-search-on`.
 3. Make sure Ollama is running: `ollama serve &` (or open the Ollama app).
 4. Build the semantic corpus: `./scripts/build_semantic_corpus.sh`
 5. Build the OCR corpus: `./scripts/build_ocr_corpus.sh`
-6. Confirm the SA photo corpus is still at `~/Pictures/south-africa-holiday/` (66 GPS-tagged JPGs).
+6. Confirm the SA photo corpus is still at `~/Demo/south-africa-holiday/` (66 GPS-tagged JPGs).
 7. `rm -f /tmp/ocr.db /tmp/semantic.db` (wipe the caches so the cold/warm timing demos land).
 8. Have a Claude Code / Claude Desktop window with `file-search-on mcp` registered, sitting on a blank prompt for Demo 6.
 
@@ -61,7 +61,7 @@ its own beat in the talk. Two tips:
 1. Run the talks's terminal at a **bigger font** than your IDE
    (`Cmd-+` ×2 in Terminal.app / iTerm2). The default is unreadable
    from row 5.
-2. Pre-stage the photo corpus (`~/Pictures/south-africa-holiday/`) and
+2. Pre-stage the photo corpus (`~/Demo/south-africa-holiday/`) and
    the file-search-on binary on `PATH` before going live.
 
 ## Timing

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Generate the OCR demo corpus.
 #
-# Produces 12 synthetic text-bearing JPGs in ~/Pictures/ocr-demo/ using
+# Produces 12 synthetic text-bearing JPGs in ~/Demo/ocr-demo/ using
 # ImageMagick. No real screenshots or private content. Re-runnable;
 # overwrites in place.
 #
@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-DEST="${HOME}/Pictures/ocr-demo"
+DEST="${HOME}/Demo/ocr-demo"
 mkdir -p "$DEST"
 
 # Pick a monospace + a sans-serif font that ship with macOS. ImageMagick

@@ -303,13 +303,13 @@ that's the kind of distinction the is_test_file predicate makes easy.
 
 ## Demo 2 — semantic search over a docs folder
 
-12 short technical notes in `~/Documents/semantic-demo/`. Find the
+12 short technical notes in `~/Demo/semantic-demo/`. Find the
 right document when the query *paraphrases* the file.
 
 **Plain English query — no keyword overlap with the matching file**
 
 ```sh
-file-search-on search -d ~/Documents/semantic-demo \
+file-search-on search -d ~/Demo/semantic-demo \
   --semantic-query "container orchestration deployment strategies" \
   --embedding-model nomic-embed-text --similarity-threshold 0.50
 ```
@@ -317,14 +317,14 @@ file-search-on search -d ~/Documents/semantic-demo \
 → `k8s-scheduling.md`. None of those words appear in the file:
 
 ```sh
-grep -rli 'orchestration\|container\|deployment strateg' ~/Documents/semantic-demo
+grep -rli 'orchestration\|container\|deployment strateg' ~/Demo/semantic-demo
 # (nothing)
 ```
 
 **A second query — warm cache, sub-second**
 
 ```sh
-file-search-on search -d ~/Documents/semantic-demo \
+file-search-on search -d ~/Demo/semantic-demo \
   --semantic-query "what happens when two writers update the same record" \
   --embedding-model nomic-embed-text --similarity-threshold 0.50
 ```
@@ -336,7 +336,7 @@ SCRIPT:
 Demo two — semantic search.
 
 The corpus is twelve short technical notes I dropped in
-~/Documents/semantic-demo. Things like an incident post-mortem, a Go
+~/Demo/semantic-demo. Things like an incident post-mortem, a Go
 GC tuning note, a Mongo migration write-up, kubernetes pod scheduling,
 TLS handshake, transaction isolation. Real-shaped writing, eight
 hundred to a thousand bytes each.
@@ -390,14 +390,14 @@ This morning I curated 66 geotagged South African photos from Wikimedia Commons.
 **Histogram by camera**
 
 ```sh
-file-search-on stats -d ~/Pictures/south-africa-holiday \
+file-search-on stats -d ~/Demo/south-africa-holiday \
   'is_image' --group-by camera_make
 ```
 
 **Bounding box — central Cape Town (rectangle) → 5 photos**
 
 ```sh
-file-search-on -d ~/Pictures/south-africa-holiday \
+file-search-on -d ~/Demo/south-africa-holiday \
   'is_image && gps_lat > -33.96 && gps_lat < -33.7
             && gps_lon >  18.3 && gps_lon <  18.7'
 ```
@@ -405,7 +405,7 @@ file-search-on -d ~/Pictures/south-africa-holiday \
 **Polygon — the Cape Peninsula (any shape) → 12 photos**
 
 ```sh
-file-search-on -d ~/Pictures/south-africa-holiday \
+file-search-on -d ~/Demo/south-africa-holiday \
   'is_image && point_in_polygon(gps_lat, gps_lon,
        [-33.85, 18.30,  -33.85, 18.55,
         -34.15, 18.55,  -34.40, 18.50,
@@ -458,14 +458,14 @@ script.
 ## Demo 4 — text inside images (OCR)
 
 A separate corpus of synthetic text-bearing JPGs in
-`~/Pictures/ocr-demo/`: error screenshots, receipts, signs, meeting
+`~/Demo/ocr-demo/`: error screenshots, receipts, signs, meeting
 notes, code, posters.
 
 **Cold pass — 12 images, OCR'd by macOS Vision (~2.5s wall-clock)**
 
 ```sh
 file-search-on search --ocr --index-path /tmp/ocr.db \
-  -d ~/Pictures/ocr-demo \
+  -d ~/Demo/ocr-demo \
   'is_image && body.contains("ERROR")'
 ```
 
@@ -473,13 +473,13 @@ file-search-on search --ocr --index-path /tmp/ocr.db \
 
 ```sh
 file-search-on search --ocr --index-path /tmp/ocr.db \
-  -d ~/Pictures/ocr-demo \
+  -d ~/Demo/ocr-demo \
   'is_image && body.matches("(?i)\\b(invoice|total)\\b")'
 ```
 
 ```sh
 file-search-on search --ocr --index-path /tmp/ocr.db \
-  -d ~/Pictures/ocr-demo \
+  -d ~/Demo/ocr-demo \
   'is_image && body.contains("Athena")'
 ```
 
@@ -545,9 +545,9 @@ distance ≤ a few bits means the eye sees the same thing.
 
 ```sh
 file-search-on search \
-  -d ~/Pictures/south-africa-holiday \
+  -d ~/Demo/south-africa-holiday \
   "is_image && image_similar_to(phash, \
-     '~/Pictures/south-africa-holiday/cape-of-good-hope_Cape_Point_Cape_Town_IMG_20180717_174658.jpg', \
+     '~/Demo/south-africa-holiday/cape-of-good-hope_Cape_Point_Cape_Town_IMG_20180717_174658.jpg', \
      0.60)"
 ```
 
@@ -611,7 +611,7 @@ is exposed as 20 MCP tools.
 **Live**: in Claude Code, ask:
 
 > "I love this Cape Point shot. Find me other photos in
-> `~/Pictures/south-africa-holiday` that are visually in the same style —
+> `~/Demo/south-africa-holiday` that are visually in the same style —
 > coastal scenes, similar composition. Use a loose threshold; I want
 > scene resemblance, not byte-identical duplicates."
 
