@@ -1,0 +1,4 @@
+# Marp render artifacts
+*.html
+*.pdf
+*.pptx
