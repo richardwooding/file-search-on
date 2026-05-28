@@ -79,6 +79,8 @@ file-search-on mcp --embedding-model nomic-embed-text
 
 Per-call `model` / `embedding_server` inputs override the startup defaults. If neither is set, `search_semantic` returns `"no embedding model configured"`.
 
+**Pointing at a non-default Ollama**: both the CLI (`search --embedding-server`) and the MCP server (`mcp --embedding-server`) honour the standard `OLLAMA_HOST` env var as a fallback. Resolution order: explicit `--embedding-server` flag → `$OLLAMA_HOST` → `http://localhost:11434`. Useful for a remote Ollama box (`export OLLAMA_HOST=http://gpu-box:11434`) without having to pass the flag every invocation.
+
 ## How it works
 
 1. The query is embedded ONCE per call (one Ollama round-trip).
