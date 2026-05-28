@@ -6,14 +6,33 @@ size: 16:9
 title: file-search-on
 author: Richard Wooding
 style: |
+  /* SPAN Digital brand palette (per Span Handbook brand platform +
+     revealjs-presentation framework). */
+  :root {
+    --span-orange: #F7941D;
+    --span-cream:  #FFF5E6;
+    --span-dark:   #333333;
+    --span-gray:   #4A4A4A;
+  }
   section {
+    background: var(--span-cream);
+    color: var(--span-dark);
     font-size: 26px;
     padding: 50px 60px;
     line-height: 1.4;
+    border-right: 20px solid var(--span-orange);
   }
-  section h1 { font-size: 56px; }
-  section h2 { font-size: 36px; margin-bottom: 0.35em; }
-  section h3 { font-size: 28px; }
+  section h1 { font-size: 56px; color: var(--span-dark); }
+  section h2 {
+    font-size: 36px;
+    margin-bottom: 0.35em;
+    color: var(--span-dark);
+    border-bottom: 3px solid var(--span-orange);
+    padding-bottom: 0.12em;
+  }
+  section h3 { font-size: 28px; color: var(--span-dark); }
+  strong { color: var(--span-orange); }
+  a { color: var(--span-orange); }
   pre, code {
     font-size: 17px;
     line-height: 1.35;
@@ -21,14 +40,42 @@ style: |
   pre {
     padding: 0.6em 0.8em;
     margin: 0.4em 0;
+    background: #fdfaf3;
+    border-left: 3px solid var(--span-orange);
   }
+  code { color: var(--span-dark); }
   table { font-size: 22px; }
+  th {
+    background: var(--span-orange);
+    color: white;
+  }
   th, td { padding: 0.3em 0.6em; }
   ul, ol { margin: 0.3em 0; }
   li { margin: 0.15em 0; }
-  blockquote { font-size: 24px; margin: 0.4em 0; }
-  section.lead { font-size: 32px; }
-  section.lead h1 { font-size: 72px; }
+  blockquote {
+    font-size: 24px;
+    margin: 0.4em 0;
+    border-left: 4px solid var(--span-orange);
+    padding-left: 0.8em;
+    color: var(--span-gray);
+  }
+  /* Title slide — no stripe, larger type, orange title. */
+  section.lead {
+    font-size: 32px;
+    border-right: none;
+  }
+  section.lead h1 {
+    font-size: 72px;
+    color: var(--span-orange);
+  }
+  /* Thank-you / summary slide — no stripe, orange heading. */
+  section.thank-you {
+    border-right: none;
+  }
+  section.thank-you h2 {
+    color: var(--span-orange);
+    border-bottom: none;
+  }
 ---
 
 <!-- _class: lead -->
@@ -56,16 +103,16 @@ anything on screen is hard to read.
 
 ## Who I am
 
-- Staff engineer at Span Digital — we build content and dev tooling
+- Staff engineer at Span Digital — we take on the complex technical challenges that demand real expertise
 - I scratch my own itches in Go
 - Background: search, indexing, content systems
 - Today's project lives at **github.com/richardwooding/file-search-on**
 
 <!--
 SCRIPT:
-Quick "who am I" — I'm a staff engineer at Span Digital, where we work
-on content platforms and developer tooling. I write Go for fun and for
-work.
+Quick "who am I" — I'm a staff engineer at Span Digital, where we take
+on the complex technical challenges that demand real expertise. I write
+Go for fun and for work.
 
 Most of my projects start the same way: I have a question I want to ask
 of my filesystem, my tools won't answer it cleanly, and I get annoyed
@@ -729,7 +776,7 @@ Everything's tracked on GitHub.
 
 ---
 
-<!-- _class: lead -->
+<!-- _class: thank-you -->
 
 ## Summary
 
