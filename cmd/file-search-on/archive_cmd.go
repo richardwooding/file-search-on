@@ -20,7 +20,8 @@ type ArchiveContentsCmd struct {
 	Body              bool          `name:"body" help:"Read entry bodies so body.contains() / body.matches() CEL filters fire. Capped at --entry-read-cap. Bypasses the entry-list cache (bodies aren't cached)."`
 	EntryReadCap      int64         `name:"entry-read-cap" default:"0" help:"Cap on per-entry bytes read into memory for detection and body evaluation (bytes). 0 uses the 8 MiB default — enough for typical PDF / DOCX / EPUB / email bodies inside archives. Raise for archives containing huge documents; lower if memory pressure matters on large collections."`
 	MaxEntries        int           `name:"max" default:"0" help:"Cap on entries returned. 0 = unlimited."`
-	IndexPath         string        `name:"index-path" help:"Persistent attribute index file (bbolt). When set, per-archive entry-list cache is consulted before each walk and populated on miss."`
+	IndexPath         string        `name:"index-path" help:"Persistent attribute index file (bbolt). Overrides the default per-cwd index at <UserCacheDir>/file-search-on/indexes/. The per-archive entry-list cache is consulted before each walk and populated on miss."`
+	NoIndex           bool          `name:"no-index" help:"Disable the on-disk index entirely; use only in-memory caching for the process lifetime."`
 	Timeout           time.Duration `name:"timeout" help:"Maximum walk duration. On expiry the partial set is still printed and the process exits 124."`
 	Output            string        `short:"o" name:"output" enum:"default,json" default:"default" help:"Output format: default (human-readable) | json."`
 }
@@ -34,15 +35,11 @@ func (c *ArchiveContentsCmd) Run(ctx context.Context) error {
 		defer cancel()
 	}
 
-	var idx index.Index
-	if c.IndexPath != "" {
-		var err error
-		idx, err = openIndex(c.IndexPath, index.BodyCacheCap{})
-		if err != nil {
-			return err
-		}
-		defer func() { _ = idx.Close() }()
+	idx, _, err := openIndex(c.IndexPath, c.NoIndex, index.BodyCacheCap{})
+	if err != nil {
+		return err
 	}
+	defer func() { _ = idx.Close() }()
 
 	result, err := search.WalkArchiveEntries(effectiveCtx, c.Archive, search.ArchiveWalkOptions{
 		Expr:              c.Expr,

@@ -28,7 +28,8 @@ type PresetCmd struct {
 	Excludes       []string `name:"exclude" help:"Glob patterns pruned from the walk (e.g. node_modules, .git). Repeatable."`
 	RespectGit     bool     `name:"respect-gitignore" help:"Parse a .gitignore at each walk root and skip matching paths."`
 	FollowSymlinks bool     `name:"follow-symlinks" help:"Descend through symbolic links to directories."`
-	IndexPath      string   `name:"index-path" help:"Persistent attribute index file (bbolt). Created on first use; speeds up repeat runs on unchanged trees."`
+	IndexPath      string   `name:"index-path" help:"Persistent attribute index file (bbolt). Overrides the default per-cwd index at <UserCacheDir>/file-search-on/indexes/. Created on first use; speeds up repeat runs on unchanged trees."`
+	NoIndex        bool     `name:"no-index" help:"Disable the on-disk index entirely; use only in-memory caching for the process lifetime."`
 }
 
 func (p *PresetCmd) Run(ctx context.Context) error {
@@ -67,14 +68,12 @@ func (p *PresetCmd) Run(ctx context.Context) error {
 		walkOpts.Limit = p.Limit
 	}
 
-	if p.IndexPath != "" {
-		idx, err := openIndex(p.IndexPath, index.BodyCacheCap{})
-		if err != nil {
-			return err
-		}
-		defer func() { _ = idx.Close() }()
-		walkOpts.Index = idx
+	idx, _, err := openIndex(p.IndexPath, p.NoIndex, index.BodyCacheCap{})
+	if err != nil {
+		return err
 	}
+	defer func() { _ = idx.Close() }()
+	walkOpts.Index = idx
 
 	results, err := search.Walk(ctx, walkOpts, contentpkg.DefaultRegistry())
 	if err != nil && !isCancellation(err) {

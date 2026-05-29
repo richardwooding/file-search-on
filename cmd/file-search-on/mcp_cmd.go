@@ -15,7 +15,8 @@ type MCPCmd struct {
 	Transport         string        `name:"transport" enum:"stdio,http,sse" default:"stdio" help:"Transport: stdio (default; for desktop clients), http (Streamable HTTP, MCP 2025-03-26), or sse (DEPRECATED — HTTP+SSE, MCP 2024-11-05)."`
 	Addr              string        `name:"addr" default:":8080" help:"host:port to bind for http or sse transports. Ignored for stdio."`
 	Path              string        `name:"path" default:"/" help:"URL path prefix the handler is mounted at. Ignored for stdio."`
-	IndexPath         string        `name:"index-path" help:"Persistent attribute index file (bbolt). When unset the server uses an in-memory cache that lives for the process lifetime; setting this makes the cache survive restarts. The file is created on first use."`
+	IndexPath         string        `name:"index-path" help:"Persistent attribute index file (bbolt). Overrides the default per-cwd index at <UserCacheDir>/file-search-on/indexes/<basename>-<sha1[:6]>.db. The file is created on first use."`
+	NoIndex           bool          `name:"no-index" help:"Disable the on-disk index entirely; use only the in-memory cache for the process lifetime. Useful when another file-search-on instance already holds the writer lock on the default index file, or for hermetic CI / one-shot runs."`
 	BodyCacheMaxBytes int           `name:"body-cache-max-bytes" default:"268435456" help:"Total size cap (bytes) for the body cache inside the bbolt index file. Default 256 MiB. FIFO eviction by access time once exceeded. Only relevant when --index-path is set; in-memory indexes have no cap."`
 	NoBodyCache       bool          `name:"no-body-cache" help:"Disable the body cache. LookupBody always misses; PutBody is a no-op. Bodies are re-extracted on every include_body query."`
 	EmbeddingServer   string        `name:"embedding-server" env:"OLLAMA_HOST" default:"http://localhost:11434" help:"Default Ollama base URL for the search_semantic tool. Resolution order: --embedding-server flag > $OLLAMA_HOST env var > http://localhost:11434. Per-call 'embedding_server' input still overrides. Lazy connect — server starts without Ollama running; search_semantic fails clearly on first call if Ollama is unreachable."`
@@ -26,7 +27,7 @@ type MCPCmd struct {
 }
 
 func (m *MCPCmd) Run(ctx context.Context) error {
-	idx, err := openIndex(m.IndexPath, index.BodyCacheCap{MaxBytes: int64(m.BodyCacheMaxBytes), Disable: m.NoBodyCache})
+	idx, backend, err := openIndex(m.IndexPath, m.NoIndex, index.BodyCacheCap{MaxBytes: int64(m.BodyCacheMaxBytes), Disable: m.NoBodyCache})
 	if err != nil {
 		return err
 	}
@@ -53,7 +54,7 @@ func (m *MCPCmd) Run(ctx context.Context) error {
 	// via the monitor_info MCP tool.
 	collector := monitor.NewCollector()
 	bodyCap := int64(0)
-	if m.IndexPath != "" && !m.NoBodyCache {
+	if backend.Mode == BackendPersistent && !m.NoBodyCache {
 		bodyCap = int64(m.BodyCacheMaxBytes)
 	}
 	monAddr := m.MonitorAddr // fixed port wins
@@ -61,14 +62,16 @@ func (m *MCPCmd) Run(ctx context.Context) error {
 		monAddr = ":0" // dynamic, OS-assigned
 	}
 	controller := monitor.NewController(ctx, monitor.Config{
-		Version:      version,
-		Mode:         "mcp-" + m.Transport,
-		Index:        idx,
-		Collector:    collector,
-		EmbedServer:  m.EmbeddingServer,
-		EmbedModel:   m.EmbeddingModel,
-		IndexPath:    m.IndexPath,
-		BodyCacheCap: bodyCap,
+		Version:             version,
+		Mode:                "mcp-" + m.Transport,
+		Index:               idx,
+		Collector:           collector,
+		EmbedServer:         m.EmbeddingServer,
+		EmbedModel:          m.EmbeddingModel,
+		IndexPath:           backend.Path,
+		IndexBackend:        backend.Mode,
+		IndexFallbackReason: backend.Reason,
+		BodyCacheCap:        bodyCap,
 	}, addrOrDynamic(monAddr))
 	// Drain the dashboard (and deregister from the peer registry) before
 	// the index closes. Registered before cancelMonitor so, by LIFO,

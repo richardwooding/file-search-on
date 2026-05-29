@@ -27,7 +27,8 @@ type SearchCmd struct {
 	Output           string        `short:"o" name:"output" enum:"bare,default,verbose,json" default:"default" help:"Output format: bare | default | verbose | json."`
 	Format           string        `name:"format" help:"Custom Go text/template applied per match (e.g. '{{.Path}}\\t{{.Title}}'). When set, takes precedence over -o."`
 	Unsorted         bool          `name:"unsorted" help:"Stream matches in walk order instead of buffering+sorting. Default and verbose modes still emit the count footer; bare/json/template are streamed and unsorted regardless. Ignored when --sort or --limit is set (those force buffered mode)."`
-	IndexPath        string        `name:"index-path" help:"Persistent attribute index file (bbolt). When set, unchanged files (matched by absolute path + size + mtime) skip the per-file content-type parse, making repeat searches dramatically faster. The file is created on first use; delete it to force a full re-extraction."`
+	IndexPath        string        `name:"index-path" help:"Persistent attribute index file (bbolt). Overrides the default per-cwd index at <UserCacheDir>/file-search-on/indexes/<basename>-<sha1[:6]>.db. When set, unchanged files (matched by absolute path + size + mtime) skip the per-file content-type parse, making repeat searches dramatically faster. The file is created on first use; delete it to force a full re-extraction."`
+	NoIndex          bool          `name:"no-index" help:"Disable the on-disk index entirely; use only the in-memory cache for the process lifetime. Useful for hermetic CI / one-shot runs, or when another file-search-on instance already holds the writer lock on the default index file."`
 	Timeout          time.Duration `name:"timeout" help:"Maximum walk duration (Go duration string: 30s, 2m, 500ms). Default unset = no timeout. On expiry, results collected so far are still printed and the process exits 124. Ctrl-C exits 130 with whatever was collected."`
 	Sort             string        `name:"sort" help:"Sort matches by attribute. Recognised keys: size, name, path, mod_time, word_count, line_count, page_count, duration, bitrate, sample_rate, video_height, video_width, frame_rate, iso, focal_length, taken_at, sent_at, year, entry_count, uncompressed_size, loc, attachment_count, email_count. Files missing the attribute group at the end. Forces buffered mode."`
 	Order            string        `name:"order" help:"Sort direction: 'asc' (default for --sort) or 'desc'. When --rank is set the default flips to 'desc' (higher score first). Ignored without --sort or --rank."`
@@ -86,19 +87,15 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		}
 	}
 
-	// CLI is opt-in: nothing is created unless --index-path is set.
-	// One-shot CLI runs without an explicit path don't benefit from a
-	// process-local cache, so we skip the allocation entirely.
-	var idx index.Index
-	if s.IndexPath != "" {
-		var err error
-		idx, err = openIndex(s.IndexPath, index.BodyCacheCap{
-			MaxBytes: int64(s.BodyCacheMaxBytes),
-			Disable:  s.NoBodyCache,
-		})
-		if err != nil {
-			return err
-		}
+	// On-disk index is on by default — picks the per-cwd file under
+	// <UserCacheDir>/file-search-on/indexes/. Override with --index-path
+	// or opt out with --no-index.
+	idx, _, err := openIndex(s.IndexPath, s.NoIndex, index.BodyCacheCap{
+		MaxBytes: int64(s.BodyCacheMaxBytes),
+		Disable:  s.NoBodyCache,
+	})
+	if err != nil {
+		return err
 	}
 
 	// Layer a timeout on top of the signal-bound parent ctx so we can

@@ -41,6 +41,20 @@ function sparkline(values, w = 200, h = 28) {
 
 function kv(k, v) { return `<div class="kv"><div class="k">${k}</div><div class="v">${v}</div></div>`; }
 
+function indexLabel(o) {
+  if (o.index_backend === "persistent" && o.index_path) {
+    return `<span class="ix-persistent" title="${o.index_path}">🔒 persistent</span>`;
+  }
+  switch (o.index_fallback_reason) {
+    case "lock_contention":
+      return `<span class="ix-memory ix-warn" title="another file-search-on instance holds the writer lock">🧠 in-memory (lock contention)</span>`;
+    case "no_index_flag":
+      return `<span class="ix-memory" title="--no-index passed">🧠 in-memory (--no-index)</span>`;
+    default:
+      return `<span class="ix-memory">🧠 in-memory</span>`;
+  }
+}
+
 function renderOverview(o) {
   $("hdr-version").textContent = o.version || "";
   $("hdr-mode").textContent = o.mode || "";
@@ -48,7 +62,8 @@ function renderOverview(o) {
   $("overview").innerHTML = [
     kv("Mode", o.mode),
     kv("Uptime", dur(o.uptime_seconds || 0)),
-    kv("Index", o.index_backing),
+    kv("Index", indexLabel(o)),
+    kv("Index path", o.index_path || "—"),
     kv("Body cache cap", o.body_cache_cap ? bytes(o.body_cache_cap) : "in-memory"),
     kv("Workers (default)", o.num_cpu),
     kv("GOMAXPROCS", o.gomaxprocs),
@@ -160,13 +175,20 @@ function shortDir(d) {
   return (parts.length > 2 ? "…/" : "/") + parts.slice(-2).join("/");
 }
 
+function peerBadge(p) {
+  if (p.index_backend === "persistent") return "🔒 ";
+  if (p.index_backend === "in-memory") return "🧠 ";
+  return ""; // pre-#242 peer or unknown — no badge rather than wrong badge
+}
+
 function renderPeers(d) {
   const peers = (d && d.peers) || [];
   const el = $("peers");
   // A lone instance (just us) doesn't need a switcher.
   if (peers.length <= 1) { el.innerHTML = ""; return; }
   const opts = peers.map((p) => {
-    const label = `${p.mode} ${shortDir(p.working_dir)} :${(p.url.match(/:(\d+)\//) || [])[1] || "?"}${p.is_self ? " (you)" : ""}`;
+    const port = (p.url.match(/:(\d+)\//) || [])[1] || "?";
+    const label = `${peerBadge(p)}${p.mode} ${shortDir(p.working_dir)} :${port}${p.is_self ? " (you)" : ""}`;
     return `<option value="${p.url}" ${p.is_self ? "selected" : ""}>${label}</option>`;
   }).join("");
   el.innerHTML = `<label class="peers-label">${peers.length} instances</label>

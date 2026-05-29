@@ -24,7 +24,8 @@ type WatchCmd struct {
 	Output string   `short:"o" name:"output" enum:"json,bare" default:"json" help:"Output per match: json (NDJSON, one object per line) | bare (path only)."`
 	Format string   `name:"format" help:"Custom Go text/template applied per match (e.g. '{{.Path}}\\t{{.ContentType}}'). Overrides -o."`
 
-	IndexPath        string        `name:"index-path" help:"Persistent attribute index (bbolt) — caches per-file parses + bodies (incl. OCR) across the watch and across runs."`
+	IndexPath        string        `name:"index-path" help:"Persistent attribute index (bbolt) — caches per-file parses + bodies (incl. OCR) across the watch and across runs. Overrides the default per-cwd index at <UserCacheDir>/file-search-on/indexes/<basename>-<sha1[:6]>.db."`
+	NoIndex          bool          `name:"no-index" help:"Disable the on-disk index entirely; use only in-memory caching for the watch. Useful when another file-search-on instance already holds the writer lock on the default index file."`
 	Exclude          []string      `name:"exclude" help:"Basename glob to prune from the watched tree. Repeatable."`
 	RespectGitignore bool          `name:"respect-gitignore" help:"Honour a .gitignore at each watch root when registering directories."`
 	Body             bool          `name:"body" help:"Make file body available as the 'body' CEL variable (needed for body.contains / has_secrets / etc.)."`
@@ -48,13 +49,11 @@ func (c *WatchCmd) Run(ctx context.Context) error {
 		tmpl = t
 	}
 
-	idx, err := openIndex(c.IndexPath, index.BodyCacheCap{})
+	idx, backend, err := openIndex(c.IndexPath, c.NoIndex, index.BodyCacheCap{})
 	if err != nil {
 		return err
 	}
-	if idx != nil {
-		defer func() { _ = idx.Close() }()
-	}
+	defer func() { _ = idx.Close() }()
 
 	opts := search.Options{
 		Roots:                  c.Dir,
@@ -101,10 +100,12 @@ func (c *WatchCmd) Run(ctx context.Context) error {
 	}
 	if monAddr != "" {
 		mon := monitor.NewServer(monitor.Config{
-			Version:   version,
-			Mode:      "watch",
-			Index:     idx,
-			IndexPath: c.IndexPath,
+			Version:             version,
+			Mode:                "watch",
+			Index:               idx,
+			IndexPath:           backend.Path,
+			IndexBackend:        backend.Mode,
+			IndexFallbackReason: backend.Reason,
 		})
 		monDone := make(chan struct{})
 		go func() {

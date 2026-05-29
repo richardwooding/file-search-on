@@ -25,7 +25,8 @@ type DiffCmd struct {
 	Expr string `name:"expr" help:"Optional CEL expression to scope which files are considered in both trees (e.g. 'size > 1000000' or 'is_image'). Defaults to every file."`
 
 	Workers          int           `short:"w" help:"Parallel workers per tree walk." default:"0"`
-	IndexPath        string        `name:"index-path" help:"Persistent attribute index (bbolt). Caches sha256 hashes alongside other attributes; two warm trees diff in seconds."`
+	IndexPath        string        `name:"index-path" help:"Persistent attribute index (bbolt). Overrides the default per-cwd index at <UserCacheDir>/file-search-on/indexes/. Caches sha256 hashes alongside other attributes; two warm trees diff in seconds."`
+	NoIndex          bool          `name:"no-index" help:"Disable the on-disk index entirely; use only in-memory caching for the process lifetime."`
 	Timeout          time.Duration `name:"timeout" help:"Maximum duration. On expiry, the partial result is still printed and the process exits 124."`
 	Exclude          []string      `name:"exclude" help:"Glob pattern matched against file/dir basenames; matches are pruned from both trees. Repeatable."`
 	RespectGitignore bool          `name:"respect-gitignore" help:"Parse a .gitignore at each tree root and skip matching paths."`
@@ -44,15 +45,11 @@ func (c *DiffCmd) Run(ctx context.Context) error {
 		defer cancel()
 	}
 
-	var idx index.Index
-	if c.IndexPath != "" {
-		var err error
-		idx, err = openIndex(c.IndexPath, index.BodyCacheCap{})
-		if err != nil {
-			return err
-		}
-		defer func() { _ = idx.Close() }()
+	idx, _, err := openIndex(c.IndexPath, c.NoIndex, index.BodyCacheCap{})
+	if err != nil {
+		return err
 	}
+	defer func() { _ = idx.Close() }()
 
 	res, err := search.DiffTrees(effectiveCtx, c.TreeA, c.TreeB, search.DiffOp(c.Op), search.Options{
 		Expr:             c.Expr,

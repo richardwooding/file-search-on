@@ -27,9 +27,26 @@ type MonitorInfoOutput struct {
 	Enabled bool `json:"enabled"`
 	// URL is this server's dashboard URL (empty when not enabled).
 	URL string `json:"url,omitempty"`
+	// IndexPath is the absolute path of this server's persistent index
+	// file when IndexBackend == "persistent", empty otherwise.
+	IndexPath string `json:"index_path,omitempty"`
+	// IndexBackend is "persistent" when this server is backed by a
+	// bbolt file, "in-memory" when it's running with process-lifetime
+	// cache only (either by --no-index opt-out or by graceful fallback
+	// because another instance held the writer lock).
+	IndexBackend string `json:"index_backend,omitempty"`
+	// IndexFallbackReason explains why IndexBackend is "in-memory" when
+	// the user did not explicitly request that. Values: "" (happy path
+	// — IndexBackend is "persistent"), "no_index_flag" (user passed
+	// --no-index), "lock_contention" (another file-search-on instance
+	// holds the writer lock on the default index file).
+	IndexFallbackReason string `json:"index_fallback_reason,omitempty"`
 	// Peers is every live dashboard instance discovered via the shared
 	// registry, including this one (flagged is_self). Newest-startup
-	// last. Empty when peer discovery is unavailable.
+	// last. Empty when peer discovery is unavailable. Each peer entry
+	// carries the same index_path / index_backend / index_fallback_reason
+	// fields, so an agent can identify which sibling PID holds the
+	// writer lock when this instance is in fallback mode.
 	Peers []monitor.Entry `json:"peers"`
 	// Note carries a human-readable hint when monitoring isn't wired at
 	// all (e.g. the server was built without a controller).
@@ -54,6 +71,7 @@ func (h *handlers) monitorInfoHandler(_ context.Context, _ *mcp.CallToolRequest,
 	url, running := h.monitorCtl.Info()
 	out.Enabled = running
 	out.URL = url
+	out.IndexPath, out.IndexBackend, out.IndexFallbackReason = h.monitorCtl.IndexInfo()
 	out.Peers = monitor.Peers()
 	if out.Peers == nil {
 		out.Peers = []monitor.Entry{}

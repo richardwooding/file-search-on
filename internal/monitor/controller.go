@@ -67,6 +67,14 @@ func (c *Controller) Info() (url string, running bool) {
 	return c.url, c.started
 }
 
+// IndexInfo reports the index backend chosen at startup. Available
+// before the dashboard is started; the monitor_info MCP tool surfaces
+// this so an agent can see lock-contention / opt-out state without
+// needing to enable the dashboard first.
+func (c *Controller) IndexInfo() (path, backend, fallbackReason string) {
+	return c.cfg.IndexPath, c.cfg.IndexBackend, c.cfg.IndexFallbackReason
+}
+
 // Wait blocks until the dashboard's serve goroutine has fully exited
 // (after serveCtx is cancelled and graceful shutdown + deregistration
 // complete). Returns immediately if the dashboard was never started.
