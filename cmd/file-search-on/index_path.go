@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"go.etcd.io/bbolt"
+	bolterrors "go.etcd.io/bbolt/errors"
 
 	"github.com/richardwooding/file-search-on/internal/index"
 )
@@ -125,7 +125,7 @@ func sanitiseBasename(s string) string {
 // the writer lock" sentinel. Used by openIndex to decide between
 // surfacing the error and silently falling back to in-memory.
 func isBoltLockTimeout(err error) bool {
-	return errors.Is(err, bbolt.ErrTimeout)
+	return errors.Is(err, bolterrors.ErrTimeout)
 }
 
 // resolveIndexBackend picks the right index for the given cwd /

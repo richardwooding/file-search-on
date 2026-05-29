@@ -125,7 +125,7 @@ func TestResolveIndexBackend_ExplicitPath_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveIndexBackend explicit path: %v", err)
 	}
-	defer idx.Close()
+	defer func() { _ = idx.Close() }()
 	if backend.Mode != BackendPersistent {
 		t.Errorf("backend.Mode = %q, want %q", backend.Mode, BackendPersistent)
 	}
@@ -155,7 +155,7 @@ func TestResolveIndexBackend_LockContentionFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first open: %v", err)
 	}
-	defer first.Close()
+	defer func() { _ = first.Close() }()
 
 	// Second attempt — should fall back to in-memory once bbolt's
 	// internal 5-second flock timeout elapses.
@@ -163,7 +163,7 @@ func TestResolveIndexBackend_LockContentionFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second open should not error (fallback expected), got: %v", err)
 	}
-	defer second.Close()
+	defer func() { _ = second.Close() }()
 	if backend.Mode != BackendInMemory {
 		t.Errorf("backend.Mode = %q, want %q (lock-contention fallback)", backend.Mode, BackendInMemory)
 	}
