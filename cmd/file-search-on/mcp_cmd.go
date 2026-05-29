@@ -22,8 +22,9 @@ type MCPCmd struct {
 	EmbeddingServer   string        `name:"embedding-server" env:"OLLAMA_HOST" default:"http://localhost:11434" help:"Default Ollama base URL for the search_semantic tool. Resolution order: --embedding-server flag > $OLLAMA_HOST env var > http://localhost:11434. Per-call 'embedding_server' input still overrides. Lazy connect — server starts without Ollama running; search_semantic fails clearly on first call if Ollama is unreachable."`
 	EmbeddingModel    string        `name:"embedding-model" help:"Default Ollama embedding model for the search_semantic tool (e.g. nomic-embed-text, mxbai-embed-large). No default — pick a model you've pulled via 'ollama pull <name>'. Per-call 'model' input overrides. If neither is set, search_semantic returns 'no embedding model configured'."`
 	Timeout           time.Duration `name:"timeout" default:"60s" help:"Default per-tool-call timeout (Go duration: 30s, 2m, 5m). Each search/read_attributes invocation is wrapped with this deadline. Per-call 'timeout_seconds' input on the search tool overrides this. Set to 0 to disable the default (not recommended — long-running calls can exceed MCP client read deadlines)."`
-	Monitor           bool          `name:"monitor" help:"Enable the read-only monitoring dashboard on an OS-assigned localhost port (no collision when many stdio servers run concurrently). Discover the URL via the monitor_info MCP tool or the stderr log line. Use --monitor-addr to pin a fixed port instead. Even without either flag, the dashboard can be started later via monitor_info{enable:true}."`
-	MonitorAddr       string        `name:"monitor-addr" help:"Enable the monitoring dashboard on this fixed port (e.g. ':9090'). Binds 127.0.0.1 only. Overrides --monitor. Shows index cache stats, live tool-call activity, capabilities, and a peer switcher at http://localhost:<port>/."`
+	Monitor           bool          `name:"monitor" help:"No-op — the monitoring dashboard is on by default since v0.65.0. Kept for back-compat with pre-existing scripts. Use --no-monitor to opt out, --monitor-addr to pin a fixed port."`
+	NoMonitor         bool          `name:"no-monitor" help:"Disable the read-only monitoring dashboard for this run. Useful for hermetic CI / sandboxed environments where binding a localhost port is undesirable. monitor_info{enable:true} can still lazy-start the dashboard mid-session."`
+	MonitorAddr       string        `name:"monitor-addr" help:"Bind the monitoring dashboard on this fixed port (e.g. ':9090') instead of an OS-assigned dynamic port. Binds 127.0.0.1 only. Overrides the default dynamic-port behaviour. Shows index cache stats, live tool-call activity, capabilities, and a peer switcher at http://localhost:<port>/."`
 }
 
 func (m *MCPCmd) Run(ctx context.Context) error {
@@ -58,8 +59,8 @@ func (m *MCPCmd) Run(ctx context.Context) error {
 		bodyCap = int64(m.BodyCacheMaxBytes)
 	}
 	monAddr := m.MonitorAddr // fixed port wins
-	if monAddr == "" && m.Monitor {
-		monAddr = ":0" // dynamic, OS-assigned
+	if monAddr == "" && !m.NoMonitor {
+		monAddr = ":0" // dynamic, OS-assigned (default since v0.65.0)
 	}
 	controller := monitor.NewController(ctx, monitor.Config{
 		Version:             version,
