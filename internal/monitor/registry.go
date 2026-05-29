@@ -25,6 +25,19 @@ type Entry struct {
 	StartedAt  time.Time `json:"started_at"`
 	WorkingDir string    `json:"working_dir"`
 	IndexPath  string    `json:"index_path,omitempty"` // "" = in-memory
+	// IndexBackend records which storage layer this instance settled on
+	// after openIndex resolved --index-path / --no-index / default-path
+	// / lock-contention. Values: "persistent" | "in-memory". Older
+	// instances written before this field existed deserialise with the
+	// empty string; callers should treat empty as unknown and fall back
+	// to IndexPath ("" ≈ in-memory).
+	IndexBackend string `json:"index_backend,omitempty"`
+	// IndexFallbackReason is populated only when IndexBackend ==
+	// "in-memory" and the in-memory state wasn't the explicit user
+	// choice. Values: "" (happy path) | "no_index_flag" (--no-index
+	// passed) | "lock_contention" (another instance held the writer
+	// lock). Lets the dashboard peer panel highlight the contending PID.
+	IndexFallbackReason string `json:"index_fallback_reason,omitempty"`
 	// IsSelf is set only on the /api/peers response for the entry that
 	// matches the serving instance; it is never persisted (the registry
 	// files omit it via the zero value).

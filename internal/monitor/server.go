@@ -29,14 +29,16 @@ var staticFiles embed.FS
 // tool calls to report). The Embed* / IndexPath / BodyCacheCap fields
 // are informational, surfaced on the overview panel.
 type Config struct {
-	Version      string
-	Mode         string // "mcp-stdio" | "mcp-http" | "mcp-sse" | "watch"
-	Index        index.Index
-	Collector    *Collector
-	EmbedServer  string
-	EmbedModel   string
-	IndexPath    string // "" → in-memory
-	BodyCacheCap int64  // 0 → in-memory / no cap
+	Version             string
+	Mode                string // "mcp-stdio" | "mcp-http" | "mcp-sse" | "watch"
+	Index               index.Index
+	Collector           *Collector
+	EmbedServer         string
+	EmbedModel          string
+	IndexPath           string // "" → in-memory
+	IndexBackend        string // "persistent" | "in-memory"
+	IndexFallbackReason string // "" | "lock_contention" | "no_index_flag"
+	BodyCacheCap        int64  // 0 → in-memory / no cap
 }
 
 // Server is the read-only monitoring HTTP server. Bind with Listen
@@ -120,13 +122,15 @@ func (s *Server) Serve(ctx context.Context) error {
 	}
 
 	deregister, regErr := Register(Entry{
-		PID:        os.Getpid(),
-		URL:        s.url,
-		Mode:       s.cfg.Mode,
-		Version:    s.cfg.Version,
-		StartedAt:  s.startedAt,
-		WorkingDir: workingDir(),
-		IndexPath:  s.cfg.IndexPath,
+		PID:                 os.Getpid(),
+		URL:                 s.url,
+		Mode:                s.cfg.Mode,
+		Version:             s.cfg.Version,
+		StartedAt:           s.startedAt,
+		WorkingDir:          workingDir(),
+		IndexPath:           s.cfg.IndexPath,
+		IndexBackend:        s.cfg.IndexBackend,
+		IndexFallbackReason: s.cfg.IndexFallbackReason,
 	})
 	if regErr != nil {
 		fmt.Fprintln(os.Stderr, "monitor: peer registry unavailable:", regErr)
@@ -218,16 +222,19 @@ func (s *Server) handleOverview(w http.ResponseWriter, _ *http.Request) {
 		indexBacking = s.cfg.IndexPath
 	}
 	writeJSON(w, map[string]any{
-		"version":        s.cfg.Version,
-		"mode":           s.cfg.Mode,
-		"uptime_seconds": time.Since(s.startedAt).Seconds(),
-		"pid":            os.Getpid(),
-		"go_version":     runtime.Version(),
-		"gomaxprocs":     runtime.GOMAXPROCS(0),
-		"num_cpu":        runtime.NumCPU(),
-		"index_backing":  indexBacking,
-		"body_cache_cap": s.cfg.BodyCacheCap,
-		"goroutines":     runtime.NumGoroutine(),
+		"version":               s.cfg.Version,
+		"mode":                  s.cfg.Mode,
+		"uptime_seconds":        time.Since(s.startedAt).Seconds(),
+		"pid":                   os.Getpid(),
+		"go_version":            runtime.Version(),
+		"gomaxprocs":            runtime.GOMAXPROCS(0),
+		"num_cpu":               runtime.NumCPU(),
+		"index_backing":         indexBacking,
+		"index_backend":         s.cfg.IndexBackend,         // "persistent" | "in-memory"
+		"index_path":            s.cfg.IndexPath,            // absolute path when persistent
+		"index_fallback_reason": s.cfg.IndexFallbackReason,  // "" | "no_index_flag" | "lock_contention"
+		"body_cache_cap":        s.cfg.BodyCacheCap,
+		"goroutines":            runtime.NumGoroutine(),
 	})
 }
 

@@ -71,27 +71,25 @@ var CLI struct {
 	Version         kong.VersionFlag   `short:"V" help:"Print version and exit."`
 }
 
-// openIndex returns an index.Index for the given path. Empty path
-// means in-memory only. On schema mismatch it surfaces a helpful
-// "delete or re-point --index-path" message rather than a raw error.
+// openIndex returns an index.Index honouring the new
+// default-on-disk behaviour. With noIndex=false and path=="", the
+// per-cwd default file is used (see defaultIndexPath). With
+// noIndex=true OR a lock-timeout from another running instance, the
+// caller transparently falls back to in-memory.
+//
+// On schema mismatch it surfaces a helpful "delete or re-point" error.
 //
 // bodyCap controls the body-cache total-size cap and opt-out for the
 // bodies_v1 bucket. Zero-value uses defaults (256 MiB cap, body cache
 // enabled). Subcommands that don't expose body-cache flags pass the
-// zero value; SearchCmd threads its --body-cache-max-bytes / --no-body-cache
-// through.
-func openIndex(path string, bodyCap index.BodyCacheCap) (index.Index, error) {
-	if path == "" {
-		return index.NewMemory(), nil
-	}
-	idx, err := index.OpenWith(path, bodyCap)
-	if err != nil {
-		if errors.Is(err, index.ErrSchemaMismatch) {
-			return nil, fmt.Errorf("index file at %s has an incompatible schema; delete it or pass a new --index-path", path)
-		}
-		return nil, fmt.Errorf("open index: %w", err)
-	}
-	return idx, nil
+// zero value.
+//
+// The IndexBackend return carries diagnostic info (which backend was
+// chosen and why) — used by mcp_cmd / watch_cmd to feed the dashboard
+// + monitor_info MCP tool. CLI subcommands without a dashboard can
+// discard it.
+func openIndex(path string, noIndex bool, bodyCap index.BodyCacheCap) (index.Index, IndexBackend, error) {
+	return resolveIndexBackend("", path, noIndex, bodyCap)
 }
 
 func main() {

@@ -19,7 +19,8 @@ type NearDuplicatesCmd struct {
 	Workers          int           `short:"w" help:"Parallel workers. 0 = runtime.NumCPU()." default:"0"`
 	MaxLineBytes     int           `short:"L" name:"max-line-bytes" help:"Per-line scanner cap (bytes). 0 uses the 1 MiB default." default:"0"`
 	BodyMaxBytes     int           `name:"body-max-bytes" default:"0" help:"Cap on the body read per file in bytes. 0 uses the 1 MiB default. Files larger than the cap are silently truncated; the prefix still participates in the fingerprint."`
-	IndexPath        string        `name:"index-path" help:"Persistent attribute index file (bbolt). Caches the per-file SimHash fingerprint; repeat runs on an unchanged tree skip the body read AND the SimHash compute."`
+	IndexPath        string        `name:"index-path" help:"Persistent attribute index file (bbolt). Overrides the default per-cwd index at <UserCacheDir>/file-search-on/indexes/. Caches the per-file SimHash fingerprint; repeat runs on an unchanged tree skip the body read AND the SimHash compute."`
+	NoIndex          bool          `name:"no-index" help:"Disable the on-disk index entirely; use only in-memory caching for the process lifetime."`
 	Timeout          time.Duration `name:"timeout" help:"Maximum duration. On expiry, the partial result is still printed and the process exits 124."`
 	Exclude          []string      `name:"exclude" help:"Glob pattern matched against file/dir basenames; matches are skipped. Repeatable."`
 	RespectGitignore bool          `name:"respect-gitignore" help:"Parse a .gitignore at each walk root and skip matching paths."`
@@ -42,15 +43,11 @@ func (n *NearDuplicatesCmd) Run(ctx context.Context) error {
 		defer cancel()
 	}
 
-	var idx index.Index
-	if n.IndexPath != "" {
-		var err error
-		idx, err = openIndex(n.IndexPath, index.BodyCacheCap{})
-		if err != nil {
-			return err
-		}
-		defer func() { _ = idx.Close() }()
+	idx, _, err := openIndex(n.IndexPath, n.NoIndex, index.BodyCacheCap{})
+	if err != nil {
+		return err
 	}
+	defer func() { _ = idx.Close() }()
 
 	dups, err := search.FindNearDuplicates(effectiveCtx, search.Options{
 		Roots:               n.Dir,

@@ -36,7 +36,8 @@ type OrganizeCmd struct {
 	OnConflict string `name:"on-conflict" enum:"skip,overwrite,number" default:"skip" help:"What to do when the target path already exists: skip (leave it, default) | overwrite (replace) | number (append ' (1)', ' (2)', … before the extension)."`
 
 	Workers          int      `short:"w" name:"workers" default:"0" help:"Parallel walker workers. 0 = NumCPU."`
-	IndexPath        string   `name:"index-path" help:"Persistent attribute index (bbolt) — speeds repeat organizes over the same tree."`
+	IndexPath        string   `name:"index-path" help:"Persistent attribute index (bbolt). Overrides the default per-cwd index at <UserCacheDir>/file-search-on/indexes/. Speeds repeat organizes over the same tree."`
+	NoIndex          bool     `name:"no-index" help:"Disable the on-disk index entirely; use only in-memory caching for the process lifetime."`
 	Exclude          []string `name:"exclude" help:"Basename glob to prune from the walk. Repeatable."`
 	RespectGitignore bool     `name:"respect-gitignore" help:"Honour a .gitignore at each walk root."`
 	PruneArtefacts   bool     `name:"prune-build-artefacts" help:"Prune vendor / node_modules / target / __pycache__ etc. for detected project types."`
@@ -56,13 +57,11 @@ func (o *OrganizeCmd) Run(ctx context.Context) error {
 		expr = "true"
 	}
 
-	idx, err := openIndex(o.IndexPath, index.BodyCacheCap{})
+	idx, _, err := openIndex(o.IndexPath, o.NoIndex, index.BodyCacheCap{})
 	if err != nil {
 		return err
 	}
-	if idx != nil {
-		defer func() { _ = idx.Close() }()
-	}
+	defer func() { _ = idx.Close() }()
 
 	opts := search.Options{
 		Roots:               o.Dir,

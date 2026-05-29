@@ -17,7 +17,8 @@ type StatsCmd struct {
 	Expr             string        `arg:"" help:"Optional CEL expression to scope the stats (e.g. 'is_markdown' for markdown-only counts). Defaults to matching every file." optional:""`
 	Workers          int           `short:"w" help:"Parallel workers." default:"0"`
 	MaxLineBytes     int           `short:"L" name:"max-line-bytes" help:"Per-line scanner cap for text/CSV/HTML (bytes). 0 uses the 1 MiB default." default:"0"`
-	IndexPath        string        `name:"index-path" help:"Persistent attribute index file (bbolt); see search subcommand."`
+	IndexPath        string        `name:"index-path" help:"Persistent attribute index file (bbolt). Overrides the default per-cwd index at <UserCacheDir>/file-search-on/indexes/; see search subcommand."`
+	NoIndex          bool          `name:"no-index" help:"Disable the on-disk index entirely; use only in-memory caching for the process lifetime."`
 	Timeout          time.Duration `name:"timeout" help:"Maximum walk duration. On expiry, the partial histogram is still printed and the process exits 124."`
 	Exclude          []string      `name:"exclude" help:"Glob pattern matched against file/dir basenames; matches are skipped. Repeatable."`
 	RespectGitignore bool          `name:"respect-gitignore" help:"Parse a .gitignore at the walk root and skip matching paths."`
@@ -40,15 +41,11 @@ func (s *StatsCmd) Run(ctx context.Context) error {
 		defer cancel()
 	}
 
-	var idx index.Index
-	if s.IndexPath != "" {
-		var err error
-		idx, err = openIndex(s.IndexPath, index.BodyCacheCap{})
-		if err != nil {
-			return err
-		}
-		defer func() { _ = idx.Close() }()
+	idx, _, err := openIndex(s.IndexPath, s.NoIndex, index.BodyCacheCap{})
+	if err != nil {
+		return err
 	}
+	defer func() { _ = idx.Close() }()
 
 	start := time.Now()
 	stats, err := search.ComputeStats(effectiveCtx, search.Options{

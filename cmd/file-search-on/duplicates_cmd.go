@@ -17,7 +17,8 @@ type DuplicatesCmd struct {
 	Expr             string        `arg:"" help:"Optional CEL expression to scope candidates (e.g. 'is_image' for photo dedup). Defaults to every file." optional:""`
 	Workers          int           `short:"w" help:"Parallel workers." default:"0"`
 	MaxLineBytes     int           `short:"L" name:"max-line-bytes" help:"Per-line scanner cap for text/CSV/HTML (bytes). 0 uses the 1 MiB default." default:"0"`
-	IndexPath        string        `name:"index-path" help:"Persistent attribute index file (bbolt). Caches sha256 hashes alongside other attributes; repeat runs on an unchanged tree don't re-read any bytes."`
+	IndexPath        string        `name:"index-path" help:"Persistent attribute index file (bbolt). Overrides the default per-cwd index at <UserCacheDir>/file-search-on/indexes/. Caches sha256 hashes alongside other attributes; repeat runs on an unchanged tree don't re-read any bytes."`
+	NoIndex          bool          `name:"no-index" help:"Disable the on-disk index entirely; use only in-memory caching for the process lifetime."`
 	Timeout          time.Duration `name:"timeout" help:"Maximum duration. On expiry, the partial result is still printed and the process exits 124."`
 	Exclude          []string      `name:"exclude" help:"Glob pattern matched against file/dir basenames; matches are skipped. Repeatable."`
 	RespectGitignore bool          `name:"respect-gitignore" help:"Parse a .gitignore at each walk root and skip matching paths."`
@@ -40,15 +41,11 @@ func (d *DuplicatesCmd) Run(ctx context.Context) error {
 		defer cancel()
 	}
 
-	var idx index.Index
-	if d.IndexPath != "" {
-		var err error
-		idx, err = openIndex(d.IndexPath, index.BodyCacheCap{})
-		if err != nil {
-			return err
-		}
-		defer func() { _ = idx.Close() }()
+	idx, _, err := openIndex(d.IndexPath, d.NoIndex, index.BodyCacheCap{})
+	if err != nil {
+		return err
 	}
+	defer func() { _ = idx.Close() }()
 
 	dups, err := search.FindDuplicates(effectiveCtx, search.Options{
 		Roots:            d.Dir,

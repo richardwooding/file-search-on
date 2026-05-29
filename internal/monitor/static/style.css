@@ -73,4 +73,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .caps-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .chip { display: inline-block; background: var(--card); border-radius: 4px; padding: 2px 8px; margin: 2px; font-size: 12px; }
 .empty { color: var(--muted); font-style: italic; padding: 8px 0; }
+.ix-persistent { color: var(--ok); }
+.ix-memory { color: var(--muted); }
+.ix-memory.ix-warn { color: var(--warn); }
 @media (max-width: 760px) { main, .caps-grid { grid-template-columns: 1fr; } }
