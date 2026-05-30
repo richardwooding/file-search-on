@@ -67,7 +67,7 @@ Built in the open — issues, PRs, and feature requests warmly welcomed. See [Co
 - **CEL expressions** — the full Common Expression Language: comparisons, `&&`/`||`, string functions, list membership, timestamp arithmetic. Composes naturally with structural attributes.
 - **Fuzzy, phonetic, and geographic matching** — built-in `levenshtein`, `soundex`, `ngrams`, `ngram_similarity`, and `point_in_polygon` (for GPS bboxes / city outlines) let you write typo-tolerant and "sounds-like" queries against any string attribute. EXIF camera make in `Nikkon` instead of `Nikon`? Artist tag mistyped as `Radiohad`? Same query catches all of them. See [examples/fuzzy-search.md](./examples/fuzzy-search.md).
 - **Multiple output formats** — `bare` (paths only), `default`, `verbose` (multi-line), `json` (NDJSON), or a Go `text/template` via `--format`.
-- **MCP server mode** — same binary doubles as a [Model Context Protocol](https://modelcontextprotocol.io) server (stdio, HTTP, or SSE). Fourteen tools exposed: `search`, `read_attributes`, `read_lines`, `stats`, `find_duplicates`, `find_near_duplicates`, `find_matches`, `list_archive_contents`, `read_file_in_archive`, `detect_project`, `find_projects`, `resolve_project_for_path`, `list_attributes`, `index_stats`.
+- **MCP server mode** — same binary doubles as a [Model Context Protocol](https://modelcontextprotocol.io) server (stdio, HTTP, or SSE). Twenty tools exposed: `search`, `search_semantic`, `read_attributes`, `read_lines`, `stats`, `find_duplicates`, `find_near_duplicates`, `diff_trees`, `find_matches`, `watch_search`, `list_archive_contents`, `read_file_in_archive`, `detect_project`, `find_projects`, `resolve_project_for_path`, `list_attributes`, `list_presets`, `query_preset`, `index_stats`, `monitor_info`.
 - **Pure Go, no CGO** — cross-compiles cleanly to all six release targets. No image/audio/video decoder dependencies.
 - **Parallel walking** — files are evaluated across a worker pool (defaults to `NumCPU`).
 
@@ -240,7 +240,17 @@ Fingerprints cache via `--index-path` alongside the exact hash; repeat runs skip
 
 ### Common flags
 
-`-d <dir>` (repeatable for multi-root walks), `--exclude <glob>` (basename, repeatable), `--respect-gitignore`, `--timeout 30s` (partial results returned on expiry), `--workers N`, `--index-path <file.db>` (persistent attribute cache — see [examples/indexing.md](./examples/indexing.md)).
+`-d <dir>` (repeatable for multi-root walks), `--exclude <glob>` (basename, repeatable), `--respect-gitignore`, `--timeout 30s` (partial results returned on expiry), `--workers N`, `--index-path <file.db>` (override the per-cwd default index — see [examples/indexing.md](./examples/indexing.md)), `--no-index` (opt out of on-disk caching for hermetic runs).
+
+### Pointing at a non-default Ollama
+
+For semantic search and `search_semantic` (MCP), the embedding HTTP endpoint resolves in this order:
+
+1. `--embedding-server <url>` flag (CLI or `mcp` subcommand)
+2. `$OLLAMA_HOST` environment variable
+3. `http://localhost:11434` (built-in default)
+
+So a remote Ollama box on the LAN works without a per-invocation flag: `export OLLAMA_HOST=http://gpu-box:11434`. See [examples/semantic-search.md](./examples/semantic-search.md) for the full setup.
 
 ## Recipes
 
@@ -399,32 +409,67 @@ file-search-on mcp --timeout 90s                         # raise the per-call de
 
 For HTTP and SSE, `--addr` (default `:8080`) is the bind address and `--path` (default `/`) is the URL prefix. `--timeout` (default `60s`) sets the per-tool-call deadline; per-call `timeout_seconds` on the `search` tool input overrides it.
 
-Eleven tools are exposed:
+Twenty tools are exposed, grouped by family:
+
+**Search & inspect**
 
 | Tool | What it does |
 | --- | --- |
-| `search` | CEL expression over a directory tree. Supports `sort_by` / `limit` (top-K), `include_body` (full body filter), `include_snippet` (preview), `resolve_projects` (`project_type` per match), `prune_build_artefacts`, `fields` (project response to a subset of attributes; path / content_type / size always-on). Returns matches with the full attribute set + partial-result fields. |
-| `read_attributes` | Attributes for a single path — same shape as one `search` match. Accepts `fields` for the same token-saving projection. |
+| `search` | CEL expression over a directory tree. Supports `sort_by` / `limit` (top-K), `rank` (custom CEL sort key), `include_body` (full body filter), `include_snippet` (preview), `ocr_images` (run OCR before evaluating), `with_phash` (perceptual hash + `image_similar_to` function), `compute_hashes`, `check_disguised`, `with_xattrs`, `resolve_projects`, `prune_build_artefacts`, `fields` (token-saving projection — path / content_type / size always-on). Returns matches with the full attribute set + partial-result fields. |
+| `search_semantic` | Natural-language similarity search via local Ollama embeddings. Pre-prunes with an optional `expr`, embeds the query, ranks files by cosine similarity, applies a `threshold` cap. Embeddings cache per file. |
+| `read_attributes` | Attributes for a single path — same shape as one `search` match. Accepts `fields` for token-saving projection. |
 | `read_lines` | A specific line range of a file — pairs with `search` for context around matches. |
-| `stats` | Histogram + totals for a directory tree, bucketed by `group_by` (default `content_type`; full set documented in [Usage § Stats](#stats-and-reconnaissance)). |
+
+**Aggregate**
+
+| Tool | What it does |
+| --- | --- |
+| `stats` | Histogram + totals for a directory tree, bucketed by `group_by` (default `content_type`; recognised: `ext`, `dir`, `language`, `camera_make`, `camera_model`, `lens`, `artist`, `album`, `genre`, time buckets like `taken_at_month`, …). |
+
+**Dedup & diff**
+
+| Tool | What it does |
+| --- | --- |
 | `find_duplicates` | Byte-identical files keyed by sha256 — two-pass (size-bucket then hash). Sorted by `wasted_bytes` desc. |
 | `find_near_duplicates` | Similar files by SimHash fingerprint of extracted body. Catches typo edits, regenerated headers, template copies. Configurable similarity threshold (default 0.85). |
+| `diff_trees` | Cross-tree set operations by sha256 content hash — `a-minus-b`, `b-minus-a`, `intersect`, `union`, `mismatch` (same relative path, different content). Read-only; never mutates either tree. |
+
+**Archive**
+
+| Tool | What it does |
+| --- | --- |
 | `list_archive_contents` | Per-entry CEL filtering inside ZIP / TAR / TAR.GZ / GZIP without extracting. Same vocabulary as top-level search; cache-aware. |
 | `read_file_in_archive` | Read one named entry's bytes out of an archive. Returns content + content_type + attributes. |
+
+**Pattern + watch**
+
+| Tool | What it does |
+| --- | --- |
 | `find_matches` | Line-level regex (RE2) hits across a tree with `context_before` / `context_after` windows. CEL pre-prune (e.g. `is_source && language == "go"`) keeps the regex pass narrow. Replaces the search-then-`read_lines` dance with one call. |
+| `watch_search` | Bounded "tell me when X appears" subscription — block up to `duration_seconds` (default 30, capped at 600), return every new / changed file that matches the CEL filter. |
+
+**Project + introspection + monitoring**
+
+| Tool | What it does |
+| --- | --- |
 | `detect_project` | Project type(s) of one directory. |
 | `find_projects` | Walk a tree, list every project subdirectory. |
 | `resolve_project_for_path` | Walk UP from a file/dir path to the nearest enclosing project root. Useful when an agent has a stray path and needs to know the project context. |
 | `list_attributes` | The full canonical schema (`common`, `type_specific`, `frontmatter`, `functions`) plus registered content types. |
-| `index_stats` | Cache counters for the running server (hits, misses, puts, stales, errors). |
+| `list_presets` | Discover the eight built-in named search recipes (`recent_changes`, `recent_photos`, `old_drafts`, `large_files`, `large_binaries`, `suspicious_files`, `failed_tests`, `system_metadata`). |
+| `query_preset` | Run a named preset; per-call overrides for `dir`, `limit`, `excludes`, etc. |
+| `index_stats` | Cache counters for the running server (hits, misses, puts, stales, errors; same for body + embedding caches). |
+| `monitor_info` | This server's monitoring-dashboard URL + the registry of sibling instances. Pass `enable: true` to start the dashboard on demand if it isn't already running. |
 
-Every walking tool (`search`, `stats`, `find_duplicates`, `find_near_duplicates`, `find_matches`, `find_projects`) honours the same partial-result contract: on timeout the call returns `cancelled=true` with the results gathered so far, never an error. Agents inspect the flag rather than catching exceptions.
+Every walking tool (`search`, `stats`, `find_duplicates`, `find_near_duplicates`, `find_matches`, `find_projects`, `diff_trees`) honours the same partial-result contract: on timeout the call returns `cancelled=true` with the results gathered so far, never an error. Agents inspect the flag rather than catching exceptions.
 
-The MCP server keeps an attribute cache for its process lifetime — repeated `search` / `read_attributes` calls against the same files skip the parse step on the second and later invocations. Pass `--index-path` to persist the cache across restarts:
+Since v0.64.0 the on-disk index is **on by default**. The MCP server (like every other long-running subcommand) auto-creates a per-cwd bbolt cache at `<UserCacheDir>/file-search-on/indexes/<basename>-<sha1[:6]>.db` — repeated `search` / `read_attributes` calls against unchanged files skip parsing entirely. The default path is per-cwd so concurrent agents in different projects never collide; same-cwd contention falls back gracefully to in-memory (logged on stderr, surfaced on the dashboard as `index_fallback_reason: "lock_contention"`). Override with `--index-path`; opt out with `--no-index` for hermetic CI runs:
 
 ```sh
-file-search-on mcp --index-path ~/.cache/fso/agent.db                    # stdio + persistent cache
-file-search-on mcp --transport http --addr :8080 --index-path /var/lib/fso.db
+file-search-on mcp                                                       # default: per-cwd persistent cache
+file-search-on mcp --index-path /var/lib/fso.db                          # explicit path (e.g. shared across cwd)
+file-search-on mcp --no-index                                            # in-memory only (process lifetime)
+file-search-on mcp --transport http --addr :8080
 ```
 
 Example Claude Desktop entry in `claude_desktop_config.json` (stdio):
@@ -446,20 +491,22 @@ Built on [`github.com/modelcontextprotocol/go-sdk`](https://github.com/modelcont
 
 ## Monitoring dashboard
 
-Both long-running modes (`mcp` and `watch`) can expose a read-only monitoring dashboard. It's off by default, binds **127.0.0.1 only** (the host part of any address is ignored — only the port is used), needs no auth, and adds no dependencies — the UI is a single embedded page that polls a small JSON API.
+Both long-running modes (`mcp` and `watch`) expose a read-only monitoring dashboard. Since v0.65.0 it's **on by default** on a dynamic OS-assigned localhost port — many concurrent stdio agents each get their own dashboard without colliding. The server binds **127.0.0.1 only** (the host part of any address is ignored — only the port is used), needs no auth, and adds no dependencies — the UI is a single embedded page that polls a small JSON API.
 
 ```sh
-file-search-on mcp --monitor                                  # dynamic OS-assigned port (no collisions)
-file-search-on mcp --monitor-addr :9090                       # pin a fixed port
-file-search-on mcp --transport http --addr :8080 --monitor
-file-search-on watch 'is_image' -d ~/Screenshots --monitor
+file-search-on mcp                                            # default: dashboard on dynamic port
+file-search-on mcp --monitor-addr :9090                       # pin a fixed port instead
+file-search-on mcp --no-monitor                               # opt out (hermetic CI / sandboxed runs)
+file-search-on mcp --transport http --addr :8080              # dashboard still auto-starts
+file-search-on watch 'is_image' -d ~/Screenshots              # default: dashboard auto-starts
+file-search-on monitors                                       # list active dashboards across all instances
 ```
 
-`--monitor` picks a free localhost port (so **many concurrent stdio agents** each get their own dashboard without colliding); `--monitor-addr :PORT` pins a fixed one. Find the URL in the stderr log line, or — for an `mcp` server — ask it via the **`monitor_info` MCP tool**, which also reports sibling instances.
+Find the URL in the stderr log line (`monitor dashboard: http://127.0.0.1:<port>/`), via the `monitors` subcommand, or — for an `mcp` server — by calling the **`monitor_info` MCP tool**, which also reports sibling instances. The legacy `--monitor` bool is kept as a no-op for back-compat (same effect as no flag).
 
 Open the URL. Five panels:
 
-- **Overview** — version, uptime, run mode, PID / Go version / GOMAXPROCS, default worker count, index backing (path or in-memory), body-cache cap.
+- **Overview** — version, uptime, run mode, PID / Go version / GOMAXPROCS, default worker count, **index backend** (🔒 persistent path / 🧠 in-memory with reason — `--no-index` opt-out or lock-contention fallback), body-cache cap.
 - **Cache** — the attribute / body / embedding cache counters as live cards with derived **hit-rate %** and sparklines; body evictions / oversize rejects / embed model-mismatches flagged.
 - **Activity** — live MCP tool-call feed (tool, elapsed, outcome, result count), per-tool call / error / cancel counts and p50 / p95 / max latency, and an in-flight gauge. (Watch mode has no MCP calls, so this panel shows a notice.)
 - **Capabilities** — registered content types grouped by family, project types, OCR provider availability, embedder model / server + a reachability check.

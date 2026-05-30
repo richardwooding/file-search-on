@@ -175,7 +175,7 @@ The same applies to `.pyc` files inside Python wheel (`.whl`) archives and `.was
 
 ## Caveats
 
-- **`.NET` PE assemblies** detect as `binary/pe`, not `bytecode/*`. They're PE files on disk with CLR metadata in a specific PE section — separate code path. Tracked as a follow-up to issue #139.
+- **`.NET` PE assemblies** detect as `binary/pe`, not `bytecode/*`. They're PE files on disk with CLR metadata in a specific PE section — separate code path. Left for a future follow-up; no issue currently tracking.
 - **JAR / WAR / EAR / AAR** detect as `archive/zip` (the existing alias list). Use `archive-contents` to walk the inner `.class` entries.
 - **Python magic numbers go out of date**. Each CPython release picks a new magic; the table covers 3.7-3.14. Unknown magics return empty `runtime_version` but still detect as `bytecode/python`.
 - **`.class` constant-pool walking caps at 65535 entries** (the JVMS hard limit). Larger files are truncated rather than reading unboundedly.

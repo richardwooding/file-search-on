@@ -1,30 +1,33 @@
 # Monitoring dashboard
 
-The long-running modes — the `mcp` server and the `watch` command — can serve a small **read-only** monitoring dashboard so you can watch file-search-on's internal state while it runs: is the cache working, what is the agent doing right now, is OCR / embedding available.
+The long-running modes — the `mcp` server and the `watch` command — serve a small **read-only** monitoring dashboard so you can watch file-search-on's internal state while it runs: is the cache working, what is the agent doing right now, is OCR / embedding available.
 
-It's **off by default**, binds **127.0.0.1 only** (the host part of any address is ignored — only the port matters), has **no auth**, and adds **no dependencies** (the UI is a single embedded page polling a JSON API).
+Since v0.65.0 it's **on by default** on a dynamic OS-assigned localhost port — many concurrent stdio agents each get their own dashboard without colliding. The server binds **127.0.0.1 only** (the host part of any address is ignored — only the port matters), has **no auth**, and adds **no dependencies** (the UI is a single embedded page polling a JSON API).
 
 ```sh
-# stdio MCP server + dashboard on a dynamic (OS-assigned) port
-file-search-on mcp --monitor
+# stdio MCP server — dashboard auto-starts on a dynamic port
+file-search-on mcp
 
-# pin a fixed port instead
+# pin a fixed port instead of a dynamic one
 file-search-on mcp --monitor-addr :9090
 
-# HTTP MCP server + dashboard
-file-search-on mcp --transport http --addr :8080 --monitor
+# opt out for hermetic / sandboxed runs
+file-search-on mcp --no-monitor
+
+# HTTP MCP server + dashboard (auto-starts, same as stdio)
+file-search-on mcp --transport http --addr :8080
 
 # watch mode + dashboard
-file-search-on watch 'is_image && body.contains("error")' --ocr -d ~/Desktop --monitor
+file-search-on watch 'is_image && body.contains("error")' --ocr -d ~/Desktop
 ```
 
-`--monitor` picks a free localhost port; `--monitor-addr :PORT` pins one. The chosen URL is printed to stderr (`monitor dashboard: http://127.0.0.1:<port>/`) — or, for an `mcp` server, ask it via the `monitor_info` tool. Then open that URL.
+The chosen URL is printed to stderr (`monitor dashboard: http://127.0.0.1:<port>/`) — or, for an `mcp` server, ask it via the `monitor_info` tool. For a one-shot view of every active dashboard across concurrent instances, `file-search-on monitors` lists the live registry. The legacy `--monitor` bool is kept as a documented no-op for back-compat (same effect as no flag).
 
 ## Panels
 
 | Panel | Shows |
 | --- | --- |
-| **Overview** | version, uptime, run mode (`mcp-stdio` / `mcp-http` / `watch`), PID, Go version, GOMAXPROCS, default worker count, index backing (path or in-memory), body-cache cap, goroutines |
+| **Overview** | version, uptime, run mode (`mcp-stdio` / `mcp-http` / `watch`), PID, Go version, GOMAXPROCS, default worker count, **index backend** (🔒 persistent path / 🧠 in-memory with reason — `--no-index` opt-out or `lock_contention` fallback), body-cache cap, goroutines |
 | **Cache** | attribute / body / embedding cache counters with derived **hit-rate %** + sparklines; body evictions / oversize rejects and embed model-mismatches highlighted |
 | **Activity** | live MCP tool-call feed (tool, elapsed, outcome, result count), per-tool call/error/cancel counts + p50/p95/max latency, in-flight gauge |
 | **Capabilities** | registered content types grouped by family, project types, OCR provider availability, embedder model/server + reachability |
