@@ -67,6 +67,7 @@ var CLI struct {
 	ConfigPaths     ConfigPathsCmd     `cmd:"" name:"config-paths" help:"Print the project-type config search paths for this platform. Use to discover where to drop your user-wide config (mkdir -p \"$(file-search-on config-paths -o bare | head -1 | xargs dirname)\")."`
 	Monitors        MonitorsCmd        `cmd:"" name:"monitors" help:"List the monitoring-dashboard URLs of every currently-running file-search-on instance (mcp / watch started with --monitor). Reads the shared peer registry and prunes dead entries. Pipe -o bare into a browser opener, e.g. file-search-on monitors -o bare | head -1 | xargs open."`
 	HashSet         HashSetCmd         `cmd:"" name:"hash-set" help:"Manage hash allowlist / denylist files used by --hash-allowlist / --hash-denylist. Subcommands: build (compile text or NSRL CSV into bbolt format), info (print per-algorithm counts)."`
+	Embed           EmbedCmd           `cmd:"" name:"embed" help:"Manage Ollama embedding models for the search_semantic tool. Subcommands: list (what's installed + what's recommended), pull (download a model from Ollama)."`
 	MCP             MCPCmd             `cmd:"" name:"mcp" help:"Run as a Model Context Protocol server (stdio, http, or sse)."`
 	Version         kong.VersionFlag   `short:"V" help:"Print version and exit."`
 }
