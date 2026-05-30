@@ -9,6 +9,7 @@ import (
 	"time"
 
 	contentpkg "github.com/richardwooding/file-search-on/internal/content"
+	"github.com/richardwooding/file-search-on/internal/embed"
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/search"
 )
@@ -77,6 +78,68 @@ func warmIndex(ctx context.Context, idx index.Index, root string, workers int, l
 			_, _ = fmt.Fprintf(log, "warm: %d files in %s (err: %v)\n", scanned.Load(), elapsed, err)
 		} else {
 			_, _ = fmt.Fprintf(log, "warm: %d files in %s\n", scanned.Load(), elapsed)
+		}
+	}
+	return err
+}
+
+// warmEmbeddings walks root and populates index.Entry.Vector for every
+// walked file, using the supplied embedder. Like warmIndex it leans on
+// the existing search.WalkStream machinery — but with an Embedder and
+// a SemanticQueryEmbedding plumbed through so the walker's existing
+// populateSimilarity path fires per file. The side-effect we care about
+// is the Vector cache fill; the per-file similarity scores against the
+// dummy query are computed and discarded.
+//
+// populateSimilarity short-circuits on len(SemanticQueryEmbedding) == 0,
+// so we must pass a non-empty query vector. We satisfy that by embedding
+// a single-character string up front — one Ollama round-trip,
+// sub-second on a healthy server. Errors from that initial query embed
+// (Ollama unreachable, model missing) are returned without starting
+// the walk.
+//
+// IncludeBody is set to true because populateSimilarity reads each
+// file's body to feed Embedder.Embed; that makes the embeddings warm
+// substantially more expensive per file than warmIndex's attribute-only
+// pass.
+func warmEmbeddings(ctx context.Context, idx index.Index, root string, workers int, embedder embed.Embedder, log io.Writer) error {
+	workers = warmWorkers(workers)
+	queryVec, err := embedder.Embed(ctx, " ")
+	if err != nil {
+		return fmt.Errorf("warm: embed dummy query: %w", err)
+	}
+	embed.Normalize(queryVec)
+
+	opts := search.Options{
+		Root:                   root,
+		Expr:                   "true",
+		Workers:                workers,
+		Index:                  idx,
+		IncludeAttributes:      false,
+		IncludeBody:            true,
+		RespectGitignore:       true,
+		PruneBuildArtefacts:    true,
+		Embedder:               embedder,
+		SemanticQueryEmbedding: queryVec,
+	}
+	out := make(chan search.Result, workers*2)
+	var scanned atomic.Int64
+	done := make(chan struct{})
+	go func() {
+		for range out {
+			scanned.Add(1)
+		}
+		close(done)
+	}()
+	start := time.Now()
+	err = search.WalkStream(ctx, opts, contentpkg.DefaultRegistry(), out)
+	<-done
+	elapsed := time.Since(start).Round(time.Millisecond)
+	if log != nil {
+		if err != nil {
+			_, _ = fmt.Fprintf(log, "warm-embeddings (%s): %d files in %s (err: %v)\n", embedder.Model(), scanned.Load(), elapsed, err)
+		} else {
+			_, _ = fmt.Fprintf(log, "warm-embeddings (%s): %d files in %s\n", embedder.Model(), scanned.Load(), elapsed)
 		}
 	}
 	return err

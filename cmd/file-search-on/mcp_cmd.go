@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/richardwooding/file-search-on/internal/embed"
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/mcpserver"
 	"github.com/richardwooding/file-search-on/internal/monitor"
@@ -29,6 +30,7 @@ type MCPCmd struct {
 	WarmDir           string        `name:"warm-dir" help:"Directory to warm. Defaults to the cwd at server start when --warm is set. Implies --warm when non-empty."`
 	WarmWorkers       int           `name:"warm-workers" help:"Worker count for the warmer. Defaults to max(1, NumCPU/4) — a quarter of the cores so the MCP server, the agent driving it, and the rest of the box keep their headroom. Pass 1 for minimum CPU; ignored when --warm is off."`
 	WarmTimeout       time.Duration `name:"warm-timeout" default:"10m" help:"Hard deadline on the warmer (Go duration: 30s, 5m). The MCP server keeps running if the warmer is killed by the deadline. Ignored when --warm is off."`
+	WarmEmbeddings    bool          `name:"warm-embeddings" help:"At startup, walk the warm root in the background and pre-populate the search_semantic embeddings cache. Requires --embedding-model to be set. Reads every walked file's body and calls Ollama once per file (expensive: ~1s/file on localhost) — appropriate as a pre-flight to interactive use. Walks concurrently with the MCP server, so clients connect immediately. Combine with --warm to populate both caches in one walk."`
 }
 
 func (m *MCPCmd) Run(ctx context.Context) error {
@@ -110,6 +112,33 @@ func (m *MCPCmd) Run(ctx context.Context) error {
 			}()
 		} else {
 			fmt.Fprintln(os.Stderr, "warm: could not resolve directory to warm; skipping")
+		}
+	}
+
+	if m.WarmEmbeddings {
+		if m.EmbeddingModel == "" {
+			fmt.Fprintln(os.Stderr, "warm-embeddings: --embedding-model not set; skipping")
+		} else {
+			root := m.WarmDir
+			if root == "" {
+				if cwd, err := os.Getwd(); err == nil {
+					root = cwd
+				}
+			}
+			if root != "" {
+				deadline := m.WarmTimeout
+				if deadline <= 0 {
+					deadline = 30 * time.Minute // embeddings are 10–100× slower than attrs
+				}
+				embedder := embed.NewOllama(m.EmbeddingServer, m.EmbeddingModel)
+				warmCtx, cancelWarm := context.WithTimeout(ctx, deadline)
+				go func() {
+					defer cancelWarm()
+					_ = warmEmbeddings(warmCtx, idx, root, m.WarmWorkers, embedder, os.Stderr)
+				}()
+			} else {
+				fmt.Fprintln(os.Stderr, "warm-embeddings: could not resolve directory to warm; skipping")
+			}
 		}
 	}
 

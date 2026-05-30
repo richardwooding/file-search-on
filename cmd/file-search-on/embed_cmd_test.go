@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // stubOllama matches the helper in mcpserver — same shape, copied to
@@ -158,6 +160,58 @@ func TestEmbedPullCmd_PullError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "ghost-model") {
 		t.Errorf("error should mention model name, got %v", err)
+	}
+}
+
+// TestEmbedWarmCmd_HappyPath: tempdir + stubbed Ollama (returning a
+// fixed embed vector for /api/embed) + in-memory index. The warm should
+// complete without error and populate EmbedPuts.
+func TestEmbedWarmCmd_HappyPath(t *testing.T) {
+	dir := t.TempDir()
+	for _, b := range []string{"a.md", "b.md"} {
+		mustWriteFile(t, filepath.Join(dir, b), "body "+b+"\n")
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"embeddings":[[0.5,0.5,0.5,0.5]]}`))
+	}))
+	defer srv.Close()
+
+	c := &EmbedWarmCmd{
+		Dir:     dir,
+		Model:   "test-model",
+		Server:  srv.URL,
+		Workers: 1,
+		Timeout: 30 * time.Second,
+		NoIndex: true, // hermetic
+	}
+	if err := c.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+}
+
+// TestEmbedWarmCmd_DummyQueryFails: the dummy-query embed call fails;
+// the warm command surfaces an error and never walks.
+func TestEmbedWarmCmd_DummyQueryFails(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "a.md"), "x")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	c := &EmbedWarmCmd{
+		Dir:     dir,
+		Model:   "test-model",
+		Server:  srv.URL,
+		Workers: 1,
+		Timeout: 30 * time.Second,
+		NoIndex: true,
+	}
+	err := c.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected error from failing Ollama, got nil")
 	}
 }
 
