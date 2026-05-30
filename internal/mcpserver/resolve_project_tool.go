@@ -37,6 +37,9 @@ func (h *handlers) resolveProjectForPathHandler(ctx context.Context, _ *mcp.Call
 	if err != nil {
 		return nil, ResolveProjectForPathOutput{}, fmt.Errorf("expand path: %w", err)
 	}
+	if path, err = h.validatePath(path); err != nil {
+		return nil, ResolveProjectForPathOutput{}, err
+	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return nil, ResolveProjectForPathOutput{}, fmt.Errorf("resolve path: %w", err)

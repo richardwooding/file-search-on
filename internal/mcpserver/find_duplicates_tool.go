@@ -67,6 +67,15 @@ func (h *handlers) findDuplicatesHandler(ctx context.Context, _ *mcp.CallToolReq
 	if dir == "" && len(dirs) == 0 {
 		dir = "."
 	}
+	if err := h.checkFollowSymlinks(in.FollowSymlinks); err != nil {
+		return nil, FindDuplicatesOutput{}, err
+	}
+	if dir, err = h.validatePath(dir); err != nil {
+		return nil, FindDuplicatesOutput{}, err
+	}
+	if dirs, err = h.validatePaths(dirs); err != nil {
+		return nil, FindDuplicatesOutput{}, err
+	}
 
 	var cancel context.CancelFunc
 	ctx, cancel = h.resolveTimeout(ctx, in.TimeoutSeconds)

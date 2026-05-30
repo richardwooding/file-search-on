@@ -52,6 +52,15 @@ func (h *handlers) diffTreesHandler(ctx context.Context, _ *mcp.CallToolRequest,
 	if treeA == "" || treeB == "" {
 		return nil, DiffTreesOutput{}, fmt.Errorf("tree_a and tree_b are both required")
 	}
+	if err := h.checkFollowSymlinks(in.FollowSymlinks); err != nil {
+		return nil, DiffTreesOutput{}, err
+	}
+	if treeA, err = h.validatePath(treeA); err != nil {
+		return nil, DiffTreesOutput{}, err
+	}
+	if treeB, err = h.validatePath(treeB); err != nil {
+		return nil, DiffTreesOutput{}, err
+	}
 	op := in.Op
 	if op == "" {
 		op = string(search.OpAMinusB)

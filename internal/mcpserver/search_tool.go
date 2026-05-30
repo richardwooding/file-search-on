@@ -100,6 +100,29 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 	if dir == "" {
 		dir = "."
 	}
+	if err := h.checkFollowSymlinks(in.FollowSymlinks); err != nil {
+		return nil, SearchOutput{}, err
+	}
+	if dir, err = h.validatePath(dir); err != nil {
+		return nil, SearchOutput{}, err
+	}
+	if dirs, err = h.validatePaths(dirs); err != nil {
+		return nil, SearchOutput{}, err
+	}
+	if in.HashAllowlistPath != "" {
+		if p, err := h.validatePath(in.HashAllowlistPath); err != nil {
+			return nil, SearchOutput{}, err
+		} else {
+			in.HashAllowlistPath = p
+		}
+	}
+	if in.HashDenylistPath != "" {
+		if p, err := h.validatePath(in.HashDenylistPath); err != nil {
+			return nil, SearchOutput{}, err
+		} else {
+			in.HashDenylistPath = p
+		}
+	}
 
 	// parentCtx is captured before the timeout wrap so we can later
 	// distinguish a server-level cancellation (transport close, parent

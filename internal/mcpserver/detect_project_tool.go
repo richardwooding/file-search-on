@@ -33,6 +33,9 @@ func (h *handlers) detectProjectHandler(ctx context.Context, _ *mcp.CallToolRequ
 	if err != nil {
 		return nil, DetectProjectOutput{}, fmt.Errorf("expand dir: %w", err)
 	}
+	if dir, err = h.validatePath(dir); err != nil {
+		return nil, DetectProjectOutput{}, err
+	}
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, DetectProjectOutput{}, fmt.Errorf("resolve dir: %w", err)
