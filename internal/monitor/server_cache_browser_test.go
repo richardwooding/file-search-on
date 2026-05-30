@@ -173,3 +173,27 @@ func TestServer_CacheEntry_MissingPath(t *testing.T) {
 		t.Errorf("status = %d, want 400 for missing path", rec.Code)
 	}
 }
+
+// TestServer_CacheEntry_RejectsIllFormedPaths is the regression
+// guard for the CodeQL go/path-injection finding on PR #249.
+// Non-absolute paths and paths with .. traversal segments must be
+// rejected with 400 before any filesystem-aware operation runs.
+func TestServer_CacheEntry_RejectsIllFormedPaths(t *testing.T) {
+	s, _ := newCacheBrowserTestServer(t)
+	for _, badPath := range []string{
+		"relative/path/file.md",
+		"./relative.md",
+		"/etc/../etc/passwd",
+		"/a//b",
+		"/a/b/",
+	} {
+		t.Run(badPath, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			url := "/api/cache/entry?bucket=attrs&path=" + badPath
+			s.handleCacheEntry(rec, httptest.NewRequest(http.MethodGet, url, nil))
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("status = %d for path=%q, want 400 (rejected as ill-formed)", rec.Code, badPath)
+			}
+		})
+	}
+}

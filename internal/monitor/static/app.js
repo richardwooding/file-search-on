@@ -322,11 +322,14 @@ function renderDetail(d) {
   const rows = [];
   const add = (k, v) => rows.push(`<div class="k">${escapeHTML(k)}</div><div class="v">${escapeHTML(String(v))}</div>`);
   add("path", d.path);
+  // The detail endpoint deliberately does not stat the user-supplied
+  // path — staleness lives on the list view, which walks the cursor
+  // with cache keys (not user input). Refresh the list to see current
+  // staleness for any specific path.
   if (isAttrs) {
     add("content_type", d.content_type || "—");
     add("size", bytes(d.size));
     add("mod_time", d.mod_time ? new Date(d.mod_time).toLocaleString() : "—");
-    add("stale", d.stale ? "yes" : "no");
     if (d.hash) add("sha256", d.hash);
     if (d.md5) add("md5", d.md5);
     if (d.sha1) add("sha1", d.sha1);
@@ -340,7 +343,6 @@ function renderDetail(d) {
     add("size", bytes(d.size));
     add("mod_time", d.mod_time ? new Date(d.mod_time).toLocaleString() : "—");
     add("created_at", d.created_at ? new Date(d.created_at).toLocaleString() : "—");
-    add("stale", d.stale ? "yes" : "no");
     add("body_length", bytes(d.body_length));
     if (d.truncated) add("truncated", "yes (preview cut at 64 KiB)");
   }

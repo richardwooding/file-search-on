@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -465,6 +466,17 @@ func (s *Server) handleCacheEntry(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "path is required", http.StatusBadRequest)
 		return
 	}
+	// Reject ill-formed paths defensively. Our cache only ever stores
+	// keys via Put() with absolute, filepath.Clean()-normalised paths
+	// — anything else can't hit a cache entry anyway. Validating up
+	// front means PeekAttrs / PeekBody never have to consider hostile
+	// inputs, and keeps the handler off CodeQL's go/path-injection
+	// radar by sanitising user input before it flows into any path
+	// operation downstream.
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		http.Error(w, "path must be an absolute, clean filesystem path", http.StatusBadRequest)
+		return
+	}
 
 	switch bucket {
 	case "attrs":
@@ -473,6 +485,15 @@ func (s *Server) handleCacheEntry(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
+		// Staleness for individual entries is surfaced on the list
+		// view (which walks the bucket cursor and stats each row with
+		// path-as-cache-key, not as user input). The detail view
+		// deliberately does NOT os.Stat the user-supplied path —
+		// even though the dashboard binds 127.0.0.1 only, the
+		// pattern is bad hygiene (CodeQL go/path-injection) and a
+		// future "expose via proxy" feature would inherit it.
+		// Users wanting current staleness for a specific path
+		// refresh the list view.
 		writeJSON(w, map[string]any{
 			"bucket":       "attrs",
 			"path":         path,
@@ -486,7 +507,6 @@ func (s *Server) handleCacheEntry(w http.ResponseWriter, r *http.Request) {
 			"embed_model":  e.EmbedModel,
 			"has_vector":   len(e.Vector) > 0,
 			"vector_dims":  len(e.Vector),
-			"stale":        isAttrStaleFromCached(path, e.Size, e.ModTimeUnixNano),
 		})
 	case "bodies":
 		be, ok := s.cfg.Index.PeekBody(path)
@@ -509,22 +529,8 @@ func (s *Server) handleCacheEntry(w http.ResponseWriter, r *http.Request) {
 			"body":        body,
 			"body_length": len(be.Body),
 			"truncated":   truncated,
-			"stale":       isAttrStaleFromCached(path, be.Size, be.ModTimeUnixNano),
 		})
 	}
-}
-
-// isAttrStaleFromCached is the server-side staleness check —
-// stat the file at p and compare against the cached (size, mtime).
-// Returns true if the file is gone or has been modified. Kept
-// here rather than reaching into the index package because the
-// dashboard cares about the same notion for both attrs and bodies.
-func isAttrStaleFromCached(p string, cachedSize int64, cachedModUnixNano int64) bool {
-	info, err := os.Stat(p)
-	if err != nil {
-		return true
-	}
-	return info.Size() != cachedSize || info.ModTime().UnixNano() != cachedModUnixNano
 }
 
 // parseIntDefault parses s as int; returns def on error / empty.
