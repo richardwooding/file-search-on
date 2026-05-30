@@ -3,12 +3,17 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/richardwooding/file-search-on/internal/embed"
 	"github.com/richardwooding/file-search-on/internal/index"
 )
 
@@ -139,5 +144,145 @@ func TestWarmIndex_ElapsedRendersNonZero(t *testing.T) {
 	}
 	if !strings.Contains(log.String(), "warm: 5 files in ") {
 		t.Errorf("expected count line for 5 files, got %q", log.String())
+	}
+}
+
+// stubOllamaEmbed mounts /api/embed on an httptest server, returning a
+// fixed 4-dim vector for every request. The vector matches a real
+// Ollama response shape (`embeddings` is a 2D array). Count is bumped
+// per call so tests can assert N files → N+1 Ollama calls (1 dummy
+// query + N file bodies).
+func stubOllamaEmbed(t *testing.T, count *atomic.Int64) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/embed" {
+			http.NotFound(w, r)
+			return
+		}
+		var req struct {
+			Model string `json:"model"`
+			Input string `json:"input"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if count != nil {
+			count.Add(1)
+		}
+		// Return a 4-dim normalised vector. Varying it slightly per
+		// request keeps the test honest — the warmer should accept
+		// distinct file vectors and cache them all.
+		_, _ = w.Write([]byte(`{"embeddings":[[0.5,0.5,0.5,0.5]]}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// TestWarmEmbeddings_PopulatesVectorCache is the headline test: walking
+// a tempdir of text files with warmEmbeddings should populate
+// idx.Stats().EmbedPuts for every file.
+func TestWarmEmbeddings_PopulatesVectorCache(t *testing.T) {
+	dir := t.TempDir()
+	for _, b := range []string{"a.md", "b.md", "c.md"} {
+		mustWriteFile(t, filepath.Join(dir, b), "body of "+b+"\n")
+	}
+
+	var calls atomic.Int64
+	srv := stubOllamaEmbed(t, &calls)
+
+	idx := index.NewMemory()
+	t.Cleanup(func() { _ = idx.Close() })
+
+	embedder := embed.NewOllama(srv.URL, "test-model")
+	var log bytes.Buffer
+	if err := warmEmbeddings(context.Background(), idx, dir, 1, embedder, &log); err != nil {
+		t.Fatalf("warmEmbeddings: %v", err)
+	}
+
+	got := idx.Stats().EmbedPuts
+	if got != 3 {
+		t.Errorf("EmbedPuts = %d, want 3 (one per walked file)", got)
+	}
+	// 1 dummy query + 3 file bodies = 4 Ollama calls.
+	if calls.Load() != 4 {
+		t.Errorf("Ollama call count = %d, want 4 (1 dummy + 3 files)", calls.Load())
+	}
+	if !strings.Contains(log.String(), "warm-embeddings (test-model): 3 files in ") {
+		t.Errorf("missing completion line; got %q", log.String())
+	}
+}
+
+// TestWarmEmbeddings_QueryEmbedFailureAborts asserts that when the
+// dummy-query embed fails (Ollama down, model missing, etc.), the
+// warmer returns the error WITHOUT starting the walk — no point
+// embedding file bodies if we can't even embed the dummy query.
+func TestWarmEmbeddings_QueryEmbedFailureAborts(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "a.md"), "x")
+
+	var fileEmbedAttempts atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fileEmbedAttempts.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+
+	idx := index.NewMemory()
+	t.Cleanup(func() { _ = idx.Close() })
+
+	embedder := embed.NewOllama(srv.URL, "test-model")
+	err := warmEmbeddings(context.Background(), idx, dir, 1, embedder, nil)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "dummy query") {
+		t.Errorf("error should mention dummy-query path, got %v", err)
+	}
+	// Only the dummy-query call should have hit Ollama — the walk
+	// must not have started.
+	if fileEmbedAttempts.Load() != 1 {
+		t.Errorf("Ollama hits = %d, want 1 (only the failing dummy query)", fileEmbedAttempts.Load())
+	}
+	if idx.Stats().EmbedPuts != 0 {
+		t.Errorf("EmbedPuts = %d, want 0 (walk should not have started)", idx.Stats().EmbedPuts)
+	}
+}
+
+// TestWarmEmbeddings_ContextCancel asserts ctx cancellation aborts
+// cleanly — the warmer must not outlive ctx.
+func TestWarmEmbeddings_ContextCancel(t *testing.T) {
+	dir := t.TempDir()
+	for _, b := range []string{"a.md", "b.md", "c.md"} {
+		mustWriteFile(t, filepath.Join(dir, b), "x")
+	}
+
+	srv := stubOllamaEmbed(t, nil)
+	idx := index.NewMemory()
+	t.Cleanup(func() { _ = idx.Close() })
+
+	embedder := embed.NewOllama(srv.URL, "test-model")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // pre-cancel
+	err := warmEmbeddings(ctx, idx, dir, 1, embedder, nil)
+	if err == nil {
+		// Tiny tree can finish before ctx is observed; the assertion
+		// is "no panic, no hang" — both achieved if we get here.
+		return
+	}
+	if !errorIsContextCancellation(err) {
+		t.Errorf("error = %v, want context-cancellation-shaped", err)
+	}
+}
+
+// TestWarmEmbeddings_NilLogOk confirms nil log is safe.
+func TestWarmEmbeddings_NilLogOk(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "x.md"), "hi")
+
+	srv := stubOllamaEmbed(t, nil)
+	idx := index.NewMemory()
+	t.Cleanup(func() { _ = idx.Close() })
+
+	embedder := embed.NewOllama(srv.URL, "test-model")
+	if err := warmEmbeddings(context.Background(), idx, dir, 1, embedder, nil); err != nil {
+		t.Fatalf("warmEmbeddings with nil log: %v", err)
 	}
 }

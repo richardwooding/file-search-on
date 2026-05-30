@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/richardwooding/file-search-on/internal/embed"
+	"github.com/richardwooding/file-search-on/internal/index"
 )
 
 // EmbedCmd manages Ollama embedding models — what's installed and what
@@ -20,6 +21,7 @@ import (
 type EmbedCmd struct {
 	List EmbedListCmd `cmd:"" help:"List locally-pulled and recommended embedding models."`
 	Pull EmbedPullCmd `cmd:"" help:"Download an embedding model via Ollama."`
+	Warm EmbedWarmCmd `cmd:"" help:"Pre-populate the search_semantic embeddings cache for a directory tree. Walks every file, embeds its body via Ollama, stores the vector under (size, mtime) in the bbolt index. Subsequent search_semantic calls hit the cache and return in milliseconds. Re-runs on unchanged trees are sub-second."`
 }
 
 // EmbedListCmd shows both arms of file-search-on's embedding-model
@@ -231,6 +233,43 @@ func (c *EmbedPullCmd) Run(ctx context.Context) error {
 		_, _ = fmt.Fprintf(os.Stderr, "pulled %s in %s\n", c.Name, time.Since(start).Truncate(100*time.Millisecond))
 	} else {
 		fmt.Printf("%s\n", strings.TrimSpace(c.Name))
+	}
+	return nil
+}
+
+// EmbedWarmCmd pre-populates the search_semantic embeddings cache for a
+// directory tree. Walks every file with bbolt index attached, calls
+// Ollama once per file to embed its body, stores the vector under
+// (size, mtime) so subsequent semantic searches skip the I/O.
+//
+// Mirrors `mcp --warm-embeddings` exactly, just driven from a standalone
+// CLI process — useful for pre-flight warming before opening Claude /
+// Cursor (the MCP server will then open the warm bbolt file via the
+// per-cwd default index path).
+type EmbedWarmCmd struct {
+	Dir       string        `arg:"" name:"dir" help:"Directory to warm."`
+	Model     string        `name:"model" required:"" help:"Embedding model to use (e.g. nomic-embed-text). Required. Must be pulled — see 'file-search-on embed pull'."`
+	Server    string        `name:"server" env:"OLLAMA_HOST" default:"http://localhost:11434" help:"Ollama base URL."`
+	Workers   int           `name:"workers" help:"Worker count. Defaults to max(1, NumCPU/4) — a quarter of the cores so the rest of the box keeps its headroom while Ollama is being hammered."`
+	Timeout   time.Duration `name:"timeout" default:"30m" help:"Hard deadline. Embeddings can be slow (~1s/file on Ollama localhost); raise for huge trees."`
+	IndexPath string        `name:"index-path" help:"Persistent bbolt index file. Defaults to the per-cwd auto-derived path used by 'file-search-on mcp', so a warm here makes the MCP server faster when started from the same cwd."`
+	NoIndex   bool          `name:"no-index" help:"Disable the on-disk index; use in-memory only. Useful when another instance holds the writer lock or for one-shot tests. Defeats the purpose of warming for inter-process sharing."`
+}
+
+func (c *EmbedWarmCmd) Run(ctx context.Context) error {
+	idx, _, err := openIndex(c.IndexPath, c.NoIndex, index.BodyCacheCap{})
+	if err != nil {
+		return fmt.Errorf("open index: %w", err)
+	}
+	defer func() { _ = idx.Close() }()
+
+	embedder := embed.NewOllama(c.Server, c.Model)
+
+	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
+	defer cancel()
+
+	if err := warmEmbeddings(ctx, idx, c.Dir, c.Workers, embedder, os.Stderr); err != nil {
+		return fmt.Errorf("warm embeddings: %w", err)
 	}
 	return nil
 }
