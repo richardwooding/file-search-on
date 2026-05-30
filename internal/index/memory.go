@@ -1,6 +1,9 @@
 package index
 
 import (
+	"os"
+	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -114,25 +117,138 @@ func (m *memoryIndex) PutBody(path string, be *BodyEntry) error {
 }
 
 func (m *memoryIndex) Stats() Stats {
+	m.mu.RLock()
+	attrCount := uint64(len(m.data))
+	bodyCount := uint64(len(m.bodies))
+	m.mu.RUnlock()
 	return Stats{
-		Hits:          m.stats.hits.Load(),
-		Misses:        m.stats.misses.Load(),
-		Puts:          m.stats.puts.Load(),
-		Stales:        m.stats.stales.Load(),
-		Errors:        m.stats.errors.Load(),
-		BodyHits:      m.stats.bodyHits.Load(),
-		BodyMisses:    m.stats.bodyMisses.Load(),
-		BodyPuts:      m.stats.bodyPuts.Load(),
-		BodyStales:    m.stats.bodyStales.Load(),
-		BodyEvictions: m.stats.bodyEvictions.Load(),
-		BodyOversize:  m.stats.bodyOversize.Load(),
-		BodyErrors:    m.stats.bodyErrors.Load(),
+		Hits:                 m.stats.hits.Load(),
+		Misses:               m.stats.misses.Load(),
+		Puts:                 m.stats.puts.Load(),
+		Stales:               m.stats.stales.Load(),
+		Errors:               m.stats.errors.Load(),
+		BodyHits:             m.stats.bodyHits.Load(),
+		BodyMisses:           m.stats.bodyMisses.Load(),
+		BodyPuts:             m.stats.bodyPuts.Load(),
+		BodyStales:           m.stats.bodyStales.Load(),
+		BodyEvictions:        m.stats.bodyEvictions.Load(),
+		BodyOversize:         m.stats.bodyOversize.Load(),
+		BodyErrors:           m.stats.bodyErrors.Load(),
 		EmbedHits:            m.stats.embedHits.Load(),
 		EmbedMisses:          m.stats.embedMisses.Load(),
 		EmbedPuts:            m.stats.embedPuts.Load(),
 		EmbedErrors:          m.stats.embedErrors.Load(),
 		EmbedModelMismatches: m.stats.embedModelMismatches.Load(),
+		AttrEntriesCount:     attrCount,
+		BodyEntriesCount:     bodyCount,
 	}
+}
+
+// ListAttrs iterates m.data, filters by substring, sorts by path,
+// and slices for pagination. Each row's Stale flag is computed by
+// stat'ing the live file (cheap for the typical browser page size).
+func (m *memoryIndex) ListAttrs(substr string, limit, offset int) ([]EntrySummary, int, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var matches []string
+	for k := range m.data {
+		if substr == "" || strings.Contains(k, substr) {
+			matches = append(matches, k)
+		}
+	}
+	sort.Strings(matches)
+	total := len(matches)
+	from := min(offset, total)
+	to := min(from+limit, total)
+	out := make([]EntrySummary, 0, to-from)
+	for _, p := range matches[from:to] {
+		e := m.data[p]
+		out = append(out, EntrySummary{
+			Path:        p,
+			ContentType: e.ContentType,
+			Size:        e.Size,
+			ModTime:     time.Unix(0, e.ModTimeUnixNano),
+			Stale:       isAttrStaleEntry(p, e),
+		})
+	}
+	return out, total, nil
+}
+
+// ListBodies is the body-cache analogue of ListAttrs. LastAccess is
+// always zero — the in-memory backend has no FIFO eviction layer.
+func (m *memoryIndex) ListBodies(substr string, limit, offset int) ([]BodySummary, int, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var matches []string
+	for k := range m.bodies {
+		if substr == "" || strings.Contains(k, substr) {
+			matches = append(matches, k)
+		}
+	}
+	sort.Strings(matches)
+	total := len(matches)
+	from := min(offset, total)
+	to := min(from+limit, total)
+	out := make([]BodySummary, 0, to-from)
+	for _, p := range matches[from:to] {
+		be := m.bodies[p]
+		out = append(out, BodySummary{
+			Path:    p,
+			Size:    be.Size,
+			ModTime: time.Unix(0, be.ModTimeUnixNano),
+			Stale:   isBodyStaleEntry(p, be),
+		})
+	}
+	return out, total, nil
+}
+
+// PeekAttrs returns m.data[absPath] bypassing validation.
+func (m *memoryIndex) PeekAttrs(absPath string) (*Entry, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	e, ok := m.data[absPath]
+	return e, ok
+}
+
+// PeekBody returns m.bodies[absPath] bypassing validation.
+func (m *memoryIndex) PeekBody(absPath string) (*BodyEntry, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	be, ok := m.bodies[absPath]
+	return be, ok
+}
+
+// isAttrStaleEntry and isBodyStaleEntry are the shared
+// stat-and-compare used by ListAttrs / ListBodies across both
+// backends. (bbolt.go has type-specific copies because it can't
+// import from a separate file without a re-org — duplication is
+// minimal and the helpers don't share state.)
+func isAttrStaleEntry(p string, e *Entry) bool {
+	info, err := os.Stat(p)
+	if err != nil {
+		return true
+	}
+	return info.Size() != e.Size || info.ModTime().UnixNano() != e.ModTimeUnixNano
+}
+
+func isBodyStaleEntry(p string, be *BodyEntry) bool {
+	info, err := os.Stat(p)
+	if err != nil {
+		return true
+	}
+	return info.Size() != be.Size || info.ModTime().UnixNano() != be.ModTimeUnixNano
 }
 
 func (m *memoryIndex) BumpEmbedStat(kind string) { bumpEmbedStat(&m.stats, kind) }

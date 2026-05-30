@@ -217,11 +217,196 @@ async function tick() {
     renderActivity(a);
     renderCapabilities(caps);
     renderPeers(peers);
+    updateCacheBrowserCounts(c);
     setHealth(true);
   } catch (e) {
     setHealth(false);
   }
 }
+
+// --- Cache browser ---
+//
+// The browser does NOT poll on the 2s tick — refreshes only fire when
+// the user changes the filter, switches tab, or paginates. It re-uses
+// the live counts from /api/cache (which DOES poll) to keep the tab
+// labels honest.
+
+const cb = {
+  bucket: "attrs",
+  q: "",
+  offset: 0,
+  limit: 50,
+  total: 0,
+  attrCount: 0,
+  bodyCount: 0,
+};
+
+function updateCacheBrowserCounts(cacheJSON) {
+  // The bucket entry counts ride on /api/cache via Stats. cacheJSON shape:
+  // { attr: { ... }, body: { ... }, attr_entries_count, body_entries_count }
+  cb.attrCount = cacheJSON.attr_entries_count || 0;
+  cb.bodyCount = cacheJSON.body_entries_count || 0;
+  // Reflect in tab labels.
+  document.getElementById("cb-tab-attrs").textContent = `Attributes (${cb.attrCount})`;
+  document.getElementById("cb-tab-bodies").textContent = `Bodies (${cb.bodyCount})`;
+}
+
+async function refreshCacheBrowser() {
+  const url = `api/cache/entries?bucket=${cb.bucket}&q=${encodeURIComponent(cb.q)}&limit=${cb.limit}&offset=${cb.offset}`;
+  let resp;
+  try {
+    resp = await getJSON(url);
+  } catch (e) {
+    document.getElementById("cb-table").innerHTML = `<div class="empty">error: ${e.message}</div>`;
+    return;
+  }
+  cb.total = resp.total || 0;
+  renderCacheBrowserTable(resp.entries || []);
+  updateCacheBrowserPager();
+}
+
+function renderCacheBrowserTable(entries) {
+  if (!entries.length) {
+    document.getElementById("cb-table").innerHTML = `<div class="empty">no entries</div>`;
+    return;
+  }
+  const isAttrs = cb.bucket === "attrs";
+  const rows = entries.map((e) => {
+    const staleBadge = e.stale ? `<span class="cb-stale">stale</span>` : "";
+    const mt = e.mod_time ? new Date(e.mod_time).toLocaleString() : "";
+    const cell2 = isAttrs ? (e.content_type || "—") : bytes(e.size);
+    const cell3 = isAttrs ? bytes(e.size) : (e.last_access ? new Date(e.last_access).toLocaleString() : "—");
+    return `<tr class="cb-row" data-path="${escapeAttr(e.path)}">
+      <td class="cb-path">${escapeHTML(e.path)}${staleBadge}</td>
+      <td>${escapeHTML(cell2)}</td>
+      <td>${escapeHTML(cell3)}</td>
+      <td>${mt}</td>
+    </tr>`;
+  }).join("");
+  const header = isAttrs
+    ? `<th>path</th><th>content_type</th><th>size</th><th>mod_time</th>`
+    : `<th>path</th><th>size</th><th>last_access</th><th>mod_time</th>`;
+  document.getElementById("cb-table").innerHTML = `<table class="cb-table">
+    <thead><tr>${header}</tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+  // Wire row clicks → detail modal.
+  document.querySelectorAll("#cb-table tr.cb-row").forEach((tr) => {
+    tr.addEventListener("click", () => openDetail(tr.dataset.path));
+  });
+}
+
+function updateCacheBrowserPager() {
+  const pageStart = cb.total === 0 ? 0 : cb.offset + 1;
+  const pageEnd = Math.min(cb.offset + cb.limit, cb.total);
+  document.getElementById("cb-pageinfo").textContent = `${pageStart}–${pageEnd} of ${cb.total}`;
+  document.getElementById("cb-prev").disabled = cb.offset === 0;
+  document.getElementById("cb-next").disabled = pageEnd >= cb.total;
+}
+
+async function openDetail(path) {
+  const url = `api/cache/entry?bucket=${cb.bucket}&path=${encodeURIComponent(path)}`;
+  let resp;
+  try {
+    resp = await getJSON(url);
+  } catch (e) {
+    alert(`could not load detail: ${e.message}`);
+    return;
+  }
+  renderDetail(resp);
+  document.getElementById("cb-modal").hidden = false;
+}
+
+function renderDetail(d) {
+  const isAttrs = cb.bucket === "attrs";
+  const rows = [];
+  const add = (k, v) => rows.push(`<div class="k">${escapeHTML(k)}</div><div class="v">${escapeHTML(String(v))}</div>`);
+  add("path", d.path);
+  if (isAttrs) {
+    add("content_type", d.content_type || "—");
+    add("size", bytes(d.size));
+    add("mod_time", d.mod_time ? new Date(d.mod_time).toLocaleString() : "—");
+    add("stale", d.stale ? "yes" : "no");
+    if (d.hash) add("sha256", d.hash);
+    if (d.md5) add("md5", d.md5);
+    if (d.sha1) add("sha1", d.sha1);
+    if (d.embed_model) add("embed_model", d.embed_model);
+    if (d.has_vector) add("vector_dims", d.vector_dims);
+    // Flatten Extra as additional rows.
+    if (d.extra) {
+      Object.keys(d.extra).sort().forEach((k) => add(k, formatExtra(d.extra[k])));
+    }
+  } else {
+    add("size", bytes(d.size));
+    add("mod_time", d.mod_time ? new Date(d.mod_time).toLocaleString() : "—");
+    add("created_at", d.created_at ? new Date(d.created_at).toLocaleString() : "—");
+    add("stale", d.stale ? "yes" : "no");
+    add("body_length", bytes(d.body_length));
+    if (d.truncated) add("truncated", "yes (preview cut at 64 KiB)");
+  }
+  let body = "";
+  if (!isAttrs && d.body) {
+    body = `<div class="cb-body-block">${escapeHTML(d.body)}</div>`;
+  }
+  document.getElementById("cb-modal-body").innerHTML = `<h3 style="margin-top:0">Cache entry — ${cb.bucket}</h3>
+    <div class="cb-detail-grid">${rows.join("")}</div>${body}`;
+}
+
+function formatExtra(v) {
+  if (v == null) return "—";
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
+}
+
+function escapeHTML(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function escapeAttr(s) {
+  return escapeHTML(s);
+}
+
+// Wire up controls once at startup.
+let cbDebounce = null;
+function wireCacheBrowser() {
+  document.querySelectorAll(".cb-tab").forEach((b) => {
+    b.addEventListener("click", () => {
+      document.querySelectorAll(".cb-tab").forEach((x) => x.classList.remove("cb-tab-active"));
+      b.classList.add("cb-tab-active");
+      cb.bucket = b.dataset.bucket;
+      cb.offset = 0;
+      refreshCacheBrowser();
+    });
+  });
+  document.getElementById("cb-filter").addEventListener("input", (e) => {
+    clearTimeout(cbDebounce);
+    cbDebounce = setTimeout(() => {
+      cb.q = e.target.value;
+      cb.offset = 0;
+      refreshCacheBrowser();
+    }, 300);
+  });
+  document.getElementById("cb-prev").addEventListener("click", () => {
+    cb.offset = Math.max(0, cb.offset - cb.limit);
+    refreshCacheBrowser();
+  });
+  document.getElementById("cb-next").addEventListener("click", () => {
+    cb.offset += cb.limit;
+    refreshCacheBrowser();
+  });
+  document.getElementById("cb-modal-close").addEventListener("click", () => {
+    document.getElementById("cb-modal").hidden = true;
+  });
+  document.getElementById("cb-modal").addEventListener("click", (e) => {
+    // Dismiss when clicking the dim overlay (not the inner content).
+    if (e.target === document.getElementById("cb-modal")) {
+      document.getElementById("cb-modal").hidden = true;
+    }
+  });
+  refreshCacheBrowser();
+}
+
+wireCacheBrowser();
 
 tick();
 setInterval(tick, 2000);
