@@ -184,6 +184,48 @@ type Stats struct {
 	EmbedPuts            uint64 // freshly-computed vector stored back to cache
 	EmbedErrors          uint64 // Embedder.Embed call failed (Ollama unreachable, model missing, etc.)
 	EmbedModelMismatches uint64 // cached Vector existed but came from a different embedding model → treated as miss, re-embedded
+
+	// AttrEntriesCount / BodyEntriesCount are the *current* number of
+	// cached records in each bucket — distinct from the monotonic Hits
+	// / Puts counters above. They give the dashboard a "size of cache"
+	// gauge alongside the activity gauges. The bbolt implementation
+	// computes these on-demand via bucket.Stats(); the in-memory
+	// implementation reports map length.
+	AttrEntriesCount uint64
+	BodyEntriesCount uint64
+	// BodiesTotalBytes mirrors the in-memory running size used by FIFO
+	// eviction (bbolt only — the in-memory backend doesn't track this
+	// because it has no per-size eviction). Reported in bytes so the
+	// dashboard can render "256 MiB cap / 87.4 MiB used".
+	BodiesTotalBytes int64
+}
+
+// EntrySummary is the compact row shape returned by ListAttrs. The
+// full Entry payload (Extra map, hashes, vector) is fetched via
+// PeekAttrs on demand for a detail view — list responses avoid
+// shipping the heavy fields.
+type EntrySummary struct {
+	Path        string    `json:"path"`
+	ContentType string    `json:"content_type"`
+	Size        int64     `json:"size"`
+	ModTime     time.Time `json:"mod_time"`
+	// Stale is true when the live file's (size, mtime) no longer
+	// matches the cached entry's. The list builder stats every
+	// candidate to compute this — a one-shot Lstat per row is cheap
+	// against the size of a typical browser page (50 entries).
+	// Bumps to true silently when the underlying file vanishes.
+	Stale bool `json:"stale,omitempty"`
+}
+
+// BodySummary is the compact row shape returned by ListBodies.
+type BodySummary struct {
+	Path    string    `json:"path"`
+	Size    int64     `json:"size"`
+	ModTime time.Time `json:"mod_time"`
+	// LastAccess is the most-recent read time recorded for FIFO
+	// eviction. Zero for the in-memory backend (no eviction layer).
+	LastAccess time.Time `json:"last_access"`
+	Stale      bool      `json:"stale,omitempty"`
 }
 
 // Index is the surface every cache implementation honours.
@@ -227,6 +269,32 @@ type Index interface {
 	// just a field on Entry, but agents want a per-cache breakdown
 	// of how often the field was present.
 	BumpEmbedStat(kind string)
+
+	// ListAttrs returns summaries for entries in the attribute cache
+	// whose path contains substr (empty = match all), sorted by path
+	// lexicographically, sliced by offset + limit. Total is the
+	// unfiltered count after the substring pass — pagination UIs use
+	// it to render the right "showing N of M" footer.
+	//
+	// Implementations need not enforce a limit themselves (callers can
+	// pass a huge value); a sane upper bound is enforced at the HTTP
+	// layer (see internal/monitor/server.go) to keep response sizes
+	// bounded.
+	ListAttrs(substr string, limit, offset int) ([]EntrySummary, int, error)
+
+	// ListBodies returns summaries for body-cache entries. Same shape
+	// semantics as ListAttrs.
+	ListBodies(substr string, limit, offset int) ([]BodySummary, int, error)
+
+	// PeekAttrs returns the cached Entry for absPath bypassing
+	// (size, mtime) validation. The dashboard's detail view uses this
+	// to show stale entries with a stale flag rather than hiding
+	// them. Walking callers continue to use the strict Lookup.
+	PeekAttrs(absPath string) (*Entry, bool)
+
+	// PeekBody returns the cached BodyEntry for absPath bypassing
+	// validation. Same semantics as PeekAttrs.
+	PeekBody(absPath string) (*BodyEntry, bool)
 
 	Stats() Stats
 	Close() error

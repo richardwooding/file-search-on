@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -332,28 +333,204 @@ func (b *boltIndex) PutBody(absPath string, be *BodyEntry) error {
 }
 
 func (b *boltIndex) Stats() Stats {
-	return Stats{
-		Hits:          b.stats.hits.Load(),
-		Misses:        b.stats.misses.Load(),
-		Puts:          b.stats.puts.Load(),
-		Stales:        b.stats.stales.Load(),
-		Errors:        b.stats.errors.Load(),
-		BodyHits:      b.stats.bodyHits.Load(),
-		BodyMisses:    b.stats.bodyMisses.Load(),
-		BodyPuts:      b.stats.bodyPuts.Load(),
-		BodyStales:    b.stats.bodyStales.Load(),
-		BodyEvictions: b.stats.bodyEvictions.Load(),
-		BodyOversize:  b.stats.bodyOversize.Load(),
-		BodyErrors:    b.stats.bodyErrors.Load(),
+	s := Stats{
+		Hits:                 b.stats.hits.Load(),
+		Misses:               b.stats.misses.Load(),
+		Puts:                 b.stats.puts.Load(),
+		Stales:               b.stats.stales.Load(),
+		Errors:               b.stats.errors.Load(),
+		BodyHits:             b.stats.bodyHits.Load(),
+		BodyMisses:           b.stats.bodyMisses.Load(),
+		BodyPuts:             b.stats.bodyPuts.Load(),
+		BodyStales:           b.stats.bodyStales.Load(),
+		BodyEvictions:        b.stats.bodyEvictions.Load(),
+		BodyOversize:         b.stats.bodyOversize.Load(),
+		BodyErrors:           b.stats.bodyErrors.Load(),
 		EmbedHits:            b.stats.embedHits.Load(),
 		EmbedMisses:          b.stats.embedMisses.Load(),
 		EmbedPuts:            b.stats.embedPuts.Load(),
 		EmbedErrors:          b.stats.embedErrors.Load(),
 		EmbedModelMismatches: b.stats.embedModelMismatches.Load(),
+		BodiesTotalBytes:     b.bodiesTotalSize.Load(),
 	}
+	// Per-bucket entry counts come from bbolt's bucket.Stats(). Cheap
+	// (no full scan; bbolt maintains running counts) but it's a View
+	// transaction so we tolerate failure gracefully — counts default
+	// to zero rather than failing the whole snapshot.
+	_ = b.db.View(func(tx *bbolt.Tx) error {
+		if bkt := tx.Bucket([]byte(bucketAttrs)); bkt != nil {
+			s.AttrEntriesCount = uint64(bkt.Stats().KeyN)
+		}
+		if bkt := tx.Bucket([]byte(bucketBodies)); bkt != nil {
+			s.BodyEntriesCount = uint64(bkt.Stats().KeyN)
+		}
+		return nil
+	})
+	return s
 }
 
 func (b *boltIndex) BumpEmbedStat(kind string) { bumpEmbedStat(&b.stats, kind) }
+
+// ListAttrs walks attrs_v1 with a Cursor, collecting summaries for
+// entries whose key contains substr. The iteration is sorted by key
+// because bbolt keys are returned in lexicographic order — no extra
+// sort step needed.
+//
+// Live (size, mtime) is stat'd per row to compute Stale; a missing
+// file (os.Stat error) is reported as Stale=true rather than
+// dropped. Pagination is offset + limit on the FILTERED slice.
+func (b *boltIndex) ListAttrs(substr string, limit, offset int) ([]EntrySummary, int, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	var out []EntrySummary
+	var total int
+	var matchPaths []string
+	if err := b.db.View(func(tx *bbolt.Tx) error {
+		bkt := tx.Bucket([]byte(bucketAttrs))
+		if bkt == nil {
+			return nil
+		}
+		c := bkt.Cursor()
+		for k, _ := c.First(); k != nil; k, _ = c.Next() {
+			if substr == "" || strings.Contains(string(k), substr) {
+				total++
+				matchPaths = append(matchPaths, string(k))
+			}
+		}
+		// Slice for pagination.
+		from := min(offset, len(matchPaths))
+		to := min(from+limit, len(matchPaths))
+		for _, p := range matchPaths[from:to] {
+			raw := bkt.Get([]byte(p))
+			if raw == nil {
+				continue
+			}
+			e, err := decodeEntry(raw)
+			if err != nil {
+				continue
+			}
+			out = append(out, EntrySummary{
+				Path:        p,
+				ContentType: e.ContentType,
+				Size:        e.Size,
+				ModTime:     time.Unix(0, e.ModTimeUnixNano),
+				Stale:       isAttrStaleEntry(p, e),
+			})
+		}
+		return nil
+	}); err != nil {
+		return nil, 0, err
+	}
+	return out, total, nil
+}
+
+// ListBodies mirrors ListAttrs against bodies_v1 + body_access_v1.
+func (b *boltIndex) ListBodies(substr string, limit, offset int) ([]BodySummary, int, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	var out []BodySummary
+	var total int
+	var matchPaths []string
+	if err := b.db.View(func(tx *bbolt.Tx) error {
+		bkt := tx.Bucket([]byte(bucketBodies))
+		if bkt == nil {
+			return nil
+		}
+		access := tx.Bucket([]byte(bucketBodyAccess))
+		c := bkt.Cursor()
+		for k, _ := c.First(); k != nil; k, _ = c.Next() {
+			if substr == "" || strings.Contains(string(k), substr) {
+				total++
+				matchPaths = append(matchPaths, string(k))
+			}
+		}
+		from := min(offset, len(matchPaths))
+		to := min(from+limit, len(matchPaths))
+		for _, p := range matchPaths[from:to] {
+			raw := bkt.Get([]byte(p))
+			if raw == nil {
+				continue
+			}
+			be, err := decodeBody(raw)
+			if err != nil {
+				continue
+			}
+			var lastAccess time.Time
+			if access != nil {
+				if av := access.Get([]byte(p)); len(av) == 8 {
+					lastAccess = time.Unix(0, int64(binary.BigEndian.Uint64(av)))
+				}
+			}
+			out = append(out, BodySummary{
+				Path:       p,
+				Size:       be.Size,
+				ModTime:    time.Unix(0, be.ModTimeUnixNano),
+				LastAccess: lastAccess,
+				Stale:      isBodyStaleEntry(p, be),
+			})
+		}
+		return nil
+	}); err != nil {
+		return nil, 0, err
+	}
+	return out, total, nil
+}
+
+// PeekAttrs returns the cached Entry for absPath bypassing the
+// (size, mtime) validation that Lookup enforces. Used by the
+// dashboard's detail view so stale entries can be displayed with a
+// stale flag rather than hidden.
+func (b *boltIndex) PeekAttrs(absPath string) (*Entry, bool) {
+	var out *Entry
+	_ = b.db.View(func(tx *bbolt.Tx) error {
+		bkt := tx.Bucket([]byte(bucketAttrs))
+		if bkt == nil {
+			return nil
+		}
+		raw := bkt.Get([]byte(absPath))
+		if raw == nil {
+			return nil
+		}
+		e, err := decodeEntry(raw)
+		if err != nil {
+			return nil
+		}
+		out = e
+		return nil
+	})
+	return out, out != nil
+}
+
+// PeekBody returns the cached BodyEntry for absPath bypassing
+// validation. Same semantics as PeekAttrs.
+func (b *boltIndex) PeekBody(absPath string) (*BodyEntry, bool) {
+	var out *BodyEntry
+	_ = b.db.View(func(tx *bbolt.Tx) error {
+		bkt := tx.Bucket([]byte(bucketBodies))
+		if bkt == nil {
+			return nil
+		}
+		raw := bkt.Get([]byte(absPath))
+		if raw == nil {
+			return nil
+		}
+		be, err := decodeBody(raw)
+		if err != nil {
+			return nil
+		}
+		out = be
+		return nil
+	})
+	return out, out != nil
+}
 
 // Close drains both writer channels, waits for the writer goroutines
 // to exit, then closes the bbolt db. Safe to call once; subsequent

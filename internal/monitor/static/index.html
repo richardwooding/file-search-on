@@ -30,6 +30,29 @@
     </section>
 
     <section class="panel">
+      <h2>Cache entries <span id="cb-counts" class="muted"></span></h2>
+      <div class="cb-toolbar">
+        <div class="cb-tabs">
+          <button id="cb-tab-attrs" class="cb-tab cb-tab-active" data-bucket="attrs">Attributes</button>
+          <button id="cb-tab-bodies" class="cb-tab" data-bucket="bodies">Bodies</button>
+        </div>
+        <input id="cb-filter" type="search" placeholder="filter by path substring…" autocomplete="off">
+        <div class="cb-pager">
+          <button id="cb-prev" class="cb-btn">‹ prev</button>
+          <span id="cb-pageinfo" class="muted">—</span>
+          <button id="cb-next" class="cb-btn">next ›</button>
+        </div>
+      </div>
+      <div id="cb-table"></div>
+    </section>
+    <div id="cb-modal" class="cb-modal" hidden>
+      <div class="cb-modal-inner">
+        <button id="cb-modal-close" class="cb-modal-close" aria-label="Close">×</button>
+        <div id="cb-modal-body"></div>
+      </div>
+    </div>
+
+    <section class="panel">
       <h2>Activity <span id="inflight" class="badge"></span></h2>
       <div id="activity-tools"></div>
       <h3 class="sub">Recent calls</h3>

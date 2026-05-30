@@ -10,8 +10,10 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -68,6 +70,8 @@ func (s *Server) routes() (http.Handler, error) {
 	mux.HandleFunc("GET /api/activity", s.handleActivity)
 	mux.HandleFunc("GET /api/capabilities", s.handleCapabilities)
 	mux.HandleFunc("GET /api/peers", s.handlePeers)
+	mux.HandleFunc("GET /api/cache/entries", s.handleCacheEntries)
+	mux.HandleFunc("GET /api/cache/entry", s.handleCacheEntry)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	sub, err := fs.Sub(staticFiles, "static")
 	if err != nil {
@@ -230,9 +234,9 @@ func (s *Server) handleOverview(w http.ResponseWriter, _ *http.Request) {
 		"gomaxprocs":            runtime.GOMAXPROCS(0),
 		"num_cpu":               runtime.NumCPU(),
 		"index_backing":         indexBacking,
-		"index_backend":         s.cfg.IndexBackend,         // "persistent" | "in-memory"
-		"index_path":            s.cfg.IndexPath,            // absolute path when persistent
-		"index_fallback_reason": s.cfg.IndexFallbackReason,  // "" | "no_index_flag" | "lock_contention"
+		"index_backend":         s.cfg.IndexBackend,        // "persistent" | "in-memory"
+		"index_path":            s.cfg.IndexPath,           // absolute path when persistent
+		"index_fallback_reason": s.cfg.IndexFallbackReason, // "" | "no_index_flag" | "lock_contention"
 		"body_cache_cap":        s.cfg.BodyCacheCap,
 		"goroutines":            runtime.NumGoroutine(),
 	})
@@ -265,6 +269,11 @@ func (s *Server) handleCache(w http.ResponseWriter, _ *http.Request) {
 			"errors": st.EmbedErrors, "model_mismatches": st.EmbedModelMismatches,
 			"hit_rate": rate(st.EmbedHits, st.EmbedMisses),
 		},
+		// Per-bucket entry counts — used by the dashboard's Cache
+		// entries panel for tab badges and pagination math.
+		"attr_entries_count": st.AttrEntriesCount,
+		"body_entries_count": st.BodyEntriesCount,
+		"bodies_total_bytes": st.BodiesTotalBytes,
 	})
 }
 
@@ -375,4 +384,163 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 		"uptime_seconds": time.Since(s.startedAt).Seconds(),
 		"index_open":     s.cfg.Index != nil,
 	})
+}
+
+// --- /api/cache/entries — paginated list ---
+
+// cacheEntriesLimitCap is the server-side hard ceiling on the list
+// response size. Callers that ask for more get this many; callers
+// who don't specify get cacheEntriesDefaultLimit.
+const (
+	cacheEntriesDefaultLimit = 50
+	cacheEntriesLimitCap     = 500
+)
+
+func (s *Server) handleCacheEntries(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.Index == nil {
+		writeJSON(w, map[string]any{"available": false})
+		return
+	}
+	q := r.URL.Query()
+	bucket := q.Get("bucket")
+	if bucket != "attrs" && bucket != "bodies" {
+		http.Error(w, "bucket must be 'attrs' or 'bodies'", http.StatusBadRequest)
+		return
+	}
+	substr := q.Get("q")
+	limit := min(parseIntDefault(q.Get("limit"), cacheEntriesDefaultLimit), cacheEntriesLimitCap)
+	offset := parseIntDefault(q.Get("offset"), 0)
+
+	switch bucket {
+	case "attrs":
+		entries, total, err := s.cfg.Index.ListAttrs(substr, limit, offset)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("list attrs: %v", err), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{
+			"bucket":  "attrs",
+			"q":       substr,
+			"total":   total,
+			"limit":   limit,
+			"offset":  offset,
+			"entries": entries,
+		})
+	case "bodies":
+		entries, total, err := s.cfg.Index.ListBodies(substr, limit, offset)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("list bodies: %v", err), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{
+			"bucket":  "bodies",
+			"q":       substr,
+			"total":   total,
+			"limit":   limit,
+			"offset":  offset,
+			"entries": entries,
+		})
+	}
+}
+
+// --- /api/cache/entry — single entry detail ---
+
+// cacheBodyDetailMaxBytes caps a single body-detail response to
+// keep the dashboard responsive even on huge bodies. Larger bodies
+// surface as truncated=true with the prefix.
+const cacheBodyDetailMaxBytes = 64 * 1024
+
+func (s *Server) handleCacheEntry(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.Index == nil {
+		writeJSON(w, map[string]any{"available": false})
+		return
+	}
+	q := r.URL.Query()
+	bucket := q.Get("bucket")
+	if bucket != "attrs" && bucket != "bodies" {
+		http.Error(w, "bucket must be 'attrs' or 'bodies'", http.StatusBadRequest)
+		return
+	}
+	path := q.Get("path")
+	if path == "" {
+		http.Error(w, "path is required", http.StatusBadRequest)
+		return
+	}
+	// Reject ill-formed paths defensively. Our cache only ever stores
+	// keys via Put() with absolute, filepath.Clean()-normalised paths
+	// — anything else can't hit a cache entry anyway. Validating up
+	// front means PeekAttrs / PeekBody never have to consider hostile
+	// inputs, and keeps the handler off CodeQL's go/path-injection
+	// radar by sanitising user input before it flows into any path
+	// operation downstream.
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		http.Error(w, "path must be an absolute, clean filesystem path", http.StatusBadRequest)
+		return
+	}
+
+	switch bucket {
+	case "attrs":
+		e, ok := s.cfg.Index.PeekAttrs(path)
+		if !ok {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		// Staleness for individual entries is surfaced on the list
+		// view (which walks the bucket cursor and stats each row with
+		// path-as-cache-key, not as user input). The detail view
+		// deliberately does NOT os.Stat the user-supplied path —
+		// even though the dashboard binds 127.0.0.1 only, the
+		// pattern is bad hygiene (CodeQL go/path-injection) and a
+		// future "expose via proxy" feature would inherit it.
+		// Users wanting current staleness for a specific path
+		// refresh the list view.
+		writeJSON(w, map[string]any{
+			"bucket":       "attrs",
+			"path":         path,
+			"content_type": e.ContentType,
+			"size":         e.Size,
+			"mod_time":     time.Unix(0, e.ModTimeUnixNano),
+			"extra":        e.Extra,
+			"hash":         e.Hash,
+			"md5":          e.MD5,
+			"sha1":         e.SHA1,
+			"embed_model":  e.EmbedModel,
+			"has_vector":   len(e.Vector) > 0,
+			"vector_dims":  len(e.Vector),
+		})
+	case "bodies":
+		be, ok := s.cfg.Index.PeekBody(path)
+		if !ok {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		body := be.Body
+		truncated := false
+		if len(body) > cacheBodyDetailMaxBytes {
+			body = body[:cacheBodyDetailMaxBytes]
+			truncated = true
+		}
+		writeJSON(w, map[string]any{
+			"bucket":      "bodies",
+			"path":        path,
+			"size":        be.Size,
+			"mod_time":    time.Unix(0, be.ModTimeUnixNano),
+			"created_at":  time.Unix(0, be.CreatedUnixNano),
+			"body":        body,
+			"body_length": len(be.Body),
+			"truncated":   truncated,
+		})
+	}
+}
+
+// parseIntDefault parses s as int; returns def on error / empty.
+func parseIntDefault(s string, def int) int {
+	if s == "" {
+		return def
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return def
+	}
+	return n
 }
