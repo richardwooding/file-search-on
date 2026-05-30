@@ -25,6 +25,10 @@ type MCPCmd struct {
 	Monitor           bool          `name:"monitor" help:"No-op — the monitoring dashboard is on by default since v0.65.0. Kept for back-compat with pre-existing scripts. Use --no-monitor to opt out, --monitor-addr to pin a fixed port."`
 	NoMonitor         bool          `name:"no-monitor" help:"Disable the read-only monitoring dashboard for this run. Useful for hermetic CI / sandboxed environments where binding a localhost port is undesirable. monitor_info{enable:true} can still lazy-start the dashboard mid-session."`
 	MonitorAddr       string        `name:"monitor-addr" help:"Bind the monitoring dashboard on this fixed port (e.g. ':9090') instead of an OS-assigned dynamic port. Binds 127.0.0.1 only. Overrides the default dynamic-port behaviour. Shows index cache stats, live tool-call activity, capabilities, and a peer switcher at http://localhost:<port>/."`
+	Warm              bool          `name:"warm" help:"At startup, walk the warm root in the background to pre-populate the on-disk attribute cache so the first MCP tool call lands on a hot index. Off by default — opt in when the cwd is a project you actually want indexed (starting from $HOME would scan the entire home directory). Heavy attributes (hashes, OCR, body, snippet, phash, xattrs) stay off; only the cheap detector + per-type Attributes() parse runs. Runs concurrently with the MCP server, so clients connect immediately."`
+	WarmDir           string        `name:"warm-dir" help:"Directory to warm. Defaults to the cwd at server start when --warm is set. Implies --warm when non-empty."`
+	WarmWorkers       int           `name:"warm-workers" help:"Worker count for the warmer. Defaults to max(1, NumCPU/4) — a quarter of the cores so the MCP server, the agent driving it, and the rest of the box keep their headroom. Pass 1 for minimum CPU; ignored when --warm is off."`
+	WarmTimeout       time.Duration `name:"warm-timeout" default:"10m" help:"Hard deadline on the warmer (Go duration: 30s, 5m). The MCP server keeps running if the warmer is killed by the deadline. Ignored when --warm is off."`
 }
 
 func (m *MCPCmd) Run(ctx context.Context) error {
@@ -84,6 +88,28 @@ func (m *MCPCmd) Run(ctx context.Context) error {
 	if monAddr != "" {
 		if _, err := controller.EnsureStarted(); err != nil {
 			fmt.Fprintln(os.Stderr, "monitor:", err)
+		}
+	}
+
+	if m.Warm || m.WarmDir != "" {
+		root := m.WarmDir
+		if root == "" {
+			if cwd, err := os.Getwd(); err == nil {
+				root = cwd
+			}
+		}
+		if root != "" {
+			deadline := m.WarmTimeout
+			if deadline <= 0 {
+				deadline = 10 * time.Minute
+			}
+			warmCtx, cancelWarm := context.WithTimeout(ctx, deadline)
+			go func() {
+				defer cancelWarm()
+				_ = warmIndex(warmCtx, idx, root, m.WarmWorkers, os.Stderr)
+			}()
+		} else {
+			fmt.Fprintln(os.Stderr, "warm: could not resolve directory to warm; skipping")
 		}
 	}
 
