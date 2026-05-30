@@ -1,19 +1,11 @@
 package main
 
 import (
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
-
-func mustWriteFile(t *testing.T, path, body string) {
-	t.Helper()
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		t.Fatalf("write %s: %v", path, err)
-	}
-}
 
 // TestCLITimeoutExitCode builds the binary, walks a directory under
 // an absurdly tight --timeout, and asserts:

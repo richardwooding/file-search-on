@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,32 +9,6 @@ import (
 
 	"github.com/richardwooding/file-search-on/internal/index"
 )
-
-// captureStdout swaps os.Stdout for a pipe for the duration of fn,
-// returning what was written. Used to assert printJSON output from
-// AttrsCmd.Run without needing to mock the formatter.
-func captureStdout(t *testing.T, fn func() error) (string, error) {
-	t.Helper()
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe: %v", err)
-	}
-	orig := os.Stdout
-	os.Stdout = w
-	defer func() { os.Stdout = orig }()
-
-	done := make(chan struct{})
-	var buf bytes.Buffer
-	go func() {
-		_, _ = io.Copy(&buf, r)
-		close(done)
-	}()
-
-	runErr := fn()
-	_ = w.Close()
-	<-done
-	return buf.String(), runErr
-}
 
 // TestAttrsCmd_PopulatesIndex confirms the long-standing gap is
 // closed: running `attrs` on a file with an explicit --index-path
