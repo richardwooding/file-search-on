@@ -123,10 +123,43 @@ file-search-on 'is_source' -d . -o json |
   jq -s 'sort_by(-.loc) | .[0:20] | .[] | "\(.loc)\t\(.language)\t\(.path)"'
 ```
 
+## Symbols + imports (Go / Python / Java)
+
+Three list-valued attributes — `functions`, `type_names`, `imports` — give structured answers to the universal "where is X defined?" and "which files use Y?" questions. Go uses the stdlib AST; Python and Java use focused regex (best-effort; the README's Known limitations section calls out the gaps). Other languages leave these arrays empty.
+
+```sh
+# Where is ProcessOrder defined?  (define-X)
+file-search-on 'is_source && "ProcessOrder" in functions'
+
+# Which files import net/http?  (use-X)
+file-search-on 'is_source && "net/http" in imports'
+
+# Files that declare a Handler type
+file-search-on 'is_source && "Handler" in type_names'
+
+# Python: where is the DataLoader class?
+file-search-on 'is_source && language == "python" && "DataLoader" in type_names'
+
+# Java: files importing Spring Web
+file-search-on 'is_source && "org.springframework.web" in imports' -d ./service
+
+# Hotspots: source files with many types AND many functions
+file-search-on 'is_source && type_names.size() >= 3 && functions.size() >= 10'
+
+# Refactor target: file with 1 function but many imports (import-heavy glue code)
+file-search-on 'is_source && functions.size() == 1 && imports.size() > 10'
+```
+
+Repeat queries on unchanged trees are sub-second — symbols cache alongside the other attributes via the bbolt index, validated against `(size, mtime)`.
+
 ## Out of scope
 
 - **Shebang detection** for extensionless scripts (`~/bin/foo` containing `#!/usr/bin/env python3`). Detection is extension-only; a follow-up could add shebang routing, but it requires changes to the detector contract.
-- **Cyclomatic complexity, AST-derived attributes** (function count, class count, import lists). These need per-language parsers — out of scope for v1.
+- **Symbol extraction for non-Go/Python/Java languages.** Rust / TypeScript / Kotlin / Ruby / etc. leave `functions` / `type_names` / `imports` empty in v1. The extractor interface is stable — adding more languages is a follow-up PR per language.
+- **True AST for Python and Java.** Regex is best-effort. Tree-sitter is the obvious upgrade path; deferred to avoid a heavy dependency in v1.
+- **Receiver-qualified Go methods** (e.g. `Handler.ServeHTTP` vs bare `ServeHTTP`). Bare names are what agents look up; matching `"ServeHTTP" in functions` works. A future `methods []string` could surface receiver pairs.
+- **Cross-file symbol graph** (reverse-imports: "who imports me?"). Different shape — needs a project-wide index, not per-file attributes.
+- **Documentation extraction** (docstrings, godoc lines per function). Worth a follow-up.
 - **String-aware comment classification.** A line containing `s = "//"` is treated as code (correct, since `s = "//"` doesn't start with `//`). A line whose code happens to start with `//` inside a string... is rare enough to ignore.
 - **Generated-file detection.** Use name-based filters explicitly (see above).
 - **Vendored / `node_modules` skip lists.** Use path-based filters explicitly.

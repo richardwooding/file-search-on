@@ -2,10 +2,18 @@ package content
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"io/fs"
 	"strings"
 )
+
+// symbolCaptureCap bounds how much of a source file's body the
+// symbol extractor sees. 1 MiB covers > 99% of real source files
+// (median ~10 KB). Anything past the cap is silently truncated —
+// extracted symbol lists may be incomplete on huge generated /
+// vendored / amalgamation files. Documented in source-code.md.
+const symbolCaptureCap = 1 << 20
 
 // sourceType is one programming-language registration. The same Go
 // type backs every language; the per-language behaviour lives in the
@@ -44,10 +52,31 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 64*1024), MaxLineBytes())
 
+	// Capture the raw body up to symbolCaptureCap so the per-language
+	// symbol extractor can run in the same pass as the line counter.
+	// Only allocate the buffer for languages whose extractor is wired
+	// (Go / Python / Java) — saves bytes for every other source file.
+	var bodyBuf *bytes.Buffer
+	if symbolExtractorWired(s.language) {
+		bodyBuf = bytes.NewBuffer(make([]byte, 0, 16*1024))
+	}
+
 	var total, loc, blank, comment int64
 	inBlock := false
 	for scanner.Scan() {
 		total++
+		rawLine := scanner.Bytes()
+		if bodyBuf != nil && bodyBuf.Len() < symbolCaptureCap {
+			// Re-append the newline that bufio.Scanner stripped — the
+			// extractors are line-based but need the line boundaries.
+			remaining := symbolCaptureCap - bodyBuf.Len()
+			if len(rawLine) >= remaining {
+				bodyBuf.Write(rawLine[:remaining])
+			} else {
+				bodyBuf.Write(rawLine)
+				bodyBuf.WriteByte('\n')
+			}
+		}
 		line := strings.TrimSpace(scanner.Text())
 
 		if line == "" {
@@ -96,7 +125,38 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 	if isSourceTestFile(s.language, p) {
 		attrs["is_test_file"] = true
 	}
+	if bodyBuf != nil && bodyBuf.Len() > 0 {
+		var funcs, types, imports []string
+		switch s.language {
+		case "go":
+			funcs, types, imports = extractGoSymbols(bodyBuf.Bytes())
+		case "python":
+			funcs, types, imports = extractPythonSymbols(bodyBuf.Bytes())
+		case "java":
+			funcs, types, imports = extractJavaSymbols(bodyBuf.Bytes())
+		}
+		if len(funcs) > 0 {
+			attrs["functions"] = funcs
+		}
+		if len(types) > 0 {
+			attrs["type_names"] = types
+		}
+		if len(imports) > 0 {
+			attrs["imports"] = imports
+		}
+	}
 	return attrs, nil
+}
+
+// symbolExtractorWired reports whether the per-language symbol
+// extractor is registered. Used to avoid allocating a body-capture
+// buffer for languages that won't use it.
+func symbolExtractorWired(language string) bool {
+	switch language {
+	case "go", "python", "java":
+		return true
+	}
+	return false
 }
 
 // isSourceTestFile reports whether a source file's basename matches
