@@ -40,6 +40,9 @@ func (h *handlers) readLinesHandler(ctx context.Context, _ *mcp.CallToolRequest,
 	if err != nil {
 		return nil, ReadLinesOutput{}, fmt.Errorf("expand path: %w", err)
 	}
+	if path, err = h.validatePath(path); err != nil {
+		return nil, ReadLinesOutput{}, err
+	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return nil, ReadLinesOutput{}, fmt.Errorf("resolve path: %w", err)

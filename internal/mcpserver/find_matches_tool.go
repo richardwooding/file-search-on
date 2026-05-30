@@ -77,6 +77,15 @@ func (h *handlers) findMatchesHandler(ctx context.Context, _ *mcp.CallToolReques
 	if err != nil {
 		return nil, FindMatchesOutput{}, fmt.Errorf("expand dirs: %w", err)
 	}
+	if err := h.checkFollowSymlinks(in.FollowSymlinks); err != nil {
+		return nil, FindMatchesOutput{}, err
+	}
+	if dir, err = h.validatePath(dir); err != nil {
+		return nil, FindMatchesOutput{}, err
+	}
+	if dirs, err = h.validatePaths(dirs); err != nil {
+		return nil, FindMatchesOutput{}, err
+	}
 	if dir == "" && len(dirs) == 0 {
 		dir = "."
 	}

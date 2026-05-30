@@ -53,6 +53,9 @@ func (h *handlers) readFileInArchiveHandler(ctx context.Context, _ *mcp.CallTool
 	if in.EntryPath == "" {
 		return nil, ReadFileInArchiveOutput{}, errors.New("entry_path is required")
 	}
+	if archivePath, err = h.validatePath(archivePath); err != nil {
+		return nil, ReadFileInArchiveOutput{}, err
+	}
 
 	var cancel context.CancelFunc
 	ctx, cancel = h.resolveTimeout(ctx, in.Timeout)

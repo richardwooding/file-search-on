@@ -50,6 +50,23 @@ func (h *handlers) readAttributesHandler(ctx context.Context, _ *mcp.CallToolReq
 	if err != nil {
 		return nil, ReadAttributesOutput{}, fmt.Errorf("expand path: %w", err)
 	}
+	if path, err = h.validatePath(path); err != nil {
+		return nil, ReadAttributesOutput{}, err
+	}
+	if in.HashAllowlistPath != "" {
+		if p, err := h.validatePath(in.HashAllowlistPath); err != nil {
+			return nil, ReadAttributesOutput{}, err
+		} else {
+			in.HashAllowlistPath = p
+		}
+	}
+	if in.HashDenylistPath != "" {
+		if p, err := h.validatePath(in.HashDenylistPath); err != nil {
+			return nil, ReadAttributesOutput{}, err
+		} else {
+			in.HashDenylistPath = p
+		}
+	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return nil, ReadAttributesOutput{}, fmt.Errorf("resolve path: %w", err)

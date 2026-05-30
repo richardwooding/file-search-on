@@ -61,6 +61,9 @@ func (h *handlers) listArchiveContentsHandler(ctx context.Context, _ *mcp.CallTo
 	if path == "" {
 		return nil, ListArchiveContentsOutput{}, errors.New("path is required")
 	}
+	if path, err = h.validatePath(path); err != nil {
+		return nil, ListArchiveContentsOutput{}, err
+	}
 
 	var cancel context.CancelFunc
 	ctx, cancel = h.resolveTimeout(ctx, in.TimeoutSeconds)

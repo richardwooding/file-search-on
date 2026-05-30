@@ -35,6 +35,10 @@ type handlers struct {
 	// (optionally) start it on demand. nil when monitoring isn't wired
 	// (e.g. tests, or transports that never attach it).
 	monitorCtl *monitor.Controller
+	// sandbox, when non-empty, is the canonical absolute-path list of
+	// allowed roots for every path-accepting tool input. Empty means
+	// unrestricted (today's behaviour). Wired via WithSandbox.
+	sandbox []string
 }
 
 // Option configures the MCP server at construction. Used to attach

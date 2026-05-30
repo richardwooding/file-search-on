@@ -31,6 +31,8 @@ type MCPCmd struct {
 	WarmWorkers       int           `name:"warm-workers" help:"Worker count for the warmer. Defaults to max(1, NumCPU/4) — a quarter of the cores so the MCP server, the agent driving it, and the rest of the box keep their headroom. Pass 1 for minimum CPU; ignored when --warm is off."`
 	WarmTimeout       time.Duration `name:"warm-timeout" default:"10m" help:"Hard deadline on the warmer (Go duration: 30s, 5m). The MCP server keeps running if the warmer is killed by the deadline. Ignored when --warm is off."`
 	WarmEmbeddings    bool          `name:"warm-embeddings" help:"At startup, walk the warm root in the background and pre-populate the search_semantic embeddings cache. Requires --embedding-model to be set. Reads every walked file's body and calls Ollama once per file (expensive: ~1s/file on localhost) — appropriate as a pre-flight to interactive use. Walks concurrently with the MCP server, so clients connect immediately. Combine with --warm to populate both caches in one walk."`
+	Sandbox           bool          `name:"sandbox" help:"Restrict agent filesystem access to the cwd at server startup. Path-accepting MCP tool inputs (dir / dirs / path / tree_a / tree_b / hash_allowlist_path / hash_denylist_path) that resolve outside the sandbox are rejected with a clear error. Off by default; opt in when running file-search-on as an MCP server for an agent you want to scope to a single project. Combine with --sandbox-dir to specify explicit roots."`
+	SandboxDir        []string      `name:"sandbox-dir" help:"Sandbox root directory. Repeatable for multiple roots (e.g. --sandbox-dir ~/Code/foo --sandbox-dir ~/Code/bar). Implies --sandbox. Symlinks pointing outside the sandbox are rejected; follow_symlinks=true is rejected entirely when the sandbox is active (the walker doesn't yet enforce sandbox per-entry)."`
 }
 
 func (m *MCPCmd) Run(ctx context.Context) error {
@@ -145,6 +147,17 @@ func (m *MCPCmd) Run(ctx context.Context) error {
 	mcpOpts := []mcpserver.Option{
 		mcpserver.WithCollector(collector),
 		mcpserver.WithMonitor(controller),
+	}
+
+	sandboxRoots := append([]string(nil), m.SandboxDir...)
+	if m.Sandbox && len(sandboxRoots) == 0 {
+		if cwd, err := os.Getwd(); err == nil {
+			sandboxRoots = []string{cwd}
+		}
+	}
+	if len(sandboxRoots) > 0 {
+		mcpOpts = append(mcpOpts, mcpserver.WithSandbox(sandboxRoots))
+		fmt.Fprintf(os.Stderr, "sandbox: restricting agent access to %v\n", sandboxRoots)
 	}
 
 	switch m.Transport {

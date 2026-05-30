@@ -91,6 +91,15 @@ func (h *handlers) searchSemanticHandler(ctx context.Context, req *mcp.CallToolR
 	if dir == "" {
 		dir = "."
 	}
+	if err := h.checkFollowSymlinks(in.FollowSymlinks); err != nil {
+		return nil, SearchSemanticOutput{}, err
+	}
+	if dir, err = h.validatePath(dir); err != nil {
+		return nil, SearchSemanticOutput{}, err
+	}
+	if dirs, err = h.validatePaths(dirs); err != nil {
+		return nil, SearchSemanticOutput{}, err
+	}
 
 	parentCtx := ctx
 	var cancel context.CancelFunc

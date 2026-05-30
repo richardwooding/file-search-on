@@ -69,6 +69,12 @@ func (h *handlers) watchSearchHandler(ctx context.Context, _ *mcp.CallToolReques
 	if dir == "" && len(dirs) == 0 {
 		dir = "."
 	}
+	if dir, err = h.validatePath(dir); err != nil {
+		return nil, WatchSearchOutput{}, err
+	}
+	if dirs, err = h.validatePaths(dirs); err != nil {
+		return nil, WatchSearchOutput{}, err
+	}
 	// search.Watch registers opts.Roots only (not opts.Root), so fold
 	// the single-dir case into the slice.
 	roots := dirs

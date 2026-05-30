@@ -75,6 +75,15 @@ func (h *handlers) findNearDuplicatesHandler(ctx context.Context, _ *mcp.CallToo
 	if dir == "" && len(dirs) == 0 {
 		dir = "."
 	}
+	if err := h.checkFollowSymlinks(in.FollowSymlinks); err != nil {
+		return nil, FindNearDuplicatesOutput{}, err
+	}
+	if dir, err = h.validatePath(dir); err != nil {
+		return nil, FindNearDuplicatesOutput{}, err
+	}
+	if dirs, err = h.validatePaths(dirs); err != nil {
+		return nil, FindNearDuplicatesOutput{}, err
+	}
 
 	var cancel context.CancelFunc
 	ctx, cancel = h.resolveTimeout(ctx, in.TimeoutSeconds)

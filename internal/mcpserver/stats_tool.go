@@ -77,6 +77,15 @@ func (h *handlers) statsHandler(ctx context.Context, _ *mcp.CallToolRequest, in 
 	if dir == "" {
 		dir = "."
 	}
+	if err := h.checkFollowSymlinks(in.FollowSymlinks); err != nil {
+		return nil, StatsOutput{}, err
+	}
+	if dir, err = h.validatePath(dir); err != nil {
+		return nil, StatsOutput{}, err
+	}
+	if dirs, err = h.validatePaths(dirs); err != nil {
+		return nil, StatsOutput{}, err
+	}
 
 	// parentCtx separation isn't needed because ComputeStats itself
 	// surfaces cancelled=true via the Stats struct rather than via the
