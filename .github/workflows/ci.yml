@@ -29,7 +29,11 @@ jobs:
           go fix ./...
           git diff --exit-code
       - name: Test
-        run: go test -race -coverprofile=coverage.out ./...
+        # -timeout 180s caps individual test functions at 3 minutes — long
+        # enough for the slowest fuzz-seed sweeps + race-detector overhead,
+        # short enough that a hung test dumps goroutines and fails the
+        # build within minutes instead of waiting out the default 10m.
+        run: go test -race -timeout 180s -coverprofile=coverage.out ./...
 
   lint:
     name: Lint
