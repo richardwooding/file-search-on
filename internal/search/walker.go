@@ -564,6 +564,11 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 			if d.IsDir() {
 				return nil
 			}
+			// Same special-file guard as the primary walk path —
+			// FIFOs / sockets / devices can hang on open.
+			if typ := d.Type(); typ&(fs.ModeNamedPipe|fs.ModeSocket|fs.ModeDevice|fs.ModeCharDevice|fs.ModeIrregular) != 0 {
+				return nil
+			}
 			displayPath := filepath.Join(spec.root, filepath.FromSlash(fsPath), filepath.FromSlash(subPath))
 			select {
 			case <-ctx.Done():
@@ -594,6 +599,17 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 				return nil
 			}
 			if d.IsDir() {
+				return nil
+			}
+
+			// Skip special files — FIFOs / sockets / character / block
+			// devices / irregular. Opening an unconnected FIFO blocks
+			// indefinitely under O_RDONLY (waiting for the writer side
+			// to open), and content detection has nothing meaningful to
+			// say about a socket. Symlinks fall through to the next
+			// branch which handles them explicitly. Regular files have
+			// d.Type() == 0 so they pass the mask check.
+			if typ := d.Type(); typ&(fs.ModeNamedPipe|fs.ModeSocket|fs.ModeDevice|fs.ModeCharDevice|fs.ModeIrregular) != 0 {
 				return nil
 			}
 

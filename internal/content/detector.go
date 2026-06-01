@@ -110,6 +110,16 @@ func (r *Registry) Detect(fsys fs.FS, p string) ContentType {
 	if fsys == nil {
 		return nil
 	}
+	// Defensive: stat before opening so we don't block on an
+	// unconnected FIFO / socket / character device. The walker filters
+	// these out earlier, but other callers (single-file tools like
+	// read_attributes) reach here too.
+	if info, err := fs.Stat(fsys, p); err == nil {
+		typ := info.Mode().Type()
+		if typ&(fs.ModeNamedPipe|fs.ModeSocket|fs.ModeDevice|fs.ModeCharDevice|fs.ModeIrregular) != 0 {
+			return nil
+		}
+	}
 	f, err := fsys.Open(p)
 	if err != nil {
 		return nil
