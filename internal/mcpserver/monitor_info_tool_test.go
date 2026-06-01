@@ -37,8 +37,20 @@ func TestMonitorInfo_LazyEnableAndPeers(t *testing.T) {
 	t.Setenv("HOME", dir)
 	t.Setenv("LocalAppData", dir)
 
-	serveCtx := t.Context()
+	// Build the controller around an explicit cancellable context (not
+	// t.Context()) so we can deterministically tear it down BEFORE the
+	// MCP session cleanup runs. Without this, in CI with the race
+	// detector, the controller's shutdown and the MCP transport close
+	// can race in a way that strands a transport-read goroutine, which
+	// keeps the whole test package alive until the 10-minute timeout.
+	// Local runs don't reproduce this, but CI Linux runners under -race
+	// have hit it 100% on every merge to main since PR #253.
+	serveCtx, cancelServe := context.WithCancel(t.Context())
 	ctl := monitor.NewController(serveCtx, monitor.Config{Version: "test", Mode: "mcp-stdio", Index: index.NewMemory()}, ":0")
+	t.Cleanup(func() {
+		cancelServe()
+		ctl.Wait()
+	})
 	ctx, cs := sessionWithMonitor(t, ctl)
 
 	// Before enable: reports disabled, no URL, but valid response.
