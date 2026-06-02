@@ -37,11 +37,17 @@ type LineMatch struct {
 // and line-scanned (after the CEL prune); FilesWithMatches counts
 // files that produced at least one match. Cancelled / CancellationReason
 // mirror the search / stats / duplicates partial-result contract.
+//
+// TruncatedFiles names every file whose scanner hit
+// findMatchesLineCap on at least one line — the over-cap suffix
+// wasn't searched, so a regex that would have matched past the cap
+// silently misses. Issue #283.
 type FindMatchesResult struct {
 	Matches            []LineMatch `json:"matches"`
 	Count              int         `json:"count"`
 	FilesScanned       int         `json:"files_scanned"`
 	FilesWithMatches   int         `json:"files_with_matches"`
+	TruncatedFiles     []string    `json:"truncated_files,omitempty"`
 	Cancelled          bool        `json:"cancelled,omitempty"`
 	CancellationReason string      `json:"cancellation_reason,omitempty"`
 	ElapsedSeconds     float64     `json:"elapsed_seconds,omitempty"`
@@ -174,6 +180,7 @@ func FindMatches(ctx context.Context, opts Options, registry *content.Registry) 
 		allMatches       []LineMatch
 		filesScanned     int
 		filesWithMatches int
+		truncatedFiles   []string
 		wg               sync.WaitGroup
 	)
 
@@ -183,12 +190,15 @@ func FindMatches(ctx context.Context, opts Options, registry *content.Registry) 
 				if ctx.Err() != nil {
 					return
 				}
-				hits := scanResultForMatches(ctx, opts.FS, r, re, opts.ContextBefore, opts.ContextAfter, opts.MaxMatchesPerFile, matchIn)
+				hits, truncated := scanResultForMatches(ctx, opts.FS, r, re, opts.ContextBefore, opts.ContextAfter, opts.MaxMatchesPerFile, matchIn)
 				mu.Lock()
 				filesScanned++
 				if len(hits) > 0 {
 					filesWithMatches++
 					allMatches = append(allMatches, hits...)
+				}
+				if truncated {
+					truncatedFiles = append(truncatedFiles, r.Path)
 				}
 				mu.Unlock()
 			}
@@ -214,10 +224,12 @@ func FindMatches(ctx context.Context, opts Options, registry *content.Registry) 
 		return allMatches[i].Line < allMatches[j].Line
 	})
 
+	sort.Strings(truncatedFiles)
 	out.Matches = allMatches
 	out.Count = len(allMatches)
 	out.FilesScanned = filesScanned
 	out.FilesWithMatches = filesWithMatches
+	out.TruncatedFiles = truncatedFiles
 	out.ElapsedSeconds = time.Since(start).Seconds()
 
 	// Cancellation: same precedence as duplicates / stats. Walk-stage
@@ -252,21 +264,21 @@ func FindMatches(ctx context.Context, opts Options, registry *content.Registry) 
 // drop that file silently — matches the broader "broken file doesn't
 // abort the walk" pattern. fsys is non-nil only in test paths that
 // pass Options.FS.
-func scanResultForMatches(ctx context.Context, fsys fs.FS, r Result, re *regexp.Regexp, ctxBefore, ctxAfter, maxPerFile int, matchIn matchInMode) []LineMatch {
+func scanResultForMatches(ctx context.Context, fsys fs.FS, r Result, re *regexp.Regexp, ctxBefore, ctxAfter, maxPerFile int, matchIn matchInMode) ([]LineMatch, bool) {
 	if err := ctx.Err(); err != nil {
-		return nil
+		return nil, false
 	}
 	var rd io.ReadCloser
 	if fsys != nil {
 		f, err := fsys.Open(r.Path)
 		if err != nil {
-			return nil
+			return nil, false
 		}
 		rd = f
 	} else {
 		f, err := os.Open(r.Path)
 		if err != nil {
-			return nil
+			return nil, false
 		}
 		rd = f
 	}
@@ -286,12 +298,12 @@ func scanResultForMatches(ctx context.Context, fsys fs.FS, r Result, re *regexp.
 		syntax, hasSyntax = commentSyntaxFor(languageFromContentType(r.ContentType))
 	}
 
-	hits := scanReaderForMatches(ctx, rd, re, ctxBefore, ctxAfter, maxPerFile, matchIn, syntax, hasSyntax)
+	hits, truncated := scanReaderForMatches(ctx, rd, re, ctxBefore, ctxAfter, maxPerFile, matchIn, syntax, hasSyntax)
 	for i := range hits {
 		hits[i].Path = r.Path
 		hits[i].ContentType = r.ContentType
 	}
-	return hits
+	return hits, truncated
 }
 
 // scanReaderForMatches is the pure scanner — given any io.Reader,
@@ -303,7 +315,7 @@ func scanResultForMatches(ctx context.Context, fsys fs.FS, r Result, re *regexp.
 // (without adding new matches) until every pending After window is
 // filled — otherwise the last few matches would carry truncated
 // After lines, which is surprising.
-func scanReaderForMatches(ctx context.Context, rd io.Reader, re *regexp.Regexp, ctxBefore, ctxAfter, maxPerFile int, matchIn matchInMode, syntax commentSyntax, hasSyntax bool) []LineMatch {
+func scanReaderForMatches(ctx context.Context, rd io.Reader, re *regexp.Regexp, ctxBefore, ctxAfter, maxPerFile int, matchIn matchInMode, syntax commentSyntax, hasSyntax bool) ([]LineMatch, bool) {
 	scanner := bufio.NewScanner(rd)
 	scanner.Buffer(make([]byte, 0, 4096), findMatchesLineCap)
 
@@ -321,7 +333,7 @@ func scanReaderForMatches(ctx context.Context, rd io.Reader, re *regexp.Regexp, 
 
 	for scanner.Scan() {
 		if err := ctx.Err(); err != nil {
-			return matches
+			return matches, false
 		}
 		lineNo++
 		// scanner.Bytes() is reused on next Scan(); copy.
@@ -375,9 +387,15 @@ func scanReaderForMatches(ctx context.Context, rd io.Reader, re *regexp.Regexp, 
 			}
 		}
 	}
-	// scanner.Err() deliberately ignored — pathological lines are
-	// truncated; matches the snippet / read_lines degradation pattern.
-	return matches
+	// Detect truncation: bufio.Scanner halts and stamps
+	// bufio.ErrTooLong on scanner.Err() when a single line exceeds
+	// the buffer cap. The matches we already collected stay; the
+	// over-cap line and everything after it didn't scan. Surface
+	// this to the caller via the second return so FindMatches can
+	// list the affected file path in TruncatedFiles and emit a hint
+	// in Suggestions. Issue #283.
+	truncated := errors.Is(scanner.Err(), bufio.ErrTooLong)
+	return matches, truncated
 }
 
 // roleMatches reports whether a line of role `r` survives the MatchIn

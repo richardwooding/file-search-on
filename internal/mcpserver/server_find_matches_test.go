@@ -163,3 +163,39 @@ func equalStrSlice(a, b []string) bool {
 	}
 	return true
 }
+
+// TestFindMatchesTool_TruncationSurfacedInResponse confirms the #283
+// MCP wire shape: TruncatedFiles + Suggestions both populate when a
+// file's line exceeds the scanner cap.
+func TestFindMatchesTool_TruncationSurfacedInResponse(t *testing.T) {
+	dir := t.TempDir()
+	longLine := strings.Repeat("x", 70*1024) // 70 KiB — past the 64 KiB cap
+	mustWrite(t, filepath.Join(dir, "big.go"), longLine+"\n// TODO past the cap\n")
+
+	ctx, cs := newSession(t)
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name: "find_matches",
+		Arguments: FindMatchesInput{
+			Pattern: "TODO",
+			Dir:     dir,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	var out FindMatchesOutput
+	mustDecodeStructured(t, res, &out)
+	if len(out.TruncatedFiles) != 1 {
+		t.Errorf("TruncatedFiles size = %d, want 1; got %v", len(out.TruncatedFiles), out.TruncatedFiles)
+	}
+	gotHint := false
+	for _, s := range out.Suggestions {
+		if strings.Contains(s, "exceeding the 64 KiB") {
+			gotHint = true
+			break
+		}
+	}
+	if !gotHint {
+		t.Errorf("Suggestions should include the truncation hint; got %v", out.Suggestions)
+	}
+}
