@@ -92,11 +92,26 @@ type Server struct {
 	// The lock is only held during the in-flight start handshake; the
 	// goroutine body runs unlocked.
 	warmMu sync.Mutex
+
+	// bus fans Collector.Record events out to every connected SSE
+	// client. Initialised by NewServer; the listener is attached the
+	// first time routes() runs so it's safe to construct a Server
+	// without a Collector (watch-mode dashboard).
+	bus *eventBus
 }
 
 // NewServer builds a monitoring server from cfg.
 func NewServer(cfg Config) *Server {
-	return &Server{cfg: cfg, startedAt: time.Now()}
+	s := &Server{cfg: cfg, startedAt: time.Now(), bus: newEventBus()}
+	if cfg.Collector != nil {
+		// Synchronous fan-out: the bus.Publish path is a non-blocking
+		// buffered-chan send with a drop-oldest fallback, so attaching
+		// this listener can't slow Collector.Record down.
+		cfg.Collector.AddListener(func(rec CallRecord) {
+			s.bus.Publish(streamEvent{Kind: "activity", Data: rec})
+		})
+	}
+	return s
 }
 
 // routes builds the dashboard mux. Returns an error only if the embedded
@@ -111,6 +126,7 @@ func (s *Server) routes() (http.Handler, error) {
 	mux.HandleFunc("GET /api/peers", s.handlePeers)
 	mux.HandleFunc("GET /api/cache/entries", s.handleCacheEntries)
 	mux.HandleFunc("GET /api/cache/entry", s.handleCacheEntry)
+	mux.HandleFunc("GET /api/stream", s.handleStream)
 	// Mutating endpoints. Reachable only via the 127.0.0.1 binding;
 	// the operator started the file-search-on process that owns the
 	// cache, and the browser same-origin policy blocks cross-origin
@@ -269,7 +285,10 @@ func writeJSON(w http.ResponseWriter, v any) {
 
 // --- /api/overview ---
 
-func (s *Server) handleOverview(w http.ResponseWriter, _ *http.Request) {
+// overviewPayload assembles the JSON-able snapshot used by both
+// /api/overview and the SSE heartbeat. Kept as a method on Server so
+// the warming-state pointer + config are in scope.
+func (s *Server) overviewPayload() map[string]any {
 	indexBacking := "in-memory"
 	if s.cfg.IndexPath != "" {
 		indexBacking = s.cfg.IndexPath
@@ -283,12 +302,11 @@ func (s *Server) handleOverview(w http.ResponseWriter, _ *http.Request) {
 		"gomaxprocs":            runtime.GOMAXPROCS(0),
 		"num_cpu":               runtime.NumCPU(),
 		"index_backing":         indexBacking,
-		"index_backend":         s.cfg.IndexBackend,        // "persistent" | "in-memory"
-		"index_path":            s.cfg.IndexPath,           // absolute path when persistent
-		"index_fallback_reason": s.cfg.IndexFallbackReason, // "" | "no_index_flag" | "lock_contention"
+		"index_backend":         s.cfg.IndexBackend,
+		"index_path":            s.cfg.IndexPath,
+		"index_fallback_reason": s.cfg.IndexFallbackReason,
 		"body_cache_cap":        s.cfg.BodyCacheCap,
 		"goroutines":            runtime.NumGoroutine(),
-		// Mutation surface — UI gates buttons on these.
 		"cwd":                       s.cfg.Cwd,
 		"warm_attrs_available":      s.cfg.WarmAttrsFn != nil,
 		"warm_bodies_available":     s.cfg.WarmBodyFn != nil,
@@ -297,18 +315,24 @@ func (s *Server) handleOverview(w http.ResponseWriter, _ *http.Request) {
 	if state := s.warming.Load(); state != nil {
 		payload["warming"] = state
 	}
-	writeJSON(w, payload)
+	return payload
+}
+
+func (s *Server) handleOverview(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, s.overviewPayload())
 }
 
 // --- /api/cache ---
 
-func (s *Server) handleCache(w http.ResponseWriter, _ *http.Request) {
+// cachePayload returns the JSON-able cache snapshot used by both
+// /api/cache and the SSE heartbeat. Returns {"available": false} when
+// no index is attached so the UI's empty-state branches match.
+func (s *Server) cachePayload() map[string]any {
 	if s.cfg.Index == nil {
-		writeJSON(w, map[string]any{"available": false})
-		return
+		return map[string]any{"available": false}
 	}
 	st := s.cfg.Index.Stats()
-	writeJSON(w, map[string]any{
+	return map[string]any{
 		"available": true,
 		"attr": map[string]any{
 			"hits": st.Hits, "misses": st.Misses, "puts": st.Puts,
@@ -327,12 +351,14 @@ func (s *Server) handleCache(w http.ResponseWriter, _ *http.Request) {
 			"errors": st.EmbedErrors, "model_mismatches": st.EmbedModelMismatches,
 			"hit_rate": rate(st.EmbedHits, st.EmbedMisses),
 		},
-		// Per-bucket entry counts — used by the dashboard's Cache
-		// entries panel for tab badges and pagination math.
 		"attr_entries_count": st.AttrEntriesCount,
 		"body_entries_count": st.BodyEntriesCount,
 		"bodies_total_bytes": st.BodiesTotalBytes,
-	})
+	}
+}
+
+func (s *Server) handleCache(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, s.cachePayload())
 }
 
 // rate returns the hit ratio (0..1) for a hits/misses pair, or 0 when
@@ -347,19 +373,24 @@ func rate(hits, misses uint64) float64 {
 
 // --- /api/activity ---
 
-func (s *Server) handleActivity(w http.ResponseWriter, _ *http.Request) {
+// activityPayload returns the JSON-able activity snapshot used by both
+// /api/activity and the SSE heartbeat. Reports unavailable when there's
+// no collector (the watch-mode dashboard).
+func (s *Server) activityPayload() map[string]any {
 	if s.cfg.Collector == nil {
-		writeJSON(w, map[string]any{
+		return map[string]any{
 			"available": false,
 			"reason":    "no MCP activity in this mode",
-		})
-		return
+		}
 	}
-	snap := s.cfg.Collector.Snapshot()
-	writeJSON(w, map[string]any{
+	return map[string]any{
 		"available": true,
-		"snapshot":  snap,
-	})
+		"snapshot":  s.cfg.Collector.Snapshot(),
+	}
+}
+
+func (s *Server) handleActivity(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, s.activityPayload())
 }
 
 // --- /api/capabilities ---

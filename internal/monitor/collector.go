@@ -42,6 +42,7 @@ type Collector struct {
 	recent      []CallRecord // oldest → newest, capped at recentCap
 	totalCalls  uint64
 	totalErrors uint64
+	listeners   []func(CallRecord) // fan-out hooks; called under mu inside Record
 }
 
 // toolStat accumulates per-tool counters plus a bounded sample of recent
@@ -111,10 +112,34 @@ func (c *Collector) Record(tool string, d time.Duration, outcome, reason string,
 	if len(c.recent) >= recentCap {
 		c.recent = c.recent[1:]
 	}
-	c.recent = append(c.recent, CallRecord{
+	rec := CallRecord{
 		Tool: tool, At: time.Now(), Seconds: sec,
 		Outcome: outcome, Reason: reason, Count: count,
-	})
+	}
+	c.recent = append(c.recent, rec)
+
+	// Fan out to live listeners (the SSE bus is the only caller today).
+	// Listeners are expected to do bounded, non-blocking work — the
+	// eventBus.Publish path is a buffered chan send with a drop-oldest
+	// fallback, so a stalled SSE client can't backpressure us here.
+	for _, fn := range c.listeners {
+		fn(rec)
+	}
+}
+
+// AddListener registers fn to be called for every subsequent Record.
+// The hook fires synchronously under the collector's mutex, so fn MUST
+// be non-blocking — typically a buffered-channel send. Listeners cannot
+// be removed; the dashboard's lifetime is the process lifetime, so the
+// added complexity of a deregister API isn't worth it. Safe to call
+// concurrently with Record / Snapshot.
+func (c *Collector) AddListener(fn func(CallRecord)) {
+	if fn == nil {
+		return
+	}
+	c.mu.Lock()
+	c.listeners = append(c.listeners, fn)
+	c.mu.Unlock()
 }
 
 // Snapshot is an immutable view of the collector's state for the API.

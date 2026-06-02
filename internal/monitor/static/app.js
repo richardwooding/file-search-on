@@ -205,24 +205,51 @@ function renderPeers(d) {
   };
 }
 
-async function tick() {
+// Fast-tick covers the three panels the SSE stream pushes via the 1 s
+// heartbeat (overview, cache, activity). When SSE is healthy, the
+// interval is suspended and the EventSource handlers drive these
+// panels directly. On disconnect/error, the interval restarts.
+async function fastTick() {
   try {
-    const [o, c, a, caps, peers] = await Promise.all([
-      getJSON("api/overview"), getJSON("api/cache"),
-      getJSON("api/activity"), getJSON("api/capabilities"),
-      getJSON("api/peers"),
+    const [o, c, a] = await Promise.all([
+      getJSON("api/overview"), getJSON("api/cache"), getJSON("api/activity"),
     ]);
-    renderOverview(o);
-    renderCache(c);
-    renderActivity(a);
-    renderCapabilities(caps);
-    renderPeers(peers);
-    renderWarmingStatus(o);
-    updateCacheBrowserCounts(c);
+    applyOverview(o);
+    applyCache(c);
+    applyActivity(a);
     setHealth(true);
   } catch (e) {
     setHealth(false);
   }
+}
+
+// Slow-tick covers panels that change rarely (capabilities and peers).
+// Always runs whether or not SSE is connected — the heartbeat doesn't
+// carry these and there's no point pushing them per-event.
+async function slowTick() {
+  try {
+    const [caps, peers] = await Promise.all([
+      getJSON("api/capabilities"), getJSON("api/peers"),
+    ]);
+    renderCapabilities(caps);
+    renderPeers(peers);
+  } catch (e) { /* ignore — fastTick already toggles health */ }
+}
+
+// applyOverview / applyCache / applyActivity are the panel updaters
+// invoked from BOTH the SSE heartbeat path AND the polling fallback.
+// Splitting them out of fastTick() avoids two code paths racing on
+// the same DOM.
+function applyOverview(o) {
+  renderOverview(o);
+  renderWarmingStatus(o);
+}
+function applyCache(c) {
+  renderCache(c);
+  updateCacheBrowserCounts(c);
+}
+function applyActivity(a) {
+  renderActivity(a);
 }
 
 // --- Cache browser ---
@@ -420,8 +447,80 @@ function wireCacheBrowser() {
 wireCacheBrowser();
 wireCacheActions();
 
-tick();
-setInterval(tick, 2000);
+// Bootstrap: paint both tick groups immediately, then start the loop.
+fastTick();
+slowTick();
+let fastTickHandle = setInterval(fastTick, 2000);
+setInterval(slowTick, 5000);
+
+// Try SSE. If it works, the heartbeat takes over driving the fast-tick
+// panels and we suspend the polling interval. On error/disconnect we
+// restart polling. This block sits at the bottom of the file so all
+// the apply*/render* helpers it touches are already defined.
+openStream();
+
+// --- SSE live stream ---
+
+function openStream() {
+  if (typeof EventSource !== "function") {
+    return; // ancient browser; polling already running
+  }
+  const es = new EventSource("api/stream");
+  let opened = false;
+  es.onopen = () => {
+    opened = true;
+    // Stop the fast poll — heartbeat now owns these panels.
+    clearInterval(fastTickHandle);
+    fastTickHandle = null;
+    setHealth(true);
+  };
+  es.addEventListener("heartbeat", (ev) => {
+    try {
+      const d = JSON.parse(ev.data);
+      if (d.overview) applyOverview(d.overview);
+      if (d.cache) applyCache(d.cache);
+      if (d.activity) applyActivity(d.activity);
+      setHealth(true);
+    } catch (_) { /* malformed frame — wait for the next */ }
+  });
+  es.addEventListener("activity", (ev) => {
+    try {
+      const rec = JSON.parse(ev.data);
+      spliceRecentCall(rec);
+    } catch (_) { /* ignore */ }
+  });
+  es.onerror = () => {
+    es.close();
+    // Resume polling if we'd suspended it. If onopen never fired
+    // (immediate connect failure), polling was already running.
+    if (opened && fastTickHandle === null) {
+      fastTickHandle = setInterval(fastTick, 2000);
+    }
+    // Reconnect on a delay so we recover from a transient drop without
+    // hammering the server.
+    setTimeout(openStream, 3000);
+  };
+}
+
+// spliceRecentCall prepends a single CallRecord into the live feed
+// without waiting for the next heartbeat. The heartbeat will overwrite
+// this with the authoritative snapshot within ~1 s, but doing it
+// optimistically here is what hits the acceptance criterion of
+// "activity feed updates within ~100ms of a tool call".
+function spliceRecentCall(r) {
+  const feed = document.getElementById("activity-recent");
+  if (!feed) return;
+  const when = new Date(r.at || Date.now()).toLocaleTimeString();
+  const detail = r.outcome === "cancelled" && r.reason ? ` (${r.reason})` : "";
+  const cnt = r.count ? ` · ${r.count} results` : "";
+  const row = document.createElement("div");
+  row.className = "row";
+  row.innerHTML = `<span class="when">${when}</span><span class="tool">${escapeHTML(r.tool || "")}</span>
+    <span class="out-${r.outcome || "ok"}">${r.outcome || ""}${detail}</span><span>${secs(r.seconds || 0)}${cnt}</span>`;
+  feed.insertBefore(row, feed.firstChild);
+  // Cap the live feed to avoid unbounded growth between heartbeats.
+  while (feed.childElementCount > 256) feed.removeChild(feed.lastChild);
+}
 
 // --- Mutating actions ---
 
