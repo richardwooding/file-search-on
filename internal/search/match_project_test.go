@@ -171,3 +171,37 @@ func TestProjectMatch_Imports_Preserved(t *testing.T) {
 		t.Errorf("projection NOT including imports should zero it; got %+v", dropped.Imports)
 	}
 }
+
+// TestValidateFields_FunctionsAndTypeNamesAccepted is the #278
+// regression guard: the symbol-extractor outputs land in `functions`
+// and `type_names`, both must be accepted as projection field names.
+func TestValidateFields_FunctionsAndTypeNamesAccepted(t *testing.T) {
+	if err := search.ValidateFields([]string{"path", "functions", "type_names"}); err != nil {
+		t.Errorf("functions / type_names should be valid projection fields: %v", err)
+	}
+}
+
+// TestProjectMatch_FunctionsAndTypeNames_Preserved confirms projection
+// keeps the typed source-symbol fields when requested, zeroes when not.
+func TestProjectMatch_FunctionsAndTypeNames_Preserved(t *testing.T) {
+	m := search.Match{
+		Path:        "/a.go",
+		ContentType: "source/go",
+		Functions:   []string{"NewClient", "Close"},
+		TypeNames:   []string{"Client", "Config"},
+	}
+	kept := search.ProjectMatch(m, []string{"functions", "type_names"})
+	if len(kept.Functions) != 2 {
+		t.Errorf("projection keeping functions lost it: %+v", kept.Functions)
+	}
+	if len(kept.TypeNames) != 2 {
+		t.Errorf("projection keeping type_names lost it: %+v", kept.TypeNames)
+	}
+	dropped := search.ProjectMatch(m, []string{"title"})
+	if len(dropped.Functions) != 0 {
+		t.Errorf("projection NOT including functions should zero it; got %+v", dropped.Functions)
+	}
+	if len(dropped.TypeNames) != 0 {
+		t.Errorf("projection NOT including type_names should zero it; got %+v", dropped.TypeNames)
+	}
+}
