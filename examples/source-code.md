@@ -132,9 +132,9 @@ file-search-on 'is_source' -d . -o json |
   jq -s 'sort_by(-.loc) | .[0:20] | .[] | "\(.loc)\t\(.language)\t\(.path)"'
 ```
 
-## Symbols + imports (Go / Python / Java / C#)
+## Symbols + imports (Go / Python / Java / C# / PHP)
 
-Three list-valued attributes — `functions`, `type_names`, `imports` — give structured answers to the universal "where is X defined?" and "which files use Y?" questions. Go uses the stdlib AST; Python / Java / C# use focused regex (best-effort; the README's Known limitations section calls out the gaps). Other languages leave these arrays empty.
+Three list-valued attributes — `functions`, `type_names`, `imports` — give structured answers to the universal "where is X defined?" and "which files use Y?" questions. Go uses the stdlib AST; Python / Java / C# / PHP use focused regex (best-effort; the README's Known limitations section calls out the gaps). Other languages leave these arrays empty.
 
 ```sh
 # Where is ProcessOrder defined?  (define-X)
@@ -158,6 +158,12 @@ file-search-on 'is_source && language == "csharp" && "Microsoft.EntityFrameworkC
 # C#: every controller class
 file-search-on 'is_source && language == "csharp" && type_names.exists(t, t.endsWith("Controller"))'
 
+# PHP: every file that uses Symfony's HttpFoundation
+file-search-on 'is_source && language == "php" && imports.exists(i, i.startsWith("Symfony\\Component\\HttpFoundation"))'
+
+# PHP: classes implementing __construct (DI-shaped wiring)
+file-search-on 'is_source && language == "php" && "__construct" in functions'
+
 # Hotspots: source files with many types AND many functions
 file-search-on 'is_source && type_names.size() >= 3 && functions.size() >= 10'
 
@@ -170,7 +176,7 @@ Repeat queries on unchanged trees are sub-second — symbols cache alongside the
 ## Out of scope
 
 - **Shebang detection** for extensionless scripts (`~/bin/foo` containing `#!/usr/bin/env python3`). Detection is extension-only; a follow-up could add shebang routing, but it requires changes to the detector contract.
-- **Symbol extraction for languages beyond Go / Python / Java / C#.** Rust / TypeScript / Kotlin / Ruby / PHP / Perl / R / MATLAB / etc. leave `functions` / `type_names` / `imports` empty today. The extractor interface is stable — adding more languages is a follow-up PR per language (see GitHub issues for tracked candidates).
+- **Symbol extraction for languages beyond Go / Python / Java / C# / PHP.** Rust / TypeScript / Kotlin / Ruby / Perl / R / MATLAB / etc. leave `functions` / `type_names` / `imports` empty today. The extractor interface is stable — adding more languages is a follow-up PR per language (see GitHub issues for tracked candidates).
 - **True AST for Python and Java.** Regex is best-effort. Tree-sitter is the obvious upgrade path; deferred to avoid a heavy dependency in v1.
 - **Receiver-qualified Go methods** (e.g. `Handler.ServeHTTP` vs bare `ServeHTTP`). Bare names are what agents look up; matching `"ServeHTTP" in functions` works. A future `methods []string` could surface receiver pairs.
 - **Cross-file symbol graph** (reverse-imports: "who imports me?"). Different shape — needs a project-wide index, not per-file attributes.
