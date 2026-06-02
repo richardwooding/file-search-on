@@ -63,6 +63,13 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 
 	var total, loc, blank, comment int64
 	inBlock := false
+	// is_generated_code detection (#276): check first
+	// generatedCodeLineBudget lines against the per-language marker
+	// patterns. Once a hit lands, stop checking — markers don't
+	// appear past the file header. Languages without a registered
+	// convention leave generatedMarkers[s.language] empty and the
+	// inner Contains loop short-circuits cheaply.
+	var generatedDetected bool
 	for scanner.Scan() {
 		// Per-iteration cancellation guard — a pathological source
 		// file (huge generated code, multi-MB single-line minified
@@ -85,6 +92,15 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 			}
 		}
 		line := strings.TrimSpace(scanner.Text())
+
+		// Generator-marker probe — runs only for the first
+		// generatedCodeLineBudget lines OR until a hit. Cheap when the
+		// language has no markers (the inner lookup returns immediately).
+		if !generatedDetected && total <= generatedCodeLineBudget && line != "" {
+			if isGeneratedCodeLine(line, s.language) {
+				generatedDetected = true
+			}
+		}
 
 		if line == "" {
 			blank++
@@ -131,6 +147,9 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 	}
 	if isSourceTestFile(s.language, p) {
 		attrs["is_test_file"] = true
+	}
+	if generatedDetected {
+		attrs["is_generated_code"] = true
 	}
 	if bodyBuf != nil && bodyBuf.Len() > 0 {
 		var funcs, types, imports []string
