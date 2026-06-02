@@ -223,6 +223,8 @@ file-search-on 'is_git_ignored' --with-git -d .
 
 One `git log` pass per walk root up front; per-file lookups are free. Silent no-op when the root isn't inside a git working tree or when `git` isn't on PATH — the rest of the query still runs, the `git_*` fields just stay zero. Issue #271.
 
+When the MCP server is started with `--warm`, the git cache is primed at startup alongside the attribute cache — so the first `with_git=true` search call is free. Subsequent calls reuse the same cache across the server's lifetime, paying only a `git rev-parse HEAD` (~3-5ms) to confirm the HEAD hasn't moved. After a `git commit` / `git checkout`, the cache rebuilds automatically on the next call. CLI one-shots (`file-search-on '…' --with-git`) don't benefit from the pool — each invocation builds and tears down its own cache.
+
 ## Out of scope
 
 - **Shebang detection** for extensionless scripts (`~/bin/foo` containing `#!/usr/bin/env python3`). Detection is extension-only; a follow-up could add shebang routing, but it requires changes to the detector contract.

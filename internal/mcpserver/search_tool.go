@@ -195,6 +195,7 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 		ResolveProjects:     in.ResolveProjects,
 		PruneBuildArtefacts: in.PruneBuildArtefacts,
 		WithGit:             in.WithGit,
+		GitCachePool:        h.gitPool,
 		// RankExpr IS passed to WalkStream because rank is evaluated
 		// per file (during the walk), not post-collect. The eventual
 		// sort happens below in the sortAndLimit block.

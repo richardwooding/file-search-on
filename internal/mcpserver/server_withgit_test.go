@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"context"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -8,6 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/richardwooding/file-search-on/internal/gitmeta"
+	"github.com/richardwooding/file-search-on/internal/index"
 )
 
 // TestSearchTool_WithGit_RoundTrip drives the MCP `search` tool with
@@ -99,5 +101,69 @@ func mustGitSearchTest(t *testing.T, root string, args ...string) {
 	cmd := exec.Command("git", full...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+// TestSearchTool_WithGit_PoolReusesAcrossCalls confirms the
+// gitmeta.Pool wiring: two consecutive search calls against the same
+// repo share one *gitmeta.Cache. We can't reach inside the handler to
+// compare pointers, but the pool's public Len() method lets us assert
+// "exactly one entry created across both calls". Issue #271 follow-up.
+func TestSearchTool_WithGit_PoolReusesAcrossCalls(t *testing.T) {
+	if !gitmeta.HasGitBinary() {
+		t.Skip("git binary not on PATH")
+	}
+	dir := t.TempDir()
+	mustGitSearchTest(t, dir, "init", "-q", "-b", "main")
+	mustGitSearchTest(t, dir, "config", "user.email", "test@example.com")
+	mustGitSearchTest(t, dir, "config", "user.name", "Pool Tester")
+	mustGitSearchTest(t, dir, "config", "commit.gpgsign", "false")
+	mustWrite(t, filepath.Join(dir, "a.md"), "# a\n")
+	mustGitSearchTest(t, dir, "add", "a.md")
+	mustGitSearchTest(t, dir, "commit", "-q", "-m", "Add a")
+
+	// Build a server with an explicit pool we can inspect post-call.
+	pool := gitmeta.NewPool()
+	ctx := context.Background()
+	server := New("test", index.NewMemory(), 0, EmbedDefaults{}, WithGitPool(pool))
+	t1, t2 := mcp.NewInMemoryTransports()
+	ss, err := server.Connect(ctx, t1, nil)
+	if err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+	t.Cleanup(func() { _ = ss.Close() })
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0"}, nil)
+	cs, err := client.Connect(ctx, t2, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	t.Cleanup(func() { _ = cs.Close() })
+
+	// Two consecutive searches against the same repo.
+	for i := range 2 {
+		res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+			Name: "search",
+			Arguments: SearchInput{
+				Expr:    "is_markdown && is_git_tracked",
+				Dir:     dir,
+				WithGit: true,
+			},
+		})
+		if err != nil {
+			t.Fatalf("call %d: %v", i, err)
+		}
+		if res.GetError() != nil {
+			t.Fatalf("call %d returned error: %v", i, res.GetError())
+		}
+		var out SearchOutput
+		mustDecodeStructured(t, res, &out)
+		if out.Count != 1 {
+			t.Errorf("call %d: expected 1 match, got %d", i, out.Count)
+		}
+	}
+
+	// The pool should have exactly one entry — both calls reused it.
+	if got := pool.Len(); got != 1 {
+		t.Errorf("pool.Len() = %d after two calls; want 1 (cache reuse failed)", got)
 	}
 }

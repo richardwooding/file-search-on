@@ -13,6 +13,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/richardwooding/file-search-on/internal/gitmeta"
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/monitor"
 )
@@ -39,6 +40,13 @@ type handlers struct {
 	// allowed roots for every path-accepting tool input. Empty means
 	// unrestricted (today's behaviour). Wired via WithSandbox.
 	sandbox []string
+	// gitPool caches *gitmeta.Cache instances across with_git=true
+	// search calls. Initialised unconditionally in New() (cheap — just
+	// allocates an empty map) and threaded into search.Options on
+	// every walk. The pool re-validates HEAD on every Get so commits
+	// between calls invalidate naturally. Primed at startup by the
+	// MCP command's --warm goroutine. Issue #271 follow-up.
+	gitPool *gitmeta.Pool
 }
 
 // Option configures the MCP server at construction. Used to attach
@@ -58,6 +66,19 @@ func WithCollector(c *monitor.Collector) Option {
 // (when asked) start the dashboard on demand.
 func WithMonitor(ctl *monitor.Controller) Option {
 	return func(h *handlers) { h.monitorCtl = ctl }
+}
+
+// WithGitPool replaces the server's default in-process gitmeta.Pool
+// with one supplied by the caller. The MCP command uses this to keep
+// a reference to the pool so it can prime it via Warm() from the
+// --warm startup goroutine. Passing nil is a no-op (the default
+// pool initialised in New stays in place).
+func WithGitPool(p *gitmeta.Pool) Option {
+	return func(h *handlers) {
+		if p != nil {
+			h.gitPool = p
+		}
+	}
 }
 
 // resolveTimeout returns a child ctx bounded by the effective per-call
@@ -290,6 +311,7 @@ func New(version string, idx index.Index, defaultTimeout time.Duration, embedDef
 		defaultEmbeddingServer: server,
 		defaultEmbeddingModel:  embedDefaults.Model,
 		version:                version,
+		gitPool:                gitmeta.NewPool(),
 	}
 	for _, opt := range opts {
 		opt(h)
