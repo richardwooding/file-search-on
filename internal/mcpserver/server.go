@@ -107,7 +107,7 @@ Use these boolean type predicates directly in your CEL expression — no need to
   is_archive    .zip, .tar, .tar.gz, .gz
   is_binary     ELF / Mach-O / PE compiled binaries
   is_email      .eml, .mbox
-  is_source     Go / Python / JS / TS / Rust / C / C++ / Java / Ruby / Swift / Kotlin / Shell / Lua / Elixir / Clojure / Haskell / OCaml / Zig
+  is_source     Go / Python / JS / TS / Rust / C / C++ / Java / Ruby / Swift / Kotlin / Scala / Shell / Lua / Elixir / Clojure / Haskell / OCaml / Zig / C# / PHP / Perl / R / Ada / SQL / Visual Basic / Fortran / MATLAB / Assembly / Pascal
   is_disk_image .dmg, .iso, .vhd, .vhdx, .vmdk, .qcow2, .qcow, .wim — umbrella across all disk-image formats
   is_dmg        .dmg (Apple Disk Image / UDIF)
   is_iso        .iso (ISO 9660 CD/DVD image)

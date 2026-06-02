@@ -240,6 +240,26 @@ func isSourceTestFile(language, path string) bool {
 			(strings.HasPrefix(base, "test_") && strings.HasSuffix(base, ".sh"))
 	case "elixir":
 		return strings.HasSuffix(base, "_test.exs")
+	case "csharp":
+		return strings.HasSuffix(base, "test.cs") ||
+			strings.HasSuffix(base, "tests.cs")
+	case "php":
+		return strings.HasSuffix(base, "test.php")
+	case "perl":
+		// In Test::More / Test::Simple the .t extension IS the test
+		// convention — there is no library / test naming distinction.
+		return strings.HasSuffix(base, ".t")
+	case "r":
+		// testthat convention: test-foo.R or test_foo.R (both styles
+		// in the wild). lowercase basename already applied above.
+		return (strings.HasPrefix(base, "test-") || strings.HasPrefix(base, "test_")) &&
+			(strings.HasSuffix(base, ".r"))
+	case "vb":
+		return strings.HasSuffix(base, "test.vb") ||
+			strings.HasSuffix(base, "tests.vb")
+	case "matlab":
+		return strings.HasSuffix(base, "test.m") ||
+			strings.HasSuffix(base, "tests.m")
 	}
 	return false
 }
@@ -291,4 +311,33 @@ func init() {
 	registerSource("source/haskell", "haskell", []string{".hs"}, "--", "{-", "-}")
 	registerSource("source/ocaml", "ocaml", []string{".ml", ".mli"}, "", "(*", "*)")
 	registerSource("source/clojure", "clojure", []string{".clj", ".cljs", ".cljc", ".edn"}, ";", "", "")
+
+	// Tiobe top 20 (May 2026) — additions completing the coverage of
+	// the canonical "most-used languages" list. Scratch (#12) is a
+	// block-visual environment with binary .sb3 files and doesn't fit
+	// the source/* shape; it's tracked as a separate content-type
+	// follow-up. Symbol extraction (functions / type_names / imports)
+	// stays in scope only for Go / Python / Java; per-language symbol
+	// extractors for these new langs are clean follow-up PRs.
+	registerSource("source/csharp", "csharp", []string{".cs"}, "//", "/*", "*/")
+	registerSource("source/php", "php", []string{".php", ".phtml", ".php3", ".php4", ".php5", ".php7", ".phps"}, "//", "/*", "*/")
+	registerSource("source/perl", "perl", []string{".pl", ".pm", ".t"}, "#", "", "")
+	registerSource("source/r", "r", []string{".r", ".R"}, "#", "", "")
+	registerSource("source/ada", "ada", []string{".adb", ".ads"}, "--", "", "")
+	registerSource("source/sql", "sql", []string{".sql"}, "--", "/*", "*/")
+	registerSource("source/vb", "vb", []string{".vb", ".bas", ".vbs", ".cls", ".frm"}, "'", "", "")
+	registerSource("source/fortran", "fortran", []string{".f", ".f90", ".f95", ".f03", ".f08", ".for", ".ftn", ".fpp"}, "!", "", "")
+	// MATLAB claims .m. Objective-C also uses .m but isn't a
+	// registered content type today; if it ever is, the two will need
+	// a disambiguator (e.g. first-line "function" / "classdef" sniff).
+	registerSource("source/matlab", "matlab", []string{".m"}, "%", "%{", "%}")
+	// Assembly: many dialects. We pick the common-denominator ";" line
+	// comment (NASM / MASM). GAS files using "#" or "/* */" comments
+	// fall through and get classified as code — documented limitation.
+	registerSource("source/assembly", "assembly", []string{".asm", ".s", ".S", ".nasm"}, ";", "", "")
+	// Pascal / Delphi: two block-comment dialects exist ({ ... } and
+	// (* ... *)). The state machine supports one pair; we pick the
+	// modern Delphi default { ... }. (* ... *) lines fall through as
+	// code — documented limitation, future refactor.
+	registerSource("source/pascal", "pascal", []string{".pas", ".pp", ".dpr", ".lpr"}, "//", "{", "}")
 }

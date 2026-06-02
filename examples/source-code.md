@@ -1,6 +1,6 @@
 # Recipes — Source code
 
-Source-code content types: `source/go`, `source/python`, `source/javascript`, `source/typescript`, `source/rust`, `source/c`, `source/cpp`, `source/java`, `source/ruby`, `source/swift`, `source/kotlin`, `source/scala`, `source/shell`, `source/lua`, `source/elixir`, `source/clojure`, `source/haskell`, `source/ocaml`, `source/zig`. Umbrella boolean `is_source`.
+Source-code content types: `source/go`, `source/python`, `source/javascript`, `source/typescript`, `source/rust`, `source/c`, `source/cpp`, `source/java`, `source/ruby`, `source/swift`, `source/kotlin`, `source/scala`, `source/shell`, `source/lua`, `source/elixir`, `source/clojure`, `source/haskell`, `source/ocaml`, `source/zig`, `source/csharp`, `source/php`, `source/perl`, `source/r`, `source/ada`, `source/sql`, `source/vb`, `source/fortran`, `source/matlab`, `source/assembly`, `source/pascal`. Umbrella boolean `is_source`. Covers the Tiobe top 20 (May 2026) minus Scratch (a block-visual environment with binary files — not a text-source content type).
 
 Hand-rolled. No third-party language-detection lib (no `go-enry`, no `linguist`). Detection is extension-based — see "Out of scope" below for the cases that surfaces. Line classification follows the cloc / tokei convention: blank lines are blank, lines starting with a comment marker are comment, everything else is code. Mixed lines (code with trailing comment) count as code.
 
@@ -24,6 +24,15 @@ Multiple languages — CEL `in`:
 
 ```sh
 file-search-on 'is_source && language in ["go", "rust", "zig"]' -d ~/Code
+```
+
+Tiobe top 20 (May 2026) — the new additions:
+
+```sh
+file-search-on 'is_source && language == "csharp" && loc > 200'   -d ./MySolution
+file-search-on 'is_source && language == "php"'                    -d ./wordpress
+file-search-on 'is_source && language == "r" && is_test_file'      -d ./analysis/tests
+file-search-on 'is_source && language in ["sql", "matlab"]'        -d ./pipeline
 ```
 
 ## Filter by size (LOC, not bytes)
