@@ -226,6 +226,20 @@ type BuildOptions struct {
 	// calls that DO want attributes.
 	SkipAttributesParse bool
 
+	// SkipAttributesPrefixes is a per-file refinement of
+	// SkipAttributesParse: any content type whose name starts with
+	// one of the prefixes has its per-format Attributes parse AND
+	// its attribute-cache write skipped. Detection still fires so
+	// ContentType + is_X family flags populate. Empty list = full
+	// parse for every detected type (today's default).
+	//
+	// Driven by search.Options.Profile through the walker; CEL
+	// callers don't usually set this directly. Cache-skip is
+	// intentional: a profile-skipped entry would have empty Extra,
+	// and a later profile-less walk would serve that empty cached
+	// entry instead of re-parsing for real. Issue #284.
+	SkipAttributesPrefixes []string
+
 	// ComputeHashes, when true, makes BuildAttributesWith populate
 	// MD5 / SHA1 / SHA256 on every walked file. The three hashes
 	// are computed in one io.MultiWriter pass via
@@ -606,7 +620,17 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 		// extension + magic bytes from the registry) and skip the
 		// per-format Attributes parse. Used by ComputeStats when the
 		// group_by key is detector-only.
-		if !opts.SkipAttributesParse {
+		//
+		// SkipAttributesPrefixes is the per-file refinement (#284):
+		// when the detected content type matches any prefix, behave
+		// like SkipAttributesParse=true for THIS file. Clear cacheKey
+		// too so the Put further down doesn't poison the cache with
+		// an empty-Extra entry.
+		skipForProfile := matchesAttributeSkipPrefix(contentTypeName, opts.SkipAttributesPrefixes)
+		if skipForProfile {
+			cacheKey = ""
+		}
+		if !opts.SkipAttributesParse && !skipForProfile {
 			a, err := ct.Attributes(ctx, fsys, fsPath)
 			if err != nil {
 				return nil, err
@@ -799,6 +823,22 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	applyFileTimes(attrs, ftimes)
 	applySymlinkInfo(attrs, sym)
 	return attrs, nil
+}
+
+// matchesAttributeSkipPrefix reports whether contentTypeName starts
+// with any of the prefixes. Used to honour
+// BuildOptions.SkipAttributesPrefixes per-file. Empty input fast-
+// paths to false. Issue #284.
+func matchesAttributeSkipPrefix(contentTypeName string, prefixes []string) bool {
+	if contentTypeName == "" || len(prefixes) == 0 {
+		return false
+	}
+	for _, p := range prefixes {
+		if strings.HasPrefix(contentTypeName, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // applyGitMeta populates the git_* fields on attrs from the per-walk
