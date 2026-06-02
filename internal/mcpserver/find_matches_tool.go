@@ -38,14 +38,20 @@ type FindMatchesInput struct {
 // Cancelled / CancellationReason mirror search / stats / duplicates.
 type FindMatchesOutput struct {
 	CommonOutput
-	Matches            []LineMatch `json:"matches"`
-	Count              int         `json:"count"`
-	FilesScanned       int         `json:"files_scanned"`
-	FilesWithMatches   int         `json:"files_with_matches"`
-	Cancelled          bool        `json:"cancelled,omitempty"`
-	CancellationReason string      `json:"cancellation_reason,omitempty"`
-	ElapsedSeconds     float64     `json:"elapsed_seconds,omitempty"`
-	// Suggestions populated on cancellation. Issue #168 sub-feature C.
+	Matches          []LineMatch `json:"matches"`
+	Count            int         `json:"count"`
+	FilesScanned     int         `json:"files_scanned"`
+	FilesWithMatches int         `json:"files_with_matches"`
+	// TruncatedFiles names every file whose scanner hit the per-line
+	// buffer cap (64 KiB) on at least one line — the over-cap suffix
+	// wasn't scanned, so a regex match past the cap silently misses.
+	// Pair with the corresponding suggestion entry. Issue #283.
+	TruncatedFiles     []string `json:"truncated_files,omitempty"`
+	Cancelled          bool     `json:"cancelled,omitempty"`
+	CancellationReason string   `json:"cancellation_reason,omitempty"`
+	ElapsedSeconds     float64  `json:"elapsed_seconds,omitempty"`
+	// Suggestions populated on cancellation (#168 sub-feature C) AND
+	// on truncation (#283).
 	Suggestions []string `json:"suggestions,omitempty"`
 }
 
@@ -122,6 +128,7 @@ func (h *handlers) findMatchesHandler(ctx context.Context, _ *mcp.CallToolReques
 		out.Count = res.Count
 		out.FilesScanned = res.FilesScanned
 		out.FilesWithMatches = res.FilesWithMatches
+		out.TruncatedFiles = res.TruncatedFiles
 		out.Cancelled = res.Cancelled
 		out.CancellationReason = res.CancellationReason
 		out.ElapsedSeconds = res.ElapsedSeconds
@@ -154,6 +161,16 @@ func (h *handlers) findMatchesHandler(ctx context.Context, _ *mcp.CallToolReques
 				Excludes:         in.Excludes,
 				RespectGitignore: in.RespectGitignore,
 			}, synthMatches, out.ElapsedSeconds, out.CancellationReason)
+		}
+		// Truncation hint — independent of cancellation. When the
+		// scanner blew past the 64 KiB per-line cap on any file, the
+		// over-cap suffix didn't participate in the regex pass, so a
+		// match past the cap would silently miss. Surface the file
+		// count + a copy-pasteable suggestion. Issue #283.
+		if len(out.TruncatedFiles) > 0 {
+			out.Suggestions = append(out.Suggestions,
+				fmt.Sprintf("%d file(s) had lines exceeding the 64 KiB scanner cap; the over-cap suffix wasn't scanned. Pre-split the offending files (e.g. `sed 's/[delimiter]/\\n/g'`) or use external grep for them.",
+					len(out.TruncatedFiles)))
 		}
 	}
 	out.ServerVersion = h.version
