@@ -100,3 +100,69 @@ func TestPresets_TimeRelativeExpressionsBakeNow(t *testing.T) {
 		t.Fatalf("recent_changes expr doesn't include a timestamp literal: %s", first.Expr)
 	}
 }
+
+// TestPreset_FailedTests_OnlyFiresOnCommentLines is the #280
+// regression guard: the preset's body.matches() pattern must NOT fire
+// on raw-content occurrences of FIXME / XXX / FAIL / TODO (test
+// fixtures, string literals, fuzz seeds). Drives the actual CEL
+// expression baked into the preset rather than re-implementing it.
+func TestPreset_FailedTests_OnlyFiresOnCommentLines(t *testing.T) {
+	p := search.PresetByName("failed_tests")
+	if p == nil {
+		t.Fatal("failed_tests preset missing")
+	}
+	opts := p.Build()
+	ev, err := celexpr.New(opts.Expr)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	// Helper to build the attrs payload the evaluator wants. Only
+	// the four fields the failed_tests filter touches are populated;
+	// everything else stays at zero.
+	type fixture struct {
+		name        string
+		body        string
+		wantMatched bool
+	}
+	for _, fx := range []fixture{
+		// REAL comment annotations — should fire.
+		{"go line comment FIXME", "// FIXME: rewrite this\npackage foo\n", true},
+		{"indented go FIXME", "    // FIXME: indented\n", true},
+		{"python comment XXX", "# XXX needs proper test\n", true},
+		{"shell comment TODO", "# TODO: handle eof\n", true},
+		{"lua comment FAIL", "-- FAIL expected\n", true},
+		{"clojure comment FIXME", "; FIXME later\n", true},
+
+		// NOISE — should NOT fire under the comment-only preset.
+		{"string literal containing FIXME", `package foo
+var marker = "FIXME: this is data"
+`, false},
+		{"test fixture line", `mustWrite(t, p, "// FIXME inside string")`, false},
+		{"identifier substring", "func FailTestRunner() {}\n", false},
+		{"trailing comment after code", "assert(x == 1) // FIXME later\n", false},
+		{"FIXME word in normal prose", "// This package fixes the missing case (see issue).\n", false},
+
+		// Edge: bare FIXME with no comment prefix at all.
+		{"bare FIXME on its own line", "FIXME\n", false},
+	} {
+		t.Run(fx.name, func(t *testing.T) {
+			attrs := &celexpr.FileAttributes{
+				ContentType: "source/go",
+				IsSource:    true,
+				Extra: map[string]any{
+					"body":         fx.body,
+					"language":     "go",
+					"is_test_file": true,
+				},
+			}
+			matched, err := ev.Evaluate(attrs)
+			if err != nil {
+				t.Fatalf("Evaluate: %v", err)
+			}
+			if matched != fx.wantMatched {
+				t.Errorf("body %q: got matched=%v, want %v", fx.body, matched, fx.wantMatched)
+			}
+		})
+	}
+}
