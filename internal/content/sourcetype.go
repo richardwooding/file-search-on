@@ -136,6 +136,8 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 			funcs, types, imports = extractJavaSymbols(bodyBuf.Bytes())
 		case "csharp":
 			funcs, types, imports = extractCSharpSymbols(bodyBuf.Bytes())
+		case "php":
+			funcs, types, imports = extractPHPSymbols(bodyBuf.Bytes())
 		}
 		if len(funcs) > 0 {
 			attrs["functions"] = funcs
@@ -155,7 +157,7 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 // buffer for languages that won't use it.
 func symbolExtractorWired(language string) bool {
 	switch language {
-	case "go", "python", "java", "csharp":
+	case "go", "python", "java", "csharp", "php":
 		return true
 	}
 	return false
