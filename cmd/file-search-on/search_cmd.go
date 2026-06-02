@@ -57,7 +57,7 @@ type SearchCmd struct {
 	FollowSymlinks   bool          `name:"follow-symlinks" help:"Descend through symbolic links to directories during the walk. Off by default — symlinks-to-dirs surface as leaf entries with is_symlink=true. The is_symlink / target_path / is_broken_symlink CEL attributes are populated regardless of this flag. No loop detection."`
 	ResolveProjects  bool          `name:"resolve-projects" help:"Populate the 'project_types' (list<string>) and 'project_type' (string) CEL variables for each match by resolving the file's containing project root (go.mod, package.json, Cargo.toml, …). Enables filters like 'is_source && project_type == \"go\"'. Adds one ReadDir per unique directory walked (cached) — opt-in to avoid the cost when not needed."`
 	PruneArtefacts   bool          `name:"prune-build-artefacts" help:"Pre-walk the tree to find project roots and union their canonical build-artefact basenames (vendor for Go, node_modules for Node, target for Rust, __pycache__/.venv for Python, bin/obj for .NET, .terraform for Terraform, …) into --exclude. Saves the boilerplate exclude list when searching monorepos or ~/Code. Opt-in: pre-walk costs I/O proportional to tree size."`
-	WithGit          bool          `name:"with-git" help:"Populate git-aware CEL variables (git_last_commit_time, git_last_commit_author, git_last_commit_subject, git_first_seen, git_commit_count, is_git_tracked, is_git_ignored) by running one 'git log' pass per walk root. Silent no-op when the root isn't inside a git working tree or when git isn't on PATH. Use for repo-aware queries that filesystem mtimes can't answer on a fresh clone. Issue #271."`
+	WithGit          bool          `name:"with-git" help:"Populate git-aware CEL variables (git_last_commit_time, git_last_commit_author, git_last_commit_subject, git_first_seen, git_commit_count, is_git_tracked, is_git_ignored) by running one 'git log' pass per walk root. Auto-enabled when the expression, --sort, or --rank references a git_* / is_git_* attribute — pass --with-git explicitly only when you need git data but your CEL doesn't name it. Silent no-op when the root isn't inside a git working tree or when git isn't on PATH. Issue #271."`
 }
 
 func (s *SearchCmd) Run(ctx context.Context) error {
@@ -203,7 +203,7 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		FollowSymlinks:      s.FollowSymlinks,
 		ResolveProjects:     s.ResolveProjects,
 		PruneBuildArtefacts: s.PruneArtefacts,
-		WithGit:             s.WithGit,
+		WithGit:             s.WithGit || celexpr.NeedsGit(s.Expr, s.Sort, s.Rank),
 	}
 
 	// --sort, --rank, and --limit all need the full result set in

@@ -62,7 +62,12 @@ func TestSearchTool_WithGit_RoundTrip(t *testing.T) {
 
 // TestSearchTool_WithGit_Off confirms with_git=false leaves the git_*
 // predicates inactive: the same is_git_tracked filter returns zero.
-func TestSearchTool_WithGit_Off(t *testing.T) {
+// TestSearchTool_WithGit_AutoEnableFromExpr confirms the auto-enable
+// path: when the expression references a git_* / is_git_* attribute,
+// WithGit kicks in regardless of the explicit with_git: false. This
+// is the "user shouldn't have to remember the flag" UX win — same
+// pattern as with_phash auto-enabling on image_similar_to.
+func TestSearchTool_WithGit_AutoEnableFromExpr(t *testing.T) {
 	if !gitmeta.HasGitBinary() {
 		t.Skip("git binary not on PATH")
 	}
@@ -82,7 +87,7 @@ func TestSearchTool_WithGit_Off(t *testing.T) {
 		Arguments: SearchInput{
 			Expr:    "is_markdown && is_git_tracked",
 			Dir:     dir,
-			WithGit: false,
+			WithGit: false, // intentionally false — auto-detect should override
 		},
 	})
 	if err != nil {
@@ -90,8 +95,8 @@ func TestSearchTool_WithGit_Off(t *testing.T) {
 	}
 	var out SearchOutput
 	mustDecodeStructured(t, res, &out)
-	if out.Count != 0 {
-		t.Errorf("with_git=false → is_git_tracked filter should match nothing; got %d", out.Count)
+	if out.Count != 1 {
+		t.Errorf("expected 1 tracked markdown match via auto-enable; got %d", out.Count)
 	}
 }
 
