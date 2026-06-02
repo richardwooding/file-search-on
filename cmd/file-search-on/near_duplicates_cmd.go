@@ -15,7 +15,7 @@ import (
 type NearDuplicatesCmd struct {
 	Dir              []string      `short:"d" help:"Directory to walk. Repeatable for multi-root near-duplicate detection." default:"."`
 	Expr             string        `arg:"" help:"Optional CEL expression to scope candidates (e.g. 'is_markdown && word_count > 100'). Defaults to every text-shaped file." optional:""`
-	Threshold        float64       `name:"threshold" default:"0.85" help:"Minimum similarity (0..1) at which two files are considered near-duplicates. 0.85 ≈ 9 bits Hamming distance on a 64-bit SimHash. 0.95 ≈ 3 bits (whitespace / typo edits only). 0.75 ≈ 16 bits (significant overlap, different docs)."`
+	Threshold        float64       `name:"threshold" default:"0" help:"Minimum similarity (0..1) at which two files are considered near-duplicates. 0 (default) lets the engine pick: 0.92 for source-dominated trees (Go idioms keep raw similarity high), 0.85 elsewhere. 0.95 ≈ 3 bits Hamming distance on a 64-bit SimHash (whitespace / typo edits only). 0.85 ≈ 9 bits. 0.75 ≈ 16 bits (significant overlap, different docs)."`
 	Workers          int           `short:"w" help:"Parallel workers. 0 = runtime.NumCPU()." default:"0"`
 	MaxLineBytes     int           `short:"L" name:"max-line-bytes" help:"Per-line scanner cap (bytes). 0 uses the 1 MiB default." default:"0"`
 	BodyMaxBytes     int           `name:"body-max-bytes" default:"0" help:"Cap on the body read per file in bytes. 0 uses the 1 MiB default. Files larger than the cap are silently truncated; the prefix still participates in the fingerprint."`

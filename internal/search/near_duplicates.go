@@ -72,7 +72,8 @@ type NearDuplicates struct {
 // search tools' partial-result fields.
 func FindNearDuplicates(ctx context.Context, opts Options, registry *content.Registry) (*NearDuplicates, error) {
 	threshold := opts.SimilarityThreshold
-	if threshold <= 0 || threshold > 1 {
+	explicitlySet := threshold > 0 && threshold <= 1
+	if !explicitlySet {
 		threshold = 0.85
 	}
 	out := &NearDuplicates{Threshold: threshold}
@@ -94,6 +95,7 @@ func FindNearDuplicates(ctx context.Context, opts Options, registry *content.Reg
 	out.TotalFiles = int64(len(results))
 
 	candidates := make([]nearDupCandidate, 0, len(results))
+	sourceCount := 0
 	for _, r := range results {
 		if ctx.Err() != nil {
 			break
@@ -108,14 +110,31 @@ func FindNearDuplicates(ctx context.Context, opts Options, registry *content.Reg
 		if body == "" {
 			continue
 		}
-		fp := fingerprintFromCacheOrCompute(r.Path, r.Size, r.Attrs.ModTime, body, opts.Index)
+		fp := fingerprintFromCacheOrCompute(r.Path, r.Size, r.Attrs.ModTime, body, r.ContentType, opts.Index)
 		if fp == 0 {
 			// Empty or near-empty body — no signal.
 			continue
 		}
+		if languageFromContentType(r.ContentType) != "" {
+			sourceCount++
+		}
 		candidates = append(candidates, nearDupCandidate{path: r.Path, size: r.Size, fingerprint: fp})
 	}
 	out.FingerPrinted = int64(len(candidates))
+
+	// Source-dominated trees need a tighter default than the 0.85
+	// originally chosen for prose / markdown. Go idiomatic tokens
+	// (func / err / nil / ctx / return) push EVERY file's SimHash
+	// into a similar bit pattern even after preprocessForFingerprint
+	// strips imports + license headers; at 0.85 ≈ 9 bits the false-
+	// positive rate is high enough to bury real near-dups. 0.92 ≈ 5
+	// bits cuts the noise while still catching template-copies and
+	// regenerated boilerplate within the same project. Threshold the
+	// caller supplied explicitly always wins. Issue #274.
+	if !explicitlySet && len(candidates) > 0 && sourceCount*2 > len(candidates) {
+		threshold = 0.92
+		out.Threshold = threshold
+	}
 
 	if len(candidates) >= 2 {
 		out.Groups = groupNearDuplicates(candidates, threshold)
@@ -129,18 +148,20 @@ func FindNearDuplicates(ctx context.Context, opts Options, registry *content.Reg
 	return out, nil
 }
 
-// fingerprintFromCacheOrCompute returns the SimHash of body. When
-// idx is non-nil and an entry validates by (size, mtime), the cached
-// Fingerprint is returned unless it's zero. On a cache miss or
-// zero-fingerprint hit, computes fresh and writes back, merging
-// with the existing cached fields (ContentType, Extra, Hash) so
-// downstream consumers (search, find_duplicates) don't lose data
-// the near-duplicates pipeline doesn't touch.
+// fingerprintFromCacheOrCompute returns the boilerplate-stripped
+// SimHash of body. When idx is non-nil and an entry validates by
+// (size, mtime), the cached FingerprintV2 is returned unless it's
+// zero. On miss / zero-V2 hit, body is run through
+// preprocessForFingerprint (per the file's contentType) then fed
+// to fingerprint.Compute, and the result is written back to
+// FingerprintV2. The legacy Fingerprint field is no longer read —
+// it's left on the struct for back-compat decode of pre-#274
+// caches but never trusted by this pipeline.
 //
 // Path normalisation matches the BuildAttributesWith cache-key
 // convention (filepath.Abs + filepath.Clean) so two callers walking
 // the same tree under different roots hit the same entry.
-func fingerprintFromCacheOrCompute(path string, size int64, modTime time.Time, body string, idx index.Index) uint64 {
+func fingerprintFromCacheOrCompute(path string, size int64, modTime time.Time, body, contentType string, idx index.Index) uint64 {
 	key := ""
 	if idx != nil {
 		if abs, err := filepath.Abs(path); err == nil {
@@ -148,18 +169,21 @@ func fingerprintFromCacheOrCompute(path string, size int64, modTime time.Time, b
 		}
 	}
 
-	// Cache hit with populated fingerprint → return.
+	// Cache hit with populated V2 fingerprint → return. Old V1
+	// values are ignored on purpose (boilerplate-dominated; would
+	// reproduce the #274 false positives).
 	var cached *index.Entry
 	if key != "" {
 		if c, ok := idx.Lookup(key, size, modTime); ok {
 			cached = c
-			if c.Fingerprint != 0 {
-				return c.Fingerprint
+			if c.FingerprintV2 != 0 {
+				return c.FingerprintV2
 			}
 		}
 	}
 
-	fp := fingerprint.Compute(body)
+	preprocessed := preprocessForFingerprint(body, contentType)
+	fp := fingerprint.Compute(preprocessed)
 	if fp == 0 {
 		return 0
 	}
@@ -169,12 +193,13 @@ func fingerprintFromCacheOrCompute(path string, size int64, modTime time.Time, b
 		entry := &index.Entry{
 			Size:            size,
 			ModTimeUnixNano: modTime.UnixNano(),
-			Fingerprint:     fp,
+			FingerprintV2:   fp,
 		}
 		if cached != nil {
 			entry.ContentType = cached.ContentType
 			entry.Extra = cached.Extra
 			entry.Hash = cached.Hash
+			entry.Fingerprint = cached.Fingerprint // preserve legacy on round-trip
 		}
 		_ = idx.Put(key, entry)
 	}

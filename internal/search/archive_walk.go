@@ -316,6 +316,7 @@ func WalkArchiveEntries(ctx context.Context, archivePath string, opts ArchiveWal
 			merged.Extra = cached.Extra
 			merged.Hash = cached.Hash
 			merged.Fingerprint = cached.Fingerprint
+			merged.FingerprintV2 = cached.FingerprintV2
 		}
 		_ = opts.Index.Put(archiveAbs, merged)
 	}
