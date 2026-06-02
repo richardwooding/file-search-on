@@ -26,6 +26,8 @@ type NearDuplicatesCmd struct {
 	RespectGitignore bool          `name:"respect-gitignore" help:"Parse a .gitignore at each walk root and skip matching paths."`
 	FollowSymlinks   bool          `name:"follow-symlinks" help:"Descend through symbolic links to directories. Off by default."`
 	MinSize          int64         `name:"min-size" default:"0" help:"Skip files smaller than this many bytes (on-disk size, not extracted body)."`
+	MembersLimit     int           `name:"members-limit" default:"0" help:"Cap the per-group members list to this many entries. 0 (default) returns every member. Truncated groups stamp members_total + members_truncated in JSON output. Members are kept similarity-desc so the survivors are the strongest matches. Issue #279."`
+	GroupLimit       int           `name:"group-limit" default:"0" help:"Cap the number of groups returned. 0 (default) returns every group. Groups are sorted by member count desc / representative size desc before truncation. Issue #279."`
 	Output           string        `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table (default; human-readable) | json (machine-readable)."`
 }
 
@@ -61,6 +63,8 @@ func (n *NearDuplicatesCmd) Run(ctx context.Context) error {
 		FollowSymlinks:      n.FollowSymlinks,
 		MinSize:             n.MinSize,
 		SimilarityThreshold: n.Threshold,
+		NearDupMembersLimit: n.MembersLimit,
+		NearDupGroupLimit:   n.GroupLimit,
 	}, contentpkg.DefaultRegistry())
 
 	if dups != nil {
