@@ -132,9 +132,9 @@ file-search-on 'is_source' -d . -o json |
   jq -s 'sort_by(-.loc) | .[0:20] | .[] | "\(.loc)\t\(.language)\t\(.path)"'
 ```
 
-## Symbols + imports (Go / Python / Java / C# / PHP / Perl / R)
+## Symbols + imports (Go / Python / Java / C# / PHP / Perl / R / MATLAB)
 
-Three list-valued attributes — `functions`, `type_names`, `imports` — give structured answers to the universal "where is X defined?" and "which files use Y?" questions. Go uses the stdlib AST; Python / Java / C# / PHP / Perl / R use focused regex (best-effort; the README's Known limitations section calls out the gaps). Other languages leave these arrays empty.
+Three list-valued attributes — `functions`, `type_names`, `imports` — give structured answers to the universal "where is X defined?" and "which files use Y?" questions. Go uses the stdlib AST; Python / Java / C# / PHP / Perl / R / MATLAB use focused regex (best-effort; the README's Known limitations section calls out the gaps). Other languages leave these arrays empty.
 
 ```sh
 # Where is ProcessOrder defined?  (define-X)
@@ -176,6 +176,13 @@ file-search-on 'is_source && language == "r" && "ggplot2" in imports'
 # R: where is the Animal R6 class defined?
 file-search-on 'is_source && language == "r" && "Animal" in type_names'
 
+# MATLAB: every script defining a classdef
+file-search-on 'is_source && language == "matlab" && type_names.size() > 0'
+
+# MATLAB: find a function by name across return-value shapes
+# (function out = name(...) / function [a,b] = name(...) all match)
+file-search-on 'is_source && language == "matlab" && "computeFFT" in functions'
+
 # Hotspots: source files with many types AND many functions
 file-search-on 'is_source && type_names.size() >= 3 && functions.size() >= 10'
 
@@ -188,7 +195,7 @@ Repeat queries on unchanged trees are sub-second — symbols cache alongside the
 ## Out of scope
 
 - **Shebang detection** for extensionless scripts (`~/bin/foo` containing `#!/usr/bin/env python3`). Detection is extension-only; a follow-up could add shebang routing, but it requires changes to the detector contract.
-- **Symbol extraction for languages beyond Go / Python / Java / C# / PHP / Perl / R.** Rust / TypeScript / Kotlin / Ruby / MATLAB / etc. leave `functions` / `type_names` / `imports` empty today. The extractor interface is stable — adding more languages is a follow-up PR per language (see GitHub issues for tracked candidates).
+- **Symbol extraction for languages beyond Go / Python / Java / C# / PHP / Perl / R / MATLAB.** Rust / TypeScript / Kotlin / Ruby / Swift / Scala / Lua / Haskell / etc. leave `functions` / `type_names` / `imports` empty today. The extractor interface is stable — adding more languages is a follow-up PR per language (see GitHub issues for tracked candidates).
 - **True AST for Python and Java.** Regex is best-effort. Tree-sitter is the obvious upgrade path; deferred to avoid a heavy dependency in v1.
 - **Receiver-qualified Go methods** (e.g. `Handler.ServeHTTP` vs bare `ServeHTTP`). Bare names are what agents look up; matching `"ServeHTTP" in functions` works. A future `methods []string` could surface receiver pairs.
 - **Cross-file symbol graph** (reverse-imports: "who imports me?"). Different shape — needs a project-wide index, not per-file attributes.
