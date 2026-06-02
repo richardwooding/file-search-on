@@ -70,9 +70,38 @@ func TestIsSourceTestFile(t *testing.T) {
 		// Elixir.
 		{"elixir", "widget_test.exs", true},
 		{"elixir", "widget.ex", false},
+		// Tiobe top 20 (May 2026) additions.
+		// C# — xUnit / NUnit / MSTest.
+		{"csharp", "WidgetTest.cs", true},
+		{"csharp", "WidgetTests.cs", true},
+		{"csharp", "Widget.cs", false},
+		// PHP — PHPUnit.
+		{"php", "WidgetTest.php", true},
+		{"php", "Widget.php", false},
+		// Perl — .t is the test extension.
+		{"perl", "01-basic.t", true},
+		{"perl", "module.pm", false},
+		{"perl", "script.pl", false},
+		// R — testthat.
+		{"r", "test-foo.R", true},
+		{"r", "test_bar.r", true},
+		{"r", "analysis.R", false},
+		// Visual Basic.
+		{"vb", "WidgetTest.vb", true},
+		{"vb", "WidgetTests.vb", true},
+		{"vb", "Widget.vb", false},
+		// MATLAB.
+		{"matlab", "WidgetTest.m", true},
+		{"matlab", "WidgetTests.m", true},
+		{"matlab", "widget.m", false},
 		// Languages without a strong convention — never test.
 		{"lua", "widget.lua", false},
 		{"haskell", "Widget.hs", false},
+		{"ada", "widget.adb", false},
+		{"sql", "schema.sql", false},
+		{"fortran", "solver.f90", false},
+		{"assembly", "boot.asm", false},
+		{"pascal", "main.pas", false},
 	}
 	for _, c := range cases {
 		t.Run(c.language+"/"+c.path, func(t *testing.T) {
