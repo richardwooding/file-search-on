@@ -563,6 +563,23 @@ type Match struct {
 	MetadataChangedAt string `json:"metadata_changed_at,omitempty"`
 	IsBtimeAnomaly    bool   `json:"is_btime_anomaly,omitempty"`
 
+	// Git-aware metadata (issue #271). Populated when the caller sets
+	// with_git: true (MCP) / --with-git (CLI), AND the walk root is
+	// inside a git working tree, AND the file is tracked. Surfaces
+	// the CEL git_* variables in the wire format so callers can
+	// project via fields: ["git_last_commit_time", ...], render in
+	// JSON output, and decide based on the values without burning a
+	// follow-up call. Time fields are RFC3339 strings (matching
+	// CreatedAt / MetadataChangedAt). Empty / zero when the file
+	// isn't tracked or with_git was off.
+	GitLastCommitTime    string `json:"git_last_commit_time,omitempty"`
+	GitLastCommitAuthor  string `json:"git_last_commit_author,omitempty"`
+	GitLastCommitSubject string `json:"git_last_commit_subject,omitempty"`
+	GitFirstSeen         string `json:"git_first_seen,omitempty"`
+	GitCommitCount       int64  `json:"git_commit_count,omitempty"`
+	IsGitTracked         bool   `json:"is_git_tracked,omitempty"`
+	IsGitIgnored         bool   `json:"is_git_ignored,omitempty"`
+
 	// Disguise detection (PR #145). Populated when the caller sets
 	// `check_disguised: true` (MCP) or `--check-disguised` (CLI).
 	// MagicContentType is what the file's first 512 bytes look

@@ -138,6 +138,22 @@ func applyComputedAttrs(m *Match, a *celexpr.FileAttributes) {
 	m.IsDisguised = a.IsDisguised
 	m.IsKnownGood = a.IsKnownGood
 	m.IsKnownBad = a.IsKnownBad
+	// Git-aware metadata (issue #271 wire-format follow-up). The CEL
+	// variables were already declared + queryable; this surfaces the
+	// typed FileAttributes fields on Match so fields: ["git_*"]
+	// projection works and JSON output carries them. Same pattern as
+	// CreatedAt / MetadataChangedAt above (RFC3339 string).
+	if !a.GitLastCommitTime.IsZero() {
+		m.GitLastCommitTime = a.GitLastCommitTime.Format(time.RFC3339)
+	}
+	if !a.GitFirstSeen.IsZero() {
+		m.GitFirstSeen = a.GitFirstSeen.Format(time.RFC3339)
+	}
+	m.GitLastCommitAuthor = a.GitLastCommitAuthor
+	m.GitLastCommitSubject = a.GitLastCommitSubject
+	m.GitCommitCount = a.GitCommitCount
+	m.IsGitTracked = a.IsGitTracked
+	m.IsGitIgnored = a.IsGitIgnored
 }
 
 // applyCommonAttrs covers the cross-family scalars (title/author/language/counts), manifest module fields, and project context.
