@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/richardwooding/file-search-on/internal/embed"
+	"github.com/richardwooding/file-search-on/internal/gitmeta"
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/mcpserver"
 	"github.com/richardwooding/file-search-on/internal/monitor"
@@ -117,6 +118,14 @@ func (m *MCPCmd) Run(ctx context.Context) error {
 		}
 	}
 
+	// Shared gitmeta.Pool — every with_git=true MCP search call reuses
+	// the same Cache (rebuilt on HEAD change). Created unconditionally
+	// because the cost is one map alloc; warming it eagerly is gated
+	// on --warm below. Passed to the MCP server via WithGitPool so the
+	// search handler reaches the same instance we prime here. Issue
+	// #271 follow-up.
+	gitPool := gitmeta.NewPool()
+
 	if m.Warm || m.WarmDir != "" {
 		root := m.WarmDir
 		if root == "" {
@@ -133,6 +142,24 @@ func (m *MCPCmd) Run(ctx context.Context) error {
 			go func() {
 				defer cancelWarm()
 				_ = warmIndex(warmCtx, idx, root, m.WarmWorkers, os.Stderr)
+			}()
+			// Parallel git-meta warm. Same root, independent ctx
+			// budget (gitmeta.New is fast — sub-second on most repos
+			// — and we don't want it to be cancelled by the much
+			// longer attribute warm timeout if that one stalls).
+			// Silent skip when root isn't a git tree.
+			gitWarmCtx, cancelGitWarm := context.WithTimeout(ctx, 60*time.Second)
+			go func() {
+				defer cancelGitWarm()
+				start := time.Now()
+				if err := gitPool.Warm(gitWarmCtx, root); err != nil {
+					fmt.Fprintf(os.Stderr, "warm-git: %v\n", err)
+					return
+				}
+				if gitPool.Len() > 0 {
+					fmt.Fprintf(os.Stderr, "warm-git: cached HEAD in %s\n", time.Since(start).Round(time.Millisecond))
+				}
+				// else: not a git tree → silent no-op, no log line.
 			}()
 		} else {
 			fmt.Fprintln(os.Stderr, "warm: could not resolve directory to warm; skipping")
@@ -169,6 +196,7 @@ func (m *MCPCmd) Run(ctx context.Context) error {
 	mcpOpts := []mcpserver.Option{
 		mcpserver.WithCollector(collector),
 		mcpserver.WithMonitor(controller),
+		mcpserver.WithGitPool(gitPool),
 	}
 
 	sandboxRoots := append([]string(nil), m.SandboxDir...)

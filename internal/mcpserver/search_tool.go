@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/richardwooding/file-search-on/internal/celexpr"
 	"github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/hashset"
 	"github.com/richardwooding/file-search-on/internal/search"
@@ -43,6 +44,7 @@ type SearchInput struct {
 	RespectGitignore bool     `json:"respect_gitignore,omitempty" jsonschema:"When true, parse a .gitignore at the walk root (if present) and skip matching paths. Honours standard gitignore semantics. Nested .gitignore files in subdirectories are NOT honoured in this version."`
 	FollowSymlinks   bool     `json:"follow_symlinks,omitempty" jsonschema:"When true, descend through symbolic links to directories. Off by default — symlinks-to-dirs surface as leaf entries with is_symlink=true. The is_symlink / target_path / is_broken_symlink CEL attributes are populated regardless of this flag. No loop detection — best avoided unless the tree is known acyclic."`
 	ResolveProjects  bool     `json:"resolve_projects,omitempty" jsonschema:"When true, populate each match's 'project_types' (list<string>) and 'project_type' (string — first match) CEL variables by resolving the file's nearest project-root ancestor (go.mod, package.json, Cargo.toml, etc.). Enables queries like 'is_source && project_type == \"go\"' to find Go source inside actual Go modules. Opt-in: adds one ReadDir per unique dir walked (cached), so default-off avoids the cost when not needed."`
+	WithGit         bool     `json:"with_git,omitempty" jsonschema:"When true, populate git-aware CEL variables (git_last_commit_time, git_last_commit_author, git_last_commit_subject, git_first_seen, git_commit_count, is_git_tracked, is_git_ignored) by running one 'git log' pass per walk root via the gitmeta package. Auto-enabled when expr / sort_by / rank reference a git_* / is_git_* attribute — pass with_git explicitly only when you need git data but your CEL doesn't name it. Cheap when the root IS a git tree (a single subprocess invocation up front, cached across calls via the MCP server's gitmeta.Pool); silent no-op when the root isn't (or when git isn't on PATH). Use to answer repo-aware time / author / churn queries that filesystem mtimes can't (a fresh clone has all mtimes set to checkout time). Filter examples: 'git_last_commit_time > timestamp(...)' (recent edits), 'is_source && git_commit_count > 50' (hot files), 'is_source && is_git_tracked && !is_test_file' (production code only). Issue #271."`
 	PruneBuildArtefacts bool  `json:"prune_build_artefacts,omitempty" jsonschema:"When true, pre-walks each search root to discover project subdirectories and prunes the canonical build-artefact basenames for every detected project type — vendor (Go), node_modules (Node), target (Rust / Java Maven), __pycache__/.venv/.tox (Python), bin/obj (.NET), .terraform (Terraform), etc. Unioned with 'excludes'. Saves the boilerplate exclude list when searching monorepos or large multi-project trees. Opt-in: pre-walk I/O is proportional to tree size."`
 	Fields              []string `json:"fields,omitempty" jsonschema:"Project each match to only the listed attribute names — saves tokens when only a few attributes matter. 'path', 'content_type', and 'size' are always included regardless. Sort still works on attributes not in 'fields' (sort happens before projection). Empty / omitted returns every populated attribute. Unknown names error at request validation time; call 'list_attributes' for the canonical schema or check match field names with search.MatchFieldNames()."`
 }
@@ -193,6 +195,8 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 		FollowSymlinks:      in.FollowSymlinks,
 		ResolveProjects:     in.ResolveProjects,
 		PruneBuildArtefacts: in.PruneBuildArtefacts,
+		WithGit:             in.WithGit || celexpr.NeedsGit(in.Expr, in.SortBy, in.Rank),
+		GitCachePool:        h.gitPool,
 		// RankExpr IS passed to WalkStream because rank is evaluated
 		// per file (during the walk), not post-collect. The eventual
 		// sort happens below in the sortAndLimit block.

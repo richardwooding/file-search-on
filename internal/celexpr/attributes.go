@@ -275,5 +275,20 @@ type FileAttributes struct {
 	// typical thresholds for "related" content are 0.5-0.7.
 	Similarity float64
 
+	// Git-aware metadata (issue #271). Populated when the caller sets
+	// BuildOptions.GitCache to a *gitmeta.Cache built from the walk
+	// root. Zero values everywhere when the walk isn't inside a git
+	// working tree, or when the file isn't tracked / matched by git.
+	// Time fields are UTC; CommitCount is a churn proxy useful for
+	// finding high-touch files; IsGitTracked / IsGitIgnored are the
+	// fast boolean predicates.
+	GitLastCommitTime    time.Time
+	GitLastCommitAuthor  string
+	GitLastCommitSubject string
+	GitFirstSeen         time.Time
+	GitCommitCount       int64
+	IsGitTracked         bool
+	IsGitIgnored         bool
+
 	Extra content.Attributes
 }

@@ -512,6 +512,16 @@ func New(expr string) (*Evaluator, error) {
 		// Semantic similarity (issue #151). Populated when the
 		// caller sets SemanticQuery + Embedder; 0 otherwise.
 		cel.Variable("similarity", cel.DoubleType),
+		// Git-aware metadata (issue #271). Populated when the caller
+		// sets BuildOptions.GitCache (CLI --with-git, MCP with_git).
+		// Zero on non-git walks or for files outside the git index.
+		cel.Variable("git_last_commit_time", cel.TimestampType),
+		cel.Variable("git_last_commit_author", cel.StringType),
+		cel.Variable("git_last_commit_subject", cel.StringType),
+		cel.Variable("git_first_seen", cel.TimestampType),
+		cel.Variable("git_commit_count", cel.IntType),
+		cel.Variable("is_git_tracked", cel.BoolType),
+		cel.Variable("is_git_ignored", cel.BoolType),
 	}
 	opts = append(opts, fuzzyFunctions()...)
 	opts = append(opts, geoFunctions()...)

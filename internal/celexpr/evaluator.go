@@ -14,6 +14,7 @@ import (
 	"github.com/google/cel-go/common/types"
 	"github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/embed"
+	"github.com/richardwooding/file-search-on/internal/gitmeta"
 	"github.com/richardwooding/file-search-on/internal/hashset"
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/projecttype"
@@ -313,6 +314,15 @@ type BuildOptions struct {
 	Embedder               embed.Embedder
 	SemanticQueryEmbedding []float32
 
+	// GitCache, when non-nil, drives population of the git_* fields on
+	// FileAttributes (last commit time/author/subject, first seen,
+	// commit count, is_tracked, is_ignored). The walker builds one
+	// cache per root via gitmeta.New (which runs a single git log
+	// pass) and shares it across all worker goroutines for that root.
+	// nil means "no git data; leave git_* at zero values" — the
+	// non-git-tree default. Issue #271.
+	GitCache *gitmeta.Cache
+
 	// OCRImages, when true, runs OCR over `image/*` files via the
 	// registered OCR provider (macOS Vision today, future Tesseract /
 	// Windows.Media.Ocr providers slot into the same hook). The
@@ -535,6 +545,13 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 			if opts.ReadExtendedAttributes {
 				applyXattrs(attrs, displayPath)
 			}
+			// Git metadata is per-walk state (the cache is built once
+			// at walk start) and is not stored in the (size, mtime)
+			// cache because HEAD changes invalidate it. Re-apply on
+			// every cache hit. Issue #271.
+			if opts.GitCache != nil {
+				applyGitMeta(attrs, displayPath, opts.GitCache)
+			}
 			applyFileTimes(attrs, ftimes)
 			applySymlinkInfo(attrs, sym)
 			return attrs, nil
@@ -555,6 +572,9 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 			ModTime:     info.ModTime(),
 			ContentType: "",
 			Extra:       content.Attributes{},
+		}
+		if opts.GitCache != nil {
+			applyGitMeta(attrs, displayPath, opts.GitCache)
 		}
 		applyFileTimes(attrs, ftimes)
 		applySymlinkInfo(attrs, sym)
@@ -773,9 +793,36 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	if opts.ReadExtendedAttributes {
 		applyXattrs(attrs, displayPath)
 	}
+	if opts.GitCache != nil {
+		applyGitMeta(attrs, displayPath, opts.GitCache)
+	}
 	applyFileTimes(attrs, ftimes)
 	applySymlinkInfo(attrs, sym)
 	return attrs, nil
+}
+
+// applyGitMeta populates the git_* fields on attrs from the per-walk
+// gitmeta cache. Looks up by absolute path; falls back to leaving
+// fields at zero when the file isn't tracked (or the displayPath is
+// outside the git repo). is_git_tracked / is_git_ignored fire even
+// for files without commit history (newly-staged files).
+func applyGitMeta(attrs *FileAttributes, displayPath string, cache *gitmeta.Cache) {
+	if displayPath == "" || cache == nil {
+		return
+	}
+	abs, err := filepath.Abs(displayPath)
+	if err != nil {
+		abs = displayPath
+	}
+	if info, ok := cache.Lookup(abs); ok {
+		attrs.GitLastCommitTime = info.LastCommitTime
+		attrs.GitLastCommitAuthor = info.LastCommitAuthor
+		attrs.GitLastCommitSubject = info.LastCommitSubject
+		attrs.GitFirstSeen = info.FirstSeen
+		attrs.GitCommitCount = int64(info.CommitCount)
+	}
+	attrs.IsGitTracked = cache.IsTracked(abs)
+	attrs.IsGitIgnored = cache.IsIgnored(abs)
 }
 
 // applyXattrs reads extended attributes for the file at displayPath

@@ -13,6 +13,7 @@ import (
 	"github.com/richardwooding/file-search-on/internal/celexpr"
 	"github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/embed"
+	"github.com/richardwooding/file-search-on/internal/gitmeta"
 	"github.com/richardwooding/file-search-on/internal/hashset"
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/projecttype"
@@ -207,6 +208,27 @@ type Options struct {
 	// "no match".
 	ResolveProjects bool
 
+	// WithGit, when true, makes the walker build one gitmeta.Cache
+	// per root via gitmeta.New (one `git log` pass per repo) and
+	// pass it into BuildAttributesWith so the git_* CEL attributes
+	// (git_last_commit_time / git_last_commit_author /
+	// git_last_commit_subject / git_first_seen / git_commit_count /
+	// is_git_tracked / is_git_ignored) populate per file. Cheap when
+	// the root IS a git tree (one process invocation up front);
+	// silent no-op when the root isn't (gitmeta.New returns nil
+	// cache). CLI: --with-git. MCP: with_git. Issue #271.
+	WithGit bool
+
+	// GitCachePool, when set, lets the walker resolve gitmeta.Cache
+	// instances via the shared pool instead of building one per walk
+	// via gitmeta.New. The MCP server owns one pool for its lifetime
+	// so multiple with_git=true search calls against the same repo
+	// share one `git log` pass; the pool re-validates HEAD on every
+	// resolve so commits / checkouts between calls invalidate
+	// naturally. nil means "build per walk" — the default for CLI
+	// one-shots and tests. Issue #271 follow-up.
+	GitCachePool *gitmeta.Pool
+
 	// PruneBuildArtefacts, when true, pre-walks each root to
 	// discover every project subdirectory and unions the canonical
 	// build-artefact basenames (`vendor`, `node_modules`, `target`,
@@ -383,6 +405,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 		fsys     fs.FS
 		exc      *excluder
 		resolver *projecttype.ProjectResolver
+		gitCache *gitmeta.Cache
 	}
 	var specs []rootSpec
 	makeResolver := func(r string) *projecttype.ProjectResolver {
@@ -390,6 +413,31 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 			return nil
 		}
 		return projecttype.NewResolver(r, nil)
+	}
+	// makeGitCache resolves a *gitmeta.Cache for root when WithGit
+	// is set. When opts.GitCachePool is also set (the MCP server
+	// path), the pool returns a shared cache that survives across
+	// walks and refreshes on HEAD change. When the pool is nil
+	// (CLI one-shot, tests), the walker builds a fresh cache per
+	// walk via gitmeta.New. Either path returns nil for non-git
+	// trees / missing-git / build errors — the walk proceeds with
+	// empty git_* attributes.
+	makeGitCache := func(r string) *gitmeta.Cache {
+		if !opts.WithGit {
+			return nil
+		}
+		if opts.GitCachePool != nil {
+			c, err := opts.GitCachePool.Get(ctx, r)
+			if err != nil {
+				return nil
+			}
+			return c
+		}
+		c, err := gitmeta.New(ctx, r)
+		if err != nil {
+			return nil
+		}
+		return c
 	}
 	// excludesFor returns the user's --exclude list plus any
 	// project-aware build-artefact excludes collected from r's
@@ -421,6 +469,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 				fsys:     rfs,
 				exc:      newExcluder(rfs, excludesFor(r), opts.RespectGitignore),
 				resolver: makeResolver(r),
+				gitCache: makeGitCache(r),
 			})
 		}
 	} else {
@@ -437,6 +486,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 			fsys:     fsys,
 			exc:      newExcluder(fsys, excludesFor(root), opts.RespectGitignore),
 			resolver: makeResolver(root),
+			gitCache: makeGitCache(root),
 		})
 	}
 
@@ -449,6 +499,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 		fsPath      string
 		displayPath string
 		resolver    *projecttype.ProjectResolver
+		gitCache    *gitmeta.Cache
 	}
 	jobs := make(chan job, opts.Workers*2)
 	var wg sync.WaitGroup
@@ -479,6 +530,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 						OCRImages:              opts.OCRImages,
 						OCRTimeout:             opts.OCRTimeout,
 						WithPHash:              opts.WithPHash,
+						GitCache:               j.gitCache,
 					})
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 						return
@@ -573,7 +625,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case jobs <- job{fsys: subFsys, fsPath: subPath, displayPath: displayPath, resolver: spec.resolver}:
+			case jobs <- job{fsys: subFsys, fsPath: subPath, displayPath: displayPath, resolver: spec.resolver, gitCache: spec.gitCache}:
 			}
 			return nil
 		})
@@ -637,7 +689,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case jobs <- job{fsys: spec.fsys, fsPath: fsPath, displayPath: displayPath, resolver: spec.resolver}:
+			case jobs <- job{fsys: spec.fsys, fsPath: fsPath, displayPath: displayPath, resolver: spec.resolver, gitCache: spec.gitCache}:
 			}
 			return nil
 		})
