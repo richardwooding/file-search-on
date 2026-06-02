@@ -392,6 +392,13 @@ func applyEmailSourceAttrs(m *Match, a *celexpr.FileAttributes) {
 	if v, ok := a.Extra["blank_loc"].(int64); ok {
 		m.BlankLOC = v
 	}
+	// imports lives on Extra as []string from the per-language
+	// extractors in internal/content/source_symbols_*.go. Surfacing
+	// to the typed Match field unblocks fields: ["imports"] projection
+	// and gets the dependency list into the wire response. #275.
+	if v, ok := a.Extra["imports"].([]string); ok {
+		m.Imports = v
+	}
 	if v, ok := a.Extra["cell_count"].(int64); ok {
 		m.CellCount = v
 	}

@@ -141,3 +141,33 @@ func TestValidateFields_NotErrIs(t *testing.T) {
 		t.Fatal("err should not match nil")
 	}
 }
+
+// TestValidateFields_ImportsAccepted confirms #275's headline ask:
+// callers can write `fields: ["path", "imports"]` without a request-
+// time error. The full e2e of imports surfacing on Match is covered
+// by the integration tests in find_near_duplicates / source-extractor
+// tests; this is the projection-layer assertion.
+func TestValidateFields_ImportsAccepted(t *testing.T) {
+	if err := search.ValidateFields([]string{"path", "imports"}); err != nil {
+		t.Errorf("imports should be a valid projection field: %v", err)
+	}
+}
+
+// TestProjectMatch_Imports_Preserved confirms a projection that
+// includes "imports" keeps the slice intact and one that doesn't
+// zeroes it.
+func TestProjectMatch_Imports_Preserved(t *testing.T) {
+	m := search.Match{
+		Path:        "/a.go",
+		ContentType: "source/go",
+		Imports:     []string{"context", "fmt"},
+	}
+	kept := search.ProjectMatch(m, []string{"imports"})
+	if len(kept.Imports) != 2 {
+		t.Errorf("projection keeping imports lost it: %+v", kept.Imports)
+	}
+	dropped := search.ProjectMatch(m, []string{"title"})
+	if len(dropped.Imports) != 0 {
+		t.Errorf("projection NOT including imports should zero it; got %+v", dropped.Imports)
+	}
+}
