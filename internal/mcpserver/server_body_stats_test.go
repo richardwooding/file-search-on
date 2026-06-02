@@ -146,3 +146,70 @@ func TestServerInstructionsMentionsBodyAndStats(t *testing.T) {
 		}
 	}
 }
+
+// TestSearchTool_BodyContains_SuggestsFindMatches confirms the #281
+// always-on hint lands in Suggestions[] when the search expression
+// uses body.contains() — even on a successful (non-cancelled) walk.
+// Agents discovering search first then learn to drop to find_matches
+// for per-line context.
+func TestSearchTool_BodyContains_SuggestsFindMatches(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "a.md"), "# h\ntransformer is here\n")
+
+	ctx, cs := newSession(t)
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name: "search",
+		Arguments: SearchInput{
+			Expr:        `is_markdown && body.contains("transformer")`,
+			Dir:         dir,
+			IncludeBody: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	var out SearchOutput
+	mustDecodeStructured(t, res, &out)
+	if out.Cancelled {
+		t.Fatalf("walk should have completed cleanly; got Cancelled=true")
+	}
+	if len(out.Suggestions) == 0 {
+		t.Fatal("expected at least one suggestion for body.contains-based expr")
+	}
+	gotHint := false
+	for _, s := range out.Suggestions {
+		if strings.Contains(s, "find_matches") && strings.Contains(s, "transformer") {
+			gotHint = true
+			break
+		}
+	}
+	if !gotHint {
+		t.Errorf("suggestions missing find_matches hint with extracted pattern; got %v", out.Suggestions)
+	}
+}
+
+// TestSearchTool_NoBodyMethod_NoHint confirms the hint stays out of
+// the response on a plain-attribute search.
+func TestSearchTool_NoBodyMethod_NoHint(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "a.md"), "# h\n")
+
+	ctx, cs := newSession(t)
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name: "search",
+		Arguments: SearchInput{
+			Expr: `is_markdown`,
+			Dir:  dir,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	var out SearchOutput
+	mustDecodeStructured(t, res, &out)
+	for _, s := range out.Suggestions {
+		if strings.Contains(s, "find_matches") {
+			t.Errorf("unexpected find_matches hint on non-body expr: %q", s)
+		}
+	}
+}
