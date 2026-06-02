@@ -343,6 +343,11 @@ func New(version string, idx index.Index, defaultTimeout time.Duration, embedDef
 	}, instrument(h.metrics, "list_attributes", h.listAttributesHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name:        "validate_expr",
+		Description: "Validate a CEL expression without running a walk. Compiles via the same env the search tool uses (every declared variable + every built-in function in scope) and returns ok / error / referenced_variables / referenced_functions / suggestion. On compile failure, surfaces the cel-go error message AND (when the failure was an unknown identifier within Levenshtein distance 2 of a known name) a 'did you mean X?' suggestion. The referenced_* lists populate regardless of ok so the caller can correlate against list_attributes even when their typo blocks compilation. Cheap — no file IO, no walk. Use during iterative CEL refinement to avoid burning a search call on every typo. Issue #282.",
+	}, instrument(h.metrics, "validate_expr", h.validateExprHandler))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "read_attributes",
 		Description: "Extract content-type-specific attributes for a single file path. Use when the agent already knows the path and wants metadata without running a CEL filter or walking a directory. Returns the same Match shape as the search tool — title, author, EXIF, audio tags, video codec, frontmatter, etc., depending on the detected content type.",
 	}, instrument(h.metrics, "read_attributes", h.readAttributesHandler))
