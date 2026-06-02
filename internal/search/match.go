@@ -497,6 +497,16 @@ type Match struct {
 	CommentLOC int64 `json:"comment_loc,omitempty"`
 	BlankLOC   int64 `json:"blank_loc,omitempty"`
 
+	// Imports lists the third-party / module dependencies the source
+	// file declares. Populated for source/go (full import paths),
+	// source/python (the module side of `import X` + `from X import`),
+	// source/java + source/csharp + source/php + source/perl +
+	// source/r + source/matlab (FQNs from their respective import-shape
+	// keywords). Issue #275 — surfaces the CEL `imports` variable in
+	// the wire format so callers can read the dependency list, project
+	// via `fields: ["imports"]`, and answer "who depends on X?".
+	Imports []string `json:"imports,omitempty"`
+
 	CellCount         int64  `json:"cell_count,omitempty"`
 	CodeCellCount     int64  `json:"code_cell_count,omitempty"`
 	MarkdownCellCount int64  `json:"markdown_cell_count,omitempty"`
