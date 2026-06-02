@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"go.etcd.io/bbolt"
+	bolterrors "go.etcd.io/bbolt/errors"
 )
 
 const (
@@ -530,6 +531,63 @@ func (b *boltIndex) PeekBody(absPath string) (*BodyEntry, bool) {
 		return nil
 	})
 	return out, out != nil
+}
+
+// Delete removes the attribute + body + body-access entries for
+// absPath in a single write transaction. Returns nil when none of
+// the buckets contained the key — Delete is idempotent. Stats
+// counters are NOT decremented (monotonic-since-process-start).
+//
+// Note on the body-cache running-total: PutBody's size accounting
+// in bodiesTotalSize is approximate (it tracks puts, not deletes,
+// because eviction's primary path is over-cap FIFO). Operator-
+// initiated Delete decrements it for the affected entry too so the
+// dashboard's "X MiB / 256 MiB used" doesn't drift permanently.
+func (b *boltIndex) Delete(absPath string) error {
+	if absPath == "" {
+		return nil
+	}
+	key := []byte(absPath)
+	return b.db.Update(func(tx *bbolt.Tx) error {
+		if bodies := tx.Bucket([]byte(bucketBodies)); bodies != nil {
+			if raw := bodies.Get(key); raw != nil {
+				b.bodiesTotalSize.Add(-int64(len(key) + len(raw)))
+			}
+			_ = bodies.Delete(key)
+		}
+		if access := tx.Bucket([]byte(bucketBodyAccess)); access != nil {
+			_ = access.Delete(key)
+		}
+		if attrs := tx.Bucket([]byte(bucketAttrs)); attrs != nil {
+			_ = attrs.Delete(key)
+		}
+		return nil
+	})
+}
+
+// Clear wipes every cached entry across attrs / bodies / body-access
+// in a single write transaction. The three data buckets are deleted
+// + re-created so subsequent Put / PutBody land in a fresh bucket.
+// The meta bucket (carrying the schema version) is preserved.
+//
+// Stats counters stay monotonic-since-process-start (a "what's my
+// hit-rate trend" question still answers across the clear).
+func (b *boltIndex) Clear() error {
+	err := b.db.Update(func(tx *bbolt.Tx) error {
+		for _, name := range []string{bucketAttrs, bucketBodies, bucketBodyAccess} {
+			if err := tx.DeleteBucket([]byte(name)); err != nil && !errors.Is(err, bolterrors.ErrBucketNotFound) {
+				return err
+			}
+			if _, err := tx.CreateBucket([]byte(name)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err == nil {
+		b.bodiesTotalSize.Store(0)
+	}
+	return err
 }
 
 // Close drains both writer channels, waits for the writer goroutines

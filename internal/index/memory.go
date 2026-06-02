@@ -230,6 +230,32 @@ func (m *memoryIndex) PeekBody(absPath string) (*BodyEntry, bool) {
 	return be, ok
 }
 
+// Delete removes attribute + body entries for absPath. Idempotent —
+// returns nil even when no entry was cached. The Stats counters are
+// monotonic-since-process-start and are NOT decremented.
+func (m *memoryIndex) Delete(absPath string) error {
+	if absPath == "" {
+		return nil
+	}
+	m.mu.Lock()
+	delete(m.data, absPath)
+	delete(m.bodies, absPath)
+	m.mu.Unlock()
+	return nil
+}
+
+// Clear wipes every cached entry across attrs + bodies. Re-inits the
+// maps so subsequent Puts see a fresh state. Stats counters stay
+// monotonic-since-process-start (reset only on process restart) so a
+// "cleared the cache, what's my hit-rate trend" question still works.
+func (m *memoryIndex) Clear() error {
+	m.mu.Lock()
+	m.data = make(map[string]*Entry)
+	m.bodies = make(map[string]*BodyEntry)
+	m.mu.Unlock()
+	return nil
+}
+
 // isAttrStaleEntry and isBodyStaleEntry are the shared
 // stat-and-compare used by ListAttrs / ListBodies across both
 // backends. (bbolt.go has type-specific copies because it can't

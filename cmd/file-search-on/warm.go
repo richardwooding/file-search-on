@@ -144,3 +144,46 @@ func warmEmbeddings(ctx context.Context, idx index.Index, root string, workers i
 	}
 	return err
 }
+
+// warmBody walks root and populates index.Entry body cache for every
+// walked file via the standard WalkStream path with IncludeBody=true.
+// No Embedder is involved — body extraction triggers as the same
+// side-effect that powers body.contains() / body.matches() filters.
+//
+// CPU budget mirrors warmIndex (NumCPU/4 default workers); body
+// extraction is more I/O than CPU so this stays cheap.
+func warmBody(ctx context.Context, idx index.Index, root string, workers int, log io.Writer) error {
+	workers = warmWorkers(workers)
+	opts := search.Options{
+		Root:                root,
+		Expr:                "true",
+		Workers:             workers,
+		Index:               idx,
+		IncludeAttributes:   false,
+		IncludeBody:         true,
+		BodyMaxBytes:        1 << 20,
+		RespectGitignore:    true,
+		PruneBuildArtefacts: true,
+	}
+	out := make(chan search.Result, workers*2)
+	var scanned atomic.Int64
+	done := make(chan struct{})
+	go func() {
+		for range out {
+			scanned.Add(1)
+		}
+		close(done)
+	}()
+	start := time.Now()
+	err := search.WalkStream(ctx, opts, contentpkg.DefaultRegistry(), out)
+	<-done
+	elapsed := time.Since(start).Round(time.Millisecond)
+	if log != nil {
+		if err != nil {
+			_, _ = fmt.Fprintf(log, "warm-bodies: %d files in %s (err: %v)\n", scanned.Load(), elapsed, err)
+		} else {
+			_, _ = fmt.Fprintf(log, "warm-bodies: %d files in %s\n", scanned.Load(), elapsed)
+		}
+	}
+	return err
+}
