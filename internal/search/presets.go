@@ -163,6 +163,86 @@ var presets = []Preset{
 			}
 		},
 	},
+	{
+		Name:        "recent_commits",
+		Description: "Files most-recently committed in the current git tree (last 7 days, newest first). Repo-aware sibling of recent_changes — fixes the 'fresh clone has all mtimes set to checkout time' problem the filesystem version has on repos.",
+		Build: func() PresetOptions {
+			cutoff := time.Now().Add(-7 * 24 * time.Hour).UTC().Format(time.RFC3339)
+			return PresetOptions{
+				Expr:  fmt.Sprintf(`git_last_commit_time > timestamp(%q)`, cutoff),
+				Sort:  "git_last_commit_time",
+				Order: "desc",
+				Limit: 50,
+			}
+		},
+	},
+	{
+		Name:        "hot_files",
+		Description: "20 highest-churn source files by git commit count, descending — refactor / review prioritisation. Repo-aware; relies on the git_commit_count CEL attribute (#271).",
+		Build: func() PresetOptions {
+			return PresetOptions{
+				// Filter to source + tracked so vendor / docs / data don't
+				// dominate the top-N. git_commit_count > 0 forces git
+				// auto-warm via celexpr.NeedsGit (a single attribute
+				// reference is enough) and excludes untracked files.
+				Expr:  `is_source && is_git_tracked && git_commit_count > 0`,
+				Sort:  "git_commit_count",
+				Order: "desc",
+				Limit: 20,
+			}
+		},
+	},
+	{
+		Name:        "prod_code",
+		Description: "Production source code — tracked in git, not a test file, not machine-generated. The 'show me what humans wrote' filter. Composites #271 (is_git_tracked) + #276 (is_generated_code) + the per-language test convention.",
+		Build: func() PresetOptions {
+			return PresetOptions{
+				Expr: `is_source && is_git_tracked && !is_test_file && !is_generated_code`,
+				Sort: "loc",
+				// Largest production files first — usually the most
+				// interesting under a 'show me production code' frame
+				// (entry points, long-lived modules, central dispatchers).
+				Order: "desc",
+				Limit: 100,
+			}
+		},
+	},
+	{
+		Name:        "untracked_code",
+		Description: "Source files NOT in git AND not matched by .gitignore — the 'did I forget to commit?' check. Catches new files an operator added but didn't `git add`. Uses #271 git-aware attributes.",
+		Build: func() PresetOptions {
+			return PresetOptions{
+				Expr:  `is_source && !is_git_tracked && !is_git_ignored`,
+				Sort:  "size",
+				Order: "desc",
+				Limit: 50,
+			}
+		},
+	},
+	{
+		Name:        "generated_code",
+		Description: "Machine-generated source files — protoc / mockery / easyjson / //go:generate output. Audit the codegen footprint or feed into refactor planning. Uses is_generated_code from #276.",
+		Build: func() PresetOptions {
+			return PresetOptions{
+				Expr:  `is_source && is_generated_code`,
+				Sort:  "size",
+				Order: "desc",
+				Limit: 50,
+			}
+		},
+	},
+	{
+		Name:        "test_files",
+		Description: "Source files matching each language's test convention (*_test.go / test_*.py / *.test.{js,ts,tsx} / *Test.java / *_spec.rb …). Useful for test-coverage reconnaissance or triaging the test surface.",
+		Build: func() PresetOptions {
+			return PresetOptions{
+				Expr:  `is_source && is_test_file`,
+				Sort:  "loc",
+				Order: "desc",
+				Limit: 50,
+			}
+		},
+	},
 }
 
 // Presets returns the catalog sorted alphabetically by Name. Safe to

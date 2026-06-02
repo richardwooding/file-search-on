@@ -62,6 +62,16 @@ func compareByKey(a, b Result, key string) int {
 		return cmpFloat(similarityOf(a), similarityOf(b))
 	case "rank":
 		return cmpFloat(a.Rank, b.Rank)
+	// Git-aware sort keys (parity follow-up to #271, #299). git_*
+	// fields are typed FileAttributes fields, NOT entries on the
+	// Extra map, so the extraScalar fallback below misses them and
+	// the sort silently no-ops. Pull them straight off Attrs.
+	case "git_last_commit_time":
+		return cmpTime(gitLastCommitTimeOf(a), gitLastCommitTimeOf(b))
+	case "git_first_seen":
+		return cmpTime(gitFirstSeenOf(a), gitFirstSeenOf(b))
+	case "git_commit_count":
+		return cmpInt(gitCommitCountOf(a), gitCommitCountOf(b))
 	}
 	// Per-family scalar keys live in FileAttributes.Extra. Pull the
 	// value via the Attrs pointer (nil when IncludeAttributes is
@@ -103,6 +113,27 @@ func modTimeOf(r Result) time.Time {
 func similarityOf(r Result) float64 {
 	if r.Attrs != nil {
 		return r.Attrs.Similarity
+	}
+	return 0
+}
+
+func gitLastCommitTimeOf(r Result) time.Time {
+	if r.Attrs != nil {
+		return r.Attrs.GitLastCommitTime
+	}
+	return time.Time{}
+}
+
+func gitFirstSeenOf(r Result) time.Time {
+	if r.Attrs != nil {
+		return r.Attrs.GitFirstSeen
+	}
+	return time.Time{}
+}
+
+func gitCommitCountOf(r Result) int64 {
+	if r.Attrs != nil {
+		return r.Attrs.GitCommitCount
 	}
 	return 0
 }
