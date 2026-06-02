@@ -13,6 +13,7 @@ import (
 	"github.com/richardwooding/file-search-on/internal/celexpr"
 	"github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/embed"
+	"github.com/richardwooding/file-search-on/internal/gitmeta"
 	"github.com/richardwooding/file-search-on/internal/hashset"
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/projecttype"
@@ -207,6 +208,17 @@ type Options struct {
 	// "no match".
 	ResolveProjects bool
 
+	// WithGit, when true, makes the walker build one gitmeta.Cache
+	// per root via gitmeta.New (one `git log` pass per repo) and
+	// pass it into BuildAttributesWith so the git_* CEL attributes
+	// (git_last_commit_time / git_last_commit_author /
+	// git_last_commit_subject / git_first_seen / git_commit_count /
+	// is_git_tracked / is_git_ignored) populate per file. Cheap when
+	// the root IS a git tree (one process invocation up front);
+	// silent no-op when the root isn't (gitmeta.New returns nil
+	// cache). CLI: --with-git. MCP: with_git. Issue #271.
+	WithGit bool
+
 	// PruneBuildArtefacts, when true, pre-walks each root to
 	// discover every project subdirectory and unions the canonical
 	// build-artefact basenames (`vendor`, `node_modules`, `target`,
@@ -383,6 +395,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 		fsys     fs.FS
 		exc      *excluder
 		resolver *projecttype.ProjectResolver
+		gitCache *gitmeta.Cache
 	}
 	var specs []rootSpec
 	makeResolver := func(r string) *projecttype.ProjectResolver {
@@ -390,6 +403,21 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 			return nil
 		}
 		return projecttype.NewResolver(r, nil)
+	}
+	// makeGitCache runs one `git log` pass per root when WithGit is
+	// set. Returns nil when the root isn't a git tree, when git
+	// isn't installed, or when the New() call errors (in all those
+	// cases the walk proceeds with empty git_* attributes — the
+	// non-git-tree degradation contract).
+	makeGitCache := func(r string) *gitmeta.Cache {
+		if !opts.WithGit {
+			return nil
+		}
+		c, err := gitmeta.New(ctx, r)
+		if err != nil {
+			return nil
+		}
+		return c
 	}
 	// excludesFor returns the user's --exclude list plus any
 	// project-aware build-artefact excludes collected from r's
@@ -421,6 +449,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 				fsys:     rfs,
 				exc:      newExcluder(rfs, excludesFor(r), opts.RespectGitignore),
 				resolver: makeResolver(r),
+				gitCache: makeGitCache(r),
 			})
 		}
 	} else {
@@ -437,6 +466,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 			fsys:     fsys,
 			exc:      newExcluder(fsys, excludesFor(root), opts.RespectGitignore),
 			resolver: makeResolver(root),
+			gitCache: makeGitCache(root),
 		})
 	}
 
@@ -449,6 +479,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 		fsPath      string
 		displayPath string
 		resolver    *projecttype.ProjectResolver
+		gitCache    *gitmeta.Cache
 	}
 	jobs := make(chan job, opts.Workers*2)
 	var wg sync.WaitGroup
@@ -479,6 +510,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 						OCRImages:              opts.OCRImages,
 						OCRTimeout:             opts.OCRTimeout,
 						WithPHash:              opts.WithPHash,
+						GitCache:               j.gitCache,
 					})
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 						return
@@ -573,7 +605,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case jobs <- job{fsys: subFsys, fsPath: subPath, displayPath: displayPath, resolver: spec.resolver}:
+			case jobs <- job{fsys: subFsys, fsPath: subPath, displayPath: displayPath, resolver: spec.resolver, gitCache: spec.gitCache}:
 			}
 			return nil
 		})
@@ -637,7 +669,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case jobs <- job{fsys: spec.fsys, fsPath: fsPath, displayPath: displayPath, resolver: spec.resolver}:
+			case jobs <- job{fsys: spec.fsys, fsPath: fsPath, displayPath: displayPath, resolver: spec.resolver, gitCache: spec.gitCache}:
 			}
 			return nil
 		})

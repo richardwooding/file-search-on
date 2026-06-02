@@ -296,6 +296,20 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.IsKnownBad, true
 	case "similarity":
 		return a.attrs.Similarity, true
+	case "git_last_commit_time":
+		return a.attrs.GitLastCommitTime, true
+	case "git_last_commit_author":
+		return a.attrs.GitLastCommitAuthor, true
+	case "git_last_commit_subject":
+		return a.attrs.GitLastCommitSubject, true
+	case "git_first_seen":
+		return a.attrs.GitFirstSeen, true
+	case "git_commit_count":
+		return a.attrs.GitCommitCount, true
+	case "is_git_tracked":
+		return a.attrs.IsGitTracked, true
+	case "is_git_ignored":
+		return a.attrs.IsGitIgnored, true
 	}
 	if v, ok := a.attrs.Extra[name]; ok {
 		return v, true

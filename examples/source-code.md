@@ -192,6 +192,37 @@ file-search-on 'is_source && functions.size() == 1 && imports.size() > 10'
 
 Repeat queries on unchanged trees are sub-second — symbols cache alongside the other attributes via the bbolt index, validated against `(size, mtime)`.
 
+## Git-aware queries
+
+Filesystem `mod_time` is meaningless on a freshly cloned repo (every file's mtime is checkout time). Pass `--with-git` (CLI) or `with_git: true` (MCP) and use the `git_*` CEL attributes for repo-aware filtering.
+
+```sh
+# Files I (or any author) most recently edited — independent of checkout time.
+file-search-on 'is_source && git_last_commit_time > timestamp("2026-05-01T00:00:00Z")' \
+  --with-git -d . --sort git_last_commit_time --order desc --limit 20
+
+# Hot files — high churn over the repo's history.
+file-search-on 'is_source && git_commit_count > 50' \
+  --with-git -d . --sort git_commit_count --order desc --limit 10
+
+# Production code only — skip untracked scratch, generated artefacts, tests.
+file-search-on 'is_source && is_git_tracked && !is_test_file' \
+  --with-git -d .
+
+# What did a specific author last touch?
+file-search-on 'is_source && git_last_commit_author == "Alice"' \
+  --with-git -d . --sort git_last_commit_time --order desc
+
+# Recently-added files (first appeared in HEAD's history after May 2026).
+file-search-on 'is_source && git_first_seen > timestamp("2026-05-01T00:00:00Z")' \
+  --with-git -d .
+
+# Find files matched by .gitignore (build artefacts an agent should skip).
+file-search-on 'is_git_ignored' --with-git -d .
+```
+
+One `git log` pass per walk root up front; per-file lookups are free. Silent no-op when the root isn't inside a git working tree or when `git` isn't on PATH — the rest of the query still runs, the `git_*` fields just stay zero. Issue #271.
+
 ## Out of scope
 
 - **Shebang detection** for extensionless scripts (`~/bin/foo` containing `#!/usr/bin/env python3`). Detection is extension-only; a follow-up could add shebang routing, but it requires changes to the detector contract.
