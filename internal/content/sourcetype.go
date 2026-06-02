@@ -140,6 +140,8 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 			funcs, types, imports = extractPHPSymbols(bodyBuf.Bytes())
 		case "perl":
 			funcs, types, imports = extractPerlSymbols(bodyBuf.Bytes())
+		case "r":
+			funcs, types, imports = extractRSymbols(bodyBuf.Bytes())
 		}
 		if len(funcs) > 0 {
 			attrs["functions"] = funcs
@@ -159,7 +161,7 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 // buffer for languages that won't use it.
 func symbolExtractorWired(language string) bool {
 	switch language {
-	case "go", "python", "java", "csharp", "php", "perl":
+	case "go", "python", "java", "csharp", "php", "perl", "r":
 		return true
 	}
 	return false
