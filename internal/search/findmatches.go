@@ -52,6 +52,43 @@ type FindMatchesResult struct {
 // surface different messages.
 var ErrEmptyPattern = errors.New("pattern is required")
 
+// matchInMode is the internal enum behind the user-facing Options.MatchIn
+// string. Validated up front in parseMatchIn so each per-file scan
+// reads an enum, not the string. Issue #272.
+type matchInMode uint8
+
+const (
+	matchInAny matchInMode = iota
+	matchInComments
+	matchInCode
+)
+
+// MatchInAny / MatchInComments / MatchInCode are the user-facing
+// string constants for Options.MatchIn. Exposed so CLI / MCP layers
+// can validate at parse time and the CEL prune layer (find_matches
+// preset, etc) doesn't have to keep magic strings.
+const (
+	MatchInAny      = "any"
+	MatchInComments = "comments"
+	MatchInCode     = "code"
+)
+
+// parseMatchIn maps the user-facing string to the internal enum.
+// Empty / "any" → matchInAny (no filtering). Unknown values error
+// at the entry point — fail-fast is better than silent no-op when
+// the user typo'd the mode.
+func parseMatchIn(s string) (matchInMode, error) {
+	switch s {
+	case "", MatchInAny:
+		return matchInAny, nil
+	case MatchInComments:
+		return matchInComments, nil
+	case MatchInCode:
+		return matchInCode, nil
+	}
+	return matchInAny, fmt.Errorf("match_in: unknown value %q (want one of any|comments|code)", s)
+}
+
 // findMatchesLineCap bounds the per-line scanner buffer. Matches the
 // read_lines / snippet pattern: pathological single-line files (rolled
 // logs, minified JSON) don't blow up the response — the offending line
@@ -86,6 +123,10 @@ func FindMatches(ctx context.Context, opts Options, registry *content.Registry) 
 	re, err := regexp.Compile(opts.Pattern)
 	if err != nil {
 		return nil, fmt.Errorf("compile pattern: %w", err)
+	}
+	matchIn, err := parseMatchIn(opts.MatchIn)
+	if err != nil {
+		return nil, err
 	}
 
 	// Match the CLI / MCP search-handler convention: empty CEL expr
@@ -142,7 +183,7 @@ func FindMatches(ctx context.Context, opts Options, registry *content.Registry) 
 				if ctx.Err() != nil {
 					return
 				}
-				hits := scanResultForMatches(ctx, opts.FS, r, re, opts.ContextBefore, opts.ContextAfter, opts.MaxMatchesPerFile)
+				hits := scanResultForMatches(ctx, opts.FS, r, re, opts.ContextBefore, opts.ContextAfter, opts.MaxMatchesPerFile, matchIn)
 				mu.Lock()
 				filesScanned++
 				if len(hits) > 0 {
@@ -211,7 +252,7 @@ func FindMatches(ctx context.Context, opts Options, registry *content.Registry) 
 // drop that file silently — matches the broader "broken file doesn't
 // abort the walk" pattern. fsys is non-nil only in test paths that
 // pass Options.FS.
-func scanResultForMatches(ctx context.Context, fsys fs.FS, r Result, re *regexp.Regexp, ctxBefore, ctxAfter, maxPerFile int) []LineMatch {
+func scanResultForMatches(ctx context.Context, fsys fs.FS, r Result, re *regexp.Regexp, ctxBefore, ctxAfter, maxPerFile int, matchIn matchInMode) []LineMatch {
 	if err := ctx.Err(); err != nil {
 		return nil
 	}
@@ -231,7 +272,21 @@ func scanResultForMatches(ctx context.Context, fsys fs.FS, r Result, re *regexp.
 	}
 	defer func() { _ = rd.Close() }()
 
-	hits := scanReaderForMatches(ctx, rd, re, ctxBefore, ctxAfter, maxPerFile)
+	// Resolve per-language syntax once per file. matchIn=any short-
+	// circuits the lookup entirely (zero syntax → classifier never
+	// runs). Non-source content types (markdown / json / etc) have no
+	// syntax registered — the scanner sees ok=false and skips role
+	// filtering, so MatchIn="comments" against a markdown file is a
+	// no-op. Issue #272.
+	var (
+		syntax commentSyntax
+		hasSyntax bool
+	)
+	if matchIn != matchInAny {
+		syntax, hasSyntax = commentSyntaxFor(languageFromContentType(r.ContentType))
+	}
+
+	hits := scanReaderForMatches(ctx, rd, re, ctxBefore, ctxAfter, maxPerFile, matchIn, syntax, hasSyntax)
 	for i := range hits {
 		hits[i].Path = r.Path
 		hits[i].ContentType = r.ContentType
@@ -248,7 +303,7 @@ func scanResultForMatches(ctx context.Context, fsys fs.FS, r Result, re *regexp.
 // (without adding new matches) until every pending After window is
 // filled — otherwise the last few matches would carry truncated
 // After lines, which is surprising.
-func scanReaderForMatches(ctx context.Context, rd io.Reader, re *regexp.Regexp, ctxBefore, ctxAfter, maxPerFile int) []LineMatch {
+func scanReaderForMatches(ctx context.Context, rd io.Reader, re *regexp.Regexp, ctxBefore, ctxAfter, maxPerFile int, matchIn matchInMode, syntax commentSyntax, hasSyntax bool) []LineMatch {
 	scanner := bufio.NewScanner(rd)
 	scanner.Buffer(make([]byte, 0, 4096), findMatchesLineCap)
 
@@ -256,8 +311,13 @@ func scanReaderForMatches(ctx context.Context, rd io.Reader, re *regexp.Regexp, 
 		matches []LineMatch
 		before  []string // ring; len <= ctxBefore
 		pending []int    // indices into matches waiting for their After window
+		inBlock bool     // running block-comment state for the classifier
 	)
 	lineNo := 0
+	// filterByRole is true only when the caller asked for comments/code
+	// AND we recognised the file's language. Files without syntax
+	// (markdown, json, raw text) or matchIn=any leave filtering off.
+	filterByRole := matchIn != matchInAny && hasSyntax
 
 	for scanner.Scan() {
 		if err := ctx.Err(); err != nil {
@@ -266,6 +326,14 @@ func scanReaderForMatches(ctx context.Context, rd io.Reader, re *regexp.Regexp, 
 		lineNo++
 		// scanner.Bytes() is reused on next Scan(); copy.
 		line := string(scanner.Bytes())
+
+		// Classify role + advance block-comment state. We always
+		// advance the state (so the classifier stays accurate across
+		// the file) but only USE the role when filterByRole is set.
+		var role lineRole
+		if hasSyntax {
+			role, inBlock = classifyLine(line, syntax, inBlock)
+		}
 
 		// Fill any pending After windows; drop those whose After is
 		// full. Reuse pending's backing array (kept = pending[:0]).
@@ -283,7 +351,7 @@ func scanReaderForMatches(ctx context.Context, rd io.Reader, re *regexp.Regexp, 
 		}
 
 		atCap := maxPerFile > 0 && len(matches) >= maxPerFile
-		if !atCap && re.MatchString(line) {
+		if !atCap && re.MatchString(line) && roleMatches(filterByRole, matchIn, role) {
 			m := LineMatch{Line: lineNo, Text: line}
 			if len(before) > 0 {
 				m.Before = append([]string(nil), before...)
@@ -310,4 +378,21 @@ func scanReaderForMatches(ctx context.Context, rd io.Reader, re *regexp.Regexp, 
 	// scanner.Err() deliberately ignored — pathological lines are
 	// truncated; matches the snippet / read_lines degradation pattern.
 	return matches
+}
+
+// roleMatches reports whether a line of role `r` survives the MatchIn
+// filter. When filtering is off (filterByRole=false), every role
+// passes — that covers matchIn=any AND the "language unrecognised /
+// non-source" no-op path.
+func roleMatches(filterByRole bool, mode matchInMode, r lineRole) bool {
+	if !filterByRole {
+		return true
+	}
+	switch mode {
+	case matchInComments:
+		return r == roleComment
+	case matchInCode:
+		return r == roleCode
+	}
+	return true
 }
