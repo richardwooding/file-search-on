@@ -81,15 +81,22 @@ type Entry struct {
 	// mismatch and re-embeds — we never trust a vector of unknown
 	// provenance). gob-additive.
 	EmbedModel string
-	// Fingerprint is the 64-bit Charikar SimHash of the file's
-	// extracted body, computed by internal/fingerprint. Zero unless
-	// the near-duplicates pipeline asked for it. Like Hash, it's
-	// invariant under (size, mtime) — the cached fingerprint stays
-	// valid for as long as the entry validates. gob-additive: older
-	// caches without this field decode with Fingerprint=0, which
-	// the near-duplicates path treats as "not fingerprinted yet"
-	// and re-computes on the next access.
+	// Fingerprint is the legacy 64-bit Charikar SimHash field from
+	// the v0.x near-duplicates pipeline. Computed over the raw
+	// extracted body — without the per-language boilerplate strip
+	// that issue #274 added. Kept on the struct for back-compat
+	// (gob decoders for older bbolt indexes still find their data)
+	// but NO LONGER READ by the live pipeline. New writers populate
+	// FingerprintV2 instead. Will be removed in a future major.
 	Fingerprint uint64
+	// FingerprintV2 is the post-#274 SimHash — computed AFTER
+	// preprocessForFingerprint strips the language's leading
+	// comment block and package / import scaffolding. Zero on
+	// older cache entries (gob-additive); the near-duplicates path
+	// treats zero as "not fingerprinted yet" and re-computes
+	// on the next access. Invariant under (size, mtime) for as
+	// long as the entry validates.
+	FingerprintV2 uint64
 	// PHash is the 64-bit perceptual hash of the IMAGE pixels (DCT
 	// over an 8×8 low-frequency block, median-threshold). Populated
 	// only for image/* content types when the caller opts in via
