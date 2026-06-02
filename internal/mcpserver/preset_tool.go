@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/richardwooding/file-search-on/internal/celexpr"
 	"github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/search"
 )
@@ -83,6 +84,13 @@ func (h *handlers) queryPresetHandler(ctx context.Context, _ *mcp.CallToolReques
 		Excludes:          in.Excludes,
 		RespectGitignore:  in.RespectGitignore,
 		FollowSymlinks:    in.FollowSymlinks,
+		// Auto-enable WithGit + the server-shared GitCachePool when the
+		// preset's expr / sort / rank references a git_* attribute. Same
+		// shape as the search tool's auto-enable; lets git-aware presets
+		// (recent_commits, hot_files, prod_code, untracked_code) work
+		// without a separate input knob.
+		WithGit:      celexpr.NeedsGit(opts.Expr, opts.Sort, opts.RankExpr),
+		GitCachePool: h.gitPool,
 	}
 	if in.Limit != 0 {
 		walkOpts.Limit = in.Limit

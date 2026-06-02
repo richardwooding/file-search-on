@@ -101,6 +101,76 @@ func TestPresets_TimeRelativeExpressionsBakeNow(t *testing.T) {
 	}
 }
 
+// TestPresets_NewSet confirms the 6 v0.74.x-era presets are
+// registered, compile, and have the shape the docs advertise — git-
+// aware ones use git_* sort keys (which the auto-enable picks up
+// through celexpr.NeedsGit on opts.Sort).
+func TestPresets_NewSet(t *testing.T) {
+	wantPresets := map[string]struct {
+		wantSort  string
+		wantLimit int
+		mustHave  string // substring that must appear in Expr
+	}{
+		"recent_commits":  {wantSort: "git_last_commit_time", wantLimit: 50, mustHave: "git_last_commit_time"},
+		"hot_files":       {wantSort: "git_commit_count", wantLimit: 20, mustHave: "git_commit_count"},
+		"prod_code":       {wantSort: "loc", wantLimit: 100, mustHave: "!is_generated_code"},
+		"untracked_code":  {wantSort: "size", wantLimit: 50, mustHave: "!is_git_tracked"},
+		"generated_code":  {wantSort: "size", wantLimit: 50, mustHave: "is_generated_code"},
+		"test_files":      {wantSort: "loc", wantLimit: 50, mustHave: "is_test_file"},
+	}
+	for name, want := range wantPresets {
+		t.Run(name, func(t *testing.T) {
+			p := search.PresetByName(name)
+			if p == nil {
+				t.Fatalf("preset %q not registered", name)
+			}
+			opts := p.Build()
+			if opts.Sort != want.wantSort {
+				t.Errorf("Sort = %q, want %q", opts.Sort, want.wantSort)
+			}
+			if opts.Limit != want.wantLimit {
+				t.Errorf("Limit = %d, want %d", opts.Limit, want.wantLimit)
+			}
+			if !strings.Contains(opts.Expr, want.mustHave) {
+				t.Errorf("Expr missing %q substring: %s", want.mustHave, opts.Expr)
+			}
+			// Every new preset must compile through the same env
+			// (existing TestPresets_AllCompile already covers this for
+			// the whole catalog; we just sanity-check the new ones too).
+			if _, err := celexpr.New(opts.Expr); err != nil {
+				t.Errorf("preset %q expr failed to compile: %v", name, err)
+			}
+		})
+	}
+}
+
+// TestPresets_NewSet_AutoEnableGit confirms the git-aware presets'
+// expr/sort keys trigger celexpr.NeedsGit so callers don't have to
+// pass with_git explicitly.
+func TestPresets_NewSet_AutoEnableGit(t *testing.T) {
+	for _, name := range []string{"recent_commits", "hot_files", "prod_code", "untracked_code"} {
+		p := search.PresetByName(name)
+		if p == nil {
+			t.Fatalf("preset %q not registered", name)
+		}
+		opts := p.Build()
+		if !celexpr.NeedsGit(opts.Expr, opts.Sort, opts.RankExpr) {
+			t.Errorf("preset %q should auto-enable with_git via NeedsGit (expr=%q, sort=%q)", name, opts.Expr, opts.Sort)
+		}
+	}
+	// Non-git-aware presets stay false.
+	for _, name := range []string{"recent_changes", "large_files", "system_metadata", "test_files", "generated_code"} {
+		p := search.PresetByName(name)
+		if p == nil {
+			t.Fatalf("preset %q not registered", name)
+		}
+		opts := p.Build()
+		if celexpr.NeedsGit(opts.Expr, opts.Sort, opts.RankExpr) {
+			t.Errorf("preset %q should NOT auto-enable with_git (expr=%q, sort=%q)", name, opts.Expr, opts.Sort)
+		}
+	}
+}
+
 // TestPreset_FailedTests_OnlyFiresOnCommentLines is the #280
 // regression guard: the preset's body.matches() pattern must NOT fire
 // on raw-content occurrences of FIXME / XXX / FAIL / TODO (test

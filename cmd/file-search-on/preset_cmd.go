@@ -8,6 +8,7 @@ import (
 	"os"
 	"text/tabwriter"
 
+	"github.com/richardwooding/file-search-on/internal/celexpr"
 	contentpkg "github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/search"
@@ -47,6 +48,11 @@ func (p *PresetCmd) Run(ctx context.Context) error {
 	opts := preset.Build()
 
 	// Translate PresetOptions + CLI overrides into a search.Options.
+	// Auto-enable WithGit when the preset's expr / sort / rank
+	// references any git_* attribute — same shape as the search
+	// subcommand's auto-detect, so recent_commits / hot_files /
+	// prod_code / untracked_code get git data without the caller
+	// having to remember a --with-git flag.
 	walkOpts := search.Options{
 		Roots:             p.Dir,
 		Expr:              opts.Expr,
@@ -62,6 +68,7 @@ func (p *PresetCmd) Run(ctx context.Context) error {
 		Excludes:          p.Excludes,
 		RespectGitignore:  p.RespectGit,
 		FollowSymlinks:    p.FollowSymlinks,
+		WithGit:           celexpr.NeedsGit(opts.Expr, opts.Sort, opts.RankExpr),
 	}
 
 	if p.Limit != 0 {
