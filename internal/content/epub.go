@@ -32,7 +32,7 @@ func (e *epubType) Attributes(ctx context.Context, fsys fs.FS, filePath string) 
 		return nil, err
 	}
 
-	opfPath, err := readOPFPath(zr)
+	opfPath, err := readOPFPath(ctx, zr)
 	if err != nil || opfPath == "" {
 		return Attributes{}, nil
 	}
@@ -52,7 +52,11 @@ func (e *epubType) Attributes(ctx context.Context, fsys fs.FS, filePath string) 
 }
 
 // readOPFPath parses META-INF/container.xml and returns the path to the OPF rootfile.
-func readOPFPath(zr *zip.Reader) (string, error) {
+//
+// ctx is checked between tokens so a maliciously-crafted container.xml
+// (deeply-nested elements, billion-laughs-shaped expansion) can be
+// abandoned mid-parse if the walk was cancelled.
+func readOPFPath(ctx context.Context, zr *zip.Reader) (string, error) {
 	f, err := openZipEntry(zr, "META-INF/container.xml")
 	if err != nil {
 		return "", err
@@ -61,6 +65,9 @@ func readOPFPath(zr *zip.Reader) (string, error) {
 
 	dec := xml.NewDecoder(f)
 	for {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 		tok, err := dec.Token()
 		if err == io.EOF {
 			break

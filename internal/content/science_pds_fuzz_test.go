@@ -1,6 +1,7 @@
 package content
 
 import (
+	"context"
 	"testing"
 )
 
@@ -36,7 +37,7 @@ func FuzzParsePDS3Label(f *testing.F) {
 	f.Add(bad)
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		_ = parsePDS3Label(data) // must not panic
+		_, _ = parsePDS3Label(context.Background(), data) // must not panic
 	})
 }
 

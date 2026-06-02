@@ -82,7 +82,10 @@ func TestChromiumBookmarks_Detection(t *testing.T) {
 
 func TestChromiumBookmarks_Attributes(t *testing.T) {
 	data := buildChromiumBookmarksFixture(t)
-	attrs := parseChromiumBookmarks(data, "Default/Bookmarks")
+	attrs, err := parseChromiumBookmarks(context.Background(), data, "Default/Bookmarks")
+	if err != nil {
+		t.Fatalf("parseChromiumBookmarks: %v", err)
+	}
 
 	if got := attrs["bookmark_count"]; got != int64(3) {
 		t.Errorf("bookmark_count = %v, want 3", got)
@@ -123,14 +126,14 @@ func TestChromiumBookmarks_RejectsNonBookmarkJSON(t *testing.T) {
 	// A JSON file named `Bookmarks` but without the roots.bookmark_bar
 	// shape — common defensive case (user creates a random file).
 	junk := []byte(`{"some": "other", "json": "shape"}`)
-	attrs := parseChromiumBookmarks(junk, "Default/Bookmarks")
+	attrs, _ := parseChromiumBookmarks(context.Background(), junk, "Default/Bookmarks")
 	if len(attrs) != 0 {
 		t.Errorf("expected empty attrs for non-bookmarks JSON, got %v", attrs)
 	}
 }
 
 func TestChromiumBookmarks_MalformedJSON(t *testing.T) {
-	attrs := parseChromiumBookmarks([]byte("not json at all"), "Default/Bookmarks")
+	attrs, _ := parseChromiumBookmarks(context.Background(), []byte("not json at all"), "Default/Bookmarks")
 	if len(attrs) != 0 {
 		t.Errorf("expected empty attrs for malformed JSON, got %v", attrs)
 	}
@@ -166,7 +169,7 @@ func TestChromiumBookmarks_DepthCap(t *testing.T) {
 		},
 	}
 	data, _ := json.Marshal(doc)
-	attrs := parseChromiumBookmarks(data, "x/Bookmarks")
+	attrs, _ := parseChromiumBookmarks(context.Background(), data, "x/Bookmarks")
 	urls, _ := attrs["bookmark_urls"].([]string)
 	// The bottom URL is past bookmarkMaxDepth (64) so shouldn't appear.
 	for _, u := range urls {

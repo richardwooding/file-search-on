@@ -2,6 +2,7 @@ package content
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -63,7 +64,7 @@ func FuzzParseChromiumBookmarks(f *testing.F) {
 		if len(data) > fuzzBookmarkInputCap {
 			return
 		}
-		attrs := parseChromiumBookmarks(data, path)
+		attrs, _ := parseChromiumBookmarks(context.Background(), data, path)
 		// Contract checks.
 		if urls, ok := attrs["bookmark_urls"].([]string); ok && len(urls) > bookmarkMaxURLs {
 			t.Fatalf("bookmark_urls exceeds cap: %d > %d", len(urls), bookmarkMaxURLs)

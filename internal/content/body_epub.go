@@ -24,7 +24,7 @@ func epubBody(ctx context.Context, fsys fs.FS, filePath string, maxBytes int) (s
 		return "", nil
 	}
 
-	opfPath, err := readOPFPath(zr)
+	opfPath, err := readOPFPath(ctx, zr)
 	if err != nil || opfPath == "" {
 		return "", nil
 	}

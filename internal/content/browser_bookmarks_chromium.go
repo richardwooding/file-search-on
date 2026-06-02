@@ -86,7 +86,7 @@ func (*chromiumBookmarksType) Attributes(ctx context.Context, fsys fs.FS, path s
 	if err != nil {
 		return Attributes{}, nil
 	}
-	return parseChromiumBookmarks(buf, path), nil
+	return parseChromiumBookmarks(ctx, buf, path)
 }
 
 // parseChromiumBookmarks decodes the JSON, walks the `roots.*` trees,
@@ -94,32 +94,42 @@ func (*chromiumBookmarksType) Attributes(ctx context.Context, fsys fs.FS, path s
 // exercises it directly. Returns an empty Attributes map (not nil) on
 // any decoding failure or missing `roots.bookmark_bar` marker so the
 // walker contract holds: a malformed file doesn't fail the walk.
-func parseChromiumBookmarks(data []byte, path string) Attributes {
+//
+// Takes ctx so a cancelled walk doesn't keep iterating the bookmark
+// tree (bookmarkMaxNodes caps the worst case but cancellation should
+// short-circuit immediately).
+func parseChromiumBookmarks(ctx context.Context, data []byte, path string) (Attributes, error) {
 	var root chromiumBookmarksRoot
 	if err := json.Unmarshal(data, &root); err != nil {
-		return Attributes{}
+		return Attributes{}, nil
 	}
 	if len(root.Roots) == 0 {
-		return Attributes{}
+		return Attributes{}, nil
 	}
 	// Discriminator: real Chromium files always carry `bookmark_bar`.
 	if _, ok := root.Roots["bookmark_bar"]; !ok {
-		return Attributes{}
+		return Attributes{}, nil
 	}
 
 	collected := bookmarkCollection{}
 	for _, treeRoot := range root.Roots {
-		walkChromiumNode(&treeRoot, 0, &collected)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		walkChromiumNode(ctx, &treeRoot, 0, &collected)
 		if collected.NodeCount >= bookmarkMaxNodes {
 			break
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	out := collected.toAttributes()
 	if profile := chromiumProfileFromPath(path); profile != "" {
 		out["bookmark_profile"] = profile
 	}
-	return out
+	return out, nil
 }
 
 // chromiumBookmarksRoot is the top-level JSON shape. Decoded keys we
@@ -140,8 +150,15 @@ type chromiumNode struct {
 // walkChromiumNode is the bounded recursive walker. Collects URLs,
 // titles, and folder names; honours depth + total-node caps to defend
 // against adversarial nesting / flat-tree fuzz input.
-func walkChromiumNode(n *chromiumNode, depth int, c *bookmarkCollection) {
+//
+// Takes ctx so cancellation short-circuits mid-walk: each recursion
+// level checks ctx.Err() and returns silently on cancel (the caller's
+// post-walk ctx.Err() check surfaces the error).
+func walkChromiumNode(ctx context.Context, n *chromiumNode, depth int, c *bookmarkCollection) {
 	if depth > bookmarkMaxDepth || c.NodeCount >= bookmarkMaxNodes {
+		return
+	}
+	if ctx.Err() != nil {
 		return
 	}
 	c.NodeCount++
@@ -152,7 +169,7 @@ func walkChromiumNode(n *chromiumNode, depth int, c *bookmarkCollection) {
 	case "folder":
 		c.addFolder(n.Name)
 		for i := range n.Children {
-			walkChromiumNode(&n.Children[i], depth+1, c)
+			walkChromiumNode(ctx, &n.Children[i], depth+1, c)
 			if c.NodeCount >= bookmarkMaxNodes {
 				return
 			}
@@ -179,7 +196,10 @@ func chromiumBookmarksBody(ctx context.Context, fsys fs.FS, path string, maxByte
 	if err != nil {
 		return "", nil
 	}
-	attrs := parseChromiumBookmarks(buf, path)
+	attrs, err := parseChromiumBookmarks(ctx, buf, path)
+	if err != nil {
+		return "", err
+	}
 	return bookmarkBody(attrs, maxBytes), nil
 }
 
