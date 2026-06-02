@@ -296,6 +296,27 @@ type Index interface {
 	// validation. Same semantics as PeekAttrs.
 	PeekBody(absPath string) (*BodyEntry, bool)
 
+	// Delete removes the attr + body + body-access entries for
+	// absPath in a single backend operation (bbolt uses one tx; the
+	// in-memory backend deletes from both maps under the same lock).
+	// Returns nil when no entry was present — Delete is idempotent.
+	// Stats counters are NOT decremented (they're monotonic-since-
+	// process-start; reset on process restart).
+	//
+	// Surfaced by the monitoring dashboard's per-row Evict button
+	// (PR added with #265-era follow-up) for operators inspecting
+	// cache contents and wanting to drop a specific entry.
+	Delete(absPath string) error
+
+	// Clear wipes every cached entry across attrs / bodies /
+	// body-access. For bbolt this is DeleteBucket + re-create in a
+	// single tx; for in-memory it re-inits the maps. Stats counters
+	// stay monotonic-since-process-start.
+	//
+	// Surfaced by the monitoring dashboard's Clear button. Hard
+	// reset for "the cache feels weirdly stale" investigation.
+	Clear() error
+
 	Stats() Stats
 	Close() error
 }

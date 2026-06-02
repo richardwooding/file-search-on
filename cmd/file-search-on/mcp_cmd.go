@@ -70,6 +70,24 @@ func (m *MCPCmd) Run(ctx context.Context) error {
 	if monAddr == "" && !m.NoMonitor {
 		monAddr = ":0" // dynamic, OS-assigned (default since v0.65.0)
 	}
+	// cwd at server start — dashboard warm endpoints walk this when the
+	// operator doesn't supply ?dir=… on the POST. os.Getwd may fail in
+	// pathological environments; an empty string means the buttons go
+	// to 412 "no Cwd configured", which is the right failure mode.
+	monCwd, _ := os.Getwd()
+	warmAttrsFn := func(ctx context.Context, root string) error {
+		return warmIndex(ctx, idx, root, m.WarmWorkers, os.Stderr)
+	}
+	warmBodyFn := func(ctx context.Context, root string) error {
+		return warmBody(ctx, idx, root, m.WarmWorkers, os.Stderr)
+	}
+	var warmEmbedFn func(ctx context.Context, root string) error
+	if m.EmbeddingModel != "" {
+		embedder := embed.NewOllama(m.EmbeddingServer, m.EmbeddingModel)
+		warmEmbedFn = func(ctx context.Context, root string) error {
+			return warmEmbeddings(ctx, idx, root, m.WarmWorkers, embedder, os.Stderr)
+		}
+	}
 	controller := monitor.NewController(ctx, monitor.Config{
 		Version:             version,
 		Mode:                "mcp-" + m.Transport,
@@ -81,6 +99,10 @@ func (m *MCPCmd) Run(ctx context.Context) error {
 		IndexBackend:        backend.Mode,
 		IndexFallbackReason: backend.Reason,
 		BodyCacheCap:        bodyCap,
+		Cwd:                 monCwd,
+		WarmAttrsFn:         warmAttrsFn,
+		WarmBodyFn:          warmBodyFn,
+		WarmEmbeddingsFn:    warmEmbedFn,
 	}, addrOrDynamic(monAddr))
 	// Drain the dashboard (and deregister from the peer registry) before
 	// the index closes. Registered before cancelMonitor so, by LIFO,

@@ -15,6 +15,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/richardwooding/file-search-on/internal/content"
@@ -41,6 +43,31 @@ type Config struct {
 	IndexBackend        string // "persistent" | "in-memory"
 	IndexFallbackReason string // "" | "lock_contention" | "no_index_flag"
 	BodyCacheCap        int64  // 0 → in-memory / no cap
+
+	// Cwd is the server's working directory at start; warm endpoints
+	// default to walking it when the caller doesn't pin a dir.
+	Cwd string
+
+	// WarmAttrsFn / WarmBodyFn / WarmEmbeddingsFn are dependency-injected
+	// from cmd/file-search-on so the monitor package doesn't import the
+	// main-package warmers. Each is called from a fire-and-forget
+	// goroutine spawned by the matching POST handler. Nil indicates the
+	// feature isn't wired (handler returns 412 Precondition Failed).
+	WarmAttrsFn      func(ctx context.Context, root string) error
+	WarmBodyFn       func(ctx context.Context, root string) error
+	WarmEmbeddingsFn func(ctx context.Context, root string) error
+}
+
+// warmingState is the snapshot returned via /api/overview while a warm
+// goroutine is running. The Server stores it in a sync/atomic.Pointer so
+// the GET path is lock-free.
+type warmingState struct {
+	Kind         string    `json:"kind"` // "attrs" | "bodies" | "embeddings"
+	Root         string    `json:"root"`
+	StartedAt    time.Time `json:"started_at"`
+	LastDuration string    `json:"last_duration,omitempty"`
+	LastKind     string    `json:"last_kind,omitempty"`
+	LastError    string    `json:"last_error,omitempty"`
 }
 
 // Server is the read-only monitoring HTTP server. Bind with Listen
@@ -53,6 +80,18 @@ type Server struct {
 	ln        net.Listener
 	url       string
 	ready     chan struct{} // closed by Serve once registered; see Ready
+
+	// warming is the live state of the most-recent (or in-flight) warm
+	// goroutine — nil when none has ever run, or set to a state with
+	// LastDuration filled in once one has completed. /api/overview
+	// reads via atomic.Pointer.Load.
+	warming atomic.Pointer[warmingState]
+
+	// warmMu serialises POSTs to the warm endpoints so two concurrent
+	// clicks can't both spawn goroutines that race on the same root.
+	// The lock is only held during the in-flight start handshake; the
+	// goroutine body runs unlocked.
+	warmMu sync.Mutex
 }
 
 // NewServer builds a monitoring server from cfg.
@@ -72,6 +111,16 @@ func (s *Server) routes() (http.Handler, error) {
 	mux.HandleFunc("GET /api/peers", s.handlePeers)
 	mux.HandleFunc("GET /api/cache/entries", s.handleCacheEntries)
 	mux.HandleFunc("GET /api/cache/entry", s.handleCacheEntry)
+	// Mutating endpoints. Reachable only via the 127.0.0.1 binding;
+	// the operator started the file-search-on process that owns the
+	// cache, and the browser same-origin policy blocks cross-origin
+	// POSTs. No auth token / CSRF check — the loopback binding IS
+	// the trust boundary. See plan doc + ADR linked in CHANGELOG.
+	mux.HandleFunc("POST /api/cache/evict", s.handleCacheEvict)
+	mux.HandleFunc("POST /api/cache/clear", s.handleCacheClear)
+	mux.HandleFunc("POST /api/cache/warm-attrs", s.handleWarmAttrs)
+	mux.HandleFunc("POST /api/cache/warm-bodies", s.handleWarmBodies)
+	mux.HandleFunc("POST /api/cache/warm-embeddings", s.handleWarmEmbeddings)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	sub, err := fs.Sub(staticFiles, "static")
 	if err != nil {
@@ -225,7 +274,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, _ *http.Request) {
 	if s.cfg.IndexPath != "" {
 		indexBacking = s.cfg.IndexPath
 	}
-	writeJSON(w, map[string]any{
+	payload := map[string]any{
 		"version":               s.cfg.Version,
 		"mode":                  s.cfg.Mode,
 		"uptime_seconds":        time.Since(s.startedAt).Seconds(),
@@ -239,7 +288,16 @@ func (s *Server) handleOverview(w http.ResponseWriter, _ *http.Request) {
 		"index_fallback_reason": s.cfg.IndexFallbackReason, // "" | "no_index_flag" | "lock_contention"
 		"body_cache_cap":        s.cfg.BodyCacheCap,
 		"goroutines":            runtime.NumGoroutine(),
-	})
+		// Mutation surface — UI gates buttons on these.
+		"cwd":                       s.cfg.Cwd,
+		"warm_attrs_available":      s.cfg.WarmAttrsFn != nil,
+		"warm_bodies_available":     s.cfg.WarmBodyFn != nil,
+		"warm_embeddings_available": s.cfg.WarmEmbeddingsFn != nil,
+	}
+	if state := s.warming.Load(); state != nil {
+		payload["warming"] = state
+	}
+	writeJSON(w, payload)
 }
 
 // --- /api/cache ---
@@ -462,19 +520,8 @@ func (s *Server) handleCacheEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := q.Get("path")
-	if path == "" {
-		http.Error(w, "path is required", http.StatusBadRequest)
-		return
-	}
-	// Reject ill-formed paths defensively. Our cache only ever stores
-	// keys via Put() with absolute, filepath.Clean()-normalised paths
-	// — anything else can't hit a cache entry anyway. Validating up
-	// front means PeekAttrs / PeekBody never have to consider hostile
-	// inputs, and keeps the handler off CodeQL's go/path-injection
-	// radar by sanitising user input before it flows into any path
-	// operation downstream.
-	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
-		http.Error(w, "path must be an absolute, clean filesystem path", http.StatusBadRequest)
+	if err := validateAbsPath(path); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -531,6 +578,164 @@ func (s *Server) handleCacheEntry(w http.ResponseWriter, r *http.Request) {
 			"truncated":   truncated,
 		})
 	}
+}
+
+// validateAbsPath enforces the same shape PR #249 chose for cache
+// browsing: absolute, filepath.Clean()-normalised. Both Put callers
+// (the walker) only ever store keys that already match this, so any
+// non-conforming path can't hit a cache entry anyway. Validating up
+// front keeps the handler off CodeQL's go/path-injection radar.
+func validateAbsPath(path string) error {
+	if path == "" {
+		return errors.New("path is required")
+	}
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return errors.New("path must be an absolute, clean filesystem path")
+	}
+	return nil
+}
+
+// --- POST /api/cache/evict ---
+
+func (s *Server) handleCacheEvict(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.Index == nil {
+		http.Error(w, "index not available", http.StatusServiceUnavailable)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	path := r.Form.Get("path")
+	if err := validateAbsPath(path); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.cfg.Index.Delete(path); err != nil {
+		http.Error(w, fmt.Sprintf("delete: %v", err), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- POST /api/cache/clear ---
+
+func (s *Server) handleCacheClear(w http.ResponseWriter, _ *http.Request) {
+	if s.cfg.Index == nil {
+		http.Error(w, "index not available", http.StatusServiceUnavailable)
+		return
+	}
+	if err := s.cfg.Index.Clear(); err != nil {
+		http.Error(w, fmt.Sprintf("clear: %v", err), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- POST /api/cache/warm-* (shared plumbing) ---
+
+// warmRequest extracts the root dir from the request form, falling back
+// to cfg.Cwd. Validates the result as an absolute clean path.
+func (s *Server) warmRequest(r *http.Request) (string, error) {
+	if err := r.ParseForm(); err != nil {
+		return "", err
+	}
+	root := r.Form.Get("dir")
+	if root == "" {
+		root = s.cfg.Cwd
+	}
+	if err := validateAbsPath(root); err != nil {
+		return "", err
+	}
+	return root, nil
+}
+
+// startWarm wraps the warm goroutine bookkeeping: rejects if another
+// warm is already in flight (HTTP 409), publishes the in-flight state
+// for /api/overview, and clears it (storing the post-mortem fields) on
+// completion. fn must return promptly when ctx is cancelled.
+//
+// The goroutine uses a fresh context.Background() rather than the
+// request context — operators want the warm to keep running after
+// their POST returns 202. The parent ctx the Server was started with
+// would be ideal, but Serve doesn't currently expose it; in practice
+// SIGINT / SIGTERM kills the whole process, which tears the goroutine
+// down with it. A 30-minute timeout caps the worst case.
+func (s *Server) startWarm(w http.ResponseWriter, kind, root string, fn func(ctx context.Context, root string) error) {
+	s.warmMu.Lock()
+	if cur := s.warming.Load(); cur != nil && cur.LastDuration == "" {
+		s.warmMu.Unlock()
+		http.Error(w, fmt.Sprintf("a %s warm is already in flight", cur.Kind), http.StatusConflict)
+		return
+	}
+	state := &warmingState{Kind: kind, Root: root, StartedAt: time.Now()}
+	s.warming.Store(state)
+	s.warmMu.Unlock()
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		err := fn(ctx, root)
+		done := &warmingState{
+			Kind:         "", // empty => idle
+			Root:         root,
+			StartedAt:    state.StartedAt,
+			LastKind:     kind,
+			LastDuration: time.Since(state.StartedAt).Round(time.Millisecond).String(),
+		}
+		if err != nil {
+			done.LastError = err.Error()
+		}
+		s.warming.Store(done)
+	}()
+
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(map[string]any{"kind": kind, "root": root, "started_at": state.StartedAt})
+}
+
+// --- POST /api/cache/warm-attrs ---
+
+func (s *Server) handleWarmAttrs(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.WarmAttrsFn == nil {
+		http.Error(w, "warm-attrs not wired (Cwd / WarmAttrsFn missing)", http.StatusPreconditionFailed)
+		return
+	}
+	root, err := s.warmRequest(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.startWarm(w, "attrs", root, s.cfg.WarmAttrsFn)
+}
+
+// --- POST /api/cache/warm-bodies ---
+
+func (s *Server) handleWarmBodies(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.WarmBodyFn == nil {
+		http.Error(w, "warm-bodies not wired (Cwd / WarmBodyFn missing)", http.StatusPreconditionFailed)
+		return
+	}
+	root, err := s.warmRequest(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.startWarm(w, "bodies", root, s.cfg.WarmBodyFn)
+}
+
+// --- POST /api/cache/warm-embeddings ---
+
+func (s *Server) handleWarmEmbeddings(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.WarmEmbeddingsFn == nil {
+		http.Error(w, "warm-embeddings not wired — set --embedding-model on the server", http.StatusPreconditionFailed)
+		return
+	}
+	root, err := s.warmRequest(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.startWarm(w, "embeddings", root, s.cfg.WarmEmbeddingsFn)
 }
 
 // parseIntDefault parses s as int; returns def on error / empty.

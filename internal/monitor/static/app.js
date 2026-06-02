@@ -217,6 +217,7 @@ async function tick() {
     renderActivity(a);
     renderCapabilities(caps);
     renderPeers(peers);
+    renderWarmingStatus(o);
     updateCacheBrowserCounts(c);
     setHealth(true);
   } catch (e) {
@@ -281,11 +282,12 @@ function renderCacheBrowserTable(entries) {
       <td>${escapeHTML(cell2)}</td>
       <td>${escapeHTML(cell3)}</td>
       <td>${mt}</td>
+      <td><button class="cb-evict-btn" data-evict="${escapeAttr(e.path)}" type="button">Evict</button></td>
     </tr>`;
   }).join("");
   const header = isAttrs
-    ? `<th>path</th><th>content_type</th><th>size</th><th>mod_time</th>`
-    : `<th>path</th><th>size</th><th>last_access</th><th>mod_time</th>`;
+    ? `<th>path</th><th>content_type</th><th>size</th><th>mod_time</th><th></th>`
+    : `<th>path</th><th>size</th><th>last_access</th><th>mod_time</th><th></th>`;
   document.getElementById("cb-table").innerHTML = `<table class="cb-table">
     <thead><tr>${header}</tr></thead>
     <tbody>${rows}</tbody>
@@ -293,6 +295,13 @@ function renderCacheBrowserTable(entries) {
   // Wire row clicks → detail modal.
   document.querySelectorAll("#cb-table tr.cb-row").forEach((tr) => {
     tr.addEventListener("click", () => openDetail(tr.dataset.path));
+  });
+  // Per-row Evict. stopPropagation so the row click doesn't ALSO open the modal.
+  document.querySelectorAll("#cb-table button[data-evict]").forEach((btn) => {
+    btn.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      await evictPath(btn.dataset.evict);
+    });
   });
 }
 
@@ -409,6 +418,113 @@ function wireCacheBrowser() {
 }
 
 wireCacheBrowser();
+wireCacheActions();
 
 tick();
 setInterval(tick, 2000);
+
+// --- Mutating actions ---
+
+function toast(msg, kind) {
+  const el = document.getElementById("cb-toast");
+  el.textContent = msg;
+  el.className = "cb-toast " + (kind === "err" ? "toast-err" : "toast-ok");
+  el.hidden = false;
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { el.hidden = true; }, 3500);
+}
+
+async function postAction(path, formBody) {
+  const r = await fetch(path, {
+    method: "POST",
+    cache: "no-store",
+    headers: formBody ? { "Content-Type": "application/x-www-form-urlencoded" } : {},
+    body: formBody || null,
+  });
+  if (!r.ok) {
+    const text = (await r.text()).trim();
+    throw new Error(text || `${path} ${r.status}`);
+  }
+  return r;
+}
+
+async function evictPath(path) {
+  try {
+    await postAction("api/cache/evict", "path=" + encodeURIComponent(path));
+    toast("Evicted " + path);
+    await refreshCacheBrowser();
+  } catch (e) {
+    toast("Evict failed: " + e.message, "err");
+  }
+}
+
+async function clearAll() {
+  try {
+    await postAction("api/cache/clear", null);
+    toast("Cache cleared");
+    await refreshCacheBrowser();
+  } catch (e) {
+    toast("Clear failed: " + e.message, "err");
+  }
+}
+
+async function fireWarm(kind) {
+  try {
+    await postAction("api/cache/" + kind, null);
+    toast("Started: " + kind);
+  } catch (e) {
+    toast(kind + " failed: " + e.message, "err");
+  }
+}
+
+function renderWarmingStatus(o) {
+  const el = document.getElementById("cb-warming-status");
+  if (!el) return;
+  // Disable warm buttons when one is in flight to prevent the 409 path.
+  const inflight = o.warming && o.warming.kind !== "";
+  for (const id of ["cb-warm-attrs", "cb-warm-bodies", "cb-warm-embed"]) {
+    const btn = document.getElementById(id);
+    if (btn) btn.disabled = !!inflight;
+  }
+  // Gate Embed button on server-side availability.
+  const embedBtn = document.getElementById("cb-warm-embed");
+  if (embedBtn && !inflight) embedBtn.disabled = !o.warm_embeddings_available;
+  if (inflight) {
+    const started = o.warming.started_at ? new Date(o.warming.started_at) : null;
+    const elapsed = started ? Math.floor((Date.now() - started.getTime()) / 1000) : 0;
+    el.textContent = `Warming ${o.warming.kind} (${dur(elapsed)} elapsed) · ${o.warming.root || "—"}`;
+    el.hidden = false;
+  } else if (o.warming && o.warming.last_kind) {
+    const w = o.warming;
+    if (w.last_error) {
+      el.textContent = `Last ${w.last_kind} warm failed after ${w.last_duration}: ${w.last_error}`;
+      el.hidden = false;
+    } else {
+      el.textContent = `Last ${w.last_kind} warm completed in ${w.last_duration}`;
+      el.hidden = false;
+    }
+  } else {
+    el.hidden = true;
+  }
+}
+
+function wireCacheActions() {
+  document.getElementById("cb-warm-attrs").addEventListener("click", () => fireWarm("warm-attrs"));
+  document.getElementById("cb-warm-bodies").addEventListener("click", () => fireWarm("warm-bodies"));
+  document.getElementById("cb-warm-embed").addEventListener("click", () => fireWarm("warm-embeddings"));
+
+  const confirmModal = document.getElementById("cb-confirm");
+  document.getElementById("cb-clear").addEventListener("click", () => {
+    confirmModal.hidden = false;
+  });
+  document.getElementById("cb-confirm-cancel").addEventListener("click", () => {
+    confirmModal.hidden = true;
+  });
+  document.getElementById("cb-confirm-ok").addEventListener("click", async () => {
+    confirmModal.hidden = true;
+    await clearAll();
+  });
+  confirmModal.addEventListener("click", (e) => {
+    if (e.target === confirmModal) confirmModal.hidden = true;
+  });
+}

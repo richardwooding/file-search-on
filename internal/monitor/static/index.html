@@ -31,6 +31,14 @@
 
     <section class="panel">
       <h2>Cache entries <span id="cb-counts" class="muted"></span></h2>
+      <div class="cb-actions">
+        <button id="cb-warm-attrs" class="btn" type="button">Warm attrs</button>
+        <button id="cb-warm-bodies" class="btn" type="button">Warm bodies</button>
+        <button id="cb-warm-embed" class="btn" type="button" title="requires --embedding-model on the server">Warm embeddings</button>
+        <span class="cb-spacer"></span>
+        <button id="cb-clear" class="btn btn-danger" type="button">Clear cache…</button>
+      </div>
+      <div id="cb-warming-status" class="cb-warming-status" hidden></div>
       <div class="cb-toolbar">
         <div class="cb-tabs">
           <button id="cb-tab-attrs" class="cb-tab cb-tab-active" data-bucket="attrs">Attributes</button>
@@ -45,6 +53,17 @@
       </div>
       <div id="cb-table"></div>
     </section>
+    <div id="cb-confirm" class="cb-modal" hidden>
+      <div class="cb-modal-inner">
+        <h3>Clear entire cache?</h3>
+        <p>This deletes every cached entry across attrs / bodies / embeddings. Stats counters stay monotonic, but every cached row is gone.</p>
+        <div class="cb-confirm-actions">
+          <button id="cb-confirm-cancel" class="btn" type="button">Cancel</button>
+          <button id="cb-confirm-ok" class="btn btn-danger" type="button">Yes, clear it</button>
+        </div>
+      </div>
+    </div>
+    <div id="cb-toast" class="cb-toast" hidden></div>
     <div id="cb-modal" class="cb-modal" hidden>
       <div class="cb-modal-inner">
         <button id="cb-modal-close" class="cb-modal-close" aria-label="Close">×</button>
@@ -65,7 +84,7 @@
     </section>
   </main>
 
-  <footer class="muted">polling every 2s · localhost only · read-only</footer>
+  <footer class="muted">polling every 2s · localhost only · mutations enabled</footer>
   <script src="app.js"></script>
 </body>
 </html>

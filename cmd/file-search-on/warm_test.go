@@ -286,3 +286,63 @@ func TestWarmEmbeddings_NilLogOk(t *testing.T) {
 		t.Fatalf("warmEmbeddings with nil log: %v", err)
 	}
 }
+
+// TestWarmBody_PopulatesBodyCache: walking a tempdir with warmBody must
+// land one body-cache entry per walked text-ish file. Mirrors the
+// warmEmbeddings test minus the Ollama stub — body cache fills as a
+// side-effect of IncludeBody=true, no Embedder needed.
+func TestWarmBody_PopulatesBodyCache(t *testing.T) {
+	dir := t.TempDir()
+	for _, b := range []string{"a.md", "b.md", "c.md"} {
+		mustWriteFile(t, filepath.Join(dir, b), "body of "+b+"\n")
+	}
+
+	idx := index.NewMemory()
+	t.Cleanup(func() { _ = idx.Close() })
+
+	var log bytes.Buffer
+	if err := warmBody(context.Background(), idx, dir, 1, &log); err != nil {
+		t.Fatalf("warmBody: %v", err)
+	}
+
+	got := idx.Stats().BodyPuts
+	if got != 3 {
+		t.Errorf("BodyPuts = %d, want 3 (one per walked file)", got)
+	}
+	if !strings.Contains(log.String(), "warm-bodies: 3 files in ") {
+		t.Errorf("missing completion line; got %q", log.String())
+	}
+}
+
+func TestWarmBody_ContextCancel(t *testing.T) {
+	dir := t.TempDir()
+	for _, b := range []string{"a.md", "b.md", "c.md"} {
+		mustWriteFile(t, filepath.Join(dir, b), "x")
+	}
+	idx := index.NewMemory()
+	t.Cleanup(func() { _ = idx.Close() })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := warmBody(ctx, idx, dir, 1, nil)
+	if err == nil {
+		return
+	}
+	if !errorIsContextCancellation(err) {
+		t.Errorf("error = %v, want context-cancellation-shaped", err)
+	}
+}
+
+func TestWarmBody_NilLogOk(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "x.md"), "hi")
+	idx := index.NewMemory()
+	t.Cleanup(func() { _ = idx.Close() })
+
+	if err := warmBody(context.Background(), idx, dir, 1, nil); err != nil {
+		t.Fatalf("warmBody with nil log: %v", err)
+	}
+	if got := idx.Stats().BodyPuts; got != 1 {
+		t.Errorf("BodyPuts = %d, want 1", got)
+	}
+}
