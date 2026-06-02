@@ -293,6 +293,13 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 		// directory, expensive flags, missing prunes, lax filter.
 		output.Suggestions = search.SuggestionsForSearch(walkOpts, output.Matches, output.ElapsedSeconds, output.CancellationReason)
 	}
+	// Always-on wrong-tool hint (issue #281). Fires regardless of
+	// cancellation — the body.contains/body.matches → find_matches
+	// nudge is most useful on the SUCCESSFUL "I got 50 paths, now
+	// where are the matches?" path.
+	if hint := search.BodyMatchSuggestion(in.Expr); hint != "" {
+		output.Suggestions = append(output.Suggestions, hint)
+	}
 	output.ServerVersion = h.version
 	return nil, output, nil
 }

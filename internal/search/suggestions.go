@@ -3,6 +3,7 @@ package search
 import (
 	"fmt"
 	"path"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -106,6 +107,69 @@ func appendLaxFilterSuggestion(out []string, expr string) []string {
 	return append(out,
 		"The CEL filter is empty or 'true' — every file is walked. Add a type predicate (is_pdf, is_image, is_source, …) to limit candidates.")
 }
+
+// BodyMatchSuggestion returns a hint pointing the caller to
+// find_matches when their search expression uses body.contains() /
+// body.matches() / body.startsWith() / body.endsWith() to filter by
+// content. The natural caller wants per-line matches with surrounding
+// context, but search returns only the file path; find_matches
+// answers the same question in one walk WITH line + context. The
+// hint extracts the regex / substring literal when it appears in the
+// canonical `body.method("LITERAL")` shape so the suggested
+// find_matches call is copy-pasteable.
+//
+// Returns "" when the expression doesn't reference any body-content
+// method. Unlike the partial-result heuristics in SuggestionsForSearch
+// this fires regardless of cancellation — the wrong-tool nudge is
+// most useful on the SUCCESSFUL "I got 50 paths, where are the
+// matches?" path. Issue #281.
+func BodyMatchSuggestion(expr string) string {
+	if expr == "" {
+		return ""
+	}
+	// Cheap pre-check before the regex pass. Each method costs one
+	// strings.Contains; the regex only runs when we know there's
+	// something to extract.
+	hasContains := strings.Contains(expr, "body.contains(")
+	hasMatches := strings.Contains(expr, "body.matches(")
+	hasStarts := strings.Contains(expr, "body.startsWith(")
+	hasEnds := strings.Contains(expr, "body.endsWith(")
+	if !hasContains && !hasMatches && !hasStarts && !hasEnds {
+		return ""
+	}
+
+	// Try to extract the first body.contains / body.matches literal
+	// — the most useful for a find_matches suggestion since pattern
+	// is the headline input. startsWith / endsWith hints stay generic
+	// because find_matches doesn't have positional anchors.
+	method := ""
+	literal := ""
+	if hasMatches {
+		if m := reBodyMethodLiteral.FindStringSubmatch(expr); len(m) >= 3 && m[1] == "matches" {
+			method, literal = m[1], m[2]
+		}
+	}
+	if literal == "" && hasContains {
+		if m := reBodyMethodLiteral.FindStringSubmatch(expr); len(m) >= 3 && m[1] == "contains" {
+			method, literal = m[1], m[2]
+		}
+	}
+
+	if method != "" && literal != "" {
+		return fmt.Sprintf(
+			"This expression uses body.%s — for per-line matches with surrounding context, use find_matches with pattern=%q. Same walk cost, line numbers + context included.",
+			method, literal)
+	}
+	return "This expression uses body.contains / body.matches / body.startsWith / body.endsWith to filter on content. For per-line matches with surrounding context, use the find_matches tool instead — same walk cost, line numbers + context included."
+}
+
+// reBodyMethodLiteral captures the canonical body.<method>("LITERAL")
+// shape. Method name is constrained to contains / matches (the two
+// that have a useful find_matches translation). Literal is the
+// first double-quoted argument WITHOUT escape handling — CEL allows
+// \" inside strings but extracting around them is hairy; the
+// degraded case (escaped quote) falls through to the generic hint.
+var reBodyMethodLiteral = regexp.MustCompile(`\bbody\.(contains|matches)\(\s*"([^"]+)"`)
 
 // matchPaths projects []Match to []string of paths. Kept tight so
 // hot-directory analysis doesn't allocate via repeated field access.
