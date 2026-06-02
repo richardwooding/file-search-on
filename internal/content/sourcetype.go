@@ -64,6 +64,13 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 	var total, loc, blank, comment int64
 	inBlock := false
 	for scanner.Scan() {
+		// Per-iteration cancellation guard — a pathological source
+		// file (huge generated code, multi-MB single-line minified
+		// blob) shouldn't stall the walker after the walk was
+		// already cancelled. Mirrors the canonical text.go pattern.
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		total++
 		rawLine := scanner.Bytes()
 		if bodyBuf != nil && bodyBuf.Len() < symbolCaptureCap {

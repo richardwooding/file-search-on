@@ -39,6 +39,9 @@ func (c *csvType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attribu
 
 	var firstLine string
 	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if line := scanner.Text(); line != "" {
 			firstLine = line
 			break

@@ -74,7 +74,7 @@ func (p *pdsType) Attributes(ctx context.Context, fsys fs.FS, path string) (Attr
 	}
 	switch p.name {
 	case "science/pds3":
-		return parsePDS3Label(buf), nil
+		return parsePDS3Label(ctx, buf)
 	case "science/pds4":
 		return parsePDS4Label(buf), nil
 	}
@@ -123,7 +123,11 @@ func stripPVLQuotes(s string) string {
 // nested groups are out of scope for v1 — most metadata we care
 // about lives at the top level. Unknown / unsupported lines pass
 // through silently.
-func parsePDS3Label(data []byte) Attributes {
+//
+// Takes ctx so cancellation during the per-line scan exits early
+// (the scan is bounded by pdsReadCap = 1 MiB but still iterates
+// many lines on a fully-populated label).
+func parsePDS3Label(ctx context.Context, data []byte) (Attributes, error) {
 	cleaned := stripPVLComments(data)
 
 	out := Attributes{}
@@ -140,6 +144,9 @@ func parsePDS3Label(data []byte) Attributes {
 	scanner := bufio.NewScanner(bytes.NewReader(cleaned))
 	scanner.Buffer(make([]byte, 64*1024), 1*1024*1024)
 	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		line := scanner.Text()
 		before, after, ok := strings.Cut(line, "=")
 		if !ok {
@@ -174,14 +181,14 @@ func parsePDS3Label(data []byte) Attributes {
 	// Nothing parsed → empty attrs (acceptable: file was magic-
 	// detected but the body was unparseable).
 	if pdsVersion == "" && missionName == "" && targetName == "" && productID == "" {
-		return Attributes{}
+		return Attributes{}, nil
 	}
 
 	if pdsVersion != "" {
 		out["pds_version"] = pdsVersion
 	}
 	assignPDSCommon(out, missionName, spacecraftName, instrumentName, targetName, productID, startTime)
-	return scienceAttrs("pds3", out)
+	return scienceAttrs("pds3", out), nil
 }
 
 // pds4Product captures the slice of PDS4 schema we care about.
