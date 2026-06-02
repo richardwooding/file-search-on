@@ -58,6 +58,7 @@ type SearchCmd struct {
 	ResolveProjects  bool          `name:"resolve-projects" help:"Populate the 'project_types' (list<string>) and 'project_type' (string) CEL variables for each match by resolving the file's containing project root (go.mod, package.json, Cargo.toml, …). Enables filters like 'is_source && project_type == \"go\"'. Adds one ReadDir per unique directory walked (cached) — opt-in to avoid the cost when not needed."`
 	PruneArtefacts   bool          `name:"prune-build-artefacts" help:"Pre-walk the tree to find project roots and union their canonical build-artefact basenames (vendor for Go, node_modules for Node, target for Rust, __pycache__/.venv for Python, bin/obj for .NET, .terraform for Terraform, …) into --exclude. Saves the boilerplate exclude list when searching monorepos or ~/Code. Opt-in: pre-walk costs I/O proportional to tree size."`
 	WithGit          bool          `name:"with-git" help:"Populate git-aware CEL variables (git_last_commit_time, git_last_commit_author, git_last_commit_subject, git_first_seen, git_commit_count, is_git_tracked, is_git_ignored) by running one 'git log' pass per walk root. Auto-enabled when the expression, --sort, or --rank references a git_* / is_git_* attribute — pass --with-git explicitly only when you need git data but your CEL doesn't name it. Silent no-op when the root isn't inside a git working tree or when git isn't on PATH. Issue #271."`
+	Profile          string        `name:"profile" help:"Narrow per-file Attributes parsing to a curated content-type set. Currently recognises 'code' — skips per-format parsing for image / audio / video / binary / office / archive / database / science / font / 3d / chat / browser / bookmark families on mixed trees. Detection still runs so ContentType + is_X family flags populate. Issue #284."`
 }
 
 func (s *SearchCmd) Run(ctx context.Context) error {
@@ -203,6 +204,7 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		FollowSymlinks:      s.FollowSymlinks,
 		ResolveProjects:     s.ResolveProjects,
 		PruneBuildArtefacts: s.PruneArtefacts,
+		Profile:             s.Profile,
 		WithGit:             s.WithGit || celexpr.NeedsGit(s.Expr, s.Sort, s.Rank),
 	}
 

@@ -219,6 +219,18 @@ type Options struct {
 	// cache). CLI: --with-git. MCP: with_git. Issue #271.
 	WithGit bool
 
+	// Profile narrows the per-file Attributes parse to a curated
+	// content-type set. Currently only "code" is recognised — skips
+	// per-format parsing for image / audio / video / binary / office
+	// / archive / database / science / font / 3d / chat / browser
+	// / bookmark families on a mixed source-+-media tree where the
+	// non-source per-format parses would be wasted work. Detection
+	// still runs so ContentType + is_X family flags populate; only
+	// the expensive ContentType.Attributes call AND the cache write
+	// are skipped. Empty / unknown values disable the profile.
+	// Issue #284.
+	Profile string
+
 	// GitCachePool, when set, lets the walker resolve gitmeta.Cache
 	// instances via the shared pool instead of building one per walk
 	// via gitmeta.New. The MCP server owns one pool for its lifetime
@@ -533,6 +545,11 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 	jobs := make(chan job, opts.Workers*2)
 	var wg sync.WaitGroup
 
+	// Resolve the profile-driven skip-prefix list once per walk; nil
+	// when opts.Profile is empty / unrecognised (full parse, today's
+	// default). Issue #284.
+	skipAttrsPrefixes := skipPrefixesForProfile(opts.Profile)
+
 	for range opts.Workers {
 		wg.Go(func() {
 			for {
@@ -549,6 +566,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 						BodyMaxBytes:           opts.BodyMaxBytes,
 						ProjectResolver:        j.resolver,
 						SkipAttributesParse:    opts.SkipAttributesParse,
+						SkipAttributesPrefixes: skipAttrsPrefixes,
 						ComputeHashes:          opts.ComputeHashes,
 						CheckDisguised:         opts.CheckDisguised,
 						ReadExtendedAttributes: opts.ReadExtendedAttributes,
