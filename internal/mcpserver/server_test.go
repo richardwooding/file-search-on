@@ -198,37 +198,208 @@ func TestReadAttributesToolMissingPath(t *testing.T) {
 	}
 }
 
-func TestListAttributesTool(t *testing.T) {
+func TestListAttributesTool_SummaryByDefault(t *testing.T) {
 	ctx, cs := newSession(t)
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "list_attributes", Arguments: ListAttributesInput{}})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	var out ListAttributesOutput
+	mustDecodeStructured(t, res, &out)
 
+	if out.Mode != "summary" {
+		t.Fatalf("Mode = %q, want summary", out.Mode)
+	}
+	if out.Summary == nil {
+		t.Fatal("Summary nil in summary mode")
+	}
+	for _, sec := range []string{"common", "type_specific", "frontmatter", "functions", "content_types"} {
+		if n, ok := out.Summary.Sections[sec]; !ok || n == 0 {
+			t.Errorf("Summary.Sections[%q] = %d/%v, want >0", sec, n, ok)
+		}
+	}
+	if len(out.Summary.FunctionNames) == 0 {
+		t.Error("Summary.FunctionNames empty; want >=1")
+	}
+	if out.Summary.Hint == "" {
+		t.Error("Summary.Hint empty; want drill-in instructions")
+	}
+	// Detail fields must be empty in summary mode.
+	if len(out.Attributes) != 0 || len(out.Functions) != 0 || len(out.ContentTypes) != 0 {
+		t.Error("detail fields should be empty in summary mode")
+	}
+}
+
+func TestListAttributesTool_SummaryStaysSmall(t *testing.T) {
+	// The whole point of #273: the summary mode must be token-budget-safe.
+	// The legacy full-schema response is ~100kB. Assert the summary is
+	// dramatically smaller — under 4kB even with the hint string and
+	// function-name list inflating it.
+	ctx, cs := newSession(t)
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "list_attributes", Arguments: ListAttributesInput{}})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if sc := res.StructuredContent; sc != nil {
+		raw, err := json.Marshal(sc)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		if len(raw) > 4096 {
+			t.Errorf("summary response = %d bytes, want < 4096 (#273 budget)", len(raw))
+		}
+	}
+}
+
+func TestListAttributesTool_SectionCommon(t *testing.T) {
+	ctx, cs := newSession(t)
 	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "list_attributes",
-		Arguments: struct{}{},
+		Arguments: ListAttributesInput{Section: "common"},
 	})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
 	}
-
 	var out ListAttributesOutput
 	mustDecodeStructured(t, res, &out)
 
-	if len(out.Schema.Common) == 0 {
-		t.Fatal("expected non-empty Common schema")
+	if out.Mode != "section" || out.Section != "common" {
+		t.Errorf("Mode=%q Section=%q, want section/common", out.Mode, out.Section)
 	}
-	if len(out.ContentTypes) == 0 {
-		t.Fatal("expected at least one registered content type")
+	if out.Total == 0 {
+		t.Fatal("Total = 0; want >0 common attrs")
 	}
-
-	// Sanity: at least one expected attribute is present.
+	if len(out.Attributes) == 0 {
+		t.Fatal("Attributes empty for section=common")
+	}
+	// is_markdown is a known Common entry — guard the regression.
 	found := false
-	for _, a := range out.Schema.Common {
+	for _, a := range out.Attributes {
 		if a.Name == "is_markdown" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatal("expected is_markdown in Common attributes")
+		t.Error("expected is_markdown in section=common slice")
+	}
+}
+
+func TestListAttributesTool_SectionPagination(t *testing.T) {
+	ctx, cs := newSession(t)
+	// First page: limit 5, offset 0.
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "list_attributes",
+		Arguments: ListAttributesInput{Section: "type_specific", Limit: 5, Offset: 0},
+	})
+	if err != nil {
+		t.Fatalf("page1 CallTool: %v", err)
+	}
+	var page1 ListAttributesOutput
+	mustDecodeStructured(t, res, &page1)
+	if len(page1.Attributes) != 5 {
+		t.Errorf("page1 size = %d, want 5", len(page1.Attributes))
+	}
+
+	// Second page: limit 5, offset 5 — must be distinct entries.
+	res, err = cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "list_attributes",
+		Arguments: ListAttributesInput{Section: "type_specific", Limit: 5, Offset: 5},
+	})
+	if err != nil {
+		t.Fatalf("page2 CallTool: %v", err)
+	}
+	var page2 ListAttributesOutput
+	mustDecodeStructured(t, res, &page2)
+	if len(page2.Attributes) != 5 {
+		t.Errorf("page2 size = %d, want 5", len(page2.Attributes))
+	}
+	if page1.Attributes[0].Name == page2.Attributes[0].Name {
+		t.Errorf("page1 and page2 first entries identical (%q); pagination not advancing", page1.Attributes[0].Name)
+	}
+	// Same total reported on both pages.
+	if page1.Total != page2.Total {
+		t.Errorf("Total differs between pages: %d vs %d", page1.Total, page2.Total)
+	}
+}
+
+func TestListAttributesTool_SectionFunctions(t *testing.T) {
+	ctx, cs := newSession(t)
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "list_attributes",
+		Arguments: ListAttributesInput{Section: "functions"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	var out ListAttributesOutput
+	mustDecodeStructured(t, res, &out)
+	if out.Mode != "section" || out.Section != "functions" {
+		t.Errorf("Mode=%q Section=%q", out.Mode, out.Section)
+	}
+	if len(out.Functions) == 0 {
+		t.Fatal("Functions empty for section=functions")
+	}
+	if len(out.Attributes) != 0 {
+		t.Errorf("Attributes should be empty for section=functions; got %d", len(out.Attributes))
+	}
+}
+
+func TestListAttributesTool_NamesAcrossSections(t *testing.T) {
+	ctx, cs := newSession(t)
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name: "list_attributes",
+		Arguments: ListAttributesInput{
+			// Mix of attribute (loc — type_specific) + function (levenshtein) + content_type (markdown).
+			Names: []string{"loc", "levenshtein", "markdown"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	var out ListAttributesOutput
+	mustDecodeStructured(t, res, &out)
+	if out.Mode != "names" {
+		t.Errorf("Mode = %q, want names", out.Mode)
+	}
+
+	gotAttrs := make(map[string]bool, len(out.Attributes))
+	for _, a := range out.Attributes {
+		gotAttrs[a.Name] = true
+	}
+	if !gotAttrs["loc"] {
+		t.Error("expected 'loc' in Attributes")
+	}
+
+	gotFuncs := make(map[string]bool, len(out.Functions))
+	for _, f := range out.Functions {
+		gotFuncs[f.Name] = true
+	}
+	if !gotFuncs["levenshtein"] {
+		t.Error("expected 'levenshtein' in Functions")
+	}
+
+	gotCTs := make(map[string]bool, len(out.ContentTypes))
+	for _, c := range out.ContentTypes {
+		gotCTs[c.Name] = true
+	}
+	if !gotCTs["markdown"] {
+		t.Error("expected 'markdown' in ContentTypes")
+	}
+}
+
+func TestListAttributesTool_UnknownSectionErrors(t *testing.T) {
+	ctx, cs := newSession(t)
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "list_attributes",
+		Arguments: ListAttributesInput{Section: "bogus"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	// MCP wraps handler errors into the CallToolResult via IsError=true.
+	if !res.IsError {
+		t.Errorf("expected IsError=true for unknown section; got %+v", res)
 	}
 }
 
