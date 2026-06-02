@@ -23,6 +23,7 @@ type FindMatchesInput struct {
 	ContextBefore       int      `json:"context_before,omitempty" jsonschema:"Number of lines of leading context to attach to each match. 0 means no Before window."`
 	ContextAfter        int      `json:"context_after,omitempty" jsonschema:"Number of lines of trailing context to attach to each match. 0 means no After window."`
 	MaxMatchesPerFile   int      `json:"max_matches_per_file,omitempty" jsonschema:"Cap on matches reported per file. 0 = unlimited. The scan keeps reading past the cap until pending After windows are filled, so the last matches still carry full trailing context."`
+	MatchIn             string   `json:"match_in,omitempty" jsonschema:"Filter matches by per-line role. One of: 'any' (default — every regex hit), 'comments' (only hits on lines classified as a comment under the source file's language syntax: Go //, Python #, C /* */, plus block-comment continuation lines), 'code' (only hits on lines that AREN'T comments). Drops the typical TODO-sweep noise (test fixtures, string literals, fuzz seeds) without the agent having to hand-roll '^\\\\s*//<pattern>' regexes. Non-source files (markdown / json / plain text) are unaffected — they have no language syntax registered and the filter no-ops. Line-granular: a trailing-comment line like 'x := 1 // TODO' classifies as code. 'strings' mode (matching inside string literals) is deferred to a follow-up. Unknown values return an error. Issue #272."`
 	Excludes            []string `json:"excludes,omitempty" jsonschema:"Glob patterns matched against file/dir basenames; matches are pruned. Same semantics as search."`
 	RespectGitignore    bool     `json:"respect_gitignore,omitempty" jsonschema:"When true, parse a .gitignore at the walk root and skip matching paths."`
 	FollowSymlinks      bool     `json:"follow_symlinks,omitempty" jsonschema:"When true, descend through symbolic links to directories. Off by default."`
@@ -109,6 +110,7 @@ func (h *handlers) findMatchesHandler(ctx context.Context, _ *mcp.CallToolReques
 		ContextBefore:       in.ContextBefore,
 		ContextAfter:        in.ContextAfter,
 		MaxMatchesPerFile:   in.MaxMatchesPerFile,
+		MatchIn:             in.MatchIn,
 	}, content.DefaultRegistry())
 
 	if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {

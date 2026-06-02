@@ -306,6 +306,21 @@ type Options struct {
 	// the requested trailing context.
 	MaxMatchesPerFile int
 
+	// MatchIn filters FindMatches hits by per-line role. Empty / "any"
+	// keeps every match (default). "comments" returns only matches on
+	// lines classified as a comment under the source file's per-
+	// language syntax (Go //, Python #, C/C++ /* */, ...). "code"
+	// returns only matches on lines that AREN'T comments. Non-source
+	// files (markdown / json / plain text) are unaffected — they have
+	// no language syntax registered and the filter no-ops. v1 doesn't
+	// support a "strings" mode; defer to a follow-up issue.
+	//
+	// Filtering is line-granular: a trailing-comment line like
+	// `x := 1 // TODO` classifies as code (matches the hand-rolled
+	// `^\s*//<pattern>` regex shape an agent would otherwise write).
+	// Issue #272.
+	MatchIn string
+
 	// SkipAttributesParse, when true, makes BuildAttributesWith detect
 	// the file's content type and run setTypeFlags but skip the
 	// expensive ContentType.Attributes() parse. The walker still

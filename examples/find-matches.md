@@ -101,6 +101,28 @@ Response:
 }
 ```
 
+## Filtering by line role (`--match-in`)
+
+A `TODO|FIXME|XXX|HACK` sweep across a typical source tree returns mostly noise: test fixtures with `"TODO"` inside string literals, fuzz seeds with `XXXX`, identifiers like `FooTODOBar`, ID3 frame names like `TXXX`. To filter to *real* annotations:
+
+```sh
+# Comments only — drops every match that isn't on a comment line.
+file-search-on find-matches 'TODO|FIXME|XXX|HACK' \
+  -e 'is_source && language == "go" && !is_test_file' \
+  --match-in comments
+
+# Code only — useful for finding patterns hidden in string literals.
+file-search-on find-matches 'http://[^\s"]+' \
+  -e 'is_source' \
+  --match-in code
+```
+
+How it works: for source files the scanner classifies each line under the language's comment syntax (Go `//` + `/* */`, Python `#`, C/C++/Java/Rust/JS/TS/Swift/Kotlin/Scala/Zig `//` + `/* */`, PHP `//` + `#` + `/* */`, SQL `--`, Lua `--` + `--[[ ]]`, Haskell `--` + `{- -}`, OCaml `(* *)`, Clojure `;`, VB `'`, MATLAB `%`, Fortran `!`, Pascal `//` + `(* *)`, assembly `;` / `#`). Block comments track state across lines.
+
+The classifier is **line-granular**: a trailing-comment line like `x := 1 // TODO` classifies as code (matches the hand-rolled `^\s*//<pattern>` regex shape an agent would otherwise write). Pure comment lines and lines inside an open block comment are `comments`; everything else is `code`. Non-source files (markdown, JSON, plain text) have no syntax registered — `--match-in` is a no-op for them and every match passes.
+
+`strings` mode (matching inside string literals — useful for hunting hardcoded URLs / credentials) is deferred to a follow-up issue; v1 ships `any` / `comments` / `code`.
+
 ## Patterns
 
 The regex flavour is [RE2](https://github.com/google/re2/wiki/Syntax) — Google's regex syntax, same as Go's `regexp` package and CEL's `matches()`. Highlights:

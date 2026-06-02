@@ -22,6 +22,7 @@ type FindMatchesCmd struct {
 	ContextAfter        int           `short:"A" name:"after" help:"Number of lines of trailing context to attach to each match." default:"0"`
 	Context             int           `short:"C" name:"context" help:"Shortcut: set both --before and --after to this value. Ignored when --before or --after is set explicitly." default:"0"`
 	MaxMatchesPerFile   int           `name:"max-matches-per-file" help:"Cap on matches reported per file. 0 = unlimited." default:"0"`
+	MatchIn             string        `name:"match-in" enum:"any,comments,code" default:"any" help:"Filter matches by per-line role. 'any' (default) keeps every regex hit. 'comments' returns only hits on lines classified as a comment under the source file's language syntax (Go //, Python #, C /* */, etc.) — drops the typical TODO-sweep noise (test fixtures, string literals, fuzz seeds). 'code' returns only hits on lines that AREN'T comments. Non-source files (markdown / json / plain text) are unaffected. Issue #272."`
 	Exclude             []string      `name:"exclude" help:"Basename glob pruned during the walk (e.g. node_modules, .git, target). Repeatable."`
 	RespectGitignore    bool          `name:"respect-gitignore" help:"Parse a .gitignore at each walk root and skip matching paths."`
 	FollowSymlinks      bool          `name:"follow-symlinks" help:"Descend through symbolic links to directories. Off by default."`
@@ -72,6 +73,7 @@ func (f *FindMatchesCmd) Run(ctx context.Context) error {
 		ContextBefore:       before,
 		ContextAfter:        after,
 		MaxMatchesPerFile:   f.MaxMatchesPerFile,
+		MatchIn:             f.MatchIn,
 	}, contentpkg.DefaultRegistry())
 
 	// Print whatever was collected even on cancellation — FindMatches
