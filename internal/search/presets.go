@@ -132,10 +132,24 @@ var presets = []Preset{
 	},
 	{
 		Name:        "failed_tests",
-		Description: "Source-code test files mentioning FAIL / FIXME / XXX in the body — code-review prompt.",
+		Description: "Source-code test files with FAIL / FIXME / XXX / TODO in COMMENTS — code-review prompt.",
 		Build: func() PresetOptions {
+			// Issue #280: the original `body.matches("FAIL|FIXME|XXX")`
+			// fired on every test-fixture string literal containing
+			// those tokens (the headline #2 dogfood pain). Anchor the
+			// match on a line that BEGINS with a common comment
+			// marker (// for C-family, # for hash-family, -- for
+			// Lua/SQL/Haskell, ; for Clojure/asm) followed by the
+			// keyword. Uses RE2's (?m) flag so `^` matches each
+			// line boundary against the full file body.
+			//
+			// Mixed-content lines like `assert(x == 1) // FIXME` are
+			// NOT picked up — same shape as find_matches's
+			// match_in=comments (issue #272). Acceptable: the
+			// targeted reviewer signal is "comment-line annotation",
+			// not trailing inline comments.
 			return PresetOptions{
-				Expr:        `is_source && is_test_file && body.matches("FAIL|FIXME|XXX")`,
+				Expr:        `is_source && is_test_file && body.matches("(?m)^\\s*(//|#|--|;)\\s*\\b(FAIL|FIXME|XXX|TODO)\\b")`,
 				IncludeBody: true,
 			}
 		},
