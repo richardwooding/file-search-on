@@ -507,6 +507,22 @@ type Match struct {
 	// via `fields: ["imports"]`, and answer "who depends on X?".
 	Imports []string `json:"imports,omitempty"`
 
+	// Functions lists the top-level + nested function / method names
+	// declared in this source file. Populated by the same per-language
+	// extractor pass that populates Imports — source/go (via go/ast,
+	// includes receiver-bound methods as bare names) and source/python +
+	// source/java + source/csharp + source/php + source/perl +
+	// source/r + source/matlab (regex). Surfaces the CEL `functions`
+	// variable in the wire format so `fields: ["functions"]` works.
+	// Issue #278.
+	Functions []string `json:"functions,omitempty"`
+
+	// TypeNames lists the top-level + nested type / class / interface /
+	// enum / record names declared in this source file. Renamed in CEL
+	// from `types` to avoid a CEL-keyword collision. Populated by the
+	// same per-language extractor as Functions / Imports. Issue #278.
+	TypeNames []string `json:"type_names,omitempty"`
+
 	CellCount         int64  `json:"cell_count,omitempty"`
 	CodeCellCount     int64  `json:"code_cell_count,omitempty"`
 	MarkdownCellCount int64  `json:"markdown_cell_count,omitempty"`
