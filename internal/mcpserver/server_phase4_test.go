@@ -166,3 +166,76 @@ func itoaForTest(n int) string {
 	}
 	return string(b)
 }
+
+// TestStatsTool_PruneBuildArtefacts confirms the new input plumbs
+// through to the walker, parity-fixing the gap dogfooding surfaced:
+// stats over a Go module would over-count by walking ./vendor. With
+// prune_build_artefacts=true the vendor tree is excluded the same
+// way the search tool already does it. Issue #277.
+func TestStatsTool_PruneBuildArtefacts(t *testing.T) {
+	dir := t.TempDir()
+	// Marker file makes the dir a Go module — the project-type
+	// detector then knows "vendor" is a Go build artefact and adds
+	// it to the prune list.
+	mustWrite(t, filepath.Join(dir, "go.mod"), "module example.com/foo\n")
+	mustWrite(t, filepath.Join(dir, "main.go"), "package main\n")
+	// Synthesise a vendor dir with two more .go files.
+	vendorDir := filepath.Join(dir, "vendor", "github.com", "x", "y")
+	if err := os.MkdirAll(vendorDir, 0o755); err != nil {
+		t.Fatalf("mkdir vendor: %v", err)
+	}
+	mustWrite(t, filepath.Join(vendorDir, "a.go"), "package y\n")
+	mustWrite(t, filepath.Join(vendorDir, "b.go"), "package y\n")
+
+	ctx, cs := newSession(t)
+
+	// Baseline: prune_build_artefacts=false counts all 3 Go files.
+	resAll, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name: "stats",
+		Arguments: StatsInput{
+			Dir:     dir,
+			Expr:    "is_source && language == \"go\"",
+			GroupBy: "language",
+		},
+	})
+	if err != nil {
+		t.Fatalf("baseline CallTool: %v", err)
+	}
+	var outAll StatsOutput
+	mustDecodeStructured(t, resAll, &outAll)
+	var allGo int64
+	for _, b := range outAll.Groups {
+		if b.Name == "go" {
+			allGo = b.Count
+		}
+	}
+	if allGo != 3 {
+		t.Fatalf("baseline go count = %d, want 3 (main.go + 2 vendored)", allGo)
+	}
+
+	// With prune_build_artefacts=true the vendor subtree is pruned;
+	// only main.go survives.
+	resPruned, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name: "stats",
+		Arguments: StatsInput{
+			Dir:                 dir,
+			Expr:                "is_source && language == \"go\"",
+			GroupBy:             "language",
+			PruneBuildArtefacts: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("pruned CallTool: %v", err)
+	}
+	var outPruned StatsOutput
+	mustDecodeStructured(t, resPruned, &outPruned)
+	var prunedGo int64
+	for _, b := range outPruned.Groups {
+		if b.Name == "go" {
+			prunedGo = b.Count
+		}
+	}
+	if prunedGo != 1 {
+		t.Errorf("pruned go count = %d, want 1 (vendor pruned)", prunedGo)
+	}
+}
