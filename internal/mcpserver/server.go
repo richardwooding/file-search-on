@@ -339,7 +339,7 @@ func New(version string, idx index.Index, defaultTimeout time.Duration, embedDef
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_attributes",
-		Description: "List every CEL attribute available to the search tool, the built-in functions (levenshtein, soundex, ngrams, ngram_similarity, point_in_polygon) with their signatures, and the registered content types.",
+		Description: "Schema discovery for the search tool. Three modes — default is a small summary that fits any MCP token budget; drill in via inputs. Pass no args for the summary (counts per section + every CEL function's name + a hint). Pass section='common' / 'type_specific' / 'frontmatter' / 'functions' / 'content_types' to fetch one section with optional limit+offset pagination (default 50, cap 500). Pass names=['loc','symbols','levenshtein',…] for direct lookup across every section — returns matching attribute / function / content-type entries from wherever they live. The legacy 'return the full schema' call would emit ~100kB of JSON and blow the per-response budget; #273 split it into the three drill-in paths above.",
 	}, instrument(h.metrics, "list_attributes", h.listAttributesHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
