@@ -276,6 +276,20 @@ type Options struct {
 	// Walk path.
 	SimilarityThreshold float64
 
+	// NearDupMembersLimit caps the per-group members slice returned
+	// by FindNearDuplicates. 0 (default) returns every member. When
+	// truncated, the group reports MembersTotal + MembersTruncated
+	// so the caller knows there's more to drill into. Members are
+	// sorted by similarity descending before truncation so the
+	// survivors are the strongest matches. Issue #279.
+	NearDupMembersLimit int
+
+	// NearDupGroupLimit caps the number of groups returned by
+	// FindNearDuplicates. 0 (default) returns every group. Groups
+	// are sorted by member count desc / representative size desc
+	// before truncation. Issue #279.
+	NearDupGroupLimit int
+
 	// GroupBy controls the bucketing key used by ComputeStats. See
 	// stats.go ValidGroupBys for the recognised set. Ignored by
 	// Walk/WalkStream — it only affects ComputeStats's aggregation.

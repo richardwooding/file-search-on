@@ -29,8 +29,21 @@ type NearDuplicateMember struct {
 type NearDuplicateGroup struct {
 	Representative string                `json:"representative"`
 	Fingerprint    string                `json:"fingerprint"`
-	Count          int                   `json:"count"`
-	Members        []NearDuplicateMember `json:"members"`
+	// Count is the FULL membership count for this group — unchanged
+	// by per-group truncation so agents still see the real cluster
+	// size when Members has been capped via NearDupMembersLimit.
+	Count   int                   `json:"count"`
+	Members []NearDuplicateMember `json:"members"`
+	// MembersTotal mirrors Count when Members is unscaled; when the
+	// caller asked for NearDupMembersLimit ≥ 1 and the group had
+	// more members, MembersTotal carries the pre-truncation count so
+	// the caller knows there's more to drill into. Issue #279.
+	MembersTotal int `json:"members_total,omitempty"`
+	// MembersTruncated fires when Members was capped via the
+	// per-group limit input. Distinct from Count > len(Members)
+	// alone because zero-limit (default) leaves Members untouched
+	// and we want the boolean to be unambiguous on the wire.
+	MembersTruncated bool `json:"members_truncated,omitempty"`
 }
 
 // NearDuplicates is the aggregate result of FindNearDuplicates.
@@ -139,6 +152,7 @@ func FindNearDuplicates(ctx context.Context, opts Options, registry *content.Reg
 	if len(candidates) >= 2 {
 		out.Groups = groupNearDuplicates(candidates, threshold)
 		out.GroupCount = int64(len(out.Groups))
+		applyNearDupCaps(&out.Groups, opts.NearDupMembersLimit, opts.NearDupGroupLimit)
 	}
 
 	out.Cancelled, out.CancellationReason = classifyCancellation(walkErr, ctx)
@@ -345,4 +359,37 @@ func classifyCancellation(walkErr error, ctx context.Context) (bool, string) {
 		return true, "client_cancel"
 	}
 	return false, ""
+}
+
+// applyNearDupCaps applies the per-group member cap and the top-N
+// group cap requested by the caller. Mutates *groups in place because
+// the slice is a fresh allocation owned by FindNearDuplicates — no
+// aliasing risk.
+//
+// Member-cap semantics: when memberLimit > 0 AND a group has more
+// members than the cap, keep the first memberLimit (groupNearDuplicates
+// already sorts by similarity descending, so the survivors are the
+// strongest matches) and stamp MembersTotal + MembersTruncated. When
+// memberLimit ≤ 0 the cap is disabled and groups are returned
+// unchanged.
+//
+// Group-cap semantics: when groupLimit > 0 AND there are more groups
+// than the cap, truncate to the first groupLimit. groupNearDuplicates
+// already sorts groups by member count desc / representative size
+// desc so the kept groups are the largest / most-interesting clusters.
+// Issue #279.
+func applyNearDupCaps(groups *[]NearDuplicateGroup, memberLimit, groupLimit int) {
+	if memberLimit > 0 {
+		for i := range *groups {
+			g := &(*groups)[i]
+			if len(g.Members) > memberLimit {
+				g.MembersTotal = len(g.Members)
+				g.MembersTruncated = true
+				g.Members = g.Members[:memberLimit]
+			}
+		}
+	}
+	if groupLimit > 0 && len(*groups) > groupLimit {
+		*groups = (*groups)[:groupLimit]
+	}
 }
