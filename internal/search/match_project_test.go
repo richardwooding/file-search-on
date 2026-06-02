@@ -181,6 +181,51 @@ func TestValidateFields_FunctionsAndTypeNamesAccepted(t *testing.T) {
 	}
 }
 
+// TestValidateFields_GitAttrsAccepted confirms the seven git_* /
+// is_git_* attributes round-trip through fields-projection. Same
+// shape fix as #275 (imports) and #278 (functions / type_names) but
+// for the git-aware attributes added in #271.
+func TestValidateFields_GitAttrsAccepted(t *testing.T) {
+	if err := search.ValidateFields([]string{
+		"path",
+		"git_last_commit_time",
+		"git_last_commit_author",
+		"git_last_commit_subject",
+		"git_first_seen",
+		"git_commit_count",
+		"is_git_tracked",
+		"is_git_ignored",
+	}); err != nil {
+		t.Errorf("git_* fields should be valid projection targets: %v", err)
+	}
+}
+
+func TestProjectMatch_GitAttrs_Preserved(t *testing.T) {
+	m := search.Match{
+		Path:                 "/a.go",
+		ContentType:          "source/go",
+		GitLastCommitTime:    "2026-06-02T17:35:15Z",
+		GitLastCommitAuthor:  "Alice",
+		GitLastCommitSubject: "feat: bar",
+		GitFirstSeen:         "2026-05-21T11:53:43Z",
+		GitCommitCount:       11,
+		IsGitTracked:         true,
+	}
+	kept := search.ProjectMatch(m, []string{"git_commit_count", "git_last_commit_author"})
+	if kept.GitCommitCount != 11 {
+		t.Errorf("projection keeping git_commit_count zeroed it: %d", kept.GitCommitCount)
+	}
+	if kept.GitLastCommitAuthor != "Alice" {
+		t.Errorf("projection keeping git_last_commit_author zeroed it: %q", kept.GitLastCommitAuthor)
+	}
+	if kept.GitLastCommitSubject != "" {
+		t.Errorf("projection NOT including git_last_commit_subject should zero it; got %q", kept.GitLastCommitSubject)
+	}
+	if kept.IsGitTracked {
+		t.Errorf("projection NOT including is_git_tracked should zero it")
+	}
+}
+
 // TestProjectMatch_FunctionsAndTypeNames_Preserved confirms projection
 // keeps the typed source-symbol fields when requested, zeroes when not.
 func TestProjectMatch_FunctionsAndTypeNames_Preserved(t *testing.T) {
