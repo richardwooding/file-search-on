@@ -460,8 +460,9 @@ var zeroDefaults = map[string]any{
 	"appimage_version": int64(0),
 
 	// License + test-file detection.
-	"license_id":   "",
-	"is_test_file": false,
+	"license_id":        "",
+	"is_test_file":      false,
+	"is_generated_code": false,
 
 	// Symlink awareness — populated by BuildAttributesWith via Lstat.
 	"target_path": "",

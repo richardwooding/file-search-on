@@ -141,6 +141,11 @@ func New(expr string) (*Evaluator, error) {
 		// Test-file detection (populated by source/* parser).
 		cel.Variable("is_test_file", cel.BoolType),
 
+		// Generated-code detection (populated by source/* parser when
+		// the file carries a recognised generator marker in its first
+		// ~20 lines). Issue #276.
+		cel.Variable("is_generated_code", cel.BoolType),
+
 		// Symlink awareness. Populated for every file (not just
 		// content-type-specific) by the walker's Lstat pass.
 		cel.Variable("is_symlink", cel.BoolType),
