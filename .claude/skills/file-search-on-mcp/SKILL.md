@@ -150,7 +150,7 @@ Fourteen baked recipes ship with the server. Discover via `list_presets`, run vi
 | Preset | What it returns |
 | --- | --- |
 | `recent_commits` | Files most recently committed in the last 7 days, sorted by commit time (the git-aware sibling of `recent_changes`) |
-| `hot_files` | Top-20 highest-churn source files by `git_commit_count` desc — refactor / review prioritisation |
+| `hot_files` | Top-20 highest-churn tracked files (any type — source, docs, config) by `git_commit_count` desc — refactor / review prioritisation |
 | `prod_code` | `is_source && is_git_tracked && !is_test_file && !is_generated_code`, top 100 by LOC — human-written production code |
 | `untracked_code` | Source files not in git and not gitignored — the "did I forget to commit?" check |
 | `generated_code` | Source files matching codegen markers (`is_generated_code`) |

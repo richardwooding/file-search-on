@@ -106,7 +106,7 @@ Composite predicates built from these (no special opt-in beyond `with_git`):
 
 - `is_source && !is_git_tracked && !is_git_ignored` — "did I forget to commit?" (the `untracked_code` preset)
 - `is_source && is_git_tracked && !is_test_file && !is_generated_code` — "production code" (the `prod_code` preset)
-- `is_source && is_git_tracked && git_commit_count > 0` sorted by `git_commit_count desc` — churn / refactor candidates (the `hot_files` preset)
+- `is_git_tracked && git_commit_count > 0` sorted by `git_commit_count desc` — churn / refactor candidates across all tracked files (source, docs, config), the `hot_files` preset
 
 ## Common attributes (every file)
 

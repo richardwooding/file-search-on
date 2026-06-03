@@ -178,14 +178,16 @@ var presets = []Preset{
 	},
 	{
 		Name:        "hot_files",
-		Description: "20 highest-churn source files by git commit count, descending — refactor / review prioritisation. Repo-aware; relies on the git_commit_count CEL attribute (#271).",
+		Description: "20 highest-churn files by git commit count, descending — refactor / review prioritisation. Tracks any git-tracked file (source, docs, config, data), not just source code. Repo-aware; relies on the git_commit_count CEL attribute (#271).",
 		Build: func() PresetOptions {
 			return PresetOptions{
-				// Filter to source + tracked so vendor / docs / data don't
-				// dominate the top-N. git_commit_count > 0 forces git
-				// auto-warm via celexpr.NeedsGit (a single attribute
-				// reference is enough) and excludes untracked files.
-				Expr:  `is_source && is_git_tracked && git_commit_count > 0`,
+				// Filter to git-tracked so untracked / vendor noise doesn't
+				// dominate the top-N — but NOT to is_source, so high-churn
+				// docs (markdown), config, and data files surface too.
+				// git_commit_count > 0 forces git auto-warm via
+				// celexpr.NeedsGit (a single attribute reference is enough)
+				// and excludes untracked files.
+				Expr:  `is_git_tracked && git_commit_count > 0`,
 				Sort:  "git_commit_count",
 				Order: "desc",
 				Limit: 20,
