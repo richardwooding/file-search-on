@@ -21,15 +21,16 @@ file-search-on search -d ~/Code/Personal/file-search-on \
   --sort loc --order desc --limit 5
 
 # ---------------------------------------------------------------------------
-# Demo 1, command 3 — TODO / FIXME comments in PRODUCTION Go source.
-# The `!is_test_file` predicate excludes *_test.go fixture strings.
-# Expected: 0 matches (this codebase has no real TODOs in prod). Drop
-# the `!is_test_file` filter to see ~10 fixture hits in test files.
+# Demo 1, command 3 — top-20 highest-churn source files via the
+# `hot_files` repo-aware preset (#300). The preset bakes
+#   is_source && is_git_tracked && git_commit_count > 0
+# with a `git_commit_count desc` sort. The CEL reference to a `git_*`
+# attribute auto-enables with_git via celexpr.NeedsGit — no flag needed.
+# First call pays the `git log` cost (~500ms on this repo); subsequent
+# calls hit the gitmeta.Pool cache and return in single-digit ms.
+# Refactor / review prioritisation story.
 # ---------------------------------------------------------------------------
-file-search-on find-matches '//\s*(TODO|FIXME)\b' \
-  --expr 'is_source && language == "go" && !is_test_file' \
-  -C 1 --prune-build-artefacts \
-  -d ~/Code/Personal/file-search-on
+file-search-on preset hot_files -d ~/Code/Personal/file-search-on
 
 # ---------------------------------------------------------------------------
 # Demo 2, prep — build the semantic-search corpus once (12 markdown notes):
@@ -94,29 +95,27 @@ file-search-on -d ~/Demo/south-africa-holiday \
 # This drops 12 images in ~/Demo/ocr-demo/. Run any time the corpus
 # gets nuked; rebuilds are idempotent.
 #
-# Wipe the persistent index between rehearsals to keep the cold/warm
-# story honest:
-#   rm -f /tmp/ocr.db
+# Wipe the default on-disk index between rehearsals to keep the
+# cold/warm story honest. The index lives at the OS cache location
+# (e.g. ~/Library/Caches/file-search-on on macOS) since #243.
 # ---------------------------------------------------------------------------
 
 # Demo 4, command 1 — COLD pass: OCR runs over all 12 images. ~2.5s.
 # Expected hits: 2 (error_terminal.jpg, log_entry.jpg).
 # The footer line "index: 0 hits, 12 misses, 12 stored" proves OCR ran.
-file-search-on search --ocr --index-path /tmp/ocr.db \
-  -d ~/Demo/ocr-demo \
+# No --index-path flag needed — the on-disk index defaults on now.
+file-search-on search --ocr -d ~/Demo/ocr-demo \
   'is_image && body.contains("ERROR")'
 
 # Demo 4, command 2 — WARM pass: cache hit. <50ms.
 # Expected hits: 3 (receipt.jpg, invoice.jpg, printed_email.jpg — the
 # email mentions "invoice 2026-0042" so it's a legit hit, not noise).
-file-search-on search --ocr --index-path /tmp/ocr.db \
-  -d ~/Demo/ocr-demo \
+file-search-on search --ocr -d ~/Demo/ocr-demo \
   'is_image && body.matches("(?i)\b(invoice|total)\b")'
 
 # Demo 4, command 3 — WARM pass: another sub-second query against the
 # same cached body strings. Expected hits: 1 (meeting_notes.jpg).
-file-search-on search --ocr --index-path /tmp/ocr.db \
-  -d ~/Demo/ocr-demo \
+file-search-on search --ocr -d ~/Demo/ocr-demo \
   'is_image && body.contains("Athena")'
 
 # ---------------------------------------------------------------------------
@@ -158,3 +157,30 @@ file-search-on search \
 # At 0.60 you get ~8 coastal / landscape shots that visually cluster.
 # Anything below 0.50 returns most of the corpus. The "loose threshold"
 # wording in the question nudges the agent away from the 0.85 default.
+
+# ---------------------------------------------------------------------------
+# Demo 7 — the live monitor dashboard.
+# Assumes the MCP server from Demo 6 (or a `file-search-on watch` process)
+# is still running in another terminal — both modes auto-start the
+# dashboard since v0.65 (#245).
+# ---------------------------------------------------------------------------
+
+# Demo 7, command 1 — list every running file-search-on dashboard.
+# Reads the shared peer-registry file at the OS cache location.
+# Pretty-printed output by default; pass `-o bare` for one URL per line.
+file-search-on monitors
+
+# Demo 7, command 2 — open the first dashboard URL in the browser
+# (macOS; use xdg-open on Linux, start on Windows).
+file-search-on monitors -o bare | head -1 | xargs open
+
+# Live tour while on screen (click through these tabs):
+#   - Overview       — pid, working dir, MCP version, capabilities
+#   - Cache          — attr / body / embedding hit-miss-stale (live SSE)
+#   - Activity       — every tool call streamed as it happens
+#   - Cache browse   — inspect any entry; evict / clear / warm in place
+#   - Peers          — switch between concurrent file-search-on instances
+#
+# Optional flourish: trigger a fresh search from a third terminal so the
+# Activity tab lights up live in the browser.
+#   file-search-on -d ~/Demo/south-africa-holiday 'is_image' --limit 5

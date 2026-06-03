@@ -149,26 +149,29 @@ share that link again at the end.
 
 1. The **problem** — what `find`, `grep`, and `glob` cannot answer
 2. The **pitch** — one-line CEL expressions over typed file attributes
-3. Six live **demos**:
+3. Seven live **demos**:
    1. **Touring a Go codebase** — the file-search-on repo itself
    2. **Semantic search** over a docs folder (local Ollama embeddings)
    3. A photo corpus by camera, by GPS bbox, by polygon
    4. Finding **text inside images** with OCR
    5. Finding **visually similar photos** by perceptual hash
    6. An AI agent driving file-search-on through MCP
+   7. The **live monitor dashboard** — cache stats, peer instances, warm controls
 4. What I **learned** and what's still **open**
 
 <!--
 SCRIPT:
-Here's the shape of the next twelve minutes. I'll set up the problem,
-give you the elevator pitch, then run three short demos — a CLI tour, a
-photo-by-GPS query, and an AI agent driving file-search-on through the
-Model Context Protocol. I'll close with what surprised me building it,
-plus a couple of open issues I haven't cracked yet.
+Here's the shape of the next stretch — call it twenty-ish minutes plus
+questions. I'll set up the problem, give you the elevator pitch, then
+run seven short demos — a CLI tour, semantic search, photo-by-GPS,
+OCR over images, perceptual-hash visual similarity, an AI agent
+driving file-search-on through the Model Context Protocol, and the
+live monitor dashboard. I'll close with what surprised me building
+it, plus a couple of open issues I haven't cracked yet.
 
-Three demos sounds like a lot for fifteen minutes — they're short and I
-won't be typing live. The commands are scripted; I'll talk you through
-what each one does as it runs.
+Seven demos sounds like a lot — they're short and I won't be typing
+live. The commands are scripted; I'll talk you through what each
+one does as it runs.
 -->
 
 ---
@@ -217,9 +220,9 @@ file-search-on 'is_source && language == "go" && loc > 200'
 ```
 
 - **50+ content types** detected by extension + magic bytes
-- **200+ attributes** — EXIF, ID3, page counts, video codecs, archive entries, source LOC, binary architectures
+- **250+ attributes** — EXIF, ID3, page counts, video codecs, archive entries, source LOC + functions + imports, binary architectures, git-aware churn / last-commit / tracked-vs-ignored
 - **CEL** — Google's expression language, declarative, sandboxed, fast
-- **MCP server** — 20 tools so AI agents get the same query surface
+- **MCP server** — 23 tools so AI agents get the same query surface
 
 <!--
 SCRIPT:
@@ -235,13 +238,17 @@ files with more than two hundred lines of code.
 
 Under the hood there are about fifty content types — markdown, PDF,
 image, audio, video, office, all the source-code languages, archive
-formats, executables, even disk images and email — and about two
-hundred attributes you can filter and sort on. Roughly anything you'd
-get out of EXIF, ID3, file headers, you can put in your where-clause.
+formats, executables, even disk images and email — and over two
+hundred and fifty attributes you can filter and sort on. Roughly
+anything you'd get out of EXIF, ID3, file headers, you can put in
+your where-clause. Git-aware attributes — last commit time, churn
+count, tracked vs untracked — landed this week, and you'll see them
+in Demo 1.
 
 And it also runs as a Model Context Protocol server, so AI agents like
-Claude Code get exactly the same surface through twenty MCP tools. That
-last part is the bit that excited me most, and I'll come back to it.
+Claude Code get exactly the same surface through twenty-three MCP
+tools. That last part is the bit that excited me most, and I'll come
+back to it.
 -->
 
 ---
@@ -264,13 +271,10 @@ file-search-on -d ~/Code/Personal/file-search-on \
   --sort loc --order desc --limit 5
 ```
 
-**3. TODO / FIXME in production Go (skip test fixtures)**
+**3. Top-20 highest-churn source files (refactor / review prioritisation)**
 
 ```sh
-file-search-on find-matches '//\s*(TODO|FIXME)\b' \
-  --expr 'is_source && language == "go" && !is_test_file' \
-  -C 1 --prune-build-artefacts \
-  -d ~/Code/Personal/file-search-on
+file-search-on preset hot_files -d ~/Code/Personal/file-search-on
 ```
 
 <!--
@@ -300,24 +304,26 @@ command. The content-type detector identifies each file as Go, the LOC
 counter runs as part of the attribute pass, and CEL sorts on the
 attribute name. Same surface I'd use for a Python or Rust codebase.
 
-[run: find-matches TODO/FIXME with !is_test_file]
+[run: file-search-on preset hot_files -d ~/Code/Personal/file-search-on]
 
-Third — every TODO and FIXME comment in production Go source. The
-pattern is a regex matching slash-slash optionally followed by
-TODO-or-FIXME. The pre-filter is is_source and language equals go AND
-NOT is_test_file. The is_test_file predicate is true for any source
-file matching the per-language test convention — *_test.go in Go,
-test_*.py in Python, and so on. With the dash-C-one flag, we get one
-line of context above and below each match.
+Third — the twenty most-churned source files in the repo, ranked by
+git commit count. This is the `hot_files` preset, one of six
+repo-aware recipes I shipped this week. The preset bakes
+`is_source && is_git_tracked && git_commit_count > 0` with a
+`git_commit_count desc` sort — but notice I never typed
+`--with-git` on the CLI. The expression evaluator sees a `git_*`
+attribute reference and auto-enables git mode through a function
+called NeedsGit. First call pays the git-log cost — about half a
+second — and bills the result to an in-memory pool keyed by HEAD
+sha. Subsequent calls land in single-digit milliseconds.
 
 [pause for the result]
 
-Zero hits. The codebase has no actual TODOs in production code. If I
-drop the !is_test_file filter, ten matches come back — all in
-*_test.go files, all of them string fixtures for the find-matches tests
-themselves. Which is itself a fun bit of recursion: a tool that finds
-TODOs has TODO strings in its tests for the TODO-finding tests. But
-that's the kind of distinction the is_test_file predicate makes easy.
+The top hit is usually internal/celexpr or internal/search — the
+high-traffic plumbing. If I were planning a refactor, this is the
+list I'd start reading. Same pattern would surface refactor
+candidates in any git repo, in any language file-search-on knows
+about.
 -->
 
 ---
@@ -397,6 +403,11 @@ for these twelve documents — and every subsequent query is sub-second.
 And the similarity score is exposed as a CEL variable so you can
 compose it with the rest of the query — "is_pdf AND similarity is
 above zero point seven" works.
+
+One small recent addition worth flagging: there's a
+`pull_embedding_model` MCP tool now, so an agent can bootstrap Ollama
+from a fresh laptop without dropping to the shell. Sister tool
+`list_embedding_models` enumerates what's already pulled.
 
 This isn't a separate product mode. It's a flag on the existing
 search tool.
@@ -485,22 +496,19 @@ notes, code, posters.
 **Cold pass — 12 images, OCR'd by macOS Vision (~2.5s wall-clock)**
 
 ```sh
-file-search-on search --ocr --index-path /tmp/ocr.db \
-  -d ~/Demo/ocr-demo \
+file-search-on search --ocr -d ~/Demo/ocr-demo \
   'is_image && body.contains("ERROR")'
 ```
 
 **Warm pass — cache hit, sub-second**
 
 ```sh
-file-search-on search --ocr --index-path /tmp/ocr.db \
-  -d ~/Demo/ocr-demo \
+file-search-on search --ocr -d ~/Demo/ocr-demo \
   'is_image && body.matches("(?i)\\b(invoice|total)\\b")'
 ```
 
 ```sh
-file-search-on search --ocr --index-path /tmp/ocr.db \
-  -d ~/Demo/ocr-demo \
+file-search-on search --ocr -d ~/Demo/ocr-demo \
   'is_image && body.contains("Athena")'
 ```
 
@@ -524,7 +532,10 @@ the OCR is happening cold for the first time. Two hits — the terminal
 error screenshot and the log entry.
 
 The footer at the bottom is interesting: "index: 0 hits, 12 misses, 12
-stored". The on-disk cache is now populated.
+stored". The on-disk cache is now populated — and notice I didn't pass
+an `--index-path` flag. As of a few days ago, file-search-on opens a
+default index at the OS cache location automatically. One less ceremony
+flag.
 
 [run: second query — invoice|total regex]
 
@@ -626,8 +637,8 @@ file-search-on mcp   # serves MCP over stdio
 ```
 
 The same query surface — `search`, `stats`, `find_duplicates`,
-`diff_trees`, `find_matches`, `search_semantic`, `watch_search` … —
-is exposed as 20 MCP tools.
+`diff_trees`, `find_matches`, `search_semantic`, `watch_search`,
+`validate_expr` … — is exposed as 23 MCP tools.
 
 **Live**: in Claude Code, ask:
 
@@ -648,9 +659,13 @@ Last demo — agents.
 [switch to Claude Code window]
 
 file-search-on also runs as a Model Context Protocol server. Same query
-language, same content-type detection, but exposed as twenty tools an AI
-agent can call. Stuff like search, stats, diff_trees, find_matches, even
-semantic search through local embeddings.
+language, same content-type detection, but exposed as twenty-three
+tools an AI agent can call. Stuff like search, stats, diff_trees,
+find_matches, semantic search through local embeddings — and a
+`validate_expr` tool that compile-checks a CEL expression with
+Levenshtein "did you mean" suggestions when an attribute name is
+typo'd. Cheap typo-check before paying walk setup cost; useful when
+an agent is synthesising expressions from natural language.
 
 I'll paste a question into Claude Code. [paste the question on screen]
 
@@ -683,6 +698,96 @@ find and grep.
 
 ---
 
+## Demo 7 — the live monitor dashboard
+
+The MCP server ships with an opt-in localhost dashboard. On by default
+for `mcp` and `watch` modes; dynamic-port, peer-aware.
+
+```sh
+file-search-on monitors   # list active dashboard URLs
+file-search-on monitors -o bare | head -1 | xargs open  # open the first
+```
+
+Or from an agent:
+
+```json
+{ "name": "monitor_info", "arguments": { "enable": true } }
+```
+
+Live tour:
+
+- **Overview** — pid, working dir, MCP version, capabilities
+- **Cache** — attribute / body / embedding hit-miss-stale counters (live SSE)
+- **Activity** — every tool call streamed as it happens
+- **Cache browse** — inspect any cached entry; evict / clear / warm in-place
+- **Peers** — switch between concurrent file-search-on instances
+
+<!--
+SCRIPT:
+Last demo — the monitor dashboard. This is the bit that turns
+file-search-on from a CLI tool into something you can *watch*.
+
+[run: file-search-on monitors]
+
+The `monitors` subcommand reads a shared peer-registry file in the OS
+cache directory and prints the URL of every running instance. On my
+laptop right now there are two — the mcp server I started before this
+talk, and a watch process tailing my screenshots folder.
+
+[run: open the first URL in the browser]
+
+The dashboard ran on a dynamic-assigned localhost port — so you can
+have three file-search-on servers running, they all get their own
+port, no conflicts. Discovery is the peer-registry file plus the
+`monitor_info` MCP tool — agents can call that tool, get back the
+URL, and surface it to a human.
+
+[switch to browser, dashboard already open]
+
+The Overview tab tells you what server this is — pid, working
+directory, MCP version, mode (mcp / watch / cli), and which
+capabilities are enabled.
+
+[click Cache tab]
+
+The Cache panel shows the same counters that the `index_stats` MCP
+tool exposes — hits, misses, stales, puts — for the attribute cache,
+body cache, and embedding cache. These update over server-sent
+events — no polling, no refresh button. After Demo 4 ran cold then
+warm, the OCR body cache here picked up twelve puts on the first
+walk and twelve hits on the second.
+
+[click Activity tab]
+
+Activity is the live tool-call timeline. If I trigger a search from
+another terminal — [trigger] — the call shows up immediately, with
+the tool name, the elapsed time, whether it cancelled, and any
+suggestions the server emitted. Useful when you're debugging slow
+MCP calls or watching an agent at work.
+
+[click Cache browse]
+
+I can click into any cached entry — see the attribute set, the body
+prefix, whether an embedding is stored. Click 'evict' to invalidate
+one entry, 'clear' to nuke a whole cache, or 'warm attrs' / 'warm
+bodies' / 'warm embeddings' to pre-populate.
+
+[click Peers tab, if applicable]
+
+And the Peers tab shows every other running file-search-on
+instance — if you're running one for your work codebase and one for
+personal, you can switch dashboards without re-typing URLs.
+
+The point: agents are opaque by default. They call tools you don't
+see. This dashboard makes the conversation between agent and server
+inspectable in real time — which turned out to be exactly the
+feedback loop I needed when I dogfooded the MCP server against
+Claude Code and shipped fourteen papercut fixes in two days. I'll
+come back to that on the next slide.
+-->
+
+---
+
 ## Under the hood
 
 - **Go 1.26**, ~10k LOC
@@ -690,8 +795,9 @@ find and grep.
 - **Content-type plugin registry** — each type self-registers in `init()`
 - **Detection**: exact-name → extension → magic-byte (512 B prefix)
 - **Pluggable extras** — OCR (macOS Vision), perceptual hashes, EXIF, Dublin Core
-- **Index cache** keyed by `(size, mtime)` — bbolt on disk or in-memory
-- **20-tool MCP server** built on the Go SDK, plus a localhost dashboard
+- **Index cache** keyed by `(size, mtime)` — bbolt on disk (default at OS cache dir) or in-memory
+- **`gitmeta.Pool`** — HEAD-sha-validated git-attribute cache, sub-10ms after first warm
+- **23-tool MCP server** built on the Go SDK, plus an SSE-driven localhost dashboard
 - Released via **GoReleaser + ko + Homebrew tap**
 
 <!--
@@ -709,9 +815,14 @@ Detection is three layers: exact filename match — package.json,
 Dockerfile, go.mod — falls through to extension, falls through to magic
 bytes on the first five hundred and twelve.
 
-There's an optional cache so you don't re-parse unchanged files. There's
-the MCP server I just demoed. Releases ship via GoReleaser, ko for the
-container image, and a Homebrew tap.
+The attribute cache defaults to an on-disk bbolt database at the OS
+cache directory — no flag needed, multi-instance-safe. Git
+attributes live in a separate in-memory pool keyed by HEAD sha;
+sub-ten-millisecond reads after the first warm.
+
+The MCP server has twenty-three tools and an SSE-driven localhost
+dashboard. Releases ship via GoReleaser, ko for the container image,
+and a Homebrew tap.
 
 Build steps are documented in CLAUDE.md if you want to dig in.
 -->
@@ -729,6 +840,10 @@ Build steps are documented in CLAUDE.md if you want to dig in.
 - **Fuzz testing earned its keep** — five-minute nightly runs against
   hand-rolled binary parsers (MP3 ID3, MP4 box walker, MKV EBML) caught
   real panics on real files.
+- **The agent feedback loop drove rapid iteration** — running the MCP
+  server against Claude Code surfaced 14 papercuts in one session
+  (`#271`–`#284`); two days later all 14 had shipped. Shortest
+  dogfood-to-merge loop I've ever had on a personal project.
 
 <!--
 SCRIPT:
@@ -744,9 +859,24 @@ surface is exposed to a human at the CLI and to an agent through MCP, I
 stopped designing two interfaces and started designing one. That made
 the codebase simpler, not more complex.
 
-And — this isn't strictly surprising but worth noting — fuzz tests on
-the hand-rolled binary parsers have caught real bugs. I run them
-nightly for five minutes each. Cheap, high signal.
+Third — fuzz tests on the hand-rolled binary parsers have caught real
+bugs. I run them nightly for five minutes each. Cheap, high signal.
+
+And the one that surprised me the most — last weekend I sat down with
+Claude Code, pointed it at the MCP server, and asked it to dogfood
+file-search-on against this repo. It found fourteen rough edges in
+one session — things like "find_matches fires on TODO inside string
+literals when it should only fire on comment lines", or "git
+attributes aren't projectable through the fields list", or "the
+list_attributes response is too big to fit in an agent's context".
+Each one became a GitHub issue, numbers two-seven-one through
+two-eight-four. Two evenings later all fourteen had shipped, plus
+six new presets and the validate_expr tool. The agent's
+discomfort was the spec.
+
+I've never had a dogfood-to-merge loop that tight. The dashboard I
+just demoed exists partly because of that session — once you SEE
+what the agent's doing, you can fix what's painful for it.
 -->
 
 ---
@@ -755,16 +885,16 @@ nightly for five minutes each. Cheap, high signal.
 
 - **OCR is Darwin-only** today — macOS Vision. Linux Tesseract + Windows
   Media OCR bridges are on the roadmap (`#189`).
-- **Semantic search needs Ollama** running locally — works great when
-  it's there, fails clearly when it isn't. A hosted-embedding fallback is
-  in design.
+- **Semantic search needs Ollama** running locally — but agents can now
+  bootstrap it via the `pull_embedding_model` MCP tool. A hosted-
+  embedding fallback for non-Ollama setups is still in design.
 - **Browser-history content type** — Chromium / Safari bookmarks ship,
   but History DBs don't. Wants a SQLite content-type extension.
 - **Watch is bounded** — `watch_search` returns after a window. An
   unbounded streaming MCP transport is sketched but not built.
-- **Windows path semantics** — works, but the dashboard's localhost
-  registry uses `XDG_CACHE_HOME` first; Windows path conventions need a
-  pass.
+- **Windows path semantics** — the default cache directory now uses
+  `os.UserCacheDir` (cross-platform-correct); remaining concern is the
+  peer-discovery registry path on Windows.
 
 Track on **github.com/richardwooding/file-search-on/issues**.
 
@@ -779,8 +909,10 @@ are obvious follow-ups but I haven't done them. Issue 189.
 
 Semantic search runs through Ollama on localhost. That's deliberate — I
 don't want to ship anything that calls out to a hosted service by
-default — but if Ollama isn't installed, semantic just fails loudly. A
-sane fallback story is on the list.
+default. The new `pull_embedding_model` MCP tool I mentioned in Demo 2
+means an agent can bootstrap Ollama from a clean laptop without
+dropping to the shell — but a hosted-embedding fallback for users who
+genuinely can't run Ollama is still in design.
 
 I'd love a browser-history content type. Chromium and Safari bookmarks
 work today; the SQLite history databases don't.
@@ -789,8 +921,10 @@ Watch is currently bounded — you give it a duration and it returns when
 the window closes. Streaming over MCP is a design problem I haven't
 finished.
 
-And Windows works but the dashboard's cross-process registry leans on
-XDG conventions. Needs a portability pass.
+And Windows — the default index now lands in os.UserCacheDir which
+does the right thing on every platform, so that part's solid. The
+remaining concern is the peer-discovery registry the dashboard uses;
+needs a portability pass.
 
 Everything's tracked on GitHub.
 -->

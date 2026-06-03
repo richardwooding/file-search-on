@@ -22,8 +22,12 @@ A Marp deck for a ~15 minute Show-&-Tell talk on `file-search-on`.
 4. Build the semantic corpus: `./scripts/build_semantic_corpus.sh`
 5. Build the OCR corpus: `./scripts/build_ocr_corpus.sh`
 6. Confirm the SA photo corpus is still at `~/Demo/south-africa-holiday/` (66 GPS-tagged JPGs).
-7. `rm -f /tmp/ocr.db /tmp/semantic.db` (wipe the caches so the cold/warm timing demos land).
-8. Have a Claude Code / Claude Desktop window with `file-search-on mcp` registered, sitting on a blank prompt for Demo 6.
+7. Wipe the default on-disk index so the cold/warm timing demos land:
+   `rm -rf "$(go env GOOS | grep -q darwin && echo ~/Library/Caches/file-search-on || echo ~/.cache/file-search-on)"`.
+   (The default index moved to the OS cache location in #243; `/tmp/ocr.db` / `/tmp/semantic.db` are no longer used.)
+8. Confirm Demo 1's `hot_files` preset has populated git history — `git -C ~/Code/Personal/file-search-on log --oneline | head` should print recent commits.
+9. Have a Claude Code / Claude Desktop window with `file-search-on mcp` registered, sitting on a blank prompt for Demo 6.
+10. For Demo 7, leave the Demo 6 MCP server running — its dashboard URL is what `file-search-on monitors` will surface.
 
 ## Render
 
@@ -76,7 +80,8 @@ its own beat in the talk. Two tips:
 | Demo 4 (OCR over images) | ~2m |
 | Demo 5 (visual similarity / phash) | ~1.5m |
 | Demo 6 (MCP / agent) | ~2.5m |
-| Slides 11-13 (under the hood / learned / open) | ~3m |
+| Demo 7 (monitor dashboard) | ~2m |
+| Slides 12-14 (under the hood / learned / open) | ~3m |
 | Summary + Q&A | ~2m + open |
 
-Total floor: ~20-21 minutes plus questions.
+Total floor: ~22-25 minutes plus questions.
