@@ -9,6 +9,7 @@ Reference for the CEL expression surface used by the `expr` / `rank` inputs acro
 - Exact-name `is_*` predicates
 - Specialised families (umbrellas + per-format flags)
 - Forensic / state predicates
+- Git-aware attributes (require `with_git: true`)
 - Common attributes (every file)
 - Attributes by content family (headline ones)
 - Built-in functions
@@ -81,12 +82,31 @@ Some require a tool opt-in to populate:
 
 - `is_symlink`, `is_broken_symlink`, `target_path` — filesystem-level symlink awareness; populated regardless of `follow_symlinks`
 - `is_test_file` — source files matching per-language test convention (`*_test.go`, `test_*.py`, `*.test.ts`, …)
+- `is_generated_code` — source files emitted by a codegen tool (protoc / mockery / easyjson / `//go:generate` / `DO NOT EDIT` headers and friends). Detected by scanning the first ~20 lines for codegen markers across 14 languages
 - `is_btime_anomaly` — `created_at` > `mod_time` (file placed after being modified elsewhere)
 - `is_disguised` — magic disagrees with extension. Requires `check_disguised: true`
 - `is_known_good` / `is_known_bad` — MD5 / SHA1 / SHA256 in the loaded allowlist / denylist. Requires `compute_hashes: true` + `hash_allowlist_path` / `hash_denylist_path`
 - `is_quarantined`, `is_xattr_rich`, `quarantine_source_url`, `finder_tags`, … — Darwin-only. Requires `with_xattrs: true`
 - `is_codesigned`, `is_apple_signed`, `is_third_party_signed`, `codesign_identifier`, `codesign_team_id`, `entitlements`, … — Mach-O code signature
 - `is_live_photo`, `is_live_photo_video`, `live_photo_video_path` — HEIC + sibling MOV pairing
+
+## Git-aware attributes
+
+Require the per-call `with_git: true` opt-in. The MCP server keeps a HEAD-sha-validated cache (`gitmeta.Pool`) so the second `with_git: true` call against the same repo is sub-10ms; the first call after process start or after a `git commit` rebuilds. Auto-enables when `expr`, `sort_by`, or `rank` references any `git_*` attribute (`celexpr.NeedsGit`). Files outside a git tree get the zero values; the `recent_commits` preset will silently return nothing on a non-repo. The CLI counterpart is `--with-git`.
+
+- `is_git_tracked` — file is in `git ls-files`
+- `is_git_ignored` — file matches a `.gitignore` rule (via `git ls-files --ignored --exclude-standard`)
+- `git_last_commit_time` — timestamp of the most recent commit touching this file (also a sort key)
+- `git_first_seen` — timestamp the file was first committed (also a sort key)
+- `git_commit_count` — int64 commit count for this file (also a sort key — see #299 fix for the regression where this used to silently no-op)
+- `git_last_commit_author` — author name on the most recent commit
+- `git_last_commit_subject` — first-line subject of the most recent commit
+
+Composite predicates built from these (no special opt-in beyond `with_git`):
+
+- `is_source && !is_git_tracked && !is_git_ignored` — "did I forget to commit?" (the `untracked_code` preset)
+- `is_source && is_git_tracked && !is_test_file && !is_generated_code` — "production code" (the `prod_code` preset)
+- `is_source && is_git_tracked && git_commit_count > 0` sorted by `git_commit_count desc` — churn / refactor candidates (the `hot_files` preset)
 
 ## Common attributes (every file)
 
@@ -125,7 +145,7 @@ Headline attributes per family — call `list_attributes` for the full catalogue
 
 **Email** — `email_to` (list), `email_cc` (list), `email_message_id`, `email_in_reply_to`, `sent_at` (timestamp), `attachment_count`, `email_count` (mbox)
 
-**Source code** — `language`, `line_count`, `loc`, `comment_loc`, `blank_loc`
+**Source code** — `language`, `line_count`, `loc`, `comment_loc`, `blank_loc`, `function_count`, `function_names` (list), `import_count`, `import_paths` (list), `type_names` (list), `is_test_file` (bool), `is_generated_code` (bool). The `profile: "code"` search input skips non-source per-format parsing for ~5–10× speedup on monorepos.
 
 **Notebooks** — `cell_count`, `code_cell_count`, `markdown_cell_count`, `kernel`, `language`, `title`
 

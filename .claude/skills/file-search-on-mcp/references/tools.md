@@ -1,15 +1,16 @@
 # Tool reference
 
-Every MCP tool the `file-search-on` server exposes. Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same six families as the SKILL.md table.
+Every MCP tool the `file-search-on` server exposes (23 tools as of v0.75.0). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same seven families as the SKILL.md table.
 
 ## Contents
 
-- Search & inspect — `search`, `search_semantic`, `read_attributes`, `read_lines`
+- Search & inspect — `search`, `search_semantic`, `list_embedding_models`, `pull_embedding_model`, `read_attributes`, `read_lines`
 - Aggregate — `stats`
 - Dedup & diff — `find_duplicates`, `find_near_duplicates`, `diff_trees`
 - Archive — `list_archive_contents`, `read_file_in_archive`
 - Pattern + watch — `find_matches`, `watch_search`
-- Project + introspection + monitoring — `detect_project`, `find_projects`, `resolve_project_for_path`, `list_attributes`, `list_presets`, `query_preset`, `index_stats`, `monitor_info`
+- CEL utilities — `validate_expr`, `list_attributes`
+- Project + presets + monitoring — `detect_project`, `find_projects`, `resolve_project_for_path`, `list_presets`, `query_preset`, `index_stats`, `monitor_info`
 
 Common inputs shared by every walking tool: `dir` (default `.`, ignored when `dirs[]` is non-empty), `dirs[]`, `excludes[]` (basename globs), `respect_gitignore`, `follow_symlinks`, `workers` (default `runtime.NumCPU()`), `timeout_seconds` (override the server default; `0` disables; on expiry returns partial results with `cancelled=true`).
 
@@ -24,7 +25,9 @@ Walk a directory tree and return files matching a CEL expression evaluated over 
 Key inputs:
 
 - `expr` — CEL filter. Empty matches every file. See cel-vocabulary.md for predicates / attributes / functions.
-- `sort_by` + `order` — buffered top-K. Recognised keys: `size`, `name`, `path`, `mod_time`, `word_count`, `line_count`, `page_count`, `duration`, `bitrate`, `sample_rate`, `video_height`, `video_width`, `frame_rate`, `iso`, `focal_length`, `taken_at`, `sent_at`, `year`, `entry_count`, `uncompressed_size`, `loc`, `attachment_count`, `email_count`.
+- `sort_by` + `order` — buffered top-K. Recognised keys: `size`, `name`, `path`, `mod_time`, `word_count`, `line_count`, `page_count`, `duration`, `bitrate`, `sample_rate`, `video_height`, `video_width`, `frame_rate`, `iso`, `focal_length`, `taken_at`, `sent_at`, `year`, `entry_count`, `uncompressed_size`, `loc`, `attachment_count`, `email_count`, `git_last_commit_time`, `git_first_seen`, `git_commit_count`, `similarity`, `rank`. Per-family scalar attributes (e.g. `function_count`, `bitrate`) also work via the `Extra` fallback.
+- `profile` — `"default"` (every content type's per-format parse runs) or `"code"` (skip non-source per-format parsing — image EXIF / audio tags / video tracks / archive entry walks etc. — for a ~5–10× speedup on source-heavy trees). Source files still parse fully; everything else falls back to common attrs only.
+- `with_git` — populate the git-aware attributes (`is_git_tracked`, `is_git_ignored`, `git_last_commit_time`, `git_first_seen`, `git_commit_count`, `git_last_commit_author`, `git_last_commit_subject`). Auto-enabled when `expr`, `sort_by`, or `rank` references any `git_*` attribute (`celexpr.NeedsGit`). The server holds a HEAD-sha-validated `gitmeta.Pool` cache shared across calls — first call after process start or `git commit` pays the ~500ms `git log` cost; subsequent calls are sub-10ms.
 - `limit` — cap. With `sort_by` it's top-N after sorting; without, it's first-N in walk order.
 - `rank` — CEL expression returning double / int / bool, evaluated per file as a custom sort key. Higher ranks first. Overrides `sort_by` when set; composes with `similarity` for semantic re-rank.
 - `include_snippet` + `snippet_lines` — populate `match.snippet` with first N body lines (text content types only).
@@ -96,6 +99,41 @@ Example:
     "limit": 20
   }
 }
+```
+
+### `list_embedding_models`
+
+List the embedding models the local Ollama server has pulled. Lets an agent enumerate options before calling `search_semantic` (which needs at least one model present).
+
+Key inputs: `embedding_server` (override the server-startup default — usually `http://localhost:11434`).
+
+Output: `models[]` — each `{name, size_bytes, modified_at, family, parameter_size, quantization_level}`. Plus `default_model` (the one `search_semantic` will pick if `model` is omitted).
+
+Gotchas:
+
+- Returns an empty list (no error) when Ollama is reachable but no embedding models are pulled. Pair with `pull_embedding_model` to bootstrap.
+- Errors clearly when Ollama is unreachable; the server boots without it.
+
+### `pull_embedding_model`
+
+Pull an embedding model into the local Ollama server. Long-running — streams progress lines back; the server reports the final total on completion.
+
+Key inputs:
+
+- `name` (required) — Ollama model identifier, e.g. `nomic-embed-text`, `mxbai-embed-large`, `all-minilm`.
+- `embedding_server` — override the default Ollama URL.
+
+Output: `model` (echoed name), `final_status` (string), `total_bytes`, `elapsed_seconds`.
+
+Gotchas:
+
+- A typical embedding model is 100–700 MB. Run once per host; subsequent `search_semantic` calls reuse the pulled model.
+- The MCP call holds open for the duration of the pull — use the per-call `timeout_seconds` generously (300–600s) for first-time pulls.
+
+Example:
+
+```json
+{ "name": "pull_embedding_model", "arguments": { "name": "nomic-embed-text" } }
 ```
 
 ### `read_attributes`
@@ -216,16 +254,17 @@ Find groups of **similar** (not identical) files via 64-bit Charikar SimHash of 
 Key inputs:
 
 - `expr` — pre-prune.
-- `threshold` (0..1, default 0.85 ≈ 9-bit Hamming distance). 0.95 ≈ whitespace-only edits; 0.75 ≈ significant structural overlap.
+- `threshold` (0..1, default 0.85 ≈ 9-bit Hamming distance). 0.95 ≈ whitespace-only edits; 0.75 ≈ significant structural overlap. **Auto-bump (#274)**: when the candidate set is source-heavy and the caller didn't pass an explicit threshold, the server bumps the floor to 0.92 to suppress the cross-language SimHash-convergence noise that swamped early dogfooding. Pass `threshold` explicitly to opt out.
 - `min_size`, `body_max_bytes`.
+- `members_limit_per_group`, `group_limit` (#279) — clamp result size. `members_limit_per_group` truncates each group's `members[]` list (top-similarity preserved); `group_limit` caps the number of groups returned. Useful when a dogfood run produces 50-member clusters that dominate token budget.
 
 Output: `groups[]` sorted by member count desc. Each member `{path, similarity, size}`. Plus `group_count`, `fingerprinted`, partial-result fields.
 
 Gotchas:
 
-- Only text-shaped and structured-document types fingerprint (markdown, text, html, csv, json, xml, source/*, pdf, office, epub, email). Binary families excluded.
+- Only text-shaped and structured-document types fingerprint (markdown, text, html, csv, json, xml, source/*, pdf, office, epub, email). Binary families excluded. Boilerplate strippers (license headers, codegen banners) run before SimHash so a tree of `// Code generated by protoc-gen-go.` files doesn't collapse into one giant cluster.
 - Fingerprints cache in the index; repeat runs skip body extraction AND SimHash compute.
-- A 156-member cluster at default threshold is usually SimHash convergence on Go / template boilerplate; tighten to 0.95 for typo-only edits.
+- A 156-member cluster at default threshold is usually SimHash convergence on Go / template boilerplate; the auto-bump should suppress this, but pass `threshold: 0.95` for typo-only edits.
 
 Example:
 
@@ -342,6 +381,7 @@ Key inputs:
 - `context_before`, `context_after` — context window per hit.
 - `max_matches_per_file` — cap per file (the scanner keeps reading past the cap until pending After windows are filled).
 - `prune_build_artefacts` — pre-walk + prune `vendor` / `node_modules` / `target` / `__pycache__` / etc.
+- `match_in` (#272) — `"any"` (default), `"comments"`, or `"code"`. Per-language filter applied AFTER the regex matches the line: `comments` keeps only lines that are inside (or start with) a comment marker for the file's language; `code` is the inverse. Use to grep `TODO` annotations without firing on test fixture strings or doc references that happen to contain the token. Recognises C-family `//` + `/* */`, hash-family `#`, Lua/SQL `--`, Clojure/asm `;`, OCaml/Haskell `{- -}`. Files with unknown languages fall back to `any` regardless of the request.
 
 Output: `matches[]` sorted by (path, line), each `{path, content_type, line, text, before[], after[]}`. Plus `count`, `files_scanned`, `files_with_matches`, partial-result fields.
 
@@ -402,7 +442,52 @@ Example — wait for a screenshot mentioning "error":
 
 ---
 
-## Project + introspection + monitoring
+## CEL utilities
+
+### `validate_expr`
+
+Compile-check a CEL expression without running a walk. Returns whether it parses and type-checks against the live schema, plus "did you mean…" suggestions when an attribute name is misspelled.
+
+Key inputs:
+
+- `expr` (required) — the CEL expression to validate.
+- `kind` — `"filter"` (default, the shape used by `expr` inputs) or `"rank"` (the shape used by `rank` inputs; the result type must be numeric / bool).
+
+Output: `valid` (bool), `error` (compile error message when invalid), `suggestions[]` (Levenshtein-ranked attribute names when the error names an undeclared reference — e.g. typo'd `is_markown` returns `["is_markdown"]`).
+
+Gotchas:
+
+- Use BEFORE running a long walk to catch typos cheaply (a `search` call with a typo'd `expr` errors at parse time, but you've already paid setup cost). Particularly useful when an agent is synthesising expressions from user input.
+- The same schema as `search` — `validate_expr` and `search` agree on every attribute / function reference.
+
+Example:
+
+```json
+{ "name": "validate_expr", "arguments": { "expr": "is_markown && word_count > 500" } }
+```
+
+Returns `{"valid": false, "error": "undeclared reference to 'is_markown'", "suggestions": ["is_markdown"]}`.
+
+### `list_attributes`
+
+List every CEL attribute available to `search`, the built-in functions with their signatures, and every registered content type. Use to discover what's filterable / sortable / projectable at runtime; the canonical source of attribute names.
+
+Key inputs (#273):
+
+- `mode` — `"full"` (default), `"summary"`, `"section"`, or `"names"`. Controls payload size:
+  - `full` — every attribute with its CEL type and description, every function with signature + description, every content type with name + extensions. Largest output (~30 KB).
+  - `summary` — counts only (attribute groups, function count, content-type count). Cheap.
+  - `section` — pair with `section` to fetch exactly one slice (`common` / `type_specific` / `frontmatter` / `functions` / `content_types`).
+  - `names` — pair with `section`; returns just the bare names, no types or descriptions. Cheapest non-empty payload — use when an agent only needs to enumerate identifiers.
+- `section` — required when `mode` is `section` or `names`. One of `common`, `type_specific`, `frontmatter`, `functions`, `content_types`.
+
+Output: `attributes` (grouped by `common` / `type_specific` / `frontmatter`), `functions[]` (name, signature, description), `content_types[]`. With `mode: "summary"` only the counts; with `mode: "section"` or `"names"` only the named slice is populated.
+
+Read this first when an agent isn't sure which attribute to filter on; pair with `validate_expr` to confirm the chosen attribute name compiles.
+
+---
+
+## Project + presets + monitoring
 
 ### `detect_project`
 
@@ -458,27 +543,19 @@ Example:
 }
 ```
 
-### `list_attributes`
-
-List every CEL attribute available to `search`, the built-in functions with their signatures, and every registered content type. Use to discover what's filterable / sortable / projectable at runtime; the canonical source of attribute names.
-
-Output: `attributes` (grouped by `common` / `type_specific` / `frontmatter`), `functions[]` (name, signature, description), `content_types[]`.
-
-No inputs. Cheap — read it first when an agent isn't sure which attribute to filter on.
-
 ### `list_presets`
 
-List every named search recipe ('preset'). Pass the name to `query_preset` to run. See SKILL.md's preset table for the eight built-ins.
+List every named search recipe ('preset'). Pass the name to `query_preset` to run. See SKILL.md's preset table for the fourteen built-ins (eight filesystem + six repo-aware).
 
 Output: `presets[]` with `name`, `description`.
 
 ### `query_preset`
 
-Run a named preset.
+Run a named preset. Repo-aware presets (`recent_commits`, `hot_files`, `prod_code`, `untracked_code`) auto-enable `with_git` via `celexpr.NeedsGit` — no separate opt-in required.
 
 Key inputs:
 
-- `name` (required) — one of the eight preset names.
+- `name` (required) — one of the fourteen preset names. Call `list_presets` for the live catalog.
 - `dir` / `dirs[]`, `limit`, `excludes`, `respect_gitignore`, `follow_symlinks` — per-call overrides.
 
 Output: same `Match` shape as `search`.
@@ -486,7 +563,7 @@ Output: same `Match` shape as `search`.
 Example:
 
 ```json
-{ "name": "query_preset", "arguments": { "name": "large_files", "dir": "~/" } }
+{ "name": "query_preset", "arguments": { "name": "hot_files", "dir": "." } }
 ```
 
 ### `index_stats`

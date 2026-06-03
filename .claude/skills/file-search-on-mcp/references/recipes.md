@@ -234,3 +234,86 @@ Bounded subscription — `watch_search` blocks up to `duration_seconds` (default
 ```
 
 `ocr_images: true` runs the registered OCR provider (macOS Vision today) over each new image so `body.contains(...)` sees the recognised text. The first OCR per image is expensive (~200ms–2s); subsequent walks are free (body cache).
+
+## High-churn source files (refactor / review prioritisation)
+
+`with_git: true` is auto-enabled by the `git_commit_count` reference in `expr` / `sort_by` — no need to pass it explicitly. First call after process start pays the ~500ms `git log` cost; subsequent calls are sub-10ms (HEAD-sha-validated `gitmeta.Pool`):
+
+```json
+{
+  "name": "search",
+  "arguments": {
+    "expr": "is_source && is_git_tracked && git_commit_count > 0",
+    "sort_by": "git_commit_count",
+    "order": "desc",
+    "limit": 20,
+    "fields": ["git_commit_count", "git_last_commit_time", "git_last_commit_author", "loc"]
+  }
+}
+```
+
+Or just run the `hot_files` preset which bakes the same shape.
+
+## Production code only (drop tests + codegen)
+
+The "show me what humans wrote" filter — composites the `is_git_tracked` opt-in (#271) with `is_test_file` (per-language test convention) and `is_generated_code` (#276 codegen marker scan):
+
+```json
+{
+  "name": "search",
+  "arguments": {
+    "expr": "is_source && is_git_tracked && !is_test_file && !is_generated_code",
+    "sort_by": "loc",
+    "order": "desc",
+    "limit": 50,
+    "profile": "code"
+  }
+}
+```
+
+`profile: "code"` skips non-source per-format parsing for the speedup. Or run the `prod_code` preset directly.
+
+## "Did I forget to commit?"
+
+Source files NOT in git AND not matched by `.gitignore` — catches new files an operator added but didn't `git add`:
+
+```json
+{
+  "name": "search",
+  "arguments": {
+    "expr": "is_source && !is_git_tracked && !is_git_ignored",
+    "sort_by": "size",
+    "order": "desc",
+    "limit": 50
+  }
+}
+```
+
+Or run the `untracked_code` preset.
+
+## Comment-only TODO scan
+
+`find_matches` with `match_in: "comments"` (#272) filters out TODO occurrences inside string literals, test fixtures, and identifiers — only fires on lines that begin with (or sit inside) a language-aware comment marker:
+
+```json
+{
+  "name": "find_matches",
+  "arguments": {
+    "pattern": "(?i)\\bTODO\\b",
+    "expr": "is_source",
+    "match_in": "comments",
+    "context_before": 1,
+    "context_after": 1
+  }
+}
+```
+
+## Validate a CEL expression before running a walk
+
+Cheap typo-check + "did you mean" suggestion before paying the walk setup cost. Particularly useful when the agent synthesised the expression from natural language:
+
+```json
+{ "name": "validate_expr", "arguments": { "expr": "is_markown && word_count > 500" } }
+```
+
+Returns `{"valid": false, "error": "undeclared reference to 'is_markown'", "suggestions": ["is_markdown"]}`.

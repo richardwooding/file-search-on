@@ -1,11 +1,11 @@
 ---
 name: file-search-on-mcp
-description: Uses the file-search-on MCP server (20 tools — search / search_semantic / stats / find_duplicates / find_near_duplicates / diff_trees / find_matches / list_archive_contents / read_file_in_archive / watch_search / detect_project / find_projects / resolve_project_for_path / read_attributes / read_lines / list_attributes / list_presets / query_preset / index_stats / monitor_info) to query files by typed content-type attributes via CEL expressions — PDF page_count, image EXIF (camera/lens/GPS/taken_at), audio tags + bitrate, video codec/duration, archive entry_count, binary architecture, source LOC, notebook cells, markdown frontmatter, plus body.contains / body.matches, fuzzy / phonetic / geo / image-similarity / secret-scan helpers, sha256 dedup + SimHash near-dup, cross-tree diff, and project-type detection. Use when the question is about file *attributes* (not filenames as with Glob or plain text as with Grep), when answers need aggregation or dedup, or when an agent needs photo / source / archive / email / binary metadata.
+description: Uses the file-search-on MCP server (23 tools — search / search_semantic / validate_expr / stats / find_duplicates / find_near_duplicates / diff_trees / find_matches / list_archive_contents / read_file_in_archive / watch_search / detect_project / find_projects / resolve_project_for_path / read_attributes / read_lines / list_attributes / list_presets / query_preset / list_embedding_models / pull_embedding_model / index_stats / monitor_info) to query files by typed content-type attributes via CEL expressions — PDF page_count, image EXIF (camera/lens/GPS/taken_at), audio tags + bitrate, video codec/duration, archive entry_count, binary architecture, source LOC + functions + imports, notebook cells, markdown frontmatter, git-aware (last commit time / author / churn) and codegen-aware (is_generated_code) attributes, plus body.contains / body.matches, fuzzy / phonetic / geo / image-similarity / secret-scan helpers, sha256 dedup + SimHash near-dup, cross-tree diff, and project-type detection. Use when the question is about file *attributes* (not filenames as with Glob or plain text as with Grep), when answers need aggregation or dedup, or when an agent needs photo / source / archive / email / binary metadata.
 ---
 
 # file-search-on MCP
 
-`file-search-on` is a content-type-aware file search exposed as a Model Context Protocol server. Once registered with an MCP client, it gives an agent **typed access to file metadata** — not just paths and bytes but image EXIF, PDF page counts, audio bitrates, source-code LOC, archive entries, email headers, GPS coordinates, and so on — through 20 tools driven by a CEL expression language.
+`file-search-on` is a content-type-aware file search exposed as a Model Context Protocol server. Once registered with an MCP client, it gives an agent **typed access to file metadata** — not just paths and bytes but image EXIF, PDF page counts, audio bitrates, source-code LOC, archive entries, email headers, GPS coordinates, git-aware churn / authorship, and so on — through 23 tools driven by a CEL expression language.
 
 This skill is the agent-facing usage guide. The codebase ships at `github.com/richardwooding/file-search-on`. The MCP launch shape is `file-search-on mcp` (stdio for desktop clients) or `file-search-on mcp --transport http --addr :8080` (Streamable HTTP). The skill assumes the server is already running and registered with the client.
 
@@ -70,18 +70,19 @@ Three canonical calls that demonstrate the patterns. Every walking tool accepts 
 }
 ```
 
-## The 20 tools at a glance
+## The 23 tools at a glance
 
-Grouped into six families. Full inputs / outputs / gotchas in [references/tools.md](references/tools.md).
+Grouped into seven families. Full inputs / outputs / gotchas in [references/tools.md](references/tools.md).
 
 | Family | Tools | Use for |
 | --- | --- | --- |
 | **Search & inspect** | `search`, `search_semantic`, `read_attributes`, `read_lines` | The everyday surface: walk a tree under a CEL filter, embed-rank by natural language, fetch attributes for one path, or pull a line range |
 | **Aggregate** | `stats` | Histograms + totals bucketed by `group_by` (content_type, language, camera_make, ext, dir, …) |
-| **Dedup & diff** | `find_duplicates`, `find_near_duplicates`, `diff_trees` | Byte-identical groups by sha256, fuzzy groups via SimHash on body, or cross-tree set ops (a-minus-b / intersect / mismatch) |
+| **Dedup & diff** | `find_duplicates`, `find_near_duplicates`, `diff_trees` | Byte-identical groups by sha256, fuzzy groups via SimHash on body (auto-bumps threshold for source-heavy trees + strips boilerplate), or cross-tree set ops (a-minus-b / intersect / mismatch) |
 | **Archive** | `list_archive_contents`, `read_file_in_archive` | Per-entry CEL filter inside ZIP / TAR / TAR.GZ / GZIP without extracting, or pull one entry's bytes out |
-| **Pattern + watch** | `find_matches`, `watch_search` | Line-level RE2 regex with context windows (CEL pre-prune for speed), or a bounded "tell me when X appears" subscription |
-| **Project + introspection + monitoring** | `detect_project`, `find_projects`, `resolve_project_for_path`, `list_attributes`, `list_presets`, `query_preset`, `index_stats`, `monitor_info` | Project-root detection (18 built-in types), schema discovery, named recipe presets, cache stats, live dashboard URL + peer instances |
+| **Pattern + watch** | `find_matches`, `watch_search` | Line-level RE2 regex with context windows + `match_in: any\|comments\|code` per-language filter (CEL pre-prune for speed), or a bounded "tell me when X appears" subscription |
+| **CEL utilities** | `validate_expr`, `list_attributes` | Compile-only CEL validator with "did you mean" Levenshtein suggestions; schema discovery with summary / section / names modes |
+| **Project + presets + monitoring** | `detect_project`, `find_projects`, `resolve_project_for_path`, `list_presets`, `query_preset`, `list_embedding_models`, `pull_embedding_model`, `index_stats`, `monitor_info` | Project-root detection (18 built-in types), 14 named recipe presets, on-demand Ollama embedding model catalog + pull, cache stats, live dashboard URL + peer instances |
 
 ## CEL essentials
 
@@ -92,7 +93,9 @@ The `expr` input is a [CEL](https://github.com/google/cel-spec) expression evalu
 - File-family: `is_markdown`, `is_pdf`, `is_html`, `is_xml`, `is_json`, `is_yaml`, `is_toml`, `is_csv`, `is_text`, `is_image`, `is_audio`, `is_video`, `is_office`, `is_epub`, `is_archive`, `is_binary`, `is_email`, `is_source`, `is_notebook`
 - Specialised umbrellas: `is_disk_image`, `is_install_package`, `is_bytecode`, `is_science_data`, `is_database`, `is_bookmark_file`, `is_chat_export`, `is_font`, `is_raw_photo`, `is_3d_model`, `is_system_metadata`
 - Exact-name (filename-matched): `is_dockerfile`, `is_makefile`, `is_gomod`, `is_node_manifest`, `is_cargo_manifest`, `is_license`, `is_changelog`, `is_gitignore`, `is_codeowners`, `is_procfile`, `is_vagrantfile`, and family umbrellas `is_build` / `is_manifest` / `is_repo_meta` / `is_ignore` / `is_platform`
-- State / forensic: `is_symlink`, `is_broken_symlink`, `is_test_file`, `is_btime_anomaly`, `is_disguised`, `is_known_good`, `is_known_bad`, `is_quarantined`, `is_codesigned`, `is_live_photo`
+- Source code: `is_test_file` (per-language test convention), `is_generated_code` (codegen marker in first ~20 lines — Go `// Code generated ... DO NOT EDIT.`, Python `# Generated by`, C# `// <auto-generated>`, cross-language `@generated`)
+- Git-aware (repo trees only; auto-warms via expression detection): `is_git_tracked`, `is_git_ignored`, plus the scalar attrs `git_last_commit_time`, `git_last_commit_author`, `git_last_commit_subject`, `git_first_seen`, `git_commit_count`
+- State / forensic: `is_symlink`, `is_broken_symlink`, `is_btime_anomaly`, `is_disguised`, `is_known_good`, `is_known_bad`, `is_quarantined`, `is_codesigned`, `is_live_photo`
 
 The full predicate catalogue + per-family attributes + functions live in [references/cel-vocabulary.md](references/cel-vocabulary.md). Call `list_attributes` to enumerate the live schema at runtime.
 
@@ -127,18 +130,31 @@ Every walking tool (`search`, `stats`, `find_duplicates`, `find_near_duplicates`
 
 ## Presets
 
-Eight baked recipes ship with the server. Discover via `list_presets`, run via `query_preset`. Each preset bakes a vetted CEL filter + sensible sort / limit defaults:
+Fourteen baked recipes ship with the server. Discover via `list_presets`, run via `query_preset`. Each preset bakes a vetted CEL filter + sensible sort / limit defaults. The repo-aware ones auto-enable `with_git`.
+
+**Filesystem presets** (work on any tree):
 
 | Preset | What it returns |
 | --- | --- |
-| `recent_changes` | Files modified in the last 7 days, newest first |
+| `recent_changes` | Files modified in the last 7 days, newest first (uses `mod_time` — degrades on fresh clones; prefer `recent_commits` for repos) |
 | `recent_photos` | Images taken in the last 30 days, newest first |
 | `old_drafts` | Markdown drafts not modified in the last 90 days |
 | `large_files` | Files larger than 100 MB across all formats |
 | `large_binaries` | Compiled binaries larger than 100 MB |
 | `suspicious_files` | Disguised files (magic ≠ extension) or btime anomalies |
-| `failed_tests` | Source test files mentioning `FAIL` / `FIXME` / `XXX` |
+| `failed_tests` | Test files with `FAIL` / `FIXME` / `XXX` / `TODO` in COMMENTS (line-anchored, not raw substring) |
 | `system_metadata` | OS leftovers — `.DS_Store`, `Thumbs.db`, `Desktop.ini`, `.directory` |
+
+**Repo-aware presets** (auto-enable `with_git` via expression / sort references):
+
+| Preset | What it returns |
+| --- | --- |
+| `recent_commits` | Files most recently committed in the last 7 days, sorted by commit time (the git-aware sibling of `recent_changes`) |
+| `hot_files` | Top-20 highest-churn source files by `git_commit_count` desc — refactor / review prioritisation |
+| `prod_code` | `is_source && is_git_tracked && !is_test_file && !is_generated_code`, top 100 by LOC — human-written production code |
+| `untracked_code` | Source files not in git and not gitignored — the "did I forget to commit?" check |
+| `generated_code` | Source files matching codegen markers (`is_generated_code`) |
+| `test_files` | Source files matching the per-language test convention, top 50 by LOC |
 
 Per-call overrides on `query_preset`: `dir` / `dirs`, `limit`, `excludes`, `respect_gitignore`, `follow_symlinks`.
 
