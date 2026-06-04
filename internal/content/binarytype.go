@@ -1,6 +1,7 @@
 package content
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io/fs"
@@ -38,6 +39,23 @@ type binaryType struct {
 func (b *binaryType) Name() string         { return b.name }
 func (b *binaryType) Extensions() []string { return b.exts }
 func (b *binaryType) MagicBytes() [][]byte { return b.magic }
+
+// MatchMagic claims fat/universal Mach-O binaries (magic 0xCAFEBABE),
+// which share that magic with Java .class and would otherwise detect as
+// bytecode/jvm — the thin Mach-O magics are registered but the fat one
+// isn't expressible as a fixed byte prefix (issue #324). Other binary
+// types (ELF, PE) fall back to the standard prefix match.
+func (b *binaryType) MatchMagic(head []byte) bool {
+	if b.name == "binary/mach-o" && isMachoFatHeader(head) {
+		return true
+	}
+	for _, m := range b.magic {
+		if bytes.HasPrefix(head, m) {
+			return true
+		}
+	}
+	return false
+}
 
 // Attributes dispatches to a per-format binary parser. All parsers
 // return the same surface — architectures, bitness, binary_format,

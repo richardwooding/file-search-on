@@ -1,6 +1,7 @@
 package content
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io/fs"
@@ -39,6 +40,22 @@ type bytecodeType struct {
 func (b *bytecodeType) Name() string         { return b.name }
 func (b *bytecodeType) Extensions() []string { return b.exts }
 func (b *bytecodeType) MagicBytes() [][]byte { return b.magic }
+
+// MatchMagic disambiguates Java .class from fat/universal Mach-O — both
+// start with 0xCAFEBABE. The jvm type only claims the magic when the
+// bytes that follow are NOT a fat-Mach-O header (issue #324). Other
+// bytecode types fall back to the standard prefix match.
+func (b *bytecodeType) MatchMagic(head []byte) bool {
+	if b.name == "bytecode/jvm" {
+		return bytes.HasPrefix(head, []byte{0xCA, 0xFE, 0xBA, 0xBE}) && !isMachoFatHeader(head)
+	}
+	for _, m := range b.magic {
+		if bytes.HasPrefix(head, m) {
+			return true
+		}
+	}
+	return false
+}
 
 // Attributes dispatches to a per-format VM-bytecode parser. Each
 // parser reads the format's header only — no instruction-stream
