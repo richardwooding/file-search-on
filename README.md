@@ -452,8 +452,8 @@ Twenty tools are exposed, grouped by family:
 
 | Tool | What it does |
 | --- | --- |
-| `search` | CEL expression over a directory tree. Supports `sort_by` / `limit` (top-K), `rank` (custom CEL sort key), `include_body` (full body filter), `include_snippet` (preview), `ocr_images` (run OCR before evaluating), `with_phash` (perceptual hash + `image_similar_to` function), `compute_hashes`, `check_disguised`, `with_xattrs`, `resolve_projects`, `prune_build_artefacts`, `fields` (token-saving projection — path / content_type / size always-on). Returns matches with the full attribute set + partial-result fields. |
-| `search_semantic` | Natural-language similarity search via local Ollama embeddings. Pre-prunes with an optional `expr`, embeds the query, ranks files by cosine similarity, applies a `threshold` cap. Embeddings cache per file. |
+| `search` | CEL expression over a directory tree. Supports `sort_by` / `limit` (top-K), `rank` (custom CEL sort key), `cursor` / `next_cursor` (stable keyset pagination — page a large match set in bounded chunks), `include_body` (full body filter), `include_snippet` (preview), `ocr_images` (run OCR before evaluating), `with_phash` (perceptual hash + `image_similar_to` function), `compute_hashes`, `check_disguised`, `with_xattrs`, `resolve_projects`, `prune_build_artefacts`, `fields` (token-saving projection — path / content_type / size always-on). Returns matches with the full attribute set + partial-result fields. |
+| `search_semantic` | Natural-language similarity search via local Ollama embeddings. Pre-prunes with an optional `expr`, embeds the query, ranks files by cosine similarity, applies a `threshold` cap, and supports `cursor` / `next_cursor` pagination. Embeddings cache per file. |
 | `read_attributes` | Attributes for a single path — same shape as one `search` match. Accepts `fields` for token-saving projection. |
 | `read_lines` | A specific line range of a file — pairs with `search` for context around matches. |
 
@@ -499,6 +499,8 @@ Twenty tools are exposed, grouped by family:
 | `monitor_info` | This server's monitoring-dashboard URL + the registry of sibling instances. Pass `enable: true` to start the dashboard on demand if it isn't already running. |
 
 Every walking tool (`search`, `stats`, `find_duplicates`, `find_near_duplicates`, `find_matches`, `find_projects`, `diff_trees`) honours the same partial-result contract: on timeout the call returns `cancelled=true` with the results gathered so far, never an error. Agents inspect the flag rather than catching exceptions.
+
+**Pagination.** `search` and `search_semantic` support stateless **cursor pagination** for large result sets. Pass `limit` to cap a page; when the set is truncated the response carries an opaque `next_cursor`. Pass it back as `cursor` (with the *same* `sort_by` / `order` / `rank` / `query`) to fetch the next page. The cursor is a keyset over the sort key + path, so paging is stable under an unchanged tree and survives a server restart — there's no server-side cached result set. Each page re-walks the tree, but attribute extraction is index-cached, so re-walks are cheap. An agent can stream a 10k-match set in bounded pages without blowing its context or losing the tail to a hard `limit`.
 
 Since v0.64.0 the on-disk index is **on by default**. The MCP server (like every other long-running subcommand) auto-creates a per-cwd bbolt cache at `<UserCacheDir>/file-search-on/indexes/<basename>-<sha1[:6]>.db` — repeated `search` / `read_attributes` calls against unchanged files skip parsing entirely. The default path is per-cwd so concurrent agents in different projects never collide; same-cwd contention falls back gracefully to in-memory (logged on stderr, surfaced on the dashboard as `index_fallback_reason: "lock_contention"`). Override with `--index-path`; opt out with `--no-index` for hermetic CI runs:
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -24,7 +23,8 @@ type SearchSemanticInput struct {
 	Dirs            []string `json:"dirs,omitempty" jsonschema:"Multiple directories to search in one call. When non-empty, takes precedence over 'dir'."`
 	Expr            string   `json:"expr,omitempty" jsonschema:"Optional CEL pre-filter using the regular search vocabulary (is_pdf, is_office, etc.). When set, the threshold is AND-combined: only files matching the CEL filter AND with similarity >= threshold are returned."`
 	Threshold       float64  `json:"threshold,omitempty" jsonschema:"Minimum cosine similarity (0..1) for a match. Default 0.5. Higher = stricter. 0.7 is a useful tightness for 'definitely about this topic'; 0.4-0.5 catches related-but-tangential content. Implemented by AND-ing 'similarity >= <value>' onto the expr filter, so it combines with (does not replace) any similarity comparison in your expr."`
-	Limit           int      `json:"limit,omitempty" jsonschema:"Cap on returned matches (top-K ranked by similarity desc). Default 50."`
+	Limit           int      `json:"limit,omitempty" jsonschema:"Cap on returned matches (top-K ranked by similarity desc). Default 50. When the ranked set is truncated by limit, the response carries an opaque next_cursor — pass it back as 'cursor' to fetch the next page."`
+	Cursor          string   `json:"cursor,omitempty" jsonschema:"Opaque pagination token from a previous response's next_cursor. Resumes the similarity-ranked result set immediately after the last item of the prior page. Re-embeds the query and re-walks each page (file vectors are cached, so the re-walk is cheap); paging is stable under an unchanged tree. Use the SAME query/threshold for consistent paging."`
 	Model           string   `json:"model,omitempty" jsonschema:"Override the server's default embedding model for this call (e.g. nomic-embed-text, mxbai-embed-large). When the server has no default and this is empty, the call returns 'no embedding model configured'."`
 	EmbeddingServer string   `json:"embedding_server,omitempty" jsonschema:"Override the server's default Ollama base URL for this call (e.g. http://gpu-box:11434). Defaults to the server-startup setting or http://localhost:11434."`
 	Excludes        []string `json:"excludes,omitempty" jsonschema:"Glob patterns matched against the basename of each file/directory; matched directories are pruned. Same semantics as the search tool."`
@@ -45,6 +45,10 @@ type SearchSemanticOutput struct {
 	CommonOutput
 	Matches            []search.Match `json:"matches"`
 	Count              int            `json:"count"`
+	// NextCursor is an opaque token, present only when the ranked set was
+	// truncated by Limit and more matches remain. Pass it back as the
+	// 'cursor' input to fetch the next page. Empty means last page. #336.
+	NextCursor         string         `json:"next_cursor,omitempty"`
 	ElapsedSeconds     float64        `json:"elapsed_seconds"`
 	EmbeddingModel     string         `json:"embedding_model"`
 	SimilarityThreshold float64       `json:"similarity_threshold"`
@@ -188,29 +192,28 @@ func (h *handlers) searchSemanticHandler(ctx context.Context, req *mcp.CallToolR
 		return nil, SearchSemanticOutput{}, fmt.Errorf("walk: %w", walkErr)
 	}
 
-	// Sort by similarity desc + apply limit. SortAndLimit handles the
-	// case where results have a mix of zero similarities (binary content
-	// that skipped the embedding) by grouping them at the end — the
-	// threshold filter above already excluded them in normal use, so
-	// the bottom of the list is sparse only on edge cases.
-	results = search.SortAndLimit(results, search.Options{
-		Sort:  "similarity",
-		Order: "desc",
-		Limit: limit,
-	})
+	// Rank by similarity desc, resume past the cursor, cap to limit, and
+	// emit next_cursor when more remain. PaginateResults sorts in a
+	// stable total order (similarity desc, path asc tiebreak) so paging
+	// is consistent across calls — that path tiebreak is also why we no
+	// longer need the old defensive re-sort. Files with zero similarity
+	// (binary content that skipped embedding) group at the end; the
+	// threshold filter above already excludes them in normal use.
+	page, nextCursor, perr := search.PaginateResults(results, "similarity", "desc", in.Cursor, limit)
+	if perr != nil {
+		return nil, SearchSemanticOutput{}, fmt.Errorf("cursor: %w", perr)
+	}
+	results = page
 
 	matches := make([]search.Match, len(results))
 	for i, r := range results {
 		matches[i] = search.MatchFrom(r)
 	}
-	// Re-sort by similarity to defend against any future shuffling
-	// inside SortAndLimit (defensive — Sort=="similarity" already does
-	// the right thing today).
-	sort.SliceStable(matches, func(i, j int) bool { return matches[i].Similarity > matches[j].Similarity })
 
 	output := SearchSemanticOutput{
 		Matches:             matches,
 		Count:               len(matches),
+		NextCursor:          nextCursor,
 		ElapsedSeconds:      elapsed,
 		EmbeddingModel:      model,
 		SimilarityThreshold: threshold,

@@ -27,7 +27,8 @@ type SearchInput struct {
 	SortBy           string   `json:"sort_by,omitempty" jsonschema:"Sort matches by attribute. Recognised keys: size, name, path, mod_time, word_count, line_count, page_count, duration, bitrate, sample_rate, video_height, video_width, frame_rate, iso, focal_length, taken_at, sent_at, year, entry_count, uncompressed_size, loc, attachment_count, email_count. Files missing the attribute group at the end. Sorting buffers the full result set (top-K is incoherent with streaming)."`
 	Order            string   `json:"order,omitempty" jsonschema:"Sort direction when sort_by is set: 'asc' (default) or 'desc'."`
 	Rank             string   `json:"rank,omitempty" jsonschema:"CEL expression returning double / int / bool — evaluated per file as a custom sort key. Higher values rank first. Composes with semantic_query (similarity is a CEL variable). When set, overrides sort_by; default order is desc. Example: 'similarity * 0.7 + (mod_time > timestamp(\"2025-01-01T00:00:00Z\") ? 0.3 : 0.0)'."`
-	Limit            int      `json:"limit,omitempty" jsonschema:"Cap the returned match count. With sort_by, returns the top-N (after sorting). Without sort_by, returns the first N in walk order. 0 = unlimited."`
+	Limit            int      `json:"limit,omitempty" jsonschema:"Cap the returned match count. With sort_by, returns the top-N (after sorting). Without sort_by, returns the first N ordered by path. 0 = unlimited. When the result set is truncated by limit, the response carries an opaque next_cursor — pass it back as 'cursor' to fetch the next page."`
+	Cursor           string   `json:"cursor,omitempty" jsonschema:"Opaque pagination token from a previous response's next_cursor. Resumes the result set immediately after the last item of the prior page, using the SAME sort_by/order/rank as that call (a mismatch errors). Paging is stable across calls under an unchanged tree; the walk is re-run each page (cheap — attributes are cached). Combine with 'limit' to stream a large match set in bounded pages."`
 	IncludeSnippet   bool     `json:"include_snippet,omitempty" jsonschema:"When true, populate each match's 'snippet' field with the first N lines of the file body (see snippet_lines). Only text-based content types (markdown / text / html / csv / json / xml / source/*) populate; binary families leave snippet empty."`
 	SnippetLines     int      `json:"snippet_lines,omitempty" jsonschema:"How many lines to include per snippet (default 10). Ignored when include_snippet is false."`
 	IncludeBody      bool     `json:"include_body,omitempty" jsonschema:"When true, the full file body is exposed to the CEL expression as the 'body' string variable, so filters like body.contains(\"transformer\") or body.matches(\"\\\\bAPI\\\\b\") run at search time. Only text-based content types populate body; capped at body_max_bytes (default 1 MiB). Expensive: reads every candidate file's body, not just headers — pair with tight expr / excludes / timeout."`
@@ -63,6 +64,11 @@ type SearchOutput struct {
 	CommonOutput
 	Matches            []search.Match `json:"matches"`
 	Count              int            `json:"count"`
+	// NextCursor is an opaque token, present only when the result set was
+	// truncated by Limit and more matches remain. Pass it back as the
+	// 'cursor' input (with the same sort_by/order/rank) to fetch the next
+	// page. Empty means this is the last page. Issue #336.
+	NextCursor         string         `json:"next_cursor,omitempty"`
 	Cancelled          bool           `json:"cancelled,omitempty"`
 	CancellationReason string         `json:"cancellation_reason,omitempty"`
 	ElapsedSeconds     float64        `json:"elapsed_seconds,omitempty"`
@@ -244,25 +250,34 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 		return nil, SearchOutput{}, fmt.Errorf("walk: %w", walkErr)
 	}
 
-	// Order: explicit sort_by > legacy path-sort default. Limit is
-	// applied AFTER sorting so the response respects top-K
-	// semantics. sortAndLimit lives in internal/search next to the
-	// type-aware compareByKey so this stays the single source of
-	// truth for sort/limit logic.
-	if in.Rank != "" || in.SortBy != "" || in.Limit > 0 {
-		sortOpts := search.Options{Sort: in.SortBy, Order: in.Order, Limit: in.Limit}
-		// Rank overrides sort_by: when set, sort by rank desc by
-		// default (mirrors the CLI / walker behaviour).
-		if in.Rank != "" {
-			sortOpts.Sort = "rank"
-			if sortOpts.Order == "" {
-				sortOpts.Order = "desc"
-			}
+	// Resolve the effective sort key/order. Rank overrides sort_by:
+	// when set, sort by rank desc by default (mirrors the CLI / walker).
+	sortKey, order := in.SortBy, in.Order
+	if in.Rank != "" {
+		sortKey = "rank"
+		if order == "" {
+			order = "desc"
 		}
-		results = search.SortAndLimit(results, sortOpts)
-	} else {
-		// Historical contract: matches sorted by path. Preserve it
-		// when the caller didn't request a specific sort.
+	}
+
+	// Pagination path: a cursor OR a limit means the caller may be
+	// paging, so route through PaginateResults — it sorts in a stable
+	// total order (sort key + path tiebreak), resumes past the cursor,
+	// caps to limit, and emits next_cursor when more remain. Empty
+	// sortKey orders by path (the same default as the non-paged branch).
+	var nextCursor string
+	switch {
+	case in.Cursor != "" || in.Limit > 0:
+		page, next, perr := search.PaginateResults(results, sortKey, order, in.Cursor, in.Limit)
+		if perr != nil {
+			return nil, SearchOutput{}, fmt.Errorf("cursor: %w", perr)
+		}
+		results, nextCursor = page, next
+	case sortKey != "":
+		results = search.SortAndLimit(results, search.Options{Sort: sortKey, Order: order})
+	default:
+		// Historical contract: matches sorted by path when the caller
+		// didn't request a specific sort.
 		sort.Slice(results, func(i, j int) bool { return results[i].Path < results[j].Path })
 	}
 
@@ -278,6 +293,7 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 	output := SearchOutput{
 		Matches:        matches,
 		Count:          len(matches),
+		NextCursor:     nextCursor,
 		ElapsedSeconds: elapsed,
 	}
 	if cancelled {
