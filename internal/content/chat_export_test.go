@@ -26,7 +26,7 @@ func TestSlackExport_Detection(t *testing.T) {
 }
 
 func TestSlackExport_Attributes(t *testing.T) {
-	c := parseSlackExport([]byte(slackArrayFixture))
+	c := parseSlackExport(t.Context(), []byte(slackArrayFixture))
 	attrs := c.toAttributes(dirName("acme/engineering/2021-01-01.json"), grandDirName("acme/engineering/2021-01-01.json"))
 
 	if got := attrs["chat_message_count"]; got != int64(3) {
@@ -54,14 +54,14 @@ func TestSlackExport_WrappedObjectForm(t *testing.T) {
 	if ct == nil || ct.Name() != "chat/slack-export" {
 		t.Fatalf("wrapped-form Detect = %v, want chat/slack-export", ctName(ct))
 	}
-	c := parseSlackExport([]byte(wrapped))
+	c := parseSlackExport(t.Context(), []byte(wrapped))
 	if c.count != 3 {
 		t.Errorf("wrapped count = %d, want 3", c.count)
 	}
 }
 
 func TestSlackExport_Body(t *testing.T) {
-	body := chatBody(parseSlackExport([]byte(slackArrayFixture)), 1<<20)
+	body := chatBody(parseSlackExport(t.Context(), []byte(slackArrayFixture)), 1<<20)
 	if !strings.Contains(body, "kubernetes") {
 		t.Errorf("body should contain 'kubernetes': %q", body)
 	}
@@ -91,7 +91,7 @@ func TestDiscordExport_Detection(t *testing.T) {
 }
 
 func TestDiscordExport_Attributes(t *testing.T) {
-	c, channel, guild := parseDiscordExport([]byte(discordFixture))
+	c, channel, guild := parseDiscordExport(t.Context(), []byte(discordFixture))
 	attrs := c.toAttributes(channel, guild)
 	if got := attrs["chat_message_count"]; got != int64(2) {
 		t.Errorf("chat_message_count = %v, want 2", got)
@@ -125,7 +125,7 @@ func TestSignalExport_Detection_NDJSON(t *testing.T) {
 }
 
 func TestSignalExport_Attributes(t *testing.T) {
-	c := parseSignalExport([]byte(signalNDJSON))
+	c := parseSignalExport(t.Context(), []byte(signalNDJSON))
 	attrs := c.toAttributes(signalContactFromPath("+15550001.json"), "")
 	if got := attrs["chat_message_count"]; got != int64(2) {
 		t.Errorf("chat_message_count = %v, want 2", got)
@@ -144,7 +144,7 @@ func TestSignalExport_Attributes(t *testing.T) {
 
 func TestSignalExport_ArrayForm(t *testing.T) {
 	arr := `[` + strings.ReplaceAll(signalNDJSON, "}}\n{", "}},{") + `]`
-	c := parseSignalExport([]byte(arr))
+	c := parseSignalExport(t.Context(), []byte(arr))
 	if c.count != 2 {
 		t.Errorf("array-form count = %d, want 2", c.count)
 	}

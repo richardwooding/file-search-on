@@ -48,7 +48,7 @@ func (*discordExportType) Attributes(ctx context.Context, fsys fs.FS, p string) 
 	if len(buf) == 0 {
 		return Attributes{}, nil
 	}
-	c, channel, guild := parseDiscordExport(buf)
+	c, channel, guild := parseDiscordExport(ctx, buf)
 	return c.toAttributes(channel, guild), nil
 }
 
@@ -70,7 +70,7 @@ func (m *discordMessage) author() string {
 
 // parseDiscordExport extracts guild + channel names and streams the
 // messages array. Pure function — fuzz target exercises it directly.
-func parseDiscordExport(data []byte) (c *chatCollector, channel, guild string) {
+func parseDiscordExport(ctx context.Context, data []byte) (c *chatCollector, channel, guild string) {
 	c = &chatCollector{}
 	var file struct {
 		Guild    struct{ Name string `json:"name"` } `json:"guild"`
@@ -80,7 +80,7 @@ func parseDiscordExport(data []byte) (c *chatCollector, channel, guild string) {
 	if err := json.Unmarshal(data, &file); err != nil {
 		return c, "", ""
 	}
-	forEachArrayElement(file.Messages, func(raw json.RawMessage) bool {
+	forEachArrayElement(ctx, file.Messages, func(raw json.RawMessage) bool {
 		var m discordMessage
 		if err := json.Unmarshal(raw, &m); err != nil {
 			return true
@@ -103,6 +103,6 @@ func discordExportBody(ctx context.Context, fsys fs.FS, p string, maxBytes int) 
 	if len(buf) == 0 {
 		return "", nil
 	}
-	c, _, _ := parseDiscordExport(buf)
+	c, _, _ := parseDiscordExport(ctx, buf)
 	return chatBody(c, maxBytes), nil
 }

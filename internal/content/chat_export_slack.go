@@ -56,7 +56,7 @@ func (*slackExportType) Attributes(ctx context.Context, fsys fs.FS, p string) (A
 	if len(buf) == 0 {
 		return Attributes{}, nil
 	}
-	c := parseSlackExport(buf)
+	c := parseSlackExport(ctx, buf)
 	return c.toAttributes(dirName(p), grandDirName(p)), nil
 }
 
@@ -85,7 +85,7 @@ func (m *slackMessage) author() string {
 // parseSlackExport streams the message array (array form) or the
 // wrapped object's `messages` array, collecting the shared chat surface.
 // Pure function — fuzz target exercises it directly.
-func parseSlackExport(data []byte) *chatCollector {
+func parseSlackExport(ctx context.Context, data []byte) *chatCollector {
 	c := &chatCollector{}
 	consume := func(raw json.RawMessage) bool {
 		var m slackMessage
@@ -96,7 +96,7 @@ func parseSlackExport(data []byte) *chatCollector {
 		return !c.full()
 	}
 	if startsWithJSONArray(data) {
-		forEachArrayElement(data, consume)
+		forEachArrayElement(ctx, data, consume)
 		return c
 	}
 	// Wrapped object form: {"messages": [...]}.
@@ -106,7 +106,7 @@ func parseSlackExport(data []byte) *chatCollector {
 	if err := json.Unmarshal(data, &wrapper); err != nil || len(wrapper.Messages) == 0 {
 		return c
 	}
-	forEachArrayElement(wrapper.Messages, consume)
+	forEachArrayElement(ctx, wrapper.Messages, consume)
 	return c
 }
 
@@ -118,5 +118,5 @@ func slackExportBody(ctx context.Context, fsys fs.FS, p string, maxBytes int) (s
 	if len(buf) == 0 {
 		return "", nil
 	}
-	return chatBody(parseSlackExport(buf), maxBytes), nil
+	return chatBody(parseSlackExport(ctx, buf), maxBytes), nil
 }

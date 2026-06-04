@@ -2,6 +2,7 @@ package content
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"io/fs"
@@ -10,6 +11,12 @@ import (
 	"strings"
 	"time"
 )
+
+// chatCtxCheckMask sets how often the streaming JSON iterators poll
+// ctx.Err(): every (mask+1) = 1024 elements. Cheap enough to be
+// invisible on normal exports, frequent enough that a cancelled
+// multi-million-message parse stops promptly.
+const chatCtxCheckMask = 1<<10 - 1
 
 // Chat-export content types (issue #214). Slack workspace exports,
 // Discord (DiscordChatExporter) dumps, and signal-cli JSON are all
@@ -264,7 +271,7 @@ func skipJSONValue(dec *json.Decoder) error {
 // calling fn with each element's raw bytes until fn returns false, the
 // array ends, or a decode error occurs. Does nothing when data isn't a
 // top-level array.
-func forEachArrayElement(data []byte, fn func(json.RawMessage) bool) {
+func forEachArrayElement(ctx context.Context, data []byte, fn func(json.RawMessage) bool) {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	t, err := dec.Token()
 	if err != nil {
@@ -273,7 +280,12 @@ func forEachArrayElement(data []byte, fn func(json.RawMessage) bool) {
 	if d, ok := t.(json.Delim); !ok || d != '[' {
 		return
 	}
-	for dec.More() {
+	for n := 0; dec.More(); n++ {
+		// A multi-million-element export must not run uninterruptibly
+		// after a timeout / Ctrl-C — check ctx periodically (#321 audit).
+		if n&chatCtxCheckMask == 0 && ctx.Err() != nil {
+			return
+		}
 		var raw json.RawMessage
 		if err := dec.Decode(&raw); err != nil {
 			return
@@ -288,9 +300,12 @@ func forEachArrayElement(data []byte, fn func(json.RawMessage) bool) {
 // handles newline-delimited JSON (signal-cli's default output) as well
 // as a single object. Calls fn with each value's raw bytes until fn
 // returns false or input is exhausted.
-func forEachJSONValue(data []byte, fn func(json.RawMessage) bool) {
+func forEachJSONValue(ctx context.Context, data []byte, fn func(json.RawMessage) bool) {
 	dec := json.NewDecoder(bytes.NewReader(data))
-	for {
+	for n := 0; ; n++ {
+		if n&chatCtxCheckMask == 0 && ctx.Err() != nil {
+			return // cancelled — stop streaming (#321 audit)
+		}
 		var raw json.RawMessage
 		if err := dec.Decode(&raw); err != nil {
 			return

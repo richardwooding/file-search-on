@@ -51,7 +51,7 @@ func (*signalExportType) Attributes(ctx context.Context, fsys fs.FS, p string) (
 	if len(buf) == 0 {
 		return Attributes{}, nil
 	}
-	c := parseSignalExport(buf)
+	c := parseSignalExport(ctx, buf)
 	// chat_channel = contact (file basename without extension); no
 	// workspace concept for Signal.
 	channel := signalContactFromPath(p)
@@ -79,7 +79,7 @@ func (e *signalEnvelope) author() string {
 // parseSignalExport streams envelope objects from either the NDJSON or
 // the wrapped-array form. Pure function — fuzz target exercises it
 // directly.
-func parseSignalExport(data []byte) *chatCollector {
+func parseSignalExport(ctx context.Context, data []byte) *chatCollector {
 	c := &chatCollector{}
 	consume := func(raw json.RawMessage) bool {
 		var e signalEnvelope
@@ -94,9 +94,9 @@ func parseSignalExport(data []byte) *chatCollector {
 		return !c.full()
 	}
 	if startsWithJSONArray(data) {
-		forEachArrayElement(data, consume)
+		forEachArrayElement(ctx, data, consume)
 	} else {
-		forEachJSONValue(data, consume)
+		forEachJSONValue(ctx, data, consume)
 	}
 	return c
 }
@@ -115,5 +115,5 @@ func signalExportBody(ctx context.Context, fsys fs.FS, p string, maxBytes int) (
 	if len(buf) == 0 {
 		return "", nil
 	}
-	return chatBody(parseSignalExport(buf), maxBytes), nil
+	return chatBody(parseSignalExport(ctx, buf), maxBytes), nil
 }

@@ -1,6 +1,9 @@
 package content
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 // FuzzParseChatExport exercises the three chat-export parsers and the
 // shape sniffer against arbitrary bytes. None may panic; malformed
@@ -20,9 +23,9 @@ func FuzzParseChatExport(f *testing.F) {
 	f.Add([]byte(`{"guild":{},"channel":{},"messages":[{"timestamp":"bad"}]}`))
 
 	f.Fuzz(func(_ *testing.T, data []byte) {
-		_ = parseSlackExport(data)
-		_, _, _ = parseDiscordExport(data)
-		_ = parseSignalExport(data)
+		_ = parseSlackExport(context.Background(), data)
+		_, _, _ = parseDiscordExport(context.Background(), data)
+		_ = parseSignalExport(context.Background(), data)
 		_, _ = sniffJSONShape(data)
 		// Discriminators must also never panic on arbitrary bytes.
 		_ = (&slackExportType{}).MatchesContent(data)
