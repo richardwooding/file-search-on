@@ -346,3 +346,76 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+// TestFindMatches_ExtractsDocumentBodies is the regression for issue
+// #309: find-matches used to scan 0 structured-document files because
+// the raw byte scan finds nothing inside a ZIP/PDF container. It now
+// extracts the body first. Uses the committed content-type fixtures,
+// which all carry the canonical "content-type test suite" sentence.
+func TestFindMatches_ExtractsDocumentBodies(t *testing.T) {
+	fixtures := filepath.Join("..", "content", "testdata", "fixtures")
+	dir := t.TempDir()
+	docs := []string{"sample.epub", "sample.docx", "sample.pdf", "sample.odt"}
+	for _, name := range docs {
+		b, err := os.ReadFile(filepath.Join(fixtures, name))
+		if err != nil {
+			t.Skipf("fixture %s unavailable: %v", name, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), b, 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	res, err := search.FindMatches(t.Context(), search.Options{
+		Roots:   []string{dir},
+		Pattern: "content-type test suite",
+	}, content.DefaultRegistry())
+	if err != nil {
+		t.Fatalf("FindMatches: %v", err)
+	}
+	if res.FilesScanned < len(docs) {
+		t.Errorf("FilesScanned=%d want >= %d (documents must be extracted + scanned, not skipped)", res.FilesScanned, len(docs))
+	}
+	// Every fixture carries the phrase in its extracted body, so each
+	// should produce at least one match.
+	matched := map[string]bool{}
+	for _, m := range res.Matches {
+		matched[filepath.Base(m.Path)] = true
+	}
+	for _, name := range docs {
+		if !matched[name] {
+			t.Errorf("no match found inside %s — body extraction did not feed the scanner", name)
+		}
+	}
+	if res.Count == 0 {
+		t.Error("Count=0 — expected matches inside the document bodies (#309)")
+	}
+}
+
+// TestFindMatches_SkipsTrulyBinary confirms the broadened candidate set
+// didn't start scanning genuinely binary files (no useful "line"
+// concept): a PNG must still be skipped.
+func TestFindMatches_SkipsTrulyBinary(t *testing.T) {
+	dir := t.TempDir()
+	// Minimal PNG header — detects as image/png.
+	if err := os.WriteFile(filepath.Join(dir, "x.png"), []byte("\x89PNG\r\n\x1a\nIHDR................"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dir, "note.txt", "findable needle here\n")
+
+	res, err := search.FindMatches(t.Context(), search.Options{
+		Roots:   []string{dir},
+		Pattern: "needle|IHDR",
+	}, content.DefaultRegistry())
+	if err != nil {
+		t.Fatalf("FindMatches: %v", err)
+	}
+	for _, m := range res.Matches {
+		if filepath.Base(m.Path) == "x.png" {
+			t.Errorf("binary PNG should not be scanned, got match: %+v", m)
+		}
+	}
+	if res.Count == 0 {
+		t.Error("expected the .txt needle to match")
+	}
+}

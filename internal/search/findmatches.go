@@ -8,9 +8,11 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -101,6 +103,12 @@ func parseMatchIn(s string) (matchInMode, error) {
 // is truncated to the cap and the scan continues.
 const findMatchesLineCap = 64 * 1024
 
+// findMatchesBodyCap bounds the extracted text for structured documents
+// (office / epub / pdf / …) when Options.BodyMaxBytes is unset. 8 MiB
+// comfortably covers a full-length book's text while keeping per-file
+// memory bounded across workers. Text past the cap isn't scanned.
+const findMatchesBodyCap = 8 << 20
+
 // FindMatches walks opts.Root / opts.Roots, applies the CEL filter,
 // and for each text-typed match opens the file and reports every line
 // that matches opts.Pattern (RE2). Context windows (opts.ContextBefore
@@ -108,12 +116,14 @@ const findMatchesLineCap = 64 * 1024
 // opts.MaxMatchesPerFile caps matches within a single file (0 =
 // unlimited).
 //
-// Only text content types participate (markdown / text / html / csv /
-// json / xml / source/*). Binary families (image / audio / video /
-// archive / binary / office / epub / email) are filtered out — there's
-// no useful "line" concept and a line-scanner would produce noise.
-// Callers that want binary content should reach for find_duplicates or
-// content-type-specific tools.
+// Plain-text content types (markdown / text / html / csv / json / xml /
+// source/*) are line-scanned directly. Structured documents whose text
+// lives behind a container — office (DOCX/XLSX/PPTX/ODT), epub, pdf,
+// email (.eml/.mbox), and the browser/chat/sqlite exports — are first
+// run through content.ExtractBody and the extracted text is scanned, so
+// `find-matches "Captain Ahab"` finds the phrase inside an .epub
+// (issue #309). Truly binary families (image / audio / video / archive /
+// compiled binary) are filtered out — there's no useful "line" concept.
 //
 // Like FindDuplicates this is two-pass: Walk to collect candidates,
 // then parallel regex-scan. Walk-stage cancellation is honoured via the
@@ -157,13 +167,23 @@ func FindMatches(ctx context.Context, opts Options, registry *content.Registry) 
 
 	out := &FindMatchesResult{}
 
-	// Filter to text content types. Binary families are silently
-	// dropped — see the doc comment for the rationale.
+	// Filter to scannable content: plain text (scanned raw) plus
+	// structured documents whose body we can extract (office / epub /
+	// pdf / email / …). Truly binary families are silently dropped —
+	// see the doc comment for the rationale.
 	var candidates []Result
 	for _, r := range results {
-		if isTextContentType(r.ContentType) {
+		if isTextContentType(r.ContentType) || content.SupportsBodyExtraction(r.ContentType) {
 			candidates = append(candidates, r)
 		}
+	}
+
+	// Cap on the extracted document body (distinct from the per-line
+	// scanner cap). Honour an explicit Options.BodyMaxBytes; otherwise
+	// use a generous default that covers full-length books.
+	bodyCap := opts.BodyMaxBytes
+	if bodyCap <= 0 {
+		bodyCap = findMatchesBodyCap
 	}
 
 	workers := opts.Workers
@@ -190,7 +210,7 @@ func FindMatches(ctx context.Context, opts Options, registry *content.Registry) 
 				if ctx.Err() != nil {
 					return
 				}
-				hits, truncated := scanResultForMatches(ctx, opts.FS, r, re, opts.ContextBefore, opts.ContextAfter, opts.MaxMatchesPerFile, matchIn)
+				hits, truncated := scanResultForMatches(ctx, opts.FS, r, re, opts.ContextBefore, opts.ContextAfter, opts.MaxMatchesPerFile, matchIn, bodyCap)
 				mu.Lock()
 				filesScanned++
 				if len(hits) > 0 {
@@ -264,10 +284,27 @@ func FindMatches(ctx context.Context, opts Options, registry *content.Registry) 
 // drop that file silently — matches the broader "broken file doesn't
 // abort the walk" pattern. fsys is non-nil only in test paths that
 // pass Options.FS.
-func scanResultForMatches(ctx context.Context, fsys fs.FS, r Result, re *regexp.Regexp, ctxBefore, ctxAfter, maxPerFile int, matchIn matchInMode) ([]LineMatch, bool) {
+func scanResultForMatches(ctx context.Context, fsys fs.FS, r Result, re *regexp.Regexp, ctxBefore, ctxAfter, maxPerFile int, matchIn matchInMode, bodyCap int) ([]LineMatch, bool) {
 	if err := ctx.Err(); err != nil {
 		return nil, false
 	}
+
+	// Structured documents (office / epub / pdf / email / …) carry their
+	// text behind a container, so a raw byte scan finds nothing. Extract
+	// the body and scan THAT instead. Issue #309.
+	if content.SupportsBodyExtraction(r.ContentType) {
+		body := extractDocumentBody(ctx, fsys, r.Path, r.ContentType, bodyCap)
+		if body == "" {
+			return nil, false
+		}
+		hits, truncated := scanReaderForMatches(ctx, strings.NewReader(body), re, ctxBefore, ctxAfter, maxPerFile, matchIn, commentSyntax{}, false)
+		for i := range hits {
+			hits[i].Path = r.Path
+			hits[i].ContentType = r.ContentType
+		}
+		return hits, truncated
+	}
+
 	var rd io.ReadCloser
 	if fsys != nil {
 		f, err := fsys.Open(r.Path)
@@ -396,6 +433,27 @@ func scanReaderForMatches(ctx context.Context, rd io.Reader, re *regexp.Regexp, 
 	// in Suggestions. Issue #283.
 	truncated := errors.Is(scanner.Err(), bufio.ErrTooLong)
 	return matches, truncated
+}
+
+// extractDocumentBody turns a structured document into plain text for
+// line scanning. Test callers pass a non-nil fsys and r.Path is the
+// in-fs path; production callers pass nil and r.Path is an absolute OS
+// path, which we expose to ExtractBody via an os.DirFS rooted at the
+// file's parent. database/sqlite (and any future OS-path-only
+// extractor) can't go through fs.FS — fall back to ExtractBodyOSPath.
+// Errors / unsupported types degrade to "" so the file is skipped, not
+// fatal — matching the broader "broken file doesn't abort the walk".
+func extractDocumentBody(ctx context.Context, fsys fs.FS, path, contentType string, maxBytes int) string {
+	if fsys != nil {
+		body, _ := content.ExtractBody(ctx, contentType, fsys, path, maxBytes)
+		return body
+	}
+	if content.RequiresOSPath(contentType) {
+		body, _ := content.ExtractBodyOSPath(ctx, contentType, path, maxBytes)
+		return body
+	}
+	body, _ := content.ExtractBody(ctx, contentType, os.DirFS(filepath.Dir(path)), filepath.Base(path), maxBytes)
+	return body
 }
 
 // roleMatches reports whether a line of role `r` survives the MatchIn
