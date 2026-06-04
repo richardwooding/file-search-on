@@ -25,6 +25,8 @@ type StatsInput struct {
 	FollowSymlinks      bool     `json:"follow_symlinks,omitempty" jsonschema:"When true, descend through symbolic links to directories. Off by default; symlinks-to-dirs surface as is_symlink=true leaf entries."`
 	PruneBuildArtefacts bool     `json:"prune_build_artefacts,omitempty" jsonschema:"When true, pre-walks each root to discover project subdirectories and prunes the canonical build-artefact basenames for every detected project type — vendor (Go), node_modules (Node), target (Rust / Java Maven), __pycache__/.venv/.tox (Python), bin/obj (.NET), .terraform (Terraform), etc. Unioned with 'excludes'. Saves the boilerplate exclude list when running stats over monorepos or large multi-project trees. Opt-in: pre-walk I/O is proportional to tree size. Parity with the search / find_matches / find_near_duplicates tools. Issue #277."`
 	GroupBy             string   `json:"group_by,omitempty" jsonschema:"Bucket key. Default 'content_type'. Recognised: content_type, ext, dir, language, camera_make, camera_model, lens, artist, album, genre, kernel, binary_format, binary_type, frontmatter_format. Unknown values fall back to content_type. Use group_by=ext to histogram by file extension, group_by=language to count source files per language, group_by=camera_make to bucket photos by camera, etc."`
+	Limit               int      `json:"limit,omitempty" jsonschema:"Cap the number of buckets returned in this page (buckets are ordered by count desc, then name asc). 0 = all. When truncated, the response carries next_cursor. Useful for high-cardinality group_by like ext / dir / language on a large tree."`
+	Cursor              string   `json:"cursor,omitempty" jsonschema:"Opaque pagination token from a previous response's next_cursor. Resumes the bucket list after the last bucket of the prior page. Use the SAME group_by/expr for stable paging. total_count / total_size always reflect the full tree, not the page."`
 }
 
 // StatsOutput is the structured output of the `stats` tool — a
@@ -43,6 +45,10 @@ type StatsOutput struct {
 	GroupBy            string                   `json:"group_by,omitempty"`
 	Groups             []StatsBucket            `json:"groups"`
 	ContentTypes       []StatsContentTypeBucket `json:"content_types,omitempty"`
+	// NextCursor is present only when the bucket list was truncated by
+	// Limit and more buckets remain. Pass it back as 'cursor' to fetch
+	// the next page. Issue #336.
+	NextCursor         string                   `json:"next_cursor,omitempty"`
 	Cancelled          bool                     `json:"cancelled,omitempty"`
 	CancellationReason string                   `json:"cancellation_reason,omitempty"`
 	ElapsedSeconds     float64                  `json:"elapsed_seconds,omitempty"`
@@ -139,6 +145,27 @@ func (h *handlers) statsHandler(ctx context.Context, _ *mcp.CallToolRequest, in 
 					Name:      b.Name,
 					Count:     b.Count,
 					TotalSize: b.TotalSize,
+				}
+			}
+		}
+
+		// Cursor pagination over the buckets (count desc, name asc — the
+		// same order ComputeStats emits). total_count / total_size stay
+		// whole-tree. When group_by is content_type the ContentTypes
+		// mirror is trimmed to the same page so the two views agree.
+		// Issue #336.
+		if in.Cursor != "" || in.Limit > 0 {
+			page, next, perr := search.PaginateGeneric(out.Groups, func(b StatsBucket) []any {
+				return []any{b.Count, b.Name}
+			}, []string{"desc", "asc"}, in.Cursor, in.Limit)
+			if perr != nil {
+				return nil, StatsOutput{}, fmt.Errorf("cursor: %w", perr)
+			}
+			out.Groups, out.NextCursor = page, next
+			if out.ContentTypes != nil {
+				out.ContentTypes = out.ContentTypes[:0]
+				for _, b := range out.Groups {
+					out.ContentTypes = append(out.ContentTypes, StatsContentTypeBucket(b))
 				}
 			}
 		}
