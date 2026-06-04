@@ -235,7 +235,7 @@ Bounded subscription — `watch_search` blocks up to `duration_seconds` (default
 
 `ocr_images: true` runs the registered OCR provider (macOS Vision today) over each new image so `body.contains(...)` sees the recognised text. The first OCR per image is expensive (~200ms–2s); subsequent walks are free (body cache).
 
-## High-churn source files (refactor / review prioritisation)
+## High-churn files (refactor / review prioritisation)
 
 `with_git: true` is auto-enabled by the `git_commit_count` reference in `expr` / `sort_by` — no need to pass it explicitly. First call after process start pays the ~500ms `git log` cost; subsequent calls are sub-10ms (HEAD-sha-validated `gitmeta.Pool`):
 
@@ -243,7 +243,7 @@ Bounded subscription — `watch_search` blocks up to `duration_seconds` (default
 {
   "name": "search",
   "arguments": {
-    "expr": "is_source && is_git_tracked && git_commit_count > 0",
+    "expr": "is_git_tracked && git_commit_count > 0",
     "sort_by": "git_commit_count",
     "order": "desc",
     "limit": 20,
@@ -252,7 +252,7 @@ Bounded subscription — `watch_search` blocks up to `duration_seconds` (default
 }
 ```
 
-Or just run the `hot_files` preset which bakes the same shape.
+This tracks **any** tracked file by churn — high-churn docs (markdown), config, and data files surface alongside source. Add `&& is_source` if you want to narrow to code only. Or just run the `hot_files` preset which bakes the same shape.
 
 ## Production code only (drop tests + codegen)
 

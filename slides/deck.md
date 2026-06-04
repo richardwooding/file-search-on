@@ -306,11 +306,12 @@ attribute name. Same surface I'd use for a Python or Rust codebase.
 
 [run: file-search-on preset hot_files -d ~/Code/Personal/file-search-on]
 
-Third — the twenty most-churned source files in the repo, ranked by
+Third — the twenty most-churned files in the repo, ranked by
 git commit count. This is the `hot_files` preset, one of six
 repo-aware recipes I shipped this week. The preset bakes
-`is_source && is_git_tracked && git_commit_count > 0` with a
-`git_commit_count desc` sort — but notice I never typed
+`is_git_tracked && git_commit_count > 0` with a
+`git_commit_count desc` sort — any tracked file counts, so
+high-churn docs and config surface next to source — but notice I never typed
 `--with-git` on the CLI. The expression evaluator sees a `git_*`
 attribute reference and auto-enables git mode through a function
 called NeedsGit. First call pays the git-log cost — about half a
