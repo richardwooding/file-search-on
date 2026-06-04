@@ -2,7 +2,9 @@
 
 The `near-duplicates` subcommand (and the `find_near_duplicates` MCP tool) find files whose **bodies** are similar but not byte-identical. Complements [`duplicates`](./duplicates.md): `duplicates` is sha256-keyed (exact match), `near-duplicates` is SimHash-keyed (fuzzy match).
 
-**Algorithm**: 64-bit Charikar SimHash over tokenised body text. Token = lowercased Unicode letter/digit runs, len ≥ 2. Hash each token via FNV-1a-64, accumulate per-bit (+1 for set, -1 for unset), final fingerprint bit i = 1 iff the per-bit sum > 0. Pairwise Hamming distance + union-find groups files within the threshold. Reference: [Charikar 2002](https://www.cs.princeton.edu/courses/archive/spring04/cos598B/bib/CharikarEstim.pdf).
+**Algorithm**: 64-bit Charikar SimHash over **3-word shingles** of the body text. The body is tokenised (lowercased Unicode letter/digit runs, len ≥ 2), grouped into overlapping 3-word sequences, and each shingle is hashed via FNV-1a-64 and accumulated per-bit (+1 for set, -1 for unset); final fingerprint bit i = 1 iff the per-bit sum > 0. Pairwise Hamming distance + union-find groups files within the threshold. Reference: [Charikar 2002](https://www.cs.princeton.edu/courses/archive/spring04/cos598B/bib/CharikarEstim.pdf).
+
+Shingles rather than single words because a bag-of-words hash is dominated by the high-frequency stopword distribution (`the` / `and` / `of` …), which is near-universal across all English text — so unrelated prose, or documents that merely share a boilerplate header/footer (every Project Gutenberg ebook, license-stamped reports, templated emails), scored ~90% similar and clustered spuriously (issue #310). Keying on 3-word phrasing makes the fingerprint document-specific: unrelated prose drops to ~0.55 (near the random baseline) while genuine near-duplicates — different editions of the same book, regenerated templates — stay high.
 
 ## When to use which
 
@@ -92,7 +94,7 @@ file-search-on near-duplicates 'is_pdf' -d ~/Papers --threshold 0.85
 
 ## Caching
 
-Fingerprints land on `index.Entry.Fingerprint` alongside the existing sha256 hash, validated by the same `(size, mtime)` tuple. With `--index-path`, repeat runs on an unchanged tree skip the body read AND the SimHash compute.
+Fingerprints land on `index.Entry.FingerprintV3` alongside the existing sha256 hash, validated by the same `(size, mtime)` tuple. With `--index-path`, repeat runs on an unchanged tree skip the body read AND the SimHash compute. (Caches written by older versions carry the pre-shingle `Fingerprint` / `FingerprintV2` fields; those are ignored and recomputed on first access — no manual cache reset needed.)
 
 ```sh
 file-search-on near-duplicates 'is_markdown' -d ~/notes --index-path ~/.file-search-on.bbolt

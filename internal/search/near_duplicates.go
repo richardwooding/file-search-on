@@ -162,15 +162,17 @@ func FindNearDuplicates(ctx context.Context, opts Options, registry *content.Reg
 	return out, nil
 }
 
-// fingerprintFromCacheOrCompute returns the boilerplate-stripped
-// SimHash of body. When idx is non-nil and an entry validates by
-// (size, mtime), the cached FingerprintV2 is returned unless it's
-// zero. On miss / zero-V2 hit, body is run through
-// preprocessForFingerprint (per the file's contentType) then fed
-// to fingerprint.Compute, and the result is written back to
-// FingerprintV2. The legacy Fingerprint field is no longer read —
-// it's left on the struct for back-compat decode of pre-#274
-// caches but never trusted by this pipeline.
+// fingerprintFromCacheOrCompute returns the boilerplate-stripped,
+// shingled SimHash of body. When idx is non-nil and an entry validates
+// by (size, mtime), the cached FingerprintV3 is returned unless it's
+// zero. On miss / zero-V3 hit, body is run through
+// preprocessForFingerprint (per the file's contentType) then fed to
+// fingerprint.Compute, and the result is written back to
+// FingerprintV3. The legacy Fingerprint (V1) and single-token
+// FingerprintV2 fields are no longer read — left on the struct for
+// back-compat decode of older caches but never trusted by this
+// pipeline (mixing them with V3 shingled values would reproduce the
+// #310 false positives).
 //
 // Path normalisation matches the BuildAttributesWith cache-key
 // convention (filepath.Abs + filepath.Clean) so two callers walking
@@ -183,15 +185,16 @@ func fingerprintFromCacheOrCompute(path string, size int64, modTime time.Time, b
 		}
 	}
 
-	// Cache hit with populated V2 fingerprint → return. Old V1
-	// values are ignored on purpose (boilerplate-dominated; would
-	// reproduce the #274 false positives).
+	// Cache hit with populated V3 fingerprint → return. Older V1 /
+	// single-token V2 values are ignored on purpose — they're
+	// incomparable with the V3 shingled fingerprints and would
+	// reproduce the #310 (V1: #274) false positives.
 	var cached *index.Entry
 	if key != "" {
 		if c, ok := idx.Lookup(key, size, modTime); ok {
 			cached = c
-			if c.FingerprintV2 != 0 {
-				return c.FingerprintV2
+			if c.FingerprintV3 != 0 {
+				return c.FingerprintV3
 			}
 		}
 	}
@@ -207,13 +210,14 @@ func fingerprintFromCacheOrCompute(path string, size int64, modTime time.Time, b
 		entry := &index.Entry{
 			Size:            size,
 			ModTimeUnixNano: modTime.UnixNano(),
-			FingerprintV2:   fp,
+			FingerprintV3:   fp,
 		}
 		if cached != nil {
 			entry.ContentType = cached.ContentType
 			entry.Extra = cached.Extra
 			entry.Hash = cached.Hash
-			entry.Fingerprint = cached.Fingerprint // preserve legacy on round-trip
+			entry.Fingerprint = cached.Fingerprint     // preserve legacy V1 on round-trip
+			entry.FingerprintV2 = cached.FingerprintV2 // preserve legacy V2 on round-trip
 		}
 		_ = idx.Put(key, entry)
 	}

@@ -34,14 +34,20 @@ func TestCompute_Empty(t *testing.T) {
 // fingerprints with high similarity (the locality-sensitive
 // property — the whole point of SimHash).
 func TestSimilarity_NearDuplicates(t *testing.T) {
-	original := strings.Repeat("Lorem ipsum dolor sit amet, consectetur adipiscing elit. ", 20)
-	// Single-word edit.
-	edited := strings.Replace(original, "consectetur", "kerflumpus", 5)
+	// A paragraph of varied prose (most shingles distinct), as a real
+	// document is — not pathologically repetitive. A single-word edit
+	// touches only the few shingles spanning that word, so the
+	// fingerprints stay near-identical.
+	original := "The expedition reached the northern ridge at dawn, where the surveyor " +
+		"mapped a hidden valley threaded by a slow winding river. Provisions ran low " +
+		"and morale was uneven, yet the guide insisted the pass ahead would shelter them " +
+		"from the coming storm during the long descent toward the distant rocky coast."
+	edited := strings.Replace(original, "surveyor", "cartographer", 1)
 	a := Compute(original)
 	b := Compute(edited)
 	sim := Similarity(a, b)
 	if sim < 0.85 {
-		t.Errorf("similarity = %.3f, want >= 0.85 for single-word edit", sim)
+		t.Errorf("similarity = %.3f, want >= 0.85 for single-word edit in varied prose", sim)
 	}
 }
 
@@ -58,6 +64,35 @@ func TestSimilarity_Unrelated(t *testing.T) {
 	}
 	if sim < 0.3 {
 		t.Errorf("similarity = %.3f, want >= 0.3 (random baseline ~0.5)", sim)
+	}
+}
+
+// TestSimilarity_SameWordsDifferentPhrasing is the regression for issue
+// #310. Single-token SimHash is a bag-of-words hash: two documents with
+// the same word multiset but different phrasing produce (near-)identical
+// fingerprints, so unrelated prose that merely shares English's
+// near-universal word distribution clusters spuriously. The shingled
+// fingerprint keys on k-word sequences, so different phrasings of the
+// same vocabulary are correctly distinguished.
+//
+// Both documents below use the EXACT same multiset of words (docB is a
+// rotation of docA's word stream), so a bag-of-words hash scores them
+// ~1.0; the shingled hash must score them well under the 0.85 default.
+func TestSimilarity_SameWordsDifferentPhrasing(t *testing.T) {
+	words := strings.Fields("alpha bravo charlie delta echo foxtrot golf hotel india juliet " +
+		"kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey xray")
+	reversed := make([]string, len(words))
+	for i, w := range words {
+		reversed[len(words)-1-i] = w
+	}
+	// Same word multiset, different adjacencies (forward vs reversed),
+	// bulked up so the fingerprint is stable. A bag-of-words hash can't
+	// tell these apart; a shingled hash must.
+	a := strings.Repeat(strings.Join(words, " ")+" ", 30)
+	b := strings.Repeat(strings.Join(reversed, " ")+" ", 30)
+	sim := Similarity(Compute(a), Compute(b))
+	if sim >= 0.85 {
+		t.Errorf("similarity = %.3f — same words in different order must NOT be near-duplicates; a bag-of-words hash would score ~1.0 (#310)", sim)
 	}
 }
 

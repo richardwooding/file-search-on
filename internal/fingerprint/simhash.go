@@ -3,18 +3,31 @@
 //
 // SimHash is a locality-sensitive hash: documents whose tokens
 // substantially overlap produce fingerprints whose XOR has few set
-// bits (small Hamming distance). Two thresholds matter in practice:
+// bits (small Hamming distance). Similarity == 1 - distance/64, so:
 //
-//	distance <= 3   ≈ 95% similarity  (typo / whitespace edits)
-//	distance <= 9   ≈ 85% similarity  (minor edits / template fills)
-//	distance <= 16  ≈ 75% similarity  (significant overlap, different docs)
+//	distance <= 3   ≈ 95% similarity  (near-identical: whitespace / a word or two)
+//	distance <= 9   ≈ 85% similarity  (minor edits / template fills — the default cut)
+//	distance ~ 28+  ≈ 55% similarity  (unrelated prose, near the random baseline)
 //
-// We tokenise by Unicode letters/digits (lowercased), drop tokens
-// of length < 2, hash each via FNV-1a-64, and apply Charikar's
-// per-bit accumulator: +1 for every token whose hash has bit i set,
-// -1 otherwise. The final bit i of the fingerprint is 1 iff the
-// running sum at position i is positive. This implementation is
+// (Shingling registers a localised edit as a few changed shingles
+// rather than one changed token, so small edits sit slightly higher up
+// the distance scale than a single-token hash would put them.)
+//
+// We tokenise by Unicode letters/digits (lowercased), drop tokens of
+// length < 2, then group them into overlapping k-word SHINGLES
+// (k = shingleSize). Each shingle is hashed via FNV-1a-64 and fed to
+// Charikar's per-bit accumulator: +1 for every shingle whose hash has
+// bit i set, -1 otherwise. The final bit i of the fingerprint is 1 iff
+// the running sum at position i is positive. This implementation is
 // pure stdlib — no third-party libs.
+//
+// Shingles rather than single words because single-token SimHash over
+// natural-language prose is dominated by the high-frequency stopword
+// distribution (the / and / of / to …), which is near-universal across
+// all English text — so two unrelated novels score ~90% similar and
+// cluster spuriously (issue #310). A document's k-word phrasing is far
+// more distinctive: unrelated prose drops to ~0.55 (near the random
+// baseline) while genuine near-duplicates stay high.
 //
 // Use this package via Compute on the extracted body text of each
 // candidate, then pairwise compare via Distance or Similarity.
@@ -32,18 +45,29 @@ import (
 // single chars are pure noise.
 const minTokenLen = 2
 
-// Compute returns the 64-bit SimHash fingerprint of text. Empty
-// input (or input with fewer than 2 distinct tokens) returns 0,
-// which is a legitimate fingerprint — callers can distinguish "no
-// content to fingerprint" via a separate len(body) check.
+// shingleSize is the number of consecutive words per shingle. 3 gives
+// the best separation between unrelated prose (~0.55) and genuine
+// near-duplicates (≥0.75) on real-world text; smaller k leaves too much
+// stopword overlap, larger k is more brittle to minor edits. Texts with
+// fewer than shingleSize tokens fall back to single-token features so
+// short strings and code snippets still fingerprint.
+const shingleSize = 3
+
+// Compute returns the 64-bit SimHash fingerprint of text. Empty input
+// (or input with no usable tokens) returns 0, which is a legitimate
+// fingerprint — callers can distinguish "no content to fingerprint" via
+// a separate len(body) check.
 func Compute(text string) uint64 {
 	if text == "" {
 		return 0
 	}
+	features := shingles(tokenize(text), shingleSize)
+	if len(features) == 0 {
+		return 0
+	}
 	var sums [64]int
-	tokenCount := 0
-	for _, tok := range tokenize(text) {
-		h := fnv64(tok)
+	for _, feat := range features {
+		h := fnv64(feat)
 		for i := range 64 {
 			if h&(1<<i) != 0 {
 				sums[i]++
@@ -51,10 +75,6 @@ func Compute(text string) uint64 {
 				sums[i]--
 			}
 		}
-		tokenCount++
-	}
-	if tokenCount == 0 {
-		return 0
 	}
 	var fp uint64
 	for i := range 64 {
@@ -63,6 +83,23 @@ func Compute(text string) uint64 {
 		}
 	}
 	return fp
+}
+
+// shingles groups tokens into overlapping k-word features joined by a
+// space. With fewer than k tokens it returns the tokens themselves
+// (single-word features) so short inputs still produce a fingerprint.
+func shingles(tokens []string, k int) []string {
+	if len(tokens) == 0 {
+		return nil
+	}
+	if len(tokens) < k {
+		return tokens
+	}
+	out := make([]string, 0, len(tokens)-k+1)
+	for i := 0; i+k <= len(tokens); i++ {
+		out = append(out, strings.Join(tokens[i:i+k], " "))
+	}
+	return out
 }
 
 // Distance returns the Hamming distance between two SimHash
