@@ -163,11 +163,11 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 			s.Sort = "similarity"
 			s.Order = "desc"
 		}
-		// Fold the similarity threshold into the CEL filter. Use
-		// CEL's fmt.Sprintf-friendly literal for the float so locale
-		// settings can't accidentally produce a comma. CEL parses
-		// scientific notation, so even very small thresholds work.
-		threshold := fmt.Sprintf("similarity >= %g", s.SimilarityThreshold)
+		// Fold the similarity threshold into the CEL filter. The literal
+		// is wrapped in double(...) so a whole-number threshold (0.0,
+		// 1.0) doesn't compile to an int literal and trip cel-go's
+		// missing double>=int overload (issue #307).
+		threshold := search.SimilarityThresholdExpr(s.SimilarityThreshold)
 		if s.Expr == "" {
 			s.Expr = threshold
 		} else {

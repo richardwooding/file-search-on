@@ -128,7 +128,10 @@ func (h *handlers) searchSemanticHandler(ctx context.Context, req *mcp.CallToolR
 
 	// Fold the threshold into the CEL filter. Pre-prune via in.Expr
 	// when set; otherwise just the threshold gate.
-	expr := fmt.Sprintf("similarity >= %g", threshold)
+	// Wrap the threshold literal in double(...) so a whole-number
+	// threshold (0.0, 1.0) doesn't compile to an int literal and trip
+	// cel-go's missing double>=int overload (issue #307).
+	expr := search.SimilarityThresholdExpr(threshold)
 	if in.Expr != "" {
 		expr = "(" + in.Expr + ") && " + expr
 	}
