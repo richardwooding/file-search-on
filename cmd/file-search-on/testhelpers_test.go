@@ -34,6 +34,33 @@ func captureStdout(t *testing.T, fn func() error) (string, error) {
 	return buf.String(), runErr
 }
 
+// captureStderr swaps os.Stderr for a pipe for the duration of fn,
+// returning what was written. The "N file(s) found" footer and the
+// index/embeddings stat lines go to stderr, so footer-behaviour tests
+// capture here.
+func captureStderr(t *testing.T, fn func() error) (string, error) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	orig := os.Stderr
+	os.Stderr = w
+	defer func() { os.Stderr = orig }()
+
+	done := make(chan struct{})
+	var buf bytes.Buffer
+	go func() {
+		_, _ = io.Copy(&buf, r)
+		close(done)
+	}()
+
+	runErr := fn()
+	_ = w.Close()
+	<-done
+	return buf.String(), runErr
+}
+
 // mustWriteFile writes body to path with 0644 perms, fatally failing
 // the test on any I/O error. Used to seed t.TempDir() fixtures.
 // Originally introduced in timeout_test.go and lifted here for

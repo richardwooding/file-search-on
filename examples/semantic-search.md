@@ -104,6 +104,8 @@ The vector cache is the headline perf win: repeat queries against an unchanged t
 
 Cosine similarity is in [-1, 1] for unnormalised vectors, but Ollama returns embeddings in a roughly-positive cone for most models so practical scores cluster in [0, 1] with rare dips below 0 for very dissimilar content.
 
+**The threshold is a CEL clause, not a separate post-filter.** `--similarity-threshold V` (CLI) / `threshold` (MCP) is implemented by AND-ing `similarity >= V` onto your expression. So it *combines* with any `similarity` comparison you write — `--semantic-query … 'similarity > 0.6'` with the default `--similarity-threshold 0.5` yields `(similarity > 0.6) && (similarity >= 0.5)`, an effective floor of 0.6. Set `--similarity-threshold 0` to defer entirely to your own `similarity` predicate (or to rank-only with `--limit`).
+
 ## Recipes
 
 ### Discovery — explore a tree by topic
