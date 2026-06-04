@@ -52,6 +52,7 @@ type SearchCmd struct {
 	SimilarityThreshold float64    `name:"similarity-threshold" default:"0.5" help:"Minimum similarity score (0..1) for a file to be returned when --semantic-query is set. Higher = stricter."`
 	EmbeddingServer  string        `name:"embedding-server" env:"OLLAMA_HOST" default:"http://localhost:11434" help:"Ollama base URL for embedding requests. Resolution order: --embedding-server flag > $OLLAMA_HOST env var > http://localhost:11434."`
 	EmbeddingModel   string        `name:"embedding-model" help:"Ollama embedding model name (e.g. nomic-embed-text, mxbai-embed-large). No default — user picks per-tree based on the model they've pulled. Required when --semantic-query is set."`
+	EmbedMaxBytes    int           `name:"embed-max-bytes" default:"0" help:"Cap on the body text handed to the embedding model when --semantic-query is set (bytes). 0 uses an 8 KiB default that fits common models' context windows. Embedding models truncate to their context anyway, and over-long input can be rejected outright by Ollama; raise only for large-context models (e.g. bge-m3)."`
 	Exclude          []string      `name:"exclude" help:"Glob pattern matched against the basename of each file/directory; matches are skipped (directories are pruned). Repeatable: --exclude node_modules --exclude '*.bak'."`
 	RespectGitignore bool          `name:"respect-gitignore" help:"Parse a .gitignore at the walk root (if present) and skip matching paths. Nested .gitignore files in subdirectories are NOT honoured in this version."`
 	FollowSymlinks   bool          `name:"follow-symlinks" help:"Descend through symbolic links to directories during the walk. Off by default — symlinks-to-dirs surface as leaf entries with is_symlink=true. The is_symlink / target_path / is_broken_symlink CEL attributes are populated regardless of this flag. No loop detection."`
@@ -199,6 +200,7 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		Denylist:          denylist,
 		Embedder:               embedder,
 		SemanticQueryEmbedding: queryVector,
+		EmbedInputMaxBytes:     s.EmbedMaxBytes,
 		Excludes:            s.Exclude,
 		RespectGitignore:    s.RespectGitignore,
 		FollowSymlinks:      s.FollowSymlinks,
@@ -238,6 +240,16 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		if st.BodyHits+st.BodyMisses+st.BodyPuts+st.BodyStales+st.BodyEvictions+st.BodyOversize+st.BodyErrors > 0 {
 			fmt.Fprintf(os.Stderr, "body cache: %d hits, %d misses, %d stored, %d stale, %d evicted, %d oversized, %d errors\n",
 				st.BodyHits, st.BodyMisses, st.BodyPuts, st.BodyStales, st.BodyEvictions, st.BodyOversize, st.BodyErrors)
+		}
+		// Embedding line only when a semantic query ran. A non-zero
+		// errors count is the signal that "0 results" means embedding
+		// failed, not that nothing matched (issue #305).
+		if st.EmbedHits+st.EmbedMisses+st.EmbedPuts+st.EmbedErrors+st.EmbedModelMismatches > 0 {
+			fmt.Fprintf(os.Stderr, "embeddings: %d hits, %d misses, %d stored, %d errors, %d model-mismatch\n",
+				st.EmbedHits, st.EmbedMisses, st.EmbedPuts, st.EmbedErrors, st.EmbedModelMismatches)
+			if st.EmbedErrors > 0 {
+				fmt.Fprintf(os.Stderr, "warning: %d file(s) failed to embed — results may be incomplete (is Ollama running and the model pulled? try a smaller --embed-max-bytes)\n", st.EmbedErrors)
+			}
 		}
 	}
 

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -97,5 +98,72 @@ func TestSearchSemanticReusesCachedEmbeddings(t *testing.T) {
 	}
 	if stats.EmbedPuts != 1 {
 		t.Errorf("EmbedPuts=%d want 1 — the file should be embedded exactly once; stats=%+v", stats.EmbedPuts, stats)
+	}
+}
+
+// TestSearchSemanticSurfacesEmbedErrors is the MCP-level regression for
+// issue #305: when a file's embedding fails (here the mock Ollama 400s
+// on file embeds while the query embed succeeds), the tool must not
+// silently return "0 results" — it surfaces embed_errors > 0 and a
+// warning, without failing the call.
+func TestSearchSemanticSurfacesEmbedErrors(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "doc.md"), "# Doc\n\nsome body text to embed\n")
+
+	// First /api/embed call (the query) succeeds; every later call (the
+	// per-file embeds) returns 400, mimicking an over-long / rejected
+	// input.
+	var mu sync.Mutex
+	calls := 0
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/embed" {
+			_ = json.NewEncoder(w).Encode(map[string]any{})
+			return
+		}
+		mu.Lock()
+		calls++
+		first := calls == 1
+		mu.Unlock()
+		if first {
+			_ = json.NewEncoder(w).Encode(map[string]any{"embeddings": [][]float32{{1, 0, 0}}})
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	t.Cleanup(ollama.Close)
+
+	ctx := t.Context()
+	idx := index.NewMemory()
+	server := New("test", idx, 0, EmbedDefaults{Server: ollama.URL, Model: "mock"})
+	t1, t2 := mcp.NewInMemoryTransports()
+	ss, err := server.Connect(ctx, t1, nil)
+	if err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+	t.Cleanup(func() { _ = ss.Close() })
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0"}, nil)
+	cs, err := client.Connect(ctx, t2, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	t.Cleanup(func() { _ = cs.Close() })
+
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "search_semantic",
+		Arguments: SearchSemanticInput{Query: "anything", Dir: dir, Threshold: 0.4, Limit: 10},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.GetError() != nil {
+		t.Fatalf("embed failure must not fail the tool call: %v", res.GetError())
+	}
+	var out SearchSemanticOutput
+	mustDecodeStructured(t, res, &out)
+	if out.EmbedErrors == 0 {
+		t.Errorf("EmbedErrors=0 want > 0 — a failed embed was swallowed silently (#305); out=%+v", out)
+	}
+	if out.Warning == "" {
+		t.Errorf("expected a warning when embeds fail; out=%+v", out)
 	}
 }

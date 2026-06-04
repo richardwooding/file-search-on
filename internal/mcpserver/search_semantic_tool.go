@@ -31,6 +31,8 @@ type SearchSemanticInput struct {
 	RespectGitignore bool    `json:"respect_gitignore,omitempty" jsonschema:"When true, parse a .gitignore at the walk root and skip matching paths."`
 	FollowSymlinks   bool    `json:"follow_symlinks,omitempty" jsonschema:"When true, descend through symbolic links to directories."`
 	IncludeBody      bool    `json:"include_body,omitempty" jsonschema:"When true, the full file body is exposed to the CEL pre-filter as the 'body' string variable. Most semantic-search workflows leave this off — the similarity score already captures conceptual match — but it's available for cases like 'similar AND contains a specific term'."`
+	BodyMaxBytes     int      `json:"body_max_bytes,omitempty" jsonschema:"Cap on the body string read per file in bytes (default 1 MiB). Only relevant when include_body is set. Files larger than the cap are truncated; the prefix still participates in the CEL pre-filter."`
+	EmbedMaxBytes    int      `json:"embed_max_bytes,omitempty" jsonschema:"Cap on the body text handed to the embedding model in bytes. 0 uses an 8 KiB default that fits common models' context windows. Embedding models truncate to their context anyway, and over-long input can be rejected by Ollama; raise only for large-context models (e.g. bge-m3)."`
 	TimeoutSeconds  *float64 `json:"timeout_seconds,omitempty" jsonschema:"Per-call timeout in seconds. 0 disables; nil falls through to the server default. On timeout the partial ranked set is returned with cancelled=true; not an error."`
 	Workers         int      `json:"workers,omitempty" jsonschema:"Parallel walker workers. 0 = runtime.NumCPU()."`
 }
@@ -46,6 +48,12 @@ type SearchSemanticOutput struct {
 	ElapsedSeconds     float64        `json:"elapsed_seconds"`
 	EmbeddingModel     string         `json:"embedding_model"`
 	SimilarityThreshold float64       `json:"similarity_threshold"`
+	// EmbedErrors counts files whose embedding failed during this call
+	// (Ollama unreachable, model not pulled, input rejected, etc.).
+	// Non-zero with Count==0 means "embedding failed", not "nothing
+	// matched" — without it that failure is invisible (issue #305).
+	EmbedErrors        uint64         `json:"embed_errors,omitempty"`
+	Warning            string         `json:"warning,omitempty"`
 	Cancelled          bool           `json:"cancelled,omitempty"`
 	CancellationReason string         `json:"cancellation_reason,omitempty"`
 }
@@ -133,12 +141,19 @@ func (h *handlers) searchSemanticHandler(ctx context.Context, req *mcp.CallToolR
 		IncludeAttributes:      true,
 		Index:                  h.idx,
 		IncludeBody:            in.IncludeBody,
+		BodyMaxBytes:           in.BodyMaxBytes,
 		Embedder:               embedder,
 		SemanticQueryEmbedding: queryVec,
+		EmbedInputMaxBytes:     in.EmbedMaxBytes,
 		Excludes:               in.Excludes,
 		RespectGitignore:       in.RespectGitignore,
 		FollowSymlinks:         in.FollowSymlinks,
 	}
+
+	// Snapshot the embed-error counter so we can report how many files
+	// failed to embed during THIS call — a non-zero count with no
+	// matches means embedding failed, not that nothing matched (#305).
+	embedErrsBefore := h.idx.Stats().EmbedErrors
 
 	out := make(chan search.Result, 64)
 	var walkErr error
@@ -196,6 +211,10 @@ func (h *handlers) searchSemanticHandler(ctx context.Context, req *mcp.CallToolR
 		ElapsedSeconds:      elapsed,
 		EmbeddingModel:      model,
 		SimilarityThreshold: threshold,
+	}
+	if embedErrs := h.idx.Stats().EmbedErrors - embedErrsBefore; embedErrs > 0 {
+		output.EmbedErrors = embedErrs
+		output.Warning = fmt.Sprintf("%d file(s) failed to embed (model %q at %s) — results may be incomplete; check that Ollama is running, the model is pulled, and consider lowering embed_max_bytes", embedErrs, model, server)
 	}
 	if cancelled {
 		output.Cancelled = true
