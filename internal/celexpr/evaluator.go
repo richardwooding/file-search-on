@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -717,16 +718,31 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	// we never wait for the write. Body is NOT included in the cached
 	// Extra — it's read on demand per call (see cache-hit branch
 	// above) and would otherwise bloat the index file.
+	//
+	// cacheEntry is the SINGLE entry the enrichment helpers below
+	// (populateHashes / populatePHash / populateSimilarity) merge into:
+	// they receive it as their `cached` argument and stamp their own
+	// fields onto it before re-Put-ing the same value. Without this,
+	// each helper Put a SEPARATE minimal entry to the same key and the
+	// last write clobbered the others — dropping the parsed Extra (the
+	// embedding-vs-attributes clobber behind issue #306 / Finding #5).
+	var cacheEntry *index.Entry
 	if opts.Index != nil && cacheKey != "" {
-		_ = opts.Index.Put(cacheKey, &index.Entry{
+		// Clone the parsed attributes: the helpers below re-Put
+		// cacheEntry after `extra` gains the on-demand body and the
+		// per-walk project context (neither of which belongs in the
+		// (size, mtime) cache), so the cached copy must be decoupled
+		// from later mutations to `extra`.
+		cacheEntry = &index.Entry{
 			Size:                 info.Size(),
 			ModTimeUnixNano:      info.ModTime().UnixNano(),
 			ContentType:          contentTypeName,
-			Extra:                map[string]any(extra),
+			Extra:                maps.Clone(map[string]any(extra)),
 			MagicContentType:     magicCT,
 			ExtensionContentType: extCT,
 			DisguiseChecked:      opts.CheckDisguised,
-		})
+		}
+		_ = opts.Index.Put(cacheKey, cacheEntry)
 	}
 
 	// Add body to the returned Extra (separately from the cached
@@ -795,7 +811,7 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	// so populateHashes always computes when ComputeHashes is set. The
 	// fresh values flow back into the cache so subsequent walks hit.
 	if opts.ComputeHashes {
-		populateHashes(ctx, displayPath, cacheKey, info, nil, attrs, opts.Index)
+		populateHashes(ctx, displayPath, cacheKey, info, cacheEntry, attrs, opts.Index)
 	}
 	// Perceptual image hash (issue #208). Cache-miss path: compute
 	// + Put back. Gated to image/* content types inside populatePHash.
@@ -803,13 +819,13 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 		if attrs.Extra == nil {
 			attrs.Extra = content.Attributes{}
 		}
-		populatePHash(ctx, fsys, fsPath, displayPath, cacheKey, contentTypeName, info, nil, attrs.Extra, opts.Index)
+		populatePHash(ctx, fsys, fsPath, displayPath, cacheKey, contentTypeName, info, cacheEntry, attrs.Extra, opts.Index)
 	}
 	if opts.Allowlist != nil || opts.Denylist != nil {
 		applyKnownStatus(attrs, opts)
 	}
 	if opts.Embedder != nil && len(opts.SemanticQueryEmbedding) > 0 {
-		populateSimilarity(ctx, fsys, fsPath, displayPath, cacheKey, info, nil, attrs, opts)
+		populateSimilarity(ctx, fsys, fsPath, displayPath, cacheKey, info, cacheEntry, attrs, opts)
 	}
 	if opts.CheckDisguised {
 		applyDisguise(attrs, magicCT, extCT)
