@@ -49,7 +49,7 @@ type SearchCmd struct {
 	HashAllowlist    string        `name:"hash-allowlist" help:"Path to a hash allowlist (newline-separated md5/sha1/sha256 hex, mixed algorithms auto-detected by length, # comments allowed) OR a pre-built bbolt hashset file (via 'hash-set build'). When set, populates the is_known_good CEL predicate by looking up each matched file's hashes. Forces --with-hashes on. NSRL / corp allowlist / threat-intel allowlist interop."`
 	HashDenylist     string        `name:"hash-denylist" help:"Path to a hash denylist (same format as --hash-allowlist). Populates is_known_bad. Threat-intel-feed / IOC-list interop."`
 	SemanticQuery    string        `name:"semantic-query" help:"Natural-language query to embed and rank every matched file against. Populates the 'similarity' CEL variable (cosine in 0..1) so filters like 'is_pdf && similarity > 0.7' fire. Requires --embedding-model + a running Ollama instance (--embedding-server defaults to http://localhost:11434). Auto-sorts results by similarity desc and applies --similarity-threshold."`
-	SimilarityThreshold float64    `name:"similarity-threshold" default:"0.5" help:"Minimum similarity score (0..1) for a file to be returned when --semantic-query is set. Higher = stricter."`
+	SimilarityThreshold float64    `name:"similarity-threshold" default:"0.5" help:"Minimum similarity score (0..1) for a file to be returned when --semantic-query is set. Higher = stricter. Implemented by AND-ing 'similarity >= <value>' onto your CEL expression — so it combines with any 'similarity' comparison you write yourself (e.g. expr 'similarity > 0.6' plus the default 0.5 floor means the effective floor is 0.6)."`
 	EmbeddingServer  string        `name:"embedding-server" env:"OLLAMA_HOST" default:"http://localhost:11434" help:"Ollama base URL for embedding requests. Resolution order: --embedding-server flag > $OLLAMA_HOST env var > http://localhost:11434."`
 	EmbeddingModel   string        `name:"embedding-model" help:"Ollama embedding model name (e.g. nomic-embed-text, mxbai-embed-large). No default — user picks per-tree based on the model they've pulled. Required when --semantic-query is set."`
 	EmbedMaxBytes    int           `name:"embed-max-bytes" default:"0" help:"Cap on the body text handed to the embedding model when --semantic-query is set (bytes). 0 uses an 8 KiB default that fits common models' context windows. Embedding models truncate to their context anyway, and over-long input can be rejected outright by Ollama; raise only for large-context models (e.g. bge-m3)."`
@@ -305,7 +305,13 @@ func streamSearch(ctx context.Context, opts search.Options, tmpl *template.Templ
 	}
 	<-done
 
-	if mode == "default" || mode == "verbose" {
+	// Footer only for the human-readable modes. A custom --format
+	// template (tmpl != nil) is scripting output like bare/json — it
+	// must NOT get a footer, and especially not the bogus "0 file(s)
+	// found" the un-counted template branch would otherwise print
+	// (issue #313). The buffered path surfaces a count for
+	// template/bare/json only when --sort/--limit was set.
+	if tmpl == nil && (mode == "default" || mode == "verbose") {
 		fmt.Fprintf(os.Stderr, "\n%d file(s) found\n", count)
 	}
 	if walkErr != nil {
