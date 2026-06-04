@@ -656,10 +656,25 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 		}
 		if !opts.SkipAttributesParse && !skipForProfile {
 			a, err := ct.Attributes(ctx, fsys, fsPath)
-			if err != nil {
+			switch {
+			case err != nil && ctx.Err() != nil:
+				// Cancellation (timeout / Ctrl-C) — the whole walk is
+				// stopping; propagate so the caller surfaces it.
 				return nil, err
+			case err != nil:
+				// A parse error on a malformed / corrupt file (truncated
+				// PDF, non-zip docx, garbage with a valid extension, ...)
+				// must NOT drop the file from results — that silently
+				// hides exactly the suspicious files a forensic /
+				// inventory "match everything" is looking for (#321).
+				// Degrade to a basic record: the detected content_type +
+				// stat, with no type-specific attributes. Clear cacheKey
+				// so the empty parse isn't cached — a later valid version
+				// re-parses on its next (size, mtime) change.
+				cacheKey = ""
+			default:
+				extra = a
 			}
-			extra = a
 			// Curated SQLite app-name lookup (issue #177). Lives here
 			// rather than inside ContentType.Attributes because the
 			// path-based registry dimensions (PathContains: "Chrome",
