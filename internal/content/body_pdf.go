@@ -15,6 +15,55 @@ import (
 // in one pass at the end of extraction.
 var pdfCIDPattern = regexp.MustCompile(`\(cid:\d+\)`)
 
+// pdfSpaceGapRatio is the fraction of the font size above which a
+// horizontal gap between two text runs is treated as a word break.
+// Inter-word spaces render ~0.25em wide; intra-word kerning is near
+// zero, so 0.2em cleanly separates words without splitting them.
+const pdfSpaceGapRatio = 0.2
+
+// pdfRowsToText flattens GetTextByRow output into plain text, inserting
+// a space between consecutive runs whose horizontal gap implies a word
+// boundary (the library's own GetPlainText drops these — issue #323).
+// Rows are newline-separated, in the order GetTextByRow returns them
+// (top-to-bottom); runs within a row are already sorted left-to-right.
+func pdfRowsToText(rows pdf.Rows) string {
+	var out strings.Builder
+	for _, row := range rows {
+		if row == nil {
+			continue
+		}
+		var line strings.Builder
+		prevEnd := 0.0
+		lastWasSpace := true // suppress a leading space on each row
+		for _, t := range row.Content {
+			if !lastWasSpace && !strings.HasPrefix(t.S, " ") {
+				// When the library reports usable geometry (font size +
+				// width), space on a word-width gap. Many PDFs (e.g.
+				// justified arXiv papers) come back with zeroed X/W/
+				// FontSize — there each run is already a word-ish token,
+				// so default to a single separating space rather than
+				// concatenating everything into one blob.
+				gapKnown := t.FontSize > 0 && t.W > 0
+				if !gapKnown || t.X-prevEnd > pdfSpaceGapRatio*t.FontSize {
+					line.WriteByte(' ')
+				}
+			}
+			line.WriteString(t.S)
+			prevEnd = t.X + t.W
+			lastWasSpace = strings.HasSuffix(t.S, " ")
+		}
+		s := strings.TrimRight(line.String(), " \t")
+		if s == "" {
+			continue
+		}
+		if out.Len() > 0 {
+			out.WriteByte('\n')
+		}
+		out.WriteString(s)
+	}
+	return out.String()
+}
+
 // pdfBody extracts the plain-text body of a PDF document, one page at a
 // time, in numeric page order. Uses github.com/ledongthuc/pdf (already
 // a direct dep for metadata in pdftype.go) — no new dependency.
@@ -68,34 +117,15 @@ func pdfBody(ctx context.Context, fsys fs.FS, filePath string, maxBytes int) (st
 			return
 		}
 
-		// Pass 1 — build a single font cache shared across pages.
-		// Mirrors the library's own Reader.GetPlainText pattern.
-		fonts := make(map[string]*pdf.Font)
-		for i := 1; i <= numPages; i++ {
-			if err := ctx.Err(); err != nil {
-				return
-			}
-			func() {
-				defer func() { _ = recover() }()
-				p := r.Page(i)
-				if p.V.IsNull() {
-					return
-				}
-				for _, name := range p.Fonts() {
-					if _, ok := fonts[name]; !ok {
-						f := p.Font(name)
-						fonts[name] = &f
-					}
-				}
-			}()
-		}
-
-		if err := ctx.Err(); err != nil {
-			return
-		}
-
-		// Pass 2 — extract text from each page using the cached fonts.
-		// Per-page failures contribute nothing and don't stop the walk.
+		// Extract text per page via GetTextByRow (positional) rather
+		// than GetPlainText: the latter concatenates text-show operators
+		// with no spacing, so "Attention Is All You Need" comes out as
+		// "AttentionIsAllYouNeed" and multi-word body.contains /
+		// find-matches queries miss (issue #323). pdfRowsToText
+		// reconstructs word breaks from the horizontal gaps between text
+		// runs. GetTextByRow resolves fonts per page internally, so no
+		// shared font cache is needed. Per-page failures contribute
+		// nothing and don't stop the walk.
 		for i := 1; i <= numPages; i++ {
 			if err := ctx.Err(); err != nil {
 				return
@@ -109,11 +139,11 @@ func pdfBody(ctx context.Context, fsys fs.FS, filePath string, maxBytes int) (st
 				if p.V.IsNull() {
 					return ""
 				}
-				s, err := p.GetPlainText(fonts)
+				rows, err := p.GetTextByRow()
 				if err != nil {
 					return ""
 				}
-				return s
+				return pdfRowsToText(rows)
 			}()
 			if text == "" {
 				continue
