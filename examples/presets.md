@@ -34,6 +34,17 @@ file-search-on preset
 
 Each preset bakes a fresh timestamp at invocation time, so `recent_changes` always means "last 7 days from NOW".
 
+### EPUB / ebook-library presets
+
+EPUB metadata is Dublin Core only (`title` / `author` / `language`) with no page or word count, so these lean on `size` (the practical length proxy), `mod_time`, and the metadata fields.
+
+| Preset | What it finds | Defaults |
+|---|---|---|
+| `large_ebooks` | The largest EPUBs (size proxies length) | sort=size desc, limit=20 |
+| `recent_ebooks` | EPUBs added/changed in the last 30 days | sort=mod_time desc, limit=50 |
+| `untagged_ebooks` | EPUBs missing a Dublin Core title or author — the "fix this book's metadata" list | sort=name asc |
+| `non_english_ebooks` | EPUBs whose language is set and not `en` | sort=name asc |
+
 ## Running a preset
 
 ```sh

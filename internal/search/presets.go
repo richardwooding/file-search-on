@@ -245,6 +245,53 @@ var presets = []Preset{
 			}
 		},
 	},
+	{
+		Name:        "large_ebooks",
+		Description: "The 20 largest EPUBs, biggest first. EPUB carries no page/word count, so file size is the practical length proxy.",
+		Build: func() PresetOptions {
+			return PresetOptions{
+				Expr:  `is_epub`,
+				Sort:  "size",
+				Order: "desc",
+				Limit: 20,
+			}
+		},
+	},
+	{
+		Name:        "recent_ebooks",
+		Description: "EPUBs added or changed in the last 30 days, newest first — what landed in the library lately.",
+		Build: func() PresetOptions {
+			cutoff := time.Now().Add(-30 * 24 * time.Hour).Format(time.RFC3339)
+			return PresetOptions{
+				Expr:  fmt.Sprintf(`is_epub && mod_time > timestamp(%q)`, cutoff),
+				Sort:  "mod_time",
+				Order: "desc",
+				Limit: 50,
+			}
+		},
+	},
+	{
+		Name:        "untagged_ebooks",
+		Description: "EPUBs missing a Dublin Core title or author — the actionable 'fix this book's metadata' list.",
+		Build: func() PresetOptions {
+			return PresetOptions{
+				Expr:  `is_epub && (title == "" || author == "")`,
+				Sort:  "name",
+				Order: "asc",
+			}
+		},
+	},
+	{
+		Name:        "non_english_ebooks",
+		Description: "EPUBs whose Dublin Core language is set and not English — slice the library by language.",
+		Build: func() PresetOptions {
+			return PresetOptions{
+				Expr:  `is_epub && language != "" && language != "en"`,
+				Sort:  "name",
+				Order: "asc",
+			}
+		},
+	},
 }
 
 // Presets returns the catalog sorted alphabetically by Name. Safe to
