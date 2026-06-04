@@ -91,12 +91,21 @@ type Entry struct {
 	Fingerprint uint64
 	// FingerprintV2 is the post-#274 SimHash — computed AFTER
 	// preprocessForFingerprint strips the language's leading
-	// comment block and package / import scaffolding. Zero on
-	// older cache entries (gob-additive); the near-duplicates path
-	// treats zero as "not fingerprinted yet" and re-computes
-	// on the next access. Invariant under (size, mtime) for as
-	// long as the entry validates.
+	// comment block and package / import scaffolding, but still over
+	// single-word tokens. Superseded by FingerprintV3; kept for
+	// back-compat decode of pre-#310 caches but NO LONGER READ.
 	FingerprintV2 uint64
+	// FingerprintV3 is the post-#310 SimHash — computed over k-word
+	// SHINGLES rather than single tokens. Single-token SimHash made
+	// all natural-language prose look ~90% similar (the high-frequency
+	// stopword distribution is near-universal across English text), so
+	// unrelated books clustered together. Shingling keys the
+	// fingerprint on phrasing, which is document-specific. Zero on
+	// older cache entries (gob-additive); the near-duplicates path
+	// treats zero as "not fingerprinted yet" and recomputes. The
+	// single-token V2 values are NOT reused — they're incomparable
+	// with V3 and would reproduce the #310 false positives.
+	FingerprintV3 uint64
 	// PHash is the 64-bit perceptual hash of the IMAGE pixels (DCT
 	// over an 8×8 low-frequency block, median-threshold). Populated
 	// only for image/* content types when the caller opts in via
