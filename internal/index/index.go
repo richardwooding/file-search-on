@@ -75,9 +75,19 @@ type Entry struct {
 	// pre-#151 entries decode with empty Vector and the next
 	// semantic walk repopulates them.
 	Vector []float32
-	// EmbedModel is the model name that produced Vector. Empty when
-	// Vector is empty OR when the vector came from a pre-#154 cache
-	// entry (in which case populateSimilarity treats it as a
+	// ChunkVectors holds one L2-normalised embedding per body chunk
+	// (issue #332). Whole-document semantic search embeds the body in
+	// context-window-sized chunks and scores a document by the MAX
+	// cosine over its chunks, so a relevant passage deep in a long
+	// document still ranks — the single Vector above only ever covered
+	// the opening (the #305 cap). ChunkVectors supersedes Vector: the
+	// live pipeline reads ChunkVectors and treats a legacy single
+	// Vector (no ChunkVectors) as "not chunked yet" → re-embed.
+	// gob-additive.
+	ChunkVectors [][]float32
+	// EmbedModel is the model name that produced Vector / ChunkVectors.
+	// Empty when none are set OR when the vector came from a pre-#154
+	// cache entry (in which case populateSimilarity treats it as a
 	// mismatch and re-embeds — we never trust a vector of unknown
 	// provenance). gob-additive.
 	EmbedModel string

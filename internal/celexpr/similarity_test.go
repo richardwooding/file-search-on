@@ -229,8 +229,9 @@ func TestBuildAttributesWith_Similarity_ModelMismatch(t *testing.T) {
 
 // TestBuildAttributesWith_Similarity_PreV154EntryRejected exercises
 // the upgrade path: an Entry that pre-dates #154 has Vector populated
-// but EmbedModel="". We must NOT trust such a vector (we don't know
-// what produced it) — treat it as a model mismatch and re-embed.
+// but EmbedModel="". We must NOT trust such a vector. Post-#332 the live
+// pipeline reads ChunkVectors, so a legacy single-Vector entry (no
+// ChunkVectors) is simply a miss → re-embed into chunk vectors.
 func TestBuildAttributesWith_Similarity_PreV154EntryRejected(t *testing.T) {
 	ctx := t.Context()
 	dir := t.TempDir()
@@ -278,14 +279,18 @@ func TestBuildAttributesWith_Similarity_PreV154EntryRejected(t *testing.T) {
 		t.Fatalf("BuildAttributesWith: %v", err)
 	}
 	st := idx.Stats()
-	if st.EmbedModelMismatches != 1 {
-		t.Errorf("EmbedModelMismatches=%d want 1 (pre-#154 vector should be rejected); stats=%+v", st.EmbedModelMismatches, st)
+	if st.EmbedHits != 0 {
+		t.Errorf("EmbedHits=%d want 0 (must not trust a legacy single Vector); stats=%+v", st.EmbedHits, st)
+	}
+	if st.EmbedMisses != 1 {
+		t.Errorf("EmbedMisses=%d want 1 (legacy Vector has no ChunkVectors → re-embed); stats=%+v", st.EmbedMisses, st)
 	}
 	if calls != 1 {
 		t.Errorf("Ollama calls=%d want 1 (re-embed under the new model)", calls)
 	}
-	if st.EmbedHits != 0 {
-		t.Errorf("EmbedHits=%d want 0 (must not trust empty-EmbedModel vector); stats=%+v", st.EmbedHits, st)
+	// The entry must now carry chunk vectors stamped with the model.
+	if e, ok := idx.PeekAttrs(cacheKey); !ok || len(e.ChunkVectors) == 0 || e.EmbedModel != "mock" {
+		t.Errorf("legacy entry not re-embedded into ChunkVectors; ok=%v entry=%+v", ok, e)
 	}
 }
 
@@ -585,8 +590,8 @@ func TestBuildAttributesWith_Similarity_MissPathRetainsExtra(t *testing.T) {
 	if !ok {
 		t.Fatalf("no cached entry for %s after walk 1", abs)
 	}
-	if len(e.Vector) == 0 {
-		t.Errorf("cached entry missing Vector after walk 1; entry=%+v", e)
+	if len(e.ChunkVectors) == 0 {
+		t.Errorf("cached entry missing ChunkVectors after walk 1; entry=%+v", e)
 	}
 	if e.Extra == nil || e.Extra["word_count"] == nil {
 		t.Errorf("cached entry lost Extra (clobber bug): Extra=%v", e.Extra)
@@ -693,7 +698,7 @@ func TestBuildAttributesWith_Similarity_NonSemanticPreservesVector(t *testing.T)
 		t.Fatalf("non-semantic walk: %v", err)
 	}
 	// Vector must survive the non-semantic walk.
-	if e, ok := idx.PeekAttrs(abs); !ok || len(e.Vector) == 0 {
+	if e, ok := idx.PeekAttrs(abs); !ok || len(e.ChunkVectors) == 0 {
 		t.Fatalf("non-semantic walk wiped the cached vector; ok=%v entry=%+v", ok, e)
 	}
 	// Third walk: semantic again, must hit (no new Ollama call).
@@ -702,5 +707,75 @@ func TestBuildAttributesWith_Similarity_NonSemanticPreservesVector(t *testing.T)
 	}
 	if calls != 1 {
 		t.Errorf("expected 1 Ollama call; vector should have survived the non-semantic walk, got %d", calls)
+	}
+}
+
+// TestBuildAttributesWith_Similarity_DeepPassageViaChunks is the core
+// #332 regression: a document whose relevant passage is buried far past
+// the single-chunk embed cap must still score high, because the body is
+// split into chunks and scored by MAX cosine. Before #332 only the
+// opening ~8 KiB was embedded, so a match deep in a long document
+// returned ~0 and the file was missed.
+func TestBuildAttributesWith_Similarity_DeepPassageViaChunks(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "long.md")
+
+	// Build a body far larger than the (small) chunk cap below, with the
+	// target phrase buried near the end so it lands in a late chunk.
+	const marker = "quantum entanglement teleportation protocol"
+	filler := strings.Repeat("the quick brown fox jumps over the lazy dog. ", 400)
+	body := filler + "\n\n" + marker + "\n\n" + filler
+	mustWrite(t, path, body)
+
+	abs, _ := filepath.Abs(path)
+	base := filepath.Base(abs)
+	parent := filepath.Dir(abs)
+
+	// Mock Ollama: a chunk containing the marker embeds as [1,0,0]
+	// (aligned with the query); every other chunk embeds as [0,1,0]
+	// (orthogonal). The request carries {"input": "<chunk text>"}.
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		var req struct {
+			Input string `json:"input"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		vec := []float32{0, 1, 0}
+		if strings.Contains(req.Input, marker) {
+			vec = []float32{1, 0, 0}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"embeddings": [][]float32{vec},
+		})
+	}))
+	defer srv.Close()
+
+	idx := index.NewMemory()
+	defer func() { _ = idx.Close() }()
+
+	embedder := embed.NewOllama(srv.URL, "mock")
+	a, err := celexpr.BuildAttributesWith(ctx, os.DirFS(parent), base, abs, content.DefaultRegistry(), celexpr.BuildOptions{
+		Index:                  idx,
+		Embedder:               embedder,
+		SemanticQueryEmbedding: []float32{1, 0, 0},
+		EmbedInputMaxBytes:     512, // force many chunks
+	})
+	if err != nil {
+		t.Fatalf("BuildAttributesWith: %v", err)
+	}
+
+	// Max-sim must surface the deep marker chunk.
+	if a.Similarity < 0.99 {
+		t.Errorf("Similarity=%f want ~1.0 (deep marker chunk should dominate via max-sim)", a.Similarity)
+	}
+	// The body must have been split into more than one chunk (else this
+	// test would pass even without chunking).
+	if calls < 2 {
+		t.Errorf("Ollama calls=%d want >1 (body should be chunked)", calls)
+	}
+	if e, ok := idx.PeekAttrs(abs); !ok || len(e.ChunkVectors) < 2 {
+		t.Errorf("cached entry should hold multiple chunk vectors; ok=%v nChunks=%d", ok, len(e.ChunkVectors))
 	}
 }

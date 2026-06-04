@@ -110,20 +110,19 @@ func populateSimilarity(ctx context.Context, fsys fs.FS, fsPath, displayPath, ca
 
 	currentModel := opts.Embedder.Model()
 
-	// Cache hit path — three sub-cases:
-	//
-	//   1. Vector + EmbedModel match the current model → reuse, Dot
-	//      gives cosine (both pre-normalised). "hit".
-	//   2. Vector present but EmbedModel differs (or is empty —
-	//      pre-#154 provenance) → bump "model_mismatch" and fall
-	//      through to re-embed. We can't trust the cached vector
-	//      because dimensions and/or coordinate systems differ across
-	//      models; computing a dot product would return either 0
-	//      (length mismatch) or nonsense (same dim, different model).
-	//   3. Vector empty → bump "miss" below in the re-embed path.
-	if cached != nil && len(cached.Vector) > 0 {
+	// Cache hit path. A document is scored by the MAX cosine over its
+	// chunk vectors (issue #332), so a passage deep in a long document
+	// still ranks. Sub-cases:
+	//   1. ChunkVectors + EmbedModel match the current model → reuse,
+	//      similarity = max chunk Dot (all pre-normalised). "hit".
+	//   2. ChunkVectors present but EmbedModel differs → "model_mismatch"
+	//      + re-embed (dimensions / coordinate systems differ across
+	//      models, so a Dot would be 0 or nonsense).
+	//   3. No ChunkVectors (incl. a legacy single Vector from before
+	//      #332) → "miss" below in the re-embed path.
+	if cached != nil && len(cached.ChunkVectors) > 0 {
 		if cached.EmbedModel == currentModel && currentModel != "" {
-			attrs.Similarity = embed.Dot(opts.SemanticQueryEmbedding, cached.Vector)
+			attrs.Similarity = maxChunkSimilarity(opts.SemanticQueryEmbedding, cached.ChunkVectors)
 			if opts.Index != nil {
 				opts.Index.BumpEmbedStat("hit")
 			}
@@ -139,48 +138,37 @@ func populateSimilarity(ctx context.Context, fsys fs.FS, fsPath, displayPath, ca
 	// so we share the body cache with anything else asking for it in
 	// this walk. Empty body → no signal → leave Similarity at 0.
 	body, err := readBody(ctx, fsys, fsPath, attrs.Path, attrs.ContentType, opts.BodyMaxBytes)
+	missEligible := cached == nil || len(cached.ChunkVectors) == 0
 	if err != nil || body == "" {
-		if opts.Index != nil && (cached == nil || len(cached.Vector) == 0) {
-			// Pure cache-miss (no Vector at all). When we got here
-			// via model_mismatch we've already bumped that counter
-			// and shouldn't also bump "miss".
+		if opts.Index != nil && missEligible {
+			// Pure cache-miss. When we got here via model_mismatch we've
+			// already bumped that counter and shouldn't also bump "miss".
 			opts.Index.BumpEmbedStat("miss")
 		}
 		return
 	}
-	if opts.Index != nil && (cached == nil || len(cached.Vector) == 0) {
+	if opts.Index != nil && missEligible {
 		opts.Index.BumpEmbedStat("miss")
 	}
-	// Cap the text handed to the embedder. Embedding models truncate to
-	// their context window anyway, and some Ollama model/version combos
-	// reject over-long input with an HTTP error (which would surface as
-	// a silent "0 results") — see issue #305.
-	body = truncateForEmbed(body, opts.EmbedInputMaxBytes)
-	vec, err := opts.Embedder.Embed(ctx, body)
-	if err != nil && ctx.Err() == nil {
-		// Some models reject inputs whose TOKEN count exceeds their hard
-		// limit even after the byte cap — CJK / dense text packs far more
-		// tokens per byte than English prose. Retry once at a small,
-		// conservative size before giving up so a handful of multibyte
-		// documents don't silently drop out of the results (#305).
-		if retry := truncateForEmbed(body, embedRetryMaxBytes); len(retry) < len(body) {
-			vec, err = opts.Embedder.Embed(ctx, retry)
-		}
-	}
-	if err != nil || len(vec) == 0 {
+
+	// Chunk the body into context-window-sized windows and embed each,
+	// so the whole document is covered rather than just the opening
+	// (issue #332). Per-chunk size is the embed cap (#305); embedChunks
+	// applies the same oversized-input retry per chunk.
+	chunks := chunkForEmbed(body, opts.EmbedInputMaxBytes)
+	vecs := embedChunks(ctx, opts.Embedder, chunks)
+	if len(vecs) == 0 {
 		if opts.Index != nil {
 			opts.Index.BumpEmbedStat("error")
 		}
 		return
 	}
-	embed.Normalize(vec)
-	attrs.Similarity = embed.Dot(opts.SemanticQueryEmbedding, vec)
+	attrs.Similarity = maxChunkSimilarity(opts.SemanticQueryEmbedding, vecs)
 
-	// Write the freshly-computed vector back to the cache so the
-	// next walk against the same (size, mtime, model) skips the
-	// Embedder call. Stamp EmbedModel so future calls with a
-	// different model surface as model_mismatch instead of silently
-	// returning wrong scores.
+	// Write the freshly-computed chunk vectors back to the cache so the
+	// next walk against the same (size, mtime, model) skips the Embedder
+	// calls. Stamp EmbedModel so a different model surfaces as
+	// model_mismatch instead of silently returning wrong scores.
 	if opts.Index != nil && cacheKey != "" {
 		entry := cached
 		if entry == nil {
@@ -190,11 +178,87 @@ func populateSimilarity(ctx context.Context, fsys fs.FS, fsPath, displayPath, ca
 				ContentType:     attrs.ContentType,
 			}
 		}
-		entry.Vector = vec
+		entry.ChunkVectors = vecs
+		entry.Vector = nil // superseded by ChunkVectors (#332)
 		entry.EmbedModel = currentModel
 		_ = opts.Index.Put(cacheKey, entry)
 		opts.Index.BumpEmbedStat("put")
 	}
+}
+
+// defaultEmbedMaxChunks caps how many chunks a single document is split
+// into for embedding, bounding the per-file embed cost on very long
+// inputs. 64 chunks × the 8 KiB default chunk size ≈ 512 KiB of covered
+// text — a full book's worth — while keeping a hard ceiling on Ollama
+// calls per file.
+const defaultEmbedMaxChunks = 64
+
+// chunkForEmbed splits text into overlapping, rune-safe windows of
+// chunkBytes (0 → defaultEmbedInputMaxBytes), capped at
+// defaultEmbedMaxChunks. The overlap (1/8 of a chunk) keeps a phrase
+// that straddles a boundary intact in at least one chunk. Short text
+// returns a single chunk.
+func chunkForEmbed(text string, chunkBytes int) []string {
+	if chunkBytes <= 0 {
+		chunkBytes = defaultEmbedInputMaxBytes
+	}
+	if len(text) <= chunkBytes {
+		return []string{text}
+	}
+	overlap := chunkBytes / 8
+	step := chunkBytes - overlap
+	out := make([]string, 0, len(text)/step+1)
+	for start := 0; start < len(text) && len(out) < defaultEmbedMaxChunks; start += step {
+		end := min(start+chunkBytes, len(text))
+		// Back the cut off a rune boundary so we never split a multibyte char.
+		for end < len(text) && !utf8.RuneStart(text[end]) {
+			end++
+		}
+		out = append(out, text[start:end])
+		if end >= len(text) {
+			break
+		}
+	}
+	return out
+}
+
+// embedChunks embeds each chunk and returns the L2-normalised vectors of
+// the chunks that succeeded. A chunk that errors (after the #305
+// smaller-input retry) is skipped rather than failing the whole
+// document. Honours ctx between chunks (#321 audit): a cancelled walk
+// stops and returns what it has.
+func embedChunks(ctx context.Context, embedder embed.Embedder, chunks []string) [][]float32 {
+	vecs := make([][]float32, 0, len(chunks))
+	for _, c := range chunks {
+		if ctx.Err() != nil {
+			break
+		}
+		vec, err := embedder.Embed(ctx, c)
+		if err != nil && ctx.Err() == nil {
+			if retry := truncateForEmbed(c, embedRetryMaxBytes); len(retry) < len(c) {
+				vec, err = embedder.Embed(ctx, retry)
+			}
+		}
+		if err != nil || len(vec) == 0 {
+			continue // skip this chunk; others still contribute
+		}
+		embed.Normalize(vec)
+		vecs = append(vecs, vec)
+	}
+	return vecs
+}
+
+// maxChunkSimilarity returns the highest cosine between the pre-normalised
+// query and any chunk vector (issue #332). 0 when there are no chunks.
+func maxChunkSimilarity(query []float32, chunks [][]float32) float64 {
+	best := 0.0
+	for i, v := range chunks {
+		s := embed.Dot(query, v)
+		if i == 0 || s > best {
+			best = s
+		}
+	}
+	return best
 }
 
 // embedRetryMaxBytes is the conservative fallback size used when an
