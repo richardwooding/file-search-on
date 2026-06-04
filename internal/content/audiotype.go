@@ -1,6 +1,7 @@
 package content
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -14,6 +15,9 @@ func init() {
 	Register(&audioType{name: "audio/mp4", exts: []string{".m4a", ".m4b", ".m4p", ".aac"}, magic: nil})
 	Register(&audioType{name: "audio/flac", exts: []string{".flac"}, magic: [][]byte{[]byte("fLaC")}})
 	Register(&audioType{name: "audio/ogg", exts: []string{".ogg", ".oga"}, magic: [][]byte{[]byte("OggS")}})
+	// WAV is a RIFF container ("RIFF"<size>"WAVE"); see MatchMagic for the
+	// form-type disambiguation against WebP / AVI (issue #322).
+	Register(&audioType{name: "audio/wav", exts: []string{".wav", ".wave"}, magic: [][]byte{[]byte("RIFF")}})
 }
 
 type audioType struct {
@@ -25,6 +29,22 @@ type audioType struct {
 func (a *audioType) Name() string         { return a.name }
 func (a *audioType) Extensions() []string { return a.exts }
 func (a *audioType) MagicBytes() [][]byte { return a.magic }
+
+// MatchMagic disambiguates WAV from the other RIFF-container formats
+// (WebP image, AVI video) sharing the bare "RIFF" prefix: a real WAV
+// carries "WAVE" at bytes 8..11 (issue #322). Non-RIFF audio types fall
+// back to the standard prefix match.
+func (a *audioType) MatchMagic(head []byte) bool {
+	if a.name == "audio/wav" {
+		return len(head) >= 12 && string(head[0:4]) == "RIFF" && string(head[8:12]) == "WAVE"
+	}
+	for _, m := range a.magic {
+		if bytes.HasPrefix(head, m) {
+			return true
+		}
+	}
+	return false
+}
 
 // Attributes reads audio tags via dhowden/tag. The library auto-detects the
 // container format (ID3v1/v2 for MP3, MP4 atoms for M4A, Vorbis comments for
@@ -125,6 +145,8 @@ func readAudioInfo(ctx context.Context, name string, r io.ReadSeeker, fileSize i
 		return readOGGInfo(r, fileSize)
 	case "audio/mp4":
 		return readMP4Info(ctx, r, fileSize)
+	case "audio/wav":
+		return readWAVInfo(r)
 	}
 	return audioInfo{}, errors.New("unsupported audio format")
 }

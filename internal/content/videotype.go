@@ -1,6 +1,7 @@
 package content
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -24,6 +25,22 @@ type videoType struct {
 func (v *videoType) Name() string         { return v.name }
 func (v *videoType) Extensions() []string { return v.exts }
 func (v *videoType) MagicBytes() [][]byte { return v.magic }
+
+// MatchMagic disambiguates AVI from the other RIFF-container formats
+// (WebP image, WAV audio) sharing the bare "RIFF" prefix: a real AVI
+// carries "AVI " at bytes 8..11 (issue #322). Other video types fall
+// back to the standard prefix match.
+func (v *videoType) MatchMagic(head []byte) bool {
+	if v.name == "video/x-msvideo" {
+		return len(head) >= 12 && string(head[0:4]) == "RIFF" && string(head[8:12]) == "AVI "
+	}
+	for _, m := range v.magic {
+		if bytes.HasPrefix(head, m) {
+			return true
+		}
+	}
+	return false
+}
 
 // Attributes dispatches to a per-format binary parser. Each parser is
 // header- + tail-bounded (sub-millisecond on real files); ctx is honoured
