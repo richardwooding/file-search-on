@@ -2,7 +2,10 @@ package content
 
 import (
 	"context"
+	"io"
 	"io/fs"
+	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 
@@ -14,6 +17,10 @@ import (
 // ToUnicode CMap. These are pure noise for body search — strip them
 // in one pass at the end of extraction.
 var pdfCIDPattern = regexp.MustCompile(`\(cid:\d+\)`)
+
+// defaultPDFBodyCap bounds the pdftotext output read when the caller
+// passes maxBytes <= 0 (1 MiB, matching the body-cache default).
+const defaultPDFBodyCap = 1 << 20
 
 // pdfSpaceGapRatio is the fraction of the font size above which a
 // horizontal gap between two text runs is treated as a word break.
@@ -98,6 +105,17 @@ func pdfBody(ctx context.Context, fsys fs.FS, filePath string, maxBytes int) (st
 	}
 	defer func() { _ = closer() }()
 
+	// Prefer poppler's pdftotext when it's on PATH — it reconstructs word
+	// spacing properly, which the pure-Go path below can only approximate
+	// from ledongthuc/pdf's (often zeroed) glyph geometry (issue #333).
+	// Any failure falls through to the pure-Go extractor, so this is a
+	// best-effort quality boost, never a hard dependency.
+	if bin := pdftotextBin(); bin != "" {
+		if s, ok := pdfBodyViaPdftotext(ctx, bin, ra, size, maxBytes); ok {
+			return s, nil
+		}
+	}
+
 	// pdf.NewReader can panic on malformed input despite returning
 	// an error in the documented path — the library uses panic for
 	// many internal parse failures. Wrap the entire extraction in
@@ -168,4 +186,56 @@ func pdfBody(ctx context.Context, fsys fs.FS, filePath string, maxBytes int) (st
 		return result, err
 	}
 	return result, nil
+}
+
+// pdftotextBin returns the path to poppler's pdftotext binary, or "" if
+// it isn't on PATH. Resolved per call (LookPath is cheap relative to PDF
+// parsing) so tests can inject a stub via PATH.
+func pdftotextBin() string {
+	p, _ := exec.LookPath("pdftotext")
+	return p
+}
+
+// pdfBodyViaPdftotext extracts text with poppler's pdftotext. pdftotext
+// needs a seekable file, so the PDF bytes are copied to a temp file
+// (works for archive entries / in-memory FSes too, where no OS path
+// exists). Output is read from a pipe bounded to maxBytes so a huge PDF
+// can't blow up memory. Returns ("", false) on ANY failure — missing
+// output, non-zero exit, copy error — so the caller falls back to the
+// pure-Go extractor. ctx cancels the subprocess via CommandContext.
+func pdfBodyViaPdftotext(ctx context.Context, bin string, ra io.ReaderAt, size int64, maxBytes int) (string, bool) {
+	tmp, err := os.CreateTemp("", "fso-pdf-*.pdf")
+	if err != nil {
+		return "", false
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
+	if _, err := io.Copy(tmp, io.NewSectionReader(ra, 0, size)); err != nil {
+		_ = tmp.Close()
+		return "", false
+	}
+	if err := tmp.Close(); err != nil {
+		return "", false
+	}
+
+	// "-q" quiet, UTF-8 output, Unix EOLs; write text to stdout ("-").
+	cmd := exec.CommandContext(ctx, bin, "-q", "-enc", "UTF-8", "-eol", "unix", tmp.Name(), "-")
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", false
+	}
+	if err := cmd.Start(); err != nil {
+		return "", false
+	}
+	limit := int64(maxBytes)
+	if limit <= 0 {
+		limit = defaultPDFBodyCap
+	}
+	data, _ := io.ReadAll(io.LimitReader(stdout, limit))
+	if err := cmd.Wait(); err != nil {
+		return "", false
+	}
+	if len(data) == 0 {
+		return "", false
+	}
+	return string(data), true
 }

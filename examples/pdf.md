@@ -45,6 +45,8 @@ file-search-on 'is_pdf' -d ~/Documents --sort-by mod_time --order desc --limit 2
 
 Pass `--body` (CLI) / `include_body: true` (MCP) and the `body` CEL variable carries the document text. The extractor walks every page in numeric order, decoding glyph-to-Unicode mappings against the page fonts. Page text is joined with a newline so `body.contains(...)` and `body.matches(...)` find content that spans pages.
 
+**Word spacing.** PDFs encode words as positioned glyph runs, not spaced text — the pure-Go path reconstructs word breaks from horizontal gaps, but `ledongthuc/pdf`'s geometry is often zeroed (justified LaTeX/arXiv output), so a few words can run together. **If [poppler](https://poppler.freedesktop.org/)'s `pdftotext` is on your `PATH`, it's used automatically** for materially better spacing and layout (and falls back to the pure-Go extractor when absent or on error — no hard dependency). `brew install poppler` / `apt install poppler-utils` to enable it.
+
 ```sh
 # Find every PDF mentioning a topic
 file-search-on 'is_pdf && body.contains("transformer architecture")' --body -d ~/Papers
