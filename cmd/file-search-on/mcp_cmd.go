@@ -11,6 +11,7 @@ import (
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/mcpserver"
 	"github.com/richardwooding/file-search-on/internal/monitor"
+	"github.com/richardwooding/file-search-on/internal/search"
 )
 
 type MCPCmd struct {
@@ -32,6 +33,9 @@ type MCPCmd struct {
 	WarmWorkers       int           `name:"warm-workers" help:"Worker count for the warmer. Defaults to max(1, NumCPU/4) — a quarter of the cores so the MCP server, the agent driving it, and the rest of the box keep their headroom. Pass 1 for minimum CPU; ignored when --warm is off."`
 	WarmTimeout       time.Duration `name:"warm-timeout" default:"10m" help:"Hard deadline on the warmer (Go duration: 30s, 5m). The MCP server keeps running if the warmer is killed by the deadline. Ignored when --warm is off."`
 	WarmEmbeddings    bool          `name:"warm-embeddings" help:"At startup, walk the warm root in the background and pre-populate the search_semantic embeddings cache. Requires --embedding-model to be set. Reads every walked file's body and calls Ollama once per file (expensive: ~1s/file on localhost) — appropriate as a pre-flight to interactive use. Walks concurrently with the MCP server, so clients connect immediately. Combine with --warm to populate both caches in one walk."`
+	WatchIndex        bool          `name:"watch-index" help:"After warming, keep the warm root's index cache fresh in the background: re-parse already-cached files when they change so the NEXT query is a warm hit, and evict cache entries for deleted files (which lazy validation never does). Auto-enabled when --warm/--warm-dir is set; use --no-watch-index to opt out. A latency/hygiene optimisation, NOT a correctness fix — lazy (size,mtime) validation already re-parses stale files on the next query. Off by default outside --warm because watching a huge tree (e.g. $HOME) exhausts the OS per-directory watch limit."`
+	NoWatchIndex      bool          `name:"no-watch-index" help:"Disable the background index watcher even when --warm/--warm-dir is set."`
+	WatchIndexDir     string        `name:"watch-index-dir" help:"Directory the index watcher monitors. Defaults to --warm-dir, then the cwd at server start. Implies --watch-index."`
 	Sandbox           bool          `name:"sandbox" help:"Restrict agent filesystem access to the cwd at server startup. Path-accepting MCP tool inputs (dir / dirs / path / tree_a / tree_b / hash_allowlist_path / hash_denylist_path) that resolve outside the sandbox are rejected with a clear error. Off by default; opt in when running file-search-on as an MCP server for an agent you want to scope to a single project. Combine with --sandbox-dir to specify explicit roots."`
 	SandboxDir        []string      `name:"sandbox-dir" help:"Sandbox root directory. Repeatable for multiple roots (e.g. --sandbox-dir ~/Code/foo --sandbox-dir ~/Code/bar). Implies --sandbox. Symlinks pointing outside the sandbox are rejected; follow_symlinks=true is rejected entirely when the sandbox is active (the walker doesn't yet enforce sandbox per-entry)."`
 }
@@ -193,10 +197,57 @@ func (m *MCPCmd) Run(ctx context.Context) error {
 		}
 	}
 
+	// Background index maintainer. Auto-enabled when the operator opted
+	// into warming a specific root ("warm once, then keep it warm");
+	// --watch-index / --watch-index-dir force it on without warming;
+	// --no-watch-index forces it off. Off otherwise — the implicit root
+	// is the cwd, and watching a huge tree (e.g. $HOME) exhausts the OS
+	// per-directory watch limit.
+	watchStats := &search.IndexWatchStats{}
+	watchEnabled := (m.WatchIndex || m.WatchIndexDir != "" || m.Warm || m.WarmDir != "") && !m.NoWatchIndex
+	if watchEnabled {
+		watchRoot := m.WatchIndexDir
+		if watchRoot == "" {
+			watchRoot = m.WarmDir
+		}
+		if watchRoot == "" {
+			if cwd, err := os.Getwd(); err == nil {
+				watchRoot = cwd
+			}
+		}
+		if watchRoot == "" {
+			fmt.Fprintln(os.Stderr, "watch-index: could not resolve directory to watch; skipping")
+		} else {
+			// Dedicated child ctx + done channel. The join defer cancels
+			// its own ctx and waits for the watcher (including any
+			// in-flight debounced re-parse) to drain. Registered AFTER
+			// idx.Close() above, so by LIFO it runs BEFORE idx.Close —
+			// no maintenance call can hit a closed index. Self-cancelling
+			// means it doesn't depend on cancelMonitor's ordering.
+			watchCtx, cancelWatch := context.WithCancel(ctx)
+			watchDone := make(chan struct{})
+			go func() {
+				defer close(watchDone)
+				opts := search.Options{
+					Roots:               []string{watchRoot},
+					RespectGitignore:    true,
+					PruneBuildArtefacts: true,
+					Index:               idx,
+				}
+				if err := search.WatchIndex(watchCtx, opts, nil, idx, watchStats); err != nil {
+					fmt.Fprintf(os.Stderr, "watch-index: %v\n", err)
+				}
+			}()
+			defer func() { cancelWatch(); <-watchDone }()
+			fmt.Fprintf(os.Stderr, "watch-index: maintaining cache for %s\n", watchRoot)
+		}
+	}
+
 	mcpOpts := []mcpserver.Option{
 		mcpserver.WithCollector(collector),
 		mcpserver.WithMonitor(controller),
 		mcpserver.WithGitPool(gitPool),
+		mcpserver.WithIndexWatchStats(watchStats),
 	}
 
 	sandboxRoots := append([]string(nil), m.SandboxDir...)

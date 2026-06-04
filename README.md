@@ -478,7 +478,7 @@ Twenty tools are exposed, grouped by family:
 | `list_attributes` | The full canonical schema (`common`, `type_specific`, `frontmatter`, `functions`) plus registered content types. |
 | `list_presets` | Discover the eight built-in named search recipes (`recent_changes`, `recent_photos`, `old_drafts`, `large_files`, `large_binaries`, `suspicious_files`, `failed_tests`, `system_metadata`). |
 | `query_preset` | Run a named preset; per-call overrides for `dir`, `limit`, `excludes`, etc. |
-| `index_stats` | Cache counters for the running server (hits, misses, puts, stales, errors; same for body + embedding caches). |
+| `index_stats` | Cache counters for the running server (hits, misses, puts, stales, errors; same for body + embedding caches). When `--watch-index` is on, also reports `watch_refreshed` / `watch_evicted` / `watch_errors`. |
 | `monitor_info` | This server's monitoring-dashboard URL + the registry of sibling instances. Pass `enable: true` to start the dashboard on demand if it isn't already running. |
 
 Every walking tool (`search`, `stats`, `find_duplicates`, `find_near_duplicates`, `find_matches`, `find_projects`, `diff_trees`) honours the same partial-result contract: on timeout the call returns `cancelled=true` with the results gathered so far, never an error. Agents inspect the flag rather than catching exceptions.
@@ -491,6 +491,17 @@ file-search-on mcp --index-path /var/lib/fso.db                          # expli
 file-search-on mcp --no-index                                            # in-memory only (process lifetime)
 file-search-on mcp --transport http --addr :8080
 ```
+
+**Keeping the cache fresh while it runs — `--watch-index`.** The index is validated lazily by `(size, mtime)`, so a changed file is always re-parsed on its next lookup — results are never stale. `--watch-index` adds a background fsnotify watcher that proactively (1) **re-parses already-cached files when they change** so the *next* query is a warm hit instead of a cold parse, and (2) **evicts cache entries for deleted files** — the one bit of hygiene lazy validation never does (dead paths otherwise accumulate in the bbolt file forever). It's a latency/hygiene optimisation, **not** a correctness fix. Auto-enabled when you `--warm` a root ("warm once, then keep it warm"); off otherwise because watching a huge tree (e.g. `$HOME`) exhausts the OS per-directory watch limit. The watcher honours `.gitignore` and prunes build-artefact dirs (`node_modules`, `target`, …) so churny output doesn't thrash the cache.
+
+```sh
+file-search-on mcp --warm                                                # warm cwd, then keep it warm (watcher auto-on)
+file-search-on mcp --warm-dir ~/Code/myproj --watch-index                # warm + watch a specific root
+file-search-on mcp --watch-index-dir ~/Code/myproj                       # watch a root without a startup warm pass
+file-search-on mcp --warm --no-watch-index                               # warm once, but don't keep watching
+```
+
+The watcher's activity is reported by the `index_stats` MCP tool as `watch_refreshed` / `watch_evicted` / `watch_errors`; evictions also show as a shrinking attribute-entry count on the monitor dashboard.
 
 ### Registering with Claude Code
 

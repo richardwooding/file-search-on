@@ -79,4 +79,10 @@ func TestIndexStatsTool(t *testing.T) {
 	if stats.Puts != 1 {
 		t.Errorf("Puts=%d want 1 (full stats: %+v)", stats.Puts, stats)
 	}
+	// No --watch-index watcher wired on this server, so the watch
+	// counters must report zero (nil-safe Snapshot), not be absent.
+	if stats.WatchRefreshed != 0 || stats.WatchEvicted != 0 || stats.WatchErrors != 0 {
+		t.Errorf("watch counters should be zero without a watcher: refreshed=%d evicted=%d errors=%d",
+			stats.WatchRefreshed, stats.WatchEvicted, stats.WatchErrors)
+	}
 }
