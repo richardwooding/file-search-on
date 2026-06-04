@@ -605,6 +605,12 @@ type Match struct {
 	// + an embedding model are configured. 0 otherwise.
 	Similarity float64 `json:"similarity,omitempty"`
 
+	// BM25 is the Okapi BM25 keyword-relevance score against the keyword
+	// query, with IDF over the candidate set (issue #335). Populated only
+	// when keyword_query / hybrid is set. 0 otherwise. Only comparable
+	// within the same result set.
+	BM25 float64 `json:"bm25,omitempty"`
+
 	// Snippet is the first N lines of the file body when the search
 	// call had include_snippet=true and the content type is
 	// text-based. Empty otherwise. Lets an agent decide whether a

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/richardwooding/file-search-on/internal/bm25"
 	"github.com/richardwooding/file-search-on/internal/celexpr"
 	"github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/embed"
@@ -205,6 +206,21 @@ type Options struct {
 	// behind issue #305. Threaded into celexpr.BuildOptions.
 	EmbedInputMaxBytes int
 
+	// KeywordQuery, when non-empty, enables Okapi BM25 keyword ranking
+	// (issue #335). The walker captures per-file BM25 carrier data and
+	// the `bm25` CEL variable is populated by the buffered post-pass
+	// FinalizeBM25 (called by Walk / the MCP search handler) — WalkStream
+	// alone does NOT populate bm25 (it needs corpus statistics over the
+	// buffered candidate set). Setting it forces IncludeAttributes on.
+	KeywordQuery string
+	// Hybrid, when true, fuses the BM25 keyword ranking and the semantic
+	// similarity ranking via reciprocal-rank fusion and writes the fused
+	// score to Result.Rank (issue #335). Requires KeywordQuery (and,
+	// for the semantic half, Embedder + SemanticQueryEmbedding). When
+	// false, bm25 is still exposed as a CEL variable for a manual
+	// `--rank 'bm25*0.4 + similarity*0.6'` expression.
+	Hybrid bool
+
 	// ResolveProjects, when true, makes BuildAttributesWith populate
 	// each match's `project_types` (list<string>) and `project_type`
 	// (string — first match) CEL variables by walking up from the
@@ -388,6 +404,16 @@ func Walk(ctx context.Context, opts Options, registry *content.Registry) ([]Resu
 		results = append(results, r)
 	}
 	<-done
+
+	// BM25 keyword ranking post-pass (issue #335). Computes candidate-set
+	// IDF, populates the `bm25` CEL var, and sets Result.Rank (hybrid RRF,
+	// the rank expression, or raw bm25). Must run before the sort below.
+	if opts.KeywordQuery != "" {
+		if err := FinalizeBM25(results, opts); err != nil {
+			return nil, err
+		}
+	}
+
 	// Sort + limit live in the buffered path because top-K and
 	// "ordered by attribute" semantics are incoherent with streaming.
 	// The CLI's bufferedSearch and the MCP search handler both flow
@@ -398,7 +424,9 @@ func Walk(ctx context.Context, opts Options, registry *content.Registry) ([]Resu
 	// and Order to "desc" (the more expressive primitive wins; users
 	// can pass --order asc to flip). Composes with --sort: rank still
 	// wins because it's evaluated per file and isn't a fixed attribute.
-	if opts.RankExpr != "" {
+	// A keyword query (BM25 / hybrid) also writes Result.Rank, so it
+	// defaults to the same rank-desc ordering.
+	if opts.RankExpr != "" || opts.KeywordQuery != "" {
 		opts.Sort = "rank"
 		if opts.Order == "" {
 			opts.Order = "desc"
@@ -443,6 +471,18 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 		if err != nil {
 			return err
 		}
+	}
+
+	// BM25 keyword ranking (issue #335). Tokenize the query once; the
+	// per-file carrier data is captured during attribute build, but the
+	// `bm25` score and any rank involving it are deferred to the buffered
+	// post-pass FinalizeBM25 (corpus IDF needs the full candidate set).
+	// So when BM25 is active we skip per-file rank eval here and force
+	// IncludeAttributes on (the post-pass reads carrier data off Attrs).
+	keywordTerms := bm25.Tokenize(opts.KeywordQuery)
+	bm25Active := len(keywordTerms) > 0
+	if bm25Active {
+		opts.IncludeAttributes = true
 	}
 
 	// Resolve which root(s) we're walking. opts.Roots takes
@@ -582,6 +622,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 						Embedder:               opts.Embedder,
 						SemanticQueryEmbedding: opts.SemanticQueryEmbedding,
 						EmbedInputMaxBytes:     opts.EmbedInputMaxBytes,
+						KeywordQuery:           keywordTerms,
 						OCRImages:              opts.OCRImages,
 						OCRTimeout:             opts.OCRTimeout,
 						WithPHash:              opts.WithPHash,
@@ -608,7 +649,10 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 					// Rank evaluation — per file, after the filter
 					// passed. Errors zero the rank rather than dropping
 					// the file (partial data beats missing matches).
-					if rankEvaluator != nil {
+					// Skipped when BM25 is active: bm25 isn't known until
+					// the buffered post-pass, so a rank that may reference
+					// it is evaluated there instead (FinalizeBM25).
+					if rankEvaluator != nil && !bm25Active {
 						if v, err := rankEvaluator.Eval(attrs); err == nil {
 							r.Rank = v
 						}

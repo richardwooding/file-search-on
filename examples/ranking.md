@@ -64,6 +64,18 @@ file-search-on 'is_pdf || is_office || is_markdown' \
   --limit 10
 ```
 
+`bm25` is a second ranking variable (issue #335), populated when `--keyword-query` is set — Okapi BM25 keyword relevance with IDF over the candidate set. Compose it with `similarity` for hybrid keyword+semantic ranking, or use `--hybrid` for automatic reciprocal-rank fusion (see [semantic-search.md](./semantic-search.md#hybrid-keyword--semantic-search-issue-335)):
+
+```sh
+# Manual hybrid blend: keyword precision + semantic recall
+file-search-on 'is_pdf' \
+  --semantic-query "http caching and proxies" \
+  --keyword-query "http caching proxies" \
+  --embedding-model nomic-embed-text \
+  --rank 'bm25*0.4 + similarity*0.6' \
+  --limit 10
+```
+
 ## Inverse rank — smallest / oldest first
 
 CEL allows unary minus on ints / doubles, so flipping the sign reverses the order while keeping desc the default:

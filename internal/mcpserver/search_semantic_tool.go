@@ -25,6 +25,8 @@ type SearchSemanticInput struct {
 	Threshold       float64  `json:"threshold,omitempty" jsonschema:"Minimum cosine similarity (0..1) for a match. Default 0.5. Higher = stricter. 0.7 is a useful tightness for 'definitely about this topic'; 0.4-0.5 catches related-but-tangential content. Implemented by AND-ing 'similarity >= <value>' onto the expr filter, so it combines with (does not replace) any similarity comparison in your expr."`
 	Limit           int      `json:"limit,omitempty" jsonschema:"Cap on returned matches (top-K ranked by similarity desc). Default 50. When the ranked set is truncated by limit, the response carries an opaque next_cursor — pass it back as 'cursor' to fetch the next page."`
 	Cursor          string   `json:"cursor,omitempty" jsonschema:"Opaque pagination token from a previous response's next_cursor. Resumes the similarity-ranked result set immediately after the last item of the prior page. Re-embeds the query and re-walks each page (file vectors are cached, so the re-walk is cheap); paging is stable under an unchanged tree. Use the SAME query/threshold for consistent paging."`
+	Hybrid          bool     `json:"hybrid,omitempty" jsonschema:"Hybrid keyword+semantic ranking: fuse the BM25 keyword ranking with the embedding-similarity ranking via reciprocal-rank fusion (no manual weights). The keyword query defaults to 'query' unless keyword_query is set. Catches both exact-term hits and paraphrase. Issue #335."`
+	KeywordQuery    string   `json:"keyword_query,omitempty" jsonschema:"Keyword query for the BM25 half of hybrid ranking. Defaults to 'query' when empty. Only used when hybrid=true; the tokenized terms are scored with Okapi BM25 (IDF over the candidate set) and surfaced as each match's bm25 field. Issue #335."`
 	Model           string   `json:"model,omitempty" jsonschema:"Override the server's default embedding model for this call (e.g. nomic-embed-text, mxbai-embed-large). When the server has no default and this is empty, the call returns 'no embedding model configured'."`
 	EmbeddingServer string   `json:"embedding_server,omitempty" jsonschema:"Override the server's default Ollama base URL for this call (e.g. http://gpu-box:11434). Defaults to the server-startup setting or http://localhost:11434."`
 	Excludes        []string `json:"excludes,omitempty" jsonschema:"Glob patterns matched against the basename of each file/directory; matched directories are pruned. Same semantics as the search tool."`
@@ -92,6 +94,16 @@ func (h *handlers) searchSemanticHandler(ctx context.Context, req *mcp.CallToolR
 		limit = 50
 	}
 
+	// Hybrid keyword+semantic ranking (issue #335). The BM25 keyword
+	// query defaults to the semantic query unless overridden.
+	keywordQuery := ""
+	if in.Hybrid {
+		keywordQuery = in.KeywordQuery
+		if keywordQuery == "" {
+			keywordQuery = in.Query
+		}
+	}
+
 	dir, err := expandHomeDir(in.Dir)
 	if err != nil {
 		return nil, SearchSemanticOutput{}, fmt.Errorf("expand dir: %w", err)
@@ -155,6 +167,8 @@ func (h *handlers) searchSemanticHandler(ctx context.Context, req *mcp.CallToolR
 		Excludes:               in.Excludes,
 		RespectGitignore:       in.RespectGitignore,
 		FollowSymlinks:         in.FollowSymlinks,
+		KeywordQuery:           keywordQuery,
+		Hybrid:                 in.Hybrid,
 	}
 
 	// Snapshot the embed-error counter so we can report how many files
@@ -192,14 +206,25 @@ func (h *handlers) searchSemanticHandler(ctx context.Context, req *mcp.CallToolR
 		return nil, SearchSemanticOutput{}, fmt.Errorf("walk: %w", walkErr)
 	}
 
-	// Rank by similarity desc, resume past the cursor, cap to limit, and
-	// emit next_cursor when more remain. PaginateResults sorts in a
-	// stable total order (similarity desc, path asc tiebreak) so paging
-	// is consistent across calls — that path tiebreak is also why we no
-	// longer need the old defensive re-sort. Files with zero similarity
-	// (binary content that skipped embedding) group at the end; the
-	// threshold filter above already excludes them in normal use.
-	page, nextCursor, perr := search.PaginateResults(results, "similarity", "desc", in.Cursor, limit)
+	// Hybrid keyword+semantic ranking (issue #335). FinalizeBM25 scores
+	// BM25 over the candidate set and writes the reciprocal-rank-fused
+	// score to Result.Rank; we then rank by "rank" instead of raw
+	// similarity. Pure semantic (no hybrid) keeps similarity ordering.
+	sortField := "similarity"
+	if in.Hybrid {
+		if err := search.FinalizeBM25(results, walkOpts); err != nil {
+			return nil, SearchSemanticOutput{}, fmt.Errorf("hybrid: %w", err)
+		}
+		sortField = "rank"
+	}
+
+	// Rank desc, resume past the cursor, cap to limit, and emit
+	// next_cursor when more remain. PaginateResults sorts in a stable
+	// total order (sort field desc, path asc tiebreak) so paging is
+	// consistent across calls. Files with zero similarity (binary content
+	// that skipped embedding) group at the end; the threshold filter
+	// above already excludes them in normal use.
+	page, nextCursor, perr := search.PaginateResults(results, sortField, "desc", in.Cursor, limit)
 	if perr != nil {
 		return nil, SearchSemanticOutput{}, fmt.Errorf("cursor: %w", perr)
 	}

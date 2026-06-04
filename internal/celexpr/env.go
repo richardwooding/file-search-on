@@ -517,6 +517,11 @@ func New(expr string) (*Evaluator, error) {
 		// Semantic similarity (issue #151). Populated when the
 		// caller sets SemanticQuery + Embedder; 0 otherwise.
 		cel.Variable("similarity", cel.DoubleType),
+		// BM25 keyword relevance (issue #335). Populated by the buffered
+		// post-pass when the caller sets a keyword query; 0 otherwise.
+		// Compose with `similarity` in a --rank expression for hybrid
+		// keyword+semantic ranking, e.g. `bm25*0.4 + similarity*0.6`.
+		cel.Variable("bm25", cel.DoubleType),
 		// Git-aware metadata (issue #271). Populated when the caller
 		// sets BuildOptions.GitCache (CLI --with-git, MCP with_git).
 		// Zero on non-git walks or for files outside the git index.

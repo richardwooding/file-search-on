@@ -342,6 +342,14 @@ type BuildOptions struct {
 	// applied on a UTF-8 rune boundary.
 	EmbedInputMaxBytes int
 
+	// KeywordQuery, when non-empty, is the tokenized keyword query used
+	// to capture per-file BM25 carrier data (term frequencies of these
+	// terms + the body token length) during body extraction (issue #335).
+	// The actual BM25 score needs corpus IDF, so it's left to the
+	// buffered post-pass (search.FinalizeBM25); this just records the
+	// cheap per-file inputs. Empty → no BM25 capture.
+	KeywordQuery []string
+
 	// GitCache, when non-nil, drives population of the git_* fields on
 	// FileAttributes (last commit time/author/subject, first seen,
 	// commit count, is_tracked, is_ignored). The walker builds one
@@ -557,6 +565,11 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 			// cached.Vector; on miss, embed via opts.Embedder.
 			if opts.Embedder != nil && len(opts.SemanticQueryEmbedding) > 0 {
 				populateSimilarity(ctx, fsys, fsPath, displayPath, cacheKey, info, cached, attrs, opts)
+			}
+			// BM25 keyword carrier data (issue #335). Captured per file;
+			// scored by the buffered post-pass.
+			if len(opts.KeywordQuery) > 0 {
+				populateBM25Doc(ctx, fsys, fsPath, displayPath, cacheKey, info, cached.ContentType, attrs, opts)
 			}
 			// Disguise check (PR #145). Reuse cached.MagicContentType /
 			// ExtensionContentType when DisguiseChecked is true (older
@@ -864,6 +877,9 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	}
 	if opts.Embedder != nil && len(opts.SemanticQueryEmbedding) > 0 {
 		populateSimilarity(ctx, fsys, fsPath, displayPath, cacheKey, info, cacheEntry, attrs, opts)
+	}
+	if len(opts.KeywordQuery) > 0 {
+		populateBM25Doc(ctx, fsys, fsPath, displayPath, cacheKey, info, contentTypeName, attrs, opts)
 	}
 	if opts.CheckDisguised {
 		applyDisguise(attrs, magicCT, extCT)
