@@ -429,6 +429,23 @@ file-search-on mcp --timeout 90s                         # raise the per-call de
 
 For HTTP and SSE, `--addr` (default `:8080`) is the bind address and `--path` (default `/`) is the URL prefix. `--timeout` (default `60s`) sets the per-tool-call deadline; per-call `timeout_seconds` on the `search` tool input overrides it.
 
+### Home-directory safety guard
+
+By default both long-running subcommands (`mcp` and `watch`) **refuse to start unless the directory they operate on is inside your home directory.** This stops an agent-driven server or a background watcher from being aimed — by an errant `cwd`, `--warm-dir`, or `-d` — at system paths or an entire volume.
+
+- For `mcp`, the guarded roots are the **cwd** (the default any tool call inherits when it omits `dir`) plus any explicit `--warm-dir` / `--watch-index-dir` / `--sandbox-dir`. So `cd /etc && file-search-on mcp` is refused.
+- For `watch`, every `-d` directory is checked.
+- `$HOME` itself and anything beneath it pass; symlinks are resolved on both sides before the check.
+
+Opt out with **`--allow-outside-home`** when you genuinely need to serve or watch a directory elsewhere:
+
+```sh
+cd /opt/data && file-search-on mcp --allow-outside-home     # serve a non-home root
+file-search-on watch -d /Volumes/Media --allow-outside-home  # watch another volume
+```
+
+The guard is **fail-closed**: if `$HOME` can't be determined (e.g. a container or CI runner with no `HOME` set), startup is refused until you set `HOME` or pass `--allow-outside-home`. It's independent of `--sandbox` — the guard is a startup check on the server's own root(s), while `--sandbox` governs the per-call `dir` inputs an agent supplies at runtime.
+
 Twenty tools are exposed, grouped by family:
 
 **Search & inspect**

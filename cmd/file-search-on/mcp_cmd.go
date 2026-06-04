@@ -38,9 +38,26 @@ type MCPCmd struct {
 	WatchIndexDir     string        `name:"watch-index-dir" help:"Directory the index watcher monitors. Defaults to --warm-dir, then the cwd at server start. Implies --watch-index."`
 	Sandbox           bool          `name:"sandbox" help:"Restrict agent filesystem access to the cwd at server startup. Path-accepting MCP tool inputs (dir / dirs / path / tree_a / tree_b / hash_allowlist_path / hash_denylist_path) that resolve outside the sandbox are rejected with a clear error. Off by default; opt in when running file-search-on as an MCP server for an agent you want to scope to a single project. Combine with --sandbox-dir to specify explicit roots."`
 	SandboxDir        []string      `name:"sandbox-dir" help:"Sandbox root directory. Repeatable for multiple roots (e.g. --sandbox-dir ~/Code/foo --sandbox-dir ~/Code/bar). Implies --sandbox. Symlinks pointing outside the sandbox are rejected; follow_symlinks=true is rejected entirely when the sandbox is active (the walker doesn't yet enforce sandbox per-entry)."`
+	AllowOutsideHome  bool          `name:"allow-outside-home" help:"Bypass the home-directory safety guard. By default the mcp server refuses to start unless its working root(s) — the cwd plus any --warm-dir / --watch-index-dir / --sandbox-dir — are inside your home directory, to avoid serving an agent system paths or an entire volume. Pass this to serve a directory elsewhere (other volumes, /opt, /srv) or in a container/CI runner where HOME isn't set. Independent of --sandbox, which governs per-call tool inputs."`
 }
 
 func (m *MCPCmd) Run(ctx context.Context) error {
+	// Safety guard: refuse to start unless the server's working root(s)
+	// are inside $HOME. The implicit root is the cwd (the default for
+	// tool calls that omit a dir); any explicit warm / watch-index /
+	// sandbox roots are checked too. Runs before any side effects. A
+	// failing os.Getwd is itself a guard failure (fail-closed).
+	guardDirs := append([]string(nil), m.WarmDir, m.WatchIndexDir)
+	guardDirs = append(guardDirs, m.SandboxDir...)
+	if cwd, err := os.Getwd(); err == nil {
+		guardDirs = append(guardDirs, cwd)
+	} else if !m.AllowOutsideHome {
+		return fmt.Errorf("home-guard: cannot determine the working directory (%v); pass --allow-outside-home to run anyway", err)
+	}
+	if err := ensureUnderHome(guardDirs, m.AllowOutsideHome); err != nil {
+		return err
+	}
+
 	idx, backend, err := openIndex(m.IndexPath, m.NoIndex, index.BodyCacheCap{MaxBytes: int64(m.BodyCacheMaxBytes), Disable: m.NoBodyCache})
 	if err != nil {
 		return err
