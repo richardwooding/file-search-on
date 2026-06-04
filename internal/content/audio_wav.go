@@ -37,6 +37,7 @@ func readWAVInfo(r io.ReadSeeker) (audioInfo, error) {
 	)
 	const maxChunks = 4096
 	var chunkHdr [8]byte
+chunkLoop:
 	for range maxChunks {
 		if _, err := io.ReadFull(r, chunkHdr[:]); err != nil {
 			break // EOF / truncated — return whatever we gathered
@@ -47,7 +48,7 @@ func readWAVInfo(r io.ReadSeeker) (audioInfo, error) {
 		case "fmt ":
 			body := make([]byte, min(size, 64))
 			if _, err := io.ReadFull(r, body); err != nil {
-				break
+				break chunkLoop
 			}
 			if len(body) >= 16 {
 				info.Channels = int64(binary.LittleEndian.Uint16(body[2:4]))
@@ -59,21 +60,23 @@ func readWAVInfo(r io.ReadSeeker) (audioInfo, error) {
 			// Skip any remaining fmt bytes (+ pad) we didn't read.
 			if rem := size - int64(len(body)); rem > 0 {
 				if _, err := r.Seek(rem+(size&1), io.SeekCurrent); err != nil {
-					break
+					break chunkLoop
 				}
 			} else if size&1 == 1 {
-				_, _ = r.Seek(1, io.SeekCurrent)
+				if _, err := r.Seek(1, io.SeekCurrent); err != nil {
+					break chunkLoop
+				}
 			}
 		case "data":
 			dataSize = size
 			haveData = true
 			// Don't read the (potentially huge) sample body; seek past it.
 			if _, err := r.Seek(size+(size&1), io.SeekCurrent); err != nil {
-				break
+				break chunkLoop
 			}
 		default:
 			if _, err := r.Seek(size+(size&1), io.SeekCurrent); err != nil {
-				break
+				break chunkLoop
 			}
 		}
 	}

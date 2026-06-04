@@ -12,19 +12,20 @@ func buildWAV(channels, bitsPerSample int, sampleRate, dataBytes uint32) []byte 
 	byteRate := sampleRate * uint32(channels) * uint32(bitsPerSample) / 8
 	blockAlign := uint16(channels * bitsPerSample / 8)
 	var b bytes.Buffer
+	put := func(v any) { _ = binary.Write(&b, binary.LittleEndian, v) } // never errors on a bytes.Buffer
 	b.WriteString("RIFF")
-	binary.Write(&b, binary.LittleEndian, uint32(36+dataBytes))
+	put(uint32(36 + dataBytes))
 	b.WriteString("WAVE")
 	b.WriteString("fmt ")
-	binary.Write(&b, binary.LittleEndian, uint32(16))
-	binary.Write(&b, binary.LittleEndian, uint16(1)) // PCM
-	binary.Write(&b, binary.LittleEndian, uint16(channels))
-	binary.Write(&b, binary.LittleEndian, sampleRate)
-	binary.Write(&b, binary.LittleEndian, byteRate)
-	binary.Write(&b, binary.LittleEndian, blockAlign)
-	binary.Write(&b, binary.LittleEndian, uint16(bitsPerSample))
+	put(uint32(16))
+	put(uint16(1)) // PCM
+	put(uint16(channels))
+	put(sampleRate)
+	put(byteRate)
+	put(blockAlign)
+	put(uint16(bitsPerSample))
 	b.WriteString("data")
-	binary.Write(&b, binary.LittleEndian, dataBytes)
+	put(dataBytes)
 	b.Write(make([]byte, dataBytes))
 	return b.Bytes()
 }
