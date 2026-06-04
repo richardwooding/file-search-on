@@ -270,17 +270,7 @@ func TestWithSandbox_NilLeavesSandboxEmpty(t *testing.T) {
 	}
 }
 
-func TestPathUnder_ExactMatch(t *testing.T) {
-	if !pathUnder("/a/b", "/a/b") {
-		t.Errorf("exact match should be 'under'")
-	}
-}
-
-func TestPathUnder_SeparatorAware(t *testing.T) {
-	if pathUnder("/a/foo-bar", "/a/foo") {
-		t.Errorf("/a/foo-bar should NOT be under /a/foo (prefix collision)")
-	}
-	if !pathUnder("/a/foo/x", "/a/foo") {
-		t.Errorf("/a/foo/x should be under /a/foo")
-	}
-}
+// The separator-aware containment check moved to internal/pathguard;
+// its exact-match and prefix-collision behaviour is covered by
+// pathguard.TestUnder. The sandbox tests above exercise it end-to-end
+// through validatePath.

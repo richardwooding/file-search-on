@@ -23,6 +23,10 @@ In **stdio** mode the MCP server inherits the launching process's cwd. Relative 
 
 `~` expansion happens in the server, not the agent — `"~/Pictures"` works even when the agent's shell isn't bash.
 
+## The server refuses to start outside your home directory
+
+By default `file-search-on mcp` won't start unless its working root(s) — the cwd plus any `--warm-dir` / `--watch-index-dir` / `--sandbox-dir` — are inside `$HOME`. This is a startup safety guard (it does NOT police per-call `dir` inputs — that's `--sandbox`). If you launch the server from a non-home location (another volume, `/opt`, or a container/CI runner with no `HOME`), startup is refused with a `home-guard:` error; pass `--allow-outside-home` to override. The `watch` subcommand has the same guard over its `-d` directories.
+
 ## `include_body` is the most expensive flag
 
 When `include_body: true`, the server reads every candidate file's body (up to `body_max_bytes`, default 1 MiB) so the `body` CEL variable is populated. On a tree of thousands of files this is gigabytes of I/O.

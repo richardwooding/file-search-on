@@ -4,7 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
+
+	"github.com/richardwooding/file-search-on/internal/pathguard"
 )
 
 // errSandboxFollowSymlinksUnsupported is returned when a walk tool is
@@ -89,44 +90,13 @@ func (h *handlers) validatePath(p string) (string, error) {
 		return "", fmt.Errorf("sandbox: resolve %q: %w", p, err)
 	}
 	abs = filepath.Clean(abs)
-	resolved := resolveDeepest(abs)
+	resolved := pathguard.ResolveDeepest(abs)
 	for _, root := range h.sandbox {
-		if pathUnder(resolved, root) {
+		if pathguard.Under(resolved, root) {
 			return abs, nil
 		}
 	}
 	return "", fmt.Errorf("sandbox: %q is outside the allowed roots %v", p, h.sandbox)
-}
-
-// resolveDeepest walks up p until filepath.EvalSymlinks succeeds, then
-// reattaches the non-existent suffix. This canonicalises symlinked
-// ancestors (e.g. /tmp → /private/tmp on macOS) for paths that don't
-// fully exist yet — important so the sandbox check sees the same
-// canonical form for both existing and not-yet-existing inputs.
-// Returns abs unchanged when no ancestor resolves.
-func resolveDeepest(abs string) string {
-	suffix := ""
-	cur := abs
-	for {
-		if r, err := filepath.EvalSymlinks(cur); err == nil {
-			if suffix == "" {
-				return filepath.Clean(r)
-			}
-			return filepath.Clean(filepath.Join(r, suffix))
-		}
-		parent := filepath.Dir(cur)
-		if parent == cur {
-			// Reached the root without finding a resolvable ancestor.
-			return abs
-		}
-		base := filepath.Base(cur)
-		if suffix == "" {
-			suffix = base
-		} else {
-			suffix = filepath.Join(base, suffix)
-		}
-		cur = parent
-	}
 }
 
 // validatePaths is the slice variant for tools that take `dirs` /
@@ -157,16 +127,4 @@ func (h *handlers) checkFollowSymlinks(follow bool) error {
 		return errSandboxFollowSymlinksUnsupported
 	}
 	return nil
-}
-
-// pathUnder is a separator-aware "is p inside root?" prefix check.
-// Returns true when p == root (the root itself is a valid input) or
-// when p starts with root + the path separator (so "/home/foo-bar"
-// doesn't sneak through when root is "/home/foo"). Both inputs are
-// expected to be canonical (filepath.Clean + Abs) before being passed.
-func pathUnder(p, root string) bool {
-	if p == root {
-		return true
-	}
-	return strings.HasPrefix(p, root+string(filepath.Separator))
 }

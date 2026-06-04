@@ -46,6 +46,16 @@ file-search-on watch -d ./incoming -o bare
 
 Flags mirror `search` where they make sense: `--body` / `--body-max-bytes`, `--ocr` / `--ocr-timeout`, `--with-hashes`, `--with-phash`, `--with-xattrs`, `--exclude`, `--respect-gitignore`, `--index-path`. Ranking, semantic embedding, and project resolution are omitted — they're walk-collection concerns, not single-file-event concerns.
 
+### Home-directory safety guard
+
+`watch` refuses to start unless every `-d` directory is inside your home directory — a guard against accidentally aiming a long-running watcher at system paths or an entire volume. To watch elsewhere (another volume, `/opt`, `/srv`, or in a container where `HOME` isn't set), pass `--allow-outside-home`:
+
+```sh
+file-search-on watch 'is_video' -d /Volumes/Media --allow-outside-home
+```
+
+`$HOME` itself and anything under it pass. The guard is fail-closed: if `$HOME` can't be determined it refuses until you set `HOME` or opt out. The `mcp` server has the same guard (covering its cwd + `--warm-dir` / `--watch-index-dir` / `--sandbox-dir`).
+
 NDJSON output is the same wire shape as `search -o json`, so the same `jq` recipes work:
 
 ```sh
