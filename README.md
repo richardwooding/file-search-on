@@ -22,6 +22,25 @@ Across **74 file formats** organised into thirteen content-type families (docume
 
 Built in the open — issues, PRs, and feature requests warmly welcomed. See [Contributing](#contributing).
 
+## Quick start
+
+Install with Homebrew, then hand the search tools to **Claude Code** — two commands:
+
+```sh
+# 1. Install the binary (macOS / Linux)
+brew install richardwooding/tap/file-search-on
+
+# 2. Register it as an MCP server in Claude Code
+claude mcp add file-search-on -- file-search-on mcp
+```
+
+That's it. Claude Code can now query your files by typed content-type attributes — ask it things like *"find every PDF over 10 pages I haven't opened this year"*, *"which Go files have the highest git churn?"*, or *"are there any AWS keys in this repo?"* and it drives the [twenty MCP tools](#mcp-server-mode) behind the scenes.
+
+- Make it available in **every** project (not just the current one) with the user scope: `claude mcp add -s user file-search-on -- file-search-on mcp`.
+- Confirm the connection with `claude mcp list`, or `/mcp` inside a Claude Code session.
+
+Prefer the command line? The same binary is a standalone CLI — `file-search-on 'is_pdf && page_count > 10'`. See [Usage](#usage). Other install methods (Docker, pre-built binaries, `go install`) are under [Install](#install).
+
 ## Features
 
 - **Pluggable content-type detection** — extension-first with magic-byte fallback. New formats are a single registration call.
@@ -393,7 +412,7 @@ CEL's standard string methods (`contains`, `startsWith`, `endsWith`, `matches`, 
 
 ## MCP server mode
 
-The same binary can run as a [Model Context Protocol](https://modelcontextprotocol.io) server, exposing the search to any MCP-compatible client (Claude Desktop, IDE plugins, agents). Three transports:
+The same binary can run as a [Model Context Protocol](https://modelcontextprotocol.io) server, exposing the search to any MCP-compatible client (Claude Code, Claude Desktop, IDE plugins, agents). Three transports:
 
 ```sh
 file-search-on mcp                                       # stdio (default; for desktop clients)
@@ -473,7 +492,20 @@ file-search-on mcp --no-index                                            # in-me
 file-search-on mcp --transport http --addr :8080
 ```
 
-Example Claude Desktop entry in `claude_desktop_config.json` (stdio):
+### Registering with Claude Code
+
+The fastest path — one command, no config files to hand-edit:
+
+```sh
+claude mcp add file-search-on -- file-search-on mcp           # current project
+claude mcp add -s user file-search-on -- file-search-on mcp   # every project (user scope)
+```
+
+`claude mcp list` shows registered servers and their connection status; `claude mcp remove file-search-on` unregisters it. Inside a session, `/mcp` lists the live tools. If you installed via Homebrew the `file-search-on` command is already on `PATH`; otherwise pass an absolute path as the command.
+
+### Registering with Claude Desktop
+
+Add a stdio entry to `claude_desktop_config.json`:
 
 ```json
 {
