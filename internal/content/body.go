@@ -87,3 +87,25 @@ func ExtractBodyOSPath(ctx context.Context, contentTypeName, osPath string, maxB
 func RequiresOSPath(contentTypeName string) bool {
 	return contentTypeName == "database/sqlite"
 }
+
+// SupportsBodyExtraction reports whether ExtractBody / ExtractBodyOSPath
+// can turn the given content type into searchable plain text via a
+// format-specific extractor (ZIP+XML for office/epub, MIME for email,
+// content streams for pdf, etc.). This is the structured-document
+// counterpart to a raw byte read — callers that line-scan file content
+// (find_matches) use it to decide which non-plain-text files are still
+// worth extracting + scanning rather than skipping as binary. Keep in
+// sync with the switches in ExtractBody / ExtractBodyOSPath.
+func SupportsBodyExtraction(contentTypeName string) bool {
+	switch contentTypeName {
+	case "office/docx", "office/xlsx", "office/pptx", "office/odt",
+		"epub",
+		"email/rfc822", "email/mbox",
+		"pdf",
+		"database/sqlite",
+		"browser/bookmarks-chromium", "browser/bookmarks-safari",
+		"chat/slack-export", "chat/discord-export", "chat/signal-cli":
+		return true
+	}
+	return false
+}

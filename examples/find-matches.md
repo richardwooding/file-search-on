@@ -1,6 +1,6 @@
 # Line-level regex matching
 
-The `find-matches` subcommand (and matching MCP `find_matches` tool) scans text files for an RE2 regular expression and reports every hit at the **line level**, with optional before/after context windows. Combines a CEL pre-prune (same vocabulary as `search`) with a line-level regex scan — pick candidate files cheaply by type and attribute, then run the regex only on what's left.
+The `find-matches` subcommand (and matching MCP `find_matches` tool) scans files for an RE2 regular expression and reports every hit at the **line level**, with optional before/after context windows. Plain-text files are scanned directly; structured documents (office / epub / pdf / email) are extracted to text first and scanned too, so a phrase inside an `.epub` or `.docx` is found. Combines a CEL pre-prune (same vocabulary as `search`) with a line-level regex scan — pick candidate files cheaply by type and attribute, then run the regex only on what's left.
 
 ## When to reach for this vs alternatives
 
@@ -17,8 +17,8 @@ The `find-matches` subcommand (and matching MCP `find_matches` tool) scans text 
 
 Two-pass like `find_duplicates`:
 
-1. **Walk + CEL filter.** Walks the tree, extracts attributes, applies `--expr` (default: every file). Candidates are filtered to text content types (`markdown` / `text` / `html` / `csv` / `json` / `xml` / `source/*`). Binary families (image / audio / video / archive / binary / office / epub / email) are silently dropped — line-scanning them would produce noise.
-2. **Per-file line scan.** Each candidate is opened and read with a `bufio.Scanner` capped at 64 KiB per line (pathological long lines are truncated). For each line, the compiled RE2 regex runs; on hit the line is recorded with its 1-indexed line number, the configured number of trailing context lines lazy-filled from subsequent reads, and the configured number of leading lines pulled from a ring buffer.
+1. **Walk + CEL filter.** Walks the tree, extracts attributes, applies `--expr` (default: every file). Candidates are plain-text content types (`markdown` / `text` / `html` / `csv` / `json` / `xml` / `source/*`) **plus** structured documents whose body can be extracted (`office/*` / `epub` / `pdf` / `email/*` / browser & chat exports). Truly binary families (image / audio / video / archive / compiled binary) are silently dropped — line-scanning them would produce noise.
+2. **Per-file line scan.** Plain-text candidates are opened and read with a `bufio.Scanner` capped at 64 KiB per line (pathological long lines are truncated). Structured documents are first run through the body extractor (capped at `--body-max-bytes`, default 8 MiB) and the extracted text is scanned the same way. For each line, the compiled RE2 regex runs; on hit the line is recorded with its 1-indexed line number, the configured number of trailing context lines lazy-filled from subsequent reads, and the configured number of leading lines pulled from a ring buffer.
 
 ## CLI
 
@@ -34,6 +34,11 @@ file-search-on find-matches '\btransformer\b' --expr 'is_markdown && draft' -B 1
 
 # JSON for piping into jq — same wire shape as the MCP tool
 file-search-on find-matches '\bAPI\b' --expr 'is_markdown' -o json | jq '.matches[] | {path, line}'
+
+# Search INSIDE documents — the phrase is extracted from the .epub/.docx
+# body, not the raw ZIP bytes (issue #309)
+file-search-on find-matches 'Cheshire Cat' --expr 'is_epub' -d ./books
+file-search-on find-matches '(?i)quarterly revenue' --expr 'is_office || is_pdf' -C 1
 
 # Cap matches per file (handy when one file has hundreds of hits)
 file-search-on find-matches '\bTODO\b' --max-matches-per-file 3

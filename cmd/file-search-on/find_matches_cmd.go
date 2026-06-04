@@ -15,7 +15,7 @@ import (
 type FindMatchesCmd struct {
 	Pattern             string        `arg:"" help:"RE2 regular expression matched line-by-line against each candidate file. Same flavour as Go's regexp/re2 and CEL's matches(). Example: '(?i)\\bTODO\\b'."`
 	Dir                 []string      `short:"d" help:"Directory to search. Repeatable — pass -d a -d b to walk multiple roots." default:"."`
-	Expr                string        `short:"e" name:"expr" help:"Optional CEL expression to scope candidate files BEFORE the regex scan (e.g. 'is_source && language == \"go\"'). Empty means every file (filtered to text content types)."`
+	Expr                string        `short:"e" name:"expr" help:"Optional CEL expression to scope candidate files BEFORE the regex scan (e.g. 'is_source && language == \"go\"'). Empty means every file: plain-text types are scanned directly, structured documents (office / epub / pdf / email) are extracted to text and scanned, and binary families are skipped."`
 	Workers             int           `short:"w" help:"Parallel workers. 0 = runtime.NumCPU()." default:"0"`
 	MaxLineBytes        int           `short:"L" name:"max-line-bytes" help:"Per-line scanner cap for walk-stage attribute extraction (bytes). 0 uses the 1 MiB default." default:"0"`
 	ContextBefore       int           `short:"B" name:"before" help:"Number of lines of leading context to attach to each match." default:"0"`
