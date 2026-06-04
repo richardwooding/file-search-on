@@ -86,9 +86,11 @@ Per-call `model` / `embedding_server` inputs override the startup defaults. If n
 1. The query is embedded ONCE per call (one Ollama round-trip).
 2. The walker visits each file matching the CEL pre-filter.
 3. For each file:
-   - **Cache hit** (`index.Entry.Vector` populated and `(size, mtime)` validates) — just compute the cosine, no Ollama call.
-   - **Cache miss** — extract the body (via the existing body cache from PR #142), embed via Ollama, L2-normalise, store the vector, compute the cosine.
+   - **Cache hit** (`index.Entry.ChunkVectors` populated and `(size, mtime)` validates) — just compute the max cosine over the cached chunks, no Ollama call.
+   - **Cache miss** — extract the body (via the existing body cache from PR #142), split it into overlapping chunks, embed each via Ollama, L2-normalise, store the chunk vectors, compute the max cosine.
 4. Results sort by `similarity` desc and apply the threshold filter.
+
+**Whole-document coverage (#332).** Long documents are split into overlapping ~8 KiB chunks (up to 64 per file, ≈512 KiB of covered text) and each chunk is embedded separately. A file's `similarity` is the **maximum** cosine across its chunks, so a relevant passage buried deep in a book-length document still ranks — earlier versions embedded only the opening and missed deep matches. Caches written before #332 hold a single opening-only `Vector`; they're treated as a miss and re-embedded into chunk vectors on the next semantic walk under the same model.
 
 The vector cache is the headline perf win: repeat queries against an unchanged tree avoid ~50-200ms per file of Ollama-call latency. `index_stats` surfaces `embed_hits` / `embed_misses` so you can audit the hit rate.
 
@@ -166,6 +168,5 @@ Note: image files only have semantic-search-friendly content when they carry tex
 - **Bundled embedding model** — too heavy (600 MB+). Ollama lets the user pick.
 - **HNSW / FAISS indexes** — brute-force pairwise cosine is fast enough for tens of thousands of files. File a follow-up if you hit a scale where it isn't.
 - **Cross-encoder reranking** — bi-encoder (single-embedding) is enough for v1.
-- **Per-chunk embeddings for long documents** — v1 embeds the first ~1 MiB of body (the same cap as the body cache). Long-doc retrieval with chunked vectors is a follow-up.
 - **OpenAI / llama.cpp / other embedding sources** — same wire shape; future plugin point. v1 is Ollama-only.
 - **Query expansion / synonym handling** — embeddings already handle paraphrase implicitly.
