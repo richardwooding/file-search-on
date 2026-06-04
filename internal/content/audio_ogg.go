@@ -7,69 +7,123 @@ import (
 	"io"
 )
 
-// readOGGInfo parses the Vorbis identification header in the first audio
-// page (gives sample_rate + channels) and reads the granule_position from
-// the last OggS page (gives total samples → duration).
-//
-// The ID header layout inside the page payload:
-//
-//	"\x01vorbis"           (7 bytes)
-//	uint32 vorbis_version  (LE, offset +7)
-//	uint8  channels                (offset +11)
-//	uint32 sample_rate     (LE, offset +12)
-//	int32  bitrate_max     (LE, offset +16)
-//	int32  bitrate_nominal (LE, offset +20)
-//	int32  bitrate_min     (LE, offset +24)
-//	uint8  blocksizes              (offset +28)
-//	uint8  framing                 (offset +29)
+// readOGGInfo recovers sample_rate / channels / duration from an OGG
+// container, dispatching on the codec carried in the first page: Vorbis
+// (the classic .ogg/.oga), Opus (.opus and modern .ogg), and FLAC-in-OGG.
+// Previously only Vorbis was handled, so Opus / FLAC-in-OGG files
+// detected as audio/ogg but surfaced no playback metadata (issue #325).
 func readOGGInfo(r io.ReadSeeker, fileSize int64) (audioInfo, error) {
 	// Read the start of the file — enough to span the first page header
-	// and the Vorbis ID header (typically <100 bytes).
+	// and the codec identification header (typically <100 bytes).
 	head := make([]byte, 4096)
 	n, _ := io.ReadFull(r, head)
 	head = head[:n]
 
-	idx := bytes.Index(head, []byte("\x01vorbis"))
-	if idx < 0 || idx+30 > len(head) {
-		return audioInfo{}, errors.New("no Vorbis identification header found")
+	switch {
+	case bytes.Contains(head, []byte("\x01vorbis")):
+		return readOGGVorbis(r, head, fileSize)
+	case bytes.Contains(head, []byte("OpusHead")):
+		return readOGGOpus(r, head, fileSize)
+	case bytes.Contains(head, []byte("\x7fFLAC")):
+		return readOGGFLAC(r, head, fileSize)
 	}
+	return audioInfo{}, errors.New("no recognised OGG codec (Vorbis/Opus/FLAC) header")
+}
 
-	channels := int64(head[idx+11])
-	sampleRate := int64(binary.LittleEndian.Uint32(head[idx+12 : idx+16]))
-	bitrateNominal := int32(binary.LittleEndian.Uint32(head[idx+20 : idx+24]))
-
-	info := audioInfo{
-		SampleRate: sampleRate,
-		Channels:   channels,
-	}
-	// bitrate_nominal is stored in bps; convert to kbps for consistency
-	// with the existing computed `bitrate`. Negative or zero means
-	// "not specified" — leave NominalBitrate unset in that case.
-	if bitrateNominal > 0 {
-		info.NominalBitrate = int64(bitrateNominal) / 1000
-	}
-	if sampleRate <= 0 {
-		return info, nil
-	}
-
-	// Find the last OggS page by reading the trailing 64 KiB and scanning
-	// backwards for the magic. Granule position is at byte offset 6 in the
-	// 27-byte page header (8 bytes, little-endian, signed int64).
+// oggLastGranule scans the trailing 64 KiB backwards for the last OggS
+// page header and returns its granule_position (8 bytes LE at offset 6
+// of the 27-byte page header). The granule unit is codec-defined:
+// samples-at-sample-rate for Vorbis/FLAC, 48 kHz samples for Opus.
+func oggLastGranule(r io.ReadSeeker, fileSize int64) (int64, bool) {
 	tailSize := min(fileSize, int64(64*1024))
+	if tailSize < 27 {
+		return 0, false
+	}
 	tail := make([]byte, tailSize)
 	if _, err := r.Seek(fileSize-tailSize, io.SeekStart); err != nil {
-		return info, nil
+		return 0, false
 	}
 	if _, err := io.ReadFull(r, tail); err != nil {
-		return info, nil
+		return 0, false
 	}
 	for off := len(tail) - 27; off >= 0; off-- {
 		if tail[off] == 'O' && tail[off+1] == 'g' && tail[off+2] == 'g' && tail[off+3] == 'S' {
-			gran := int64(binary.LittleEndian.Uint64(tail[off+6 : off+14]))
-			if gran > 0 {
-				info.Duration = float64(gran) / float64(sampleRate)
-			}
-			break
+			return int64(binary.LittleEndian.Uint64(tail[off+6 : off+14])), true
+		}
+	}
+	return 0, false
+}
+
+// readOGGVorbis parses the Vorbis identification header (channels at +11,
+// sample_rate LE at +12, bitrate_nominal LE at +20) + the last granule.
+func readOGGVorbis(r io.ReadSeeker, head []byte, fileSize int64) (audioInfo, error) {
+	idx := bytes.Index(head, []byte("\x01vorbis"))
+	if idx < 0 || idx+30 > len(head) {
+		return audioInfo{}, errors.New("truncated Vorbis identification header")
+	}
+	info := audioInfo{
+		Channels:   int64(head[idx+11]),
+		SampleRate: int64(binary.LittleEndian.Uint32(head[idx+12 : idx+16])),
+	}
+	// bitrate_nominal (bps) → kbps; <= 0 means "not specified".
+	if bn := int32(binary.LittleEndian.Uint32(head[idx+20 : idx+24])); bn > 0 {
+		info.NominalBitrate = int64(bn) / 1000
+	}
+	if info.SampleRate > 0 {
+		if g, ok := oggLastGranule(r, fileSize); ok && g > 0 {
+			info.Duration = float64(g) / float64(info.SampleRate)
+		}
+	}
+	return info, nil
+}
+
+// readOGGOpus parses the OpusHead identification header. Opus always
+// decodes at 48 kHz and its granule positions are in 48 kHz samples, so
+// duration = (last_granule - pre_skip) / 48000. channels at +9, pre_skip
+// (LE u16) at +10.
+func readOGGOpus(r io.ReadSeeker, head []byte, fileSize int64) (audioInfo, error) {
+	idx := bytes.Index(head, []byte("OpusHead"))
+	if idx < 0 || idx+12 > len(head) {
+		return audioInfo{}, errors.New("truncated OpusHead header")
+	}
+	const opusRate = 48000
+	preSkip := int64(binary.LittleEndian.Uint16(head[idx+10 : idx+12]))
+	info := audioInfo{
+		Channels:   int64(head[idx+9]),
+		SampleRate: opusRate,
+	}
+	if g, ok := oggLastGranule(r, fileSize); ok {
+		if samples := g - preSkip; samples > 0 {
+			info.Duration = float64(samples) / float64(opusRate)
+		}
+	}
+	return info, nil
+}
+
+// readOGGFLAC handles FLAC-in-OGG: the first page payload is the
+// FLAC-in-Ogg mapping header (0x7F "FLAC" version + packet count) followed
+// by the native "fLaC" signature + STREAMINFO. Slicing to the native
+// signature lets readFLACInfo recover sample_rate / channels / bit_depth /
+// duration (STREAMINFO carries total_samples, so no granule scan needed).
+func readOGGFLAC(r io.ReadSeeker, head []byte, fileSize int64) (audioInfo, error) {
+	idx := bytes.Index(head, []byte("\x7fFLAC"))
+	if idx < 0 {
+		return audioInfo{}, errors.New("no FLAC-in-OGG mapping header")
+	}
+	native := bytes.Index(head[idx:], []byte("fLaC"))
+	if native < 0 {
+		return audioInfo{}, errors.New("no native fLaC block in OGG-FLAC")
+	}
+	info, err := readFLACInfo(bytes.NewReader(head[idx+native:]))
+	if err != nil {
+		return info, err
+	}
+	// Streamed FLAC-in-OGG often leaves STREAMINFO total_samples = 0
+	// (unknown length); fall back to the OGG granule, which counts
+	// samples at the FLAC sample rate.
+	if info.Duration == 0 && info.SampleRate > 0 {
+		if g, ok := oggLastGranule(r, fileSize); ok && g > 0 {
+			info.Duration = float64(g) / float64(info.SampleRate)
 		}
 	}
 	return info, nil

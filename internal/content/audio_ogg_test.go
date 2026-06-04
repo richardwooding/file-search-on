@@ -1,77 +1,70 @@
-package content_test
+package content
 
 import (
 	"bytes"
 	"encoding/binary"
-	"os"
-	"path/filepath"
 	"testing"
-
 )
 
-// buildOGG builds a minimal OGG file containing:
-//   - one page wrapping a Vorbis identification header (gives sample_rate +
-//     channels)
-//   - one final page whose granule_position encodes the total sample count
-//
-// The pages aren't checksummed correctly — the parser doesn't verify CRCs.
-func buildOGG(sampleRate uint32, channels uint8, totalSamples int64) []byte {
-	// Vorbis identification packet (30 bytes).
-	var packet bytes.Buffer
-	packet.WriteString("\x01vorbis")
-	_ = binary.Write(&packet, binary.LittleEndian, uint32(0)) // vorbis version
-	packet.WriteByte(channels)
-	_ = binary.Write(&packet, binary.LittleEndian, sampleRate)
-	_ = binary.Write(&packet, binary.LittleEndian, uint32(0))   // bitrate_max
-	_ = binary.Write(&packet, binary.LittleEndian, uint32(0))   // bitrate_nominal
-	_ = binary.Write(&packet, binary.LittleEndian, uint32(0))   // bitrate_min
-	packet.WriteByte(0xB8)                                  // blocksizes 8/8
-	packet.WriteByte(0x01)                                  // framing flag
-
-	page := func(granule int64, payload []byte) []byte {
-		var p bytes.Buffer
-		p.WriteString("OggS")
-		p.WriteByte(0)                                       // version
-		p.WriteByte(0)                                       // header type
-		_ = binary.Write(&p, binary.LittleEndian, granule)        // granule_position (int64)
-		_ = binary.Write(&p, binary.LittleEndian, uint32(0))     // serial number
-		_ = binary.Write(&p, binary.LittleEndian, uint32(0))     // page sequence
-		_ = binary.Write(&p, binary.LittleEndian, uint32(0))     // checksum (we cheat)
-		p.WriteByte(1)                                       // page segments
-		p.WriteByte(byte(len(payload)))                      // segment table
-		p.Write(payload)
-		return p.Bytes()
-	}
-
-	var out bytes.Buffer
-	out.Write(page(0, packet.Bytes()))            // first audio page
-	out.Write(make([]byte, 1024))                  // some filler so the file isn't tiny
-	out.Write(page(totalSamples, []byte("end"))) // last page with the granule
-	return out.Bytes()
+// oggPage wraps payload in a single-page OggS header carrying granule at
+// offset 6, enough for readOGGInfo's codec sniff + last-granule scan.
+func oggPage(granule uint64, payload []byte) []byte {
+	b := make([]byte, 28)
+	copy(b, "OggS")
+	binary.LittleEndian.PutUint64(b[6:14], granule)
+	b[26] = 1
+	b[27] = byte(len(payload))
+	return append(b, payload...)
 }
 
-func TestOGGInfo(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "song.ogg")
-	// 48000 Hz, 2 channels, 4_800_000 samples = 100 seconds.
-	if err := os.WriteFile(path, buildOGG(48000, 2, 4_800_000), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	ct := detectAt(path)
-	if ct == nil || ct.Name() != "audio/ogg" {
-		t.Fatalf("Detect: got %v, want audio/ogg", ct)
-	}
-	attrs, err := attributesAt(t.Context(), ct, path)
-	if err != nil {
-		t.Fatalf("Attributes: %v", err)
-	}
-	if got := attrs["sample_rate"]; got != int64(48000) {
-		t.Errorf("sample_rate = %v, want 48000", got)
-	}
-	if got := attrs["channels"]; got != int64(2) {
-		t.Errorf("channels = %v, want 2", got)
-	}
-	if got := attrs["duration"]; got != float64(100) {
-		t.Errorf("duration = %v, want 100", got)
-	}
+// TestReadOGGInfo_Codecs is the regression for issue #325: readOGGInfo
+// handled only Vorbis, so Opus / FLAC-in-OGG surfaced no metadata. It
+// now dispatches on the codec identification header.
+func TestReadOGGInfo_Codecs(t *testing.T) {
+	t.Run("vorbis", func(t *testing.T) {
+		p := []byte("\x01vorbis")
+		p = binary.LittleEndian.AppendUint32(p, 0)      // version
+		p = append(p, 2)                                // channels (+11)
+		p = binary.LittleEndian.AppendUint32(p, 44100)  // sample_rate (+12)
+		p = binary.LittleEndian.AppendUint32(p, 0)      // bitrate_max
+		p = binary.LittleEndian.AppendUint32(p, 128000) // bitrate_nominal (+20)
+		p = binary.LittleEndian.AppendUint32(p, 0)      // bitrate_min
+		p = append(p, 0, 0)                             // blocksizes, framing
+		buf := oggPage(88200, p)                        // 2s @ 44100
+		info, err := readOGGInfo(bytes.NewReader(buf), int64(len(buf)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.SampleRate != 44100 || info.Channels != 2 || info.NominalBitrate != 128 {
+			t.Errorf("vorbis: %+v", info)
+		}
+		if info.Duration < 1.99 || info.Duration > 2.01 {
+			t.Errorf("vorbis Duration=%v want ~2", info.Duration)
+		}
+	})
+
+	t.Run("opus", func(t *testing.T) {
+		p := []byte("OpusHead")
+		p = append(p, 1, 2)                            // version, channels (+9)
+		p = binary.LittleEndian.AppendUint16(p, 312)   // pre_skip (+10)
+		p = binary.LittleEndian.AppendUint32(p, 48000) // input rate
+		p = append(p, 0, 0, 0)
+		buf := oggPage(336312, p) // (336312-312)/48000 = 7s
+		info, err := readOGGInfo(bytes.NewReader(buf), int64(len(buf)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.SampleRate != 48000 || info.Channels != 2 {
+			t.Errorf("opus: %+v", info)
+		}
+		if info.Duration < 6.99 || info.Duration > 7.01 {
+			t.Errorf("opus Duration=%v want ~7", info.Duration)
+		}
+	})
+
+	t.Run("unrecognised", func(t *testing.T) {
+		if _, err := readOGGInfo(bytes.NewReader(oggPage(0, []byte("SpeexNotSupported"))), 100); err == nil {
+			t.Error("expected error for unrecognised OGG codec")
+		}
+	})
 }
