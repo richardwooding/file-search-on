@@ -3,10 +3,42 @@ package content
 import (
 	"context"
 	"debug/macho"
+	"encoding/binary"
 	"io"
 	"io/fs"
 	"maps"
 )
+
+// machoFatCPUTypes is the set of Mach-O CPU types seen as the first
+// fat_arch.cputype in a universal binary. Used to disambiguate a
+// fat-Mach-O header from a Java .class file — both start with the
+// big-endian magic 0xCAFEBABE (issue #324).
+var machoFatCPUTypes = map[uint32]bool{
+	0x00000007: true, // x86
+	0x01000007: true, // x86_64
+	0x0000000C: true, // arm
+	0x0100000C: true, // arm64
+	0x0200000C: true, // arm64_32
+	0x00000012: true, // ppc
+	0x01000012: true, // ppc64
+}
+
+// isMachoFatHeader reports whether head begins a fat/universal Mach-O
+// binary. Fat Mach-O and Java .class both start with 0xCAFEBABE; they
+// differ in what follows — a fat header has a small nfat_arch count and
+// a recognised CPU type in the first fat_arch entry, whereas a class
+// file carries its minor/major version + constant pool there. Without
+// this check every universal binary (the macOS norm) misdetects as
+// bytecode/jvm. Issue #324.
+func isMachoFatHeader(head []byte) bool {
+	if len(head) < 12 || binary.BigEndian.Uint32(head[0:4]) != 0xCAFEBABE {
+		return false
+	}
+	if n := binary.BigEndian.Uint32(head[4:8]); n == 0 || n > 64 {
+		return false
+	}
+	return machoFatCPUTypes[binary.BigEndian.Uint32(head[8:12])]
+}
 
 // readMachoInfo parses a Mach-O binary's headers and returns the unified
 // binary attribute surface. Tries fat first via NewFatFile (handles the
