@@ -570,7 +570,7 @@ Example:
 
 Cumulative attribute-cache counters for the running MCP server. Counters reset on restart.
 
-Output: `hits`, `misses`, `puts`, `stales`, `errors`, plus `body_*` and `embed_*` analogues (body cache, embedding cache).
+Output: `hits`, `misses`, `puts`, `stales`, `errors`, plus `body_*` and `embed_*` analogues (body cache, embedding cache). When the server was launched with `--watch-index` (the background cache maintainer; auto-on under `--warm`), also reports `watch_refreshed` (cached files re-parsed after an edit), `watch_evicted` (entries dropped for deleted files), and `watch_errors`. Zero on a server without the watcher.
 
 Useful for diagnosing cache effectiveness when a search feels slower than expected.
 

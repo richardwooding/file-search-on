@@ -29,7 +29,8 @@ const watchDebounce = 300 * time.Millisecond
 // The per-file evaluation mirrors the Walk path exactly — same
 // BuildAttributesWith + Evaluate, so OCR / hashes / phash / body /
 // xattrs / index caching all compose identically. Only create + write
-// events are considered (deletes are out of scope per issue #211).
+// events are considered (deletes have no match to emit, so they're
+// skipped here — see WatchIndex for the delete-aware consumer).
 //
 // fsnotify is not recursive: every existing directory under each root
 // is registered up front, and any directory created during the watch
@@ -52,31 +53,7 @@ func Watch(ctx context.Context, opts Options, registry *content.Registry, onMatc
 		return fmt.Errorf("compiling CEL expression: %w", err)
 	}
 
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		return fmt.Errorf("creating watcher: %w", err)
-	}
-	defer func() { _ = watcher.Close() }()
-
-	for _, root := range opts.Roots {
-		if err := addDirsRecursive(watcher, root, opts.Excludes, opts.RespectGitignore); err != nil {
-			return err
-		}
-	}
-
 	buildOpts := opts.watchBuildOptions()
-
-	// Per-path debounce timers. Stopped on exit so a pending timer
-	// can't call onMatch after Watch returns.
-	var mu sync.Mutex
-	timers := make(map[string]*time.Timer)
-	defer func() {
-		mu.Lock()
-		for _, t := range timers {
-			t.Stop()
-		}
-		mu.Unlock()
-	}()
 
 	evalPath := func(path string) {
 		if ctx.Err() != nil {
@@ -103,6 +80,103 @@ func Watch(ctx context.Context, opts Options, registry *content.Registry, onMatc
 		onMatch(r)
 	}
 
+	return watchLoop(ctx, opts.Roots, opts.Excludes, opts.RespectGitignore, func(path string, op fsnotify.Op) {
+		// The match tool only surfaces new/changed files; a removed or
+		// renamed-away path has no match to emit.
+		if op.Has(fsnotify.Remove) || op.Has(fsnotify.Rename) {
+			return
+		}
+		evalPath(path)
+	})
+}
+
+// watchLoop is the shared fsnotify event engine behind Watch and
+// WatchIndex. It registers every existing directory under each root
+// (honouring globs + .gitignore), auto-registers directories created
+// during the watch, and invokes onEvent once per debounced file event.
+// It blocks until ctx is cancelled, then stops cleanly — all pending
+// debounce timers are stopped so onEvent can't fire after watchLoop
+// returns.
+//
+// onEvent receives the file path and the latest fsnotify.Op observed
+// for it within the debounce window. Create/Write/Remove/Rename are all
+// forwarded; directory creation is handled internally (recursive
+// registration) and never forwarded. Consumers inspect op to decide
+// what to do (Watch ignores Remove/Rename; WatchIndex evicts on them).
+//
+// Op coalescing is latest-wins: a quick create-then-remove resolves to
+// Remove (don't act on a vanished file), and a write following a remove
+// (a rename destination reusing a name) re-arms with the newer op.
+func watchLoop(ctx context.Context, roots, globs []string, respectGitignore bool, onEvent func(path string, op fsnotify.Op)) error {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("creating watcher: %w", err)
+	}
+	defer func() { _ = watcher.Close() }()
+
+	for _, root := range roots {
+		if err := addDirsRecursive(watcher, root, globs, respectGitignore); err != nil {
+			return err
+		}
+	}
+
+	// Per-path debounce state. Each entry holds the latest op and its
+	// timer. A WaitGroup tracks scheduled-but-not-yet-finished timer
+	// callbacks so the exit defer can DRAIN any in-flight onEvent before
+	// watchLoop returns — otherwise a timer that fired just before
+	// cancellation could run onEvent (touching a since-closed index)
+	// after the caller believes the watcher has stopped.
+	type pending struct {
+		timer *time.Timer
+		op    fsnotify.Op
+	}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	timers := make(map[string]*pending)
+	defer func() {
+		mu.Lock()
+		for _, p := range timers {
+			if p.timer.Stop() {
+				// Stopped before firing: its callback won't run, so
+				// balance the Add we made when scheduling it.
+				wg.Done()
+			}
+			// Stop()==false means the callback already ran or is running
+			// (blocked on mu) — it will call wg.Done itself.
+		}
+		mu.Unlock()
+		wg.Wait() // block until in-flight onEvent callbacks finish
+	}()
+
+	schedule := func(name string, op fsnotify.Op) {
+		mu.Lock()
+		defer mu.Unlock()
+		if old, ok := timers[name]; ok {
+			if old.timer.Stop() { // latest op wins; supersede prior timer
+				wg.Done()
+			}
+		}
+		wg.Add(1)
+		p := &pending{op: op}
+		p.timer = time.AfterFunc(watchDebounce, func() {
+			defer wg.Done()
+			mu.Lock()
+			cur, ok := timers[name]
+			// Only the most-recently-scheduled timer acts. A timer that
+			// already fired but was superseded finds cur != p and bails,
+			// so onEvent fires exactly once per debounce window.
+			act := ok && cur == p
+			if act {
+				delete(timers, name)
+			}
+			mu.Unlock()
+			if act {
+				onEvent(name, p.op)
+			}
+		})
+		timers[name] = p
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -112,26 +186,16 @@ func Watch(ctx context.Context, opts Options, registry *content.Registry, onMatc
 				return nil
 			}
 			// A newly-created directory must be watched too (fsnotify
-			// isn't recursive). Register it and skip evaluation.
+			// isn't recursive). Register it and don't forward the event.
 			if event.Has(fsnotify.Create) {
 				if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
-					_ = addDirsRecursive(watcher, event.Name, opts.Excludes, opts.RespectGitignore)
+					_ = addDirsRecursive(watcher, event.Name, globs, respectGitignore)
 					continue
 				}
 			}
-			if event.Has(fsnotify.Create) || event.Has(fsnotify.Write) {
-				name := event.Name
-				mu.Lock()
-				if t, ok := timers[name]; ok {
-					t.Stop()
-				}
-				timers[name] = time.AfterFunc(watchDebounce, func() {
-					mu.Lock()
-					delete(timers, name)
-					mu.Unlock()
-					evalPath(name)
-				})
-				mu.Unlock()
+			if event.Has(fsnotify.Create) || event.Has(fsnotify.Write) ||
+				event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename) {
+				schedule(event.Name, event.Op)
 			}
 		case _, ok := <-watcher.Errors:
 			if !ok {

@@ -110,6 +110,21 @@ Hit/miss counters are exposed via the `index_stats` MCP tool (no input, returns 
 { "name": "index_stats", "arguments": {} }
 ```
 
+### Keeping the cache warm under churn — `--watch-index`
+
+`--warm` (or `--warm-dir <root>`) pre-populates the cache at startup so the first tool call lands on a hot index. But once warm, edits silently make those entries stale — the next query pays a cold re-parse. `--watch-index` closes that gap with a background fsnotify watcher on the warm root:
+
+```sh
+file-search-on mcp --warm                             # warm cwd + keep it warm (watcher auto-on)
+file-search-on mcp --warm-dir ~/Code/proj --watch-index
+file-search-on mcp --watch-index-dir ~/Code/proj      # watch without a startup warm pass
+file-search-on mcp --warm --no-watch-index            # warm once, don't keep watching
+```
+
+On a create/write to an **already-cached** file it re-parses in the background (next query is warm, not cold); on a delete/rename it evicts the entry — the GC that lazy `(size, mtime)` validation never performs, so dead paths don't pile up in the bbolt file. It honours `.gitignore` and prunes build-artefact dirs so a churny `node_modules`/`target` can't thrash the cache. This is a **latency + hygiene** optimisation: results are already correct without it (stale entries re-parse on lookup), so leave it off for one-shot runs and turn it on for long-lived MCP sessions over an active project.
+
+It's deliberately off by default outside `--warm`: the watcher registers one OS watch per directory, so pointing it at a giant tree like `$HOME` can exhaust the kernel watch limit. The `index_stats` tool reports its work as `watch_refreshed` / `watch_evicted` / `watch_errors`.
+
 ## When NOT to use it
 
 - **One-shot scripts** in a hermetic CI where any disk side effect is unwanted — pass `--no-index`.

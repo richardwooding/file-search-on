@@ -34,6 +34,14 @@ type IndexStatsOutput struct {
 	EmbedPuts            uint64 `json:"embed_puts"`
 	EmbedErrors          uint64 `json:"embed_errors"`
 	EmbedModelMismatches uint64 `json:"embed_model_mismatches"`
+
+	// Watch* report the background index maintainer (mcp --watch-index).
+	// WatchRefreshed: cached files re-parsed after an edit so the next
+	// query is warm. WatchEvicted: entries dropped for deleted files
+	// (the GC lazy validation never does). Zero when no watcher is wired.
+	WatchRefreshed uint64 `json:"watch_refreshed"`
+	WatchEvicted   uint64 `json:"watch_evicted"`
+	WatchErrors    uint64 `json:"watch_errors"`
 }
 
 func (h *handlers) indexStatsHandler(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, IndexStatsOutput, error) {
@@ -41,6 +49,7 @@ func (h *handlers) indexStatsHandler(_ context.Context, _ *mcp.CallToolRequest, 
 		return nil, IndexStatsOutput{CommonOutput: CommonOutput{ServerVersion: h.version}}, nil
 	}
 	st := h.idx.Stats()
+	ws := h.indexWatch.Snapshot() // nil-safe: zeros when no watcher wired
 	return nil, IndexStatsOutput{
 		CommonOutput:  CommonOutput{ServerVersion: h.version},
 		Hits:          st.Hits,
@@ -60,5 +69,8 @@ func (h *handlers) indexStatsHandler(_ context.Context, _ *mcp.CallToolRequest, 
 		EmbedPuts:            st.EmbedPuts,
 		EmbedErrors:          st.EmbedErrors,
 		EmbedModelMismatches: st.EmbedModelMismatches,
+		WatchRefreshed:       ws.Refreshed,
+		WatchEvicted:         ws.Evicted,
+		WatchErrors:          ws.Errors,
 	}, nil
 }

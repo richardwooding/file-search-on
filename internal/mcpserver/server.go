@@ -16,6 +16,7 @@ import (
 	"github.com/richardwooding/file-search-on/internal/gitmeta"
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/monitor"
+	"github.com/richardwooding/file-search-on/internal/search"
 )
 
 // handlers wraps tool handlers so they can share an index reference
@@ -47,6 +48,11 @@ type handlers struct {
 	// between calls invalidate naturally. Primed at startup by the
 	// MCP command's --warm goroutine. Issue #271 follow-up.
 	gitPool *gitmeta.Pool
+	// indexWatch, when non-nil, holds the counters for the background
+	// index maintainer (the mcp --watch-index goroutine). Surfaced by
+	// the index_stats tool. nil when no watcher is wired (tests, or a
+	// server started without --watch-index) → reported as zeros.
+	indexWatch *search.IndexWatchStats
 }
 
 // Option configures the MCP server at construction. Used to attach
@@ -77,6 +83,18 @@ func WithGitPool(p *gitmeta.Pool) Option {
 	return func(h *handlers) {
 		if p != nil {
 			h.gitPool = p
+		}
+	}
+}
+
+// WithIndexWatchStats attaches the background index maintainer's
+// counters so the index_stats tool can report watch_refreshed /
+// watch_evicted / watch_errors. Passing nil is a no-op; the tool then
+// reports zeros for those fields.
+func WithIndexWatchStats(s *search.IndexWatchStats) Option {
+	return func(h *handlers) {
+		if s != nil {
+			h.indexWatch = s
 		}
 	}
 }
