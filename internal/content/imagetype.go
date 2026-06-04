@@ -1,7 +1,6 @@
 package content
 
 import (
-	"bytes"
 	"context"
 	"image"
 	_ "image/gif"
@@ -46,14 +45,9 @@ func (i *imageType) MagicBytes() [][]byte { return i.magic }
 // fall back to the standard prefix match.
 func (i *imageType) MatchMagic(head []byte) bool {
 	if i.name == "image/webp" {
-		return len(head) >= 12 && string(head[0:4]) == "RIFF" && string(head[8:12]) == "WEBP"
+		return matchOffsetSigs(head, offsetSig{0, []byte("RIFF")}, offsetSig{8, []byte("WEBP")})
 	}
-	for _, m := range i.magic {
-		if bytes.HasPrefix(head, m) {
-			return true
-		}
-	}
-	return false
+	return matchAnyPrefix(head, i.magic)
 }
 
 func (i *imageType) Attributes(ctx context.Context, fsys fs.FS, path string) (Attributes, error) {

@@ -1,7 +1,6 @@
 package content
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io/fs"
@@ -47,14 +46,11 @@ func (b *bytecodeType) MagicBytes() [][]byte { return b.magic }
 // bytecode types fall back to the standard prefix match.
 func (b *bytecodeType) MatchMagic(head []byte) bool {
 	if b.name == "bytecode/jvm" {
-		return bytes.HasPrefix(head, []byte{0xCA, 0xFE, 0xBA, 0xBE}) && !isMachoFatHeader(head)
+		// Shares 0xCAFEBABE with fat Mach-O; claim it only when the
+		// bytes that follow are NOT a fat-Mach-O header (#324).
+		return matchAnyPrefix(head, b.magic) && !isMachoFatHeader(head)
 	}
-	for _, m := range b.magic {
-		if bytes.HasPrefix(head, m) {
-			return true
-		}
-	}
-	return false
+	return matchAnyPrefix(head, b.magic)
 }
 
 // Attributes dispatches to a per-format VM-bytecode parser. Each

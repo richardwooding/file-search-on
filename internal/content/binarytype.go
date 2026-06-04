@@ -1,7 +1,6 @@
 package content
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io/fs"
@@ -46,15 +45,13 @@ func (b *binaryType) MagicBytes() [][]byte { return b.magic }
 // isn't expressible as a fixed byte prefix (issue #324). Other binary
 // types (ELF, PE) fall back to the standard prefix match.
 func (b *binaryType) MatchMagic(head []byte) bool {
+	// Fat Mach-O (0xCAFEBABE + nfat_arch + a known CPU type) is a
+	// STRUCTURAL check, not a fixed-offset byte pattern, so it can't use
+	// matchOffsetSigs — see isMachoFatHeader.
 	if b.name == "binary/mach-o" && isMachoFatHeader(head) {
 		return true
 	}
-	for _, m := range b.magic {
-		if bytes.HasPrefix(head, m) {
-			return true
-		}
-	}
-	return false
+	return matchAnyPrefix(head, b.magic)
 }
 
 // Attributes dispatches to a per-format binary parser. All parsers

@@ -1,7 +1,6 @@
 package content
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -32,14 +31,9 @@ func (v *videoType) MagicBytes() [][]byte { return v.magic }
 // back to the standard prefix match.
 func (v *videoType) MatchMagic(head []byte) bool {
 	if v.name == "video/x-msvideo" {
-		return len(head) >= 12 && string(head[0:4]) == "RIFF" && string(head[8:12]) == "AVI "
+		return matchOffsetSigs(head, offsetSig{0, []byte("RIFF")}, offsetSig{8, []byte("AVI ")})
 	}
-	for _, m := range v.magic {
-		if bytes.HasPrefix(head, m) {
-			return true
-		}
-	}
-	return false
+	return matchAnyPrefix(head, v.magic)
 }
 
 // Attributes dispatches to a per-format binary parser. Each parser is
