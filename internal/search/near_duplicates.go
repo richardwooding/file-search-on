@@ -150,7 +150,7 @@ func FindNearDuplicates(ctx context.Context, opts Options, registry *content.Reg
 	}
 
 	if len(candidates) >= 2 {
-		out.Groups = groupNearDuplicates(candidates, threshold)
+		out.Groups = groupNearDuplicates(ctx, candidates, threshold)
 		out.GroupCount = int64(len(out.Groups))
 		applyNearDupCaps(&out.Groups, opts.NearDupMembersLimit, opts.NearDupGroupLimit)
 	}
@@ -231,8 +231,13 @@ func fingerprintFromCacheOrCompute(path string, size int64, modTime time.Time, b
 //
 // O(N²) — fine for thousands of candidates. For larger trees an
 // LSH banding step would prune the pairwise space; out of scope
-// for v1.
-func groupNearDuplicates(candidates []nearDupCandidate, threshold float64) []NearDuplicateGroup {
+// for v1. The O(N²) pass runs AFTER the (cancellable) walk, so it
+// checks ctx once per outer iteration and bails with no groups on
+// cancellation — otherwise a timed-out / Ctrl-C'd call would still
+// grind through tens of millions of comparisons on a large candidate
+// set before returning. The caller stamps cancelled=true via
+// classifyCancellation when ctx is done.
+func groupNearDuplicates(ctx context.Context, candidates []nearDupCandidate, threshold float64) []NearDuplicateGroup {
 	parent := make([]int, len(candidates))
 	for i := range parent {
 		parent[i] = i
@@ -254,6 +259,9 @@ func groupNearDuplicates(candidates []nearDupCandidate, threshold float64) []Nea
 	// Pairwise compare. For each pair (i, j) with i < j, union when
 	// their fingerprints are within the threshold's Hamming distance.
 	for i := range candidates {
+		if ctx.Err() != nil {
+			return nil // cancelled mid-grouping — caller reports cancelled=true
+		}
 		fi := candidates[i].fingerprint
 		for j := i + 1; j < len(candidates); j++ {
 			fj := candidates[j].fingerprint
