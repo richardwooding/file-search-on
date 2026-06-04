@@ -412,3 +412,179 @@ func TestEmbedder_NoModel_Surfaces(t *testing.T) {
 		t.Errorf("Similarity=%f want 0 with no model", a.Similarity)
 	}
 }
+
+// mockEmbedServer returns an httptest Ollama mock that always answers
+// with the given vector, plus a counter of how many embed calls it
+// served. Shared by the cache-clobber regression tests below.
+func mockEmbedServer(t *testing.T, vec []float32, calls *int) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		*calls++
+		_ = json.NewEncoder(w).Encode(map[string]any{"embeddings": [][]float32{vec}})
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// TestBuildAttributesWith_Similarity_MissPathRetainsExtra is the
+// regression for the cache-entry clobber behind issue #306 and
+// Finding #5. On the cache-MISS path BuildAttributesWith used to Put
+// an attribute entry (with parsed Extra) and then populateSimilarity
+// Put a SEPARATE vector-only entry to the same key — last write wins,
+// so the cached entry lost its Extra. A second semantic walk then
+// served a vector-only cache hit with no title/word_count.
+//
+// Asserts that after one semantic walk the cached entry carries BOTH
+// the embedding Vector AND the parsed Extra, and that a second walk
+// reuses the vector (EmbedHits) while still surfacing word_count.
+func TestBuildAttributesWith_Similarity_MissPathRetainsExtra(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "f.md")
+	mustWrite(t, path, "# My Title\n\nalpha beta gamma delta epsilon\n")
+
+	abs, _ := filepath.Abs(path)
+	base := filepath.Base(abs)
+	parent := filepath.Dir(abs)
+
+	calls := 0
+	srv := mockEmbedServer(t, []float32{1, 0, 0}, &calls)
+	embedder := embed.NewOllama(srv.URL, "mock")
+	idx := index.NewMemory()
+	defer func() { _ = idx.Close() }()
+
+	opts := celexpr.BuildOptions{
+		Index:                  idx,
+		Embedder:               embedder,
+		SemanticQueryEmbedding: []float32{1, 0, 0},
+	}
+
+	// Walk 1: cache miss → parse attrs + embed + cache both.
+	if _, err := celexpr.BuildAttributesWith(ctx, os.DirFS(parent), base, abs, content.DefaultRegistry(), opts); err != nil {
+		t.Fatalf("walk 1: %v", err)
+	}
+
+	// The single cached entry must carry both the vector and the Extra.
+	e, ok := idx.PeekAttrs(abs)
+	if !ok {
+		t.Fatalf("no cached entry for %s after walk 1", abs)
+	}
+	if len(e.Vector) == 0 {
+		t.Errorf("cached entry missing Vector after walk 1; entry=%+v", e)
+	}
+	if e.Extra == nil || e.Extra["word_count"] == nil {
+		t.Errorf("cached entry lost Extra (clobber bug): Extra=%v", e.Extra)
+	}
+
+	// Walk 2: cache hit → reuse the vector (no Ollama call) AND still
+	// surface the parsed attributes.
+	a2, err := celexpr.BuildAttributesWith(ctx, os.DirFS(parent), base, abs, content.DefaultRegistry(), opts)
+	if err != nil {
+		t.Fatalf("walk 2: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("walk 2 made %d total Ollama calls; want 1 (vector should be cached)", calls)
+	}
+	if idx.Stats().EmbedHits < 1 {
+		t.Errorf("walk 2: EmbedHits=%d want >= 1; stats=%+v", idx.Stats().EmbedHits, idx.Stats())
+	}
+	if a2.Extra == nil || a2.Extra["word_count"] == nil {
+		t.Errorf("walk 2: cache hit dropped word_count (Finding #5): Extra=%v", a2.Extra)
+	}
+}
+
+// TestBuildAttributesWith_Similarity_MixedTrafficCacheHit mirrors the
+// MCP server flow that issue #306 was filed against: the shared index
+// has already served a non-semantic query (so attributes are cached)
+// before any semantic query runs. A subsequent repeated semantic query
+// must reuse the cached embedding rather than re-embedding the file.
+func TestBuildAttributesWith_Similarity_MixedTrafficCacheHit(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "f.md")
+	mustWrite(t, path, "# Doc\n\nsome searchable body text here\n")
+
+	abs, _ := filepath.Abs(path)
+	base := filepath.Base(abs)
+	parent := filepath.Dir(abs)
+
+	calls := 0
+	srv := mockEmbedServer(t, []float32{1, 0, 0}, &calls)
+	embedder := embed.NewOllama(srv.URL, "mock")
+	idx := index.NewMemory()
+	defer func() { _ = idx.Close() }()
+
+	// Non-semantic walk first (no Embedder) — like a plain `search`.
+	if _, err := celexpr.BuildAttributesWith(ctx, os.DirFS(parent), base, abs, content.DefaultRegistry(), celexpr.BuildOptions{Index: idx}); err != nil {
+		t.Fatalf("non-semantic walk: %v", err)
+	}
+
+	semOpts := celexpr.BuildOptions{
+		Index:                  idx,
+		Embedder:               embedder,
+		SemanticQueryEmbedding: []float32{1, 0, 0},
+	}
+	// First semantic walk embeds + caches the vector.
+	if _, err := celexpr.BuildAttributesWith(ctx, os.DirFS(parent), base, abs, content.DefaultRegistry(), semOpts); err != nil {
+		t.Fatalf("semantic walk 1: %v", err)
+	}
+	// Second semantic walk must hit the cache.
+	if _, err := celexpr.BuildAttributesWith(ctx, os.DirFS(parent), base, abs, content.DefaultRegistry(), semOpts); err != nil {
+		t.Fatalf("semantic walk 2: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("expected exactly 1 Ollama embed call across two semantic walks, got %d", calls)
+	}
+	if idx.Stats().EmbedHits < 1 {
+		t.Errorf("EmbedHits=%d want >= 1; stats=%+v", idx.Stats().EmbedHits, idx.Stats())
+	}
+}
+
+// TestBuildAttributesWith_Similarity_NonSemanticPreservesVector guards
+// the cross-tool race on the shared MCP index: once a file's embedding
+// is cached, a later non-semantic walk (plain search / stats) that
+// re-stat'd the file must NOT overwrite the cached entry with a
+// vector-less one. Re-running a non-semantic walk after a semantic
+// walk and then a third semantic walk must still hit the vector.
+func TestBuildAttributesWith_Similarity_NonSemanticPreservesVector(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "f.md")
+	mustWrite(t, path, "# Title\n\nbody text body text\n")
+
+	abs, _ := filepath.Abs(path)
+	base := filepath.Base(abs)
+	parent := filepath.Dir(abs)
+
+	calls := 0
+	srv := mockEmbedServer(t, []float32{1, 0, 0}, &calls)
+	embedder := embed.NewOllama(srv.URL, "mock")
+	idx := index.NewMemory()
+	defer func() { _ = idx.Close() }()
+
+	semOpts := celexpr.BuildOptions{
+		Index:                  idx,
+		Embedder:               embedder,
+		SemanticQueryEmbedding: []float32{1, 0, 0},
+	}
+
+	// Semantic walk caches the vector.
+	if _, err := celexpr.BuildAttributesWith(ctx, os.DirFS(parent), base, abs, content.DefaultRegistry(), semOpts); err != nil {
+		t.Fatalf("semantic walk 1: %v", err)
+	}
+	// Non-semantic walk over the same file (no Embedder).
+	if _, err := celexpr.BuildAttributesWith(ctx, os.DirFS(parent), base, abs, content.DefaultRegistry(), celexpr.BuildOptions{Index: idx}); err != nil {
+		t.Fatalf("non-semantic walk: %v", err)
+	}
+	// Vector must survive the non-semantic walk.
+	if e, ok := idx.PeekAttrs(abs); !ok || len(e.Vector) == 0 {
+		t.Fatalf("non-semantic walk wiped the cached vector; ok=%v entry=%+v", ok, e)
+	}
+	// Third walk: semantic again, must hit (no new Ollama call).
+	if _, err := celexpr.BuildAttributesWith(ctx, os.DirFS(parent), base, abs, content.DefaultRegistry(), semOpts); err != nil {
+		t.Fatalf("semantic walk 2: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("expected 1 Ollama call; vector should have survived the non-semantic walk, got %d", calls)
+	}
+}
