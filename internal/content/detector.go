@@ -39,6 +39,34 @@ type ContentDiscriminator interface {
 	MatchesContent(head []byte) bool
 }
 
+// MagicMatcher is an optional interface a ContentType can implement when
+// a simple byte-PREFIX (MagicBytes) can't disambiguate it from another
+// type — most notably the RIFF container family (WebP / AVI / WAV all
+// start with the literal "RIFF" but carry their real form-type at bytes
+// 8..11: "WEBP" / "AVI " / "WAVE"). When implemented, the magic-sniff
+// pass calls MatchMagic(head) instead of prefix-matching MagicBytes, so
+// an extensionless or mis-extensioned RIFF file resolves correctly
+// rather than to whichever RIFF type happens to be registered first
+// (issue #322).
+type MagicMatcher interface {
+	MatchMagic(head []byte) bool
+}
+
+// magicMatches reports whether ct claims head via the magic-byte pass —
+// MatchMagic when ct implements MagicMatcher, otherwise a prefix match
+// against any of ct.MagicBytes().
+func magicMatches(ct ContentType, head []byte) bool {
+	if mm, ok := ct.(MagicMatcher); ok {
+		return mm.MatchMagic(head)
+	}
+	for _, magic := range ct.MagicBytes() {
+		if bytes.HasPrefix(head, magic) {
+			return true
+		}
+	}
+	return false
+}
+
 // discriminatorReadCap bounds the head read for the content-discriminator
 // tier. Generous enough to contain the top-level keys of a realistic
 // chat export (guild / channel metadata precedes the messages array)
@@ -132,10 +160,8 @@ func (r *Registry) Detect(fsys fs.FS, p string) ContentType {
 	}
 	buf = buf[:n]
 	for _, ct := range types {
-		for _, magic := range ct.MagicBytes() {
-			if bytes.HasPrefix(buf, magic) {
-				return ct
-			}
+		if magicMatches(ct, buf) {
+			return ct
 		}
 	}
 	return nil
@@ -253,11 +279,9 @@ func (r *Registry) DetectBoth(fsys fs.FS, p string) (nameType, magicType Content
 	}
 	buf = buf[:n]
 	for _, ct := range types {
-		for _, magic := range ct.MagicBytes() {
-			if bytes.HasPrefix(buf, magic) {
-				magicType = ct
-				return nameType, magicType
-			}
+		if magicMatches(ct, buf) {
+			magicType = ct
+			return nameType, magicType
 		}
 	}
 	return nameType, nil

@@ -53,7 +53,7 @@ Prefer the command line? The same binary is a standalone CLI — `file-search-on
   | **Data** | JSON, YAML, TOML, CSV, TSV | json_kind, yaml_kind, yaml_document_count, column_count, csv_columns |
   | **Plain text** | TXT, log, … | line_count, word_count |
   | **Images** | JPEG, PNG, GIF, WebP, TIFF, BMP, SVG, HEIC, RAW (Canon CR2 / CR3, Nikon NEF, Sony ARW, Adobe DNG, Fujifilm RAF, Olympus ORF, Panasonic RW2) — predicates `is_raw_photo`, `is_cr2`, `is_cr3`, `is_nef`, `is_arw`, `is_dng`, `is_raf`, `is_orf`, `is_rw2`. HEIC + sibling MOV → Apple Live Photo pairing (`is_live_photo`, `is_live_photo_video`). | dimensions + EXIF: camera, lens, GPS, ISO, focal_length, taken_at; RAW adds `raw_kind`, `raw_vendor`; Live Photo adds `live_photo_video_path`, `live_photo_video_size`, `live_photo_image_path` |
-  | **Audio** | MP3, M4A, FLAC, OGG | tags (artist, album, genre, year, …) + duration, bitrate / nominal_bitrate, sample_rate, channels, bit_depth, ReplayGain |
+  | **Audio** | MP3, M4A, FLAC, OGG, WAV | tags (artist, album, genre, year, …) + duration, bitrate / nominal_bitrate, sample_rate, channels, bit_depth, ReplayGain |
   | **Video** | MP4, MOV, MKV, WebM, AVI | duration, bitrate / nominal_bitrate, video_codec, audio_codec, video_width/height, frame_rate, rotation, HDR / colour-space, subtitles |
   | **Office** | DOCX, XLSX, PPTX, ODT | title, author, language (Dublin Core) |
   | **Archives** | ZIP (incl. JAR / WAR / EAR), TAR, TAR.GZ, GZIP | entry_count, uncompressed_size, top_level_entries, has_root_dir |

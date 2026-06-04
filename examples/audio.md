@@ -1,8 +1,8 @@
 # Recipes — Audio
 
-Audio content types: `audio/mpeg` (MP3), `audio/mp4` (M4A/AAC), `audio/flac`, `audio/ogg`. Umbrella boolean `is_audio`.
+Audio content types: `audio/mpeg` (MP3), `audio/mp4` (M4A/AAC), `audio/flac`, `audio/ogg`, `audio/wav` (`.wav`/`.wave`). Umbrella boolean `is_audio`.
 
-Tags are extracted via [`dhowden/tag`](https://github.com/dhowden/tag) — handles ID3v1/v2 (MP3), MP4 atoms (M4A), and Vorbis comments (FLAC, OGG) under one API. Playback metadata (duration, bitrate, sample rate, channels) is hand-rolled per format.
+Tags are extracted via [`dhowden/tag`](https://github.com/dhowden/tag) — handles ID3v1/v2 (MP3), MP4 atoms (M4A), and Vorbis comments (FLAC, OGG) under one API. Playback metadata (duration, bitrate, sample rate, channels, bit depth) is hand-rolled per format; WAV reads its `fmt `/`data` chunks directly. WAV / WebP / AVI all share the `RIFF` magic, so detection checks the form-type at bytes 8..11 (`WAVE`/`WEBP`/`AVI `) to disambiguate.
 
 ## Tags
 

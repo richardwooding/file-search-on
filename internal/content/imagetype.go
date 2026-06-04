@@ -1,6 +1,7 @@
 package content
 
 import (
+	"bytes"
 	"context"
 	"image"
 	_ "image/gif"
@@ -37,6 +38,23 @@ type imageType struct {
 func (i *imageType) Name() string         { return i.name }
 func (i *imageType) Extensions() []string { return i.exts }
 func (i *imageType) MagicBytes() [][]byte { return i.magic }
+
+// MatchMagic disambiguates WebP from the other RIFF-container formats
+// (WAV audio, AVI video) that share the bare "RIFF" prefix: a real WebP
+// carries "WEBP" at bytes 8..11. Without this, any RIFF file (e.g. a
+// .wav) would magic-match image/webp (issue #322). Non-WebP image types
+// fall back to the standard prefix match.
+func (i *imageType) MatchMagic(head []byte) bool {
+	if i.name == "image/webp" {
+		return len(head) >= 12 && string(head[0:4]) == "RIFF" && string(head[8:12]) == "WEBP"
+	}
+	for _, m := range i.magic {
+		if bytes.HasPrefix(head, m) {
+			return true
+		}
+	}
+	return false
+}
 
 func (i *imageType) Attributes(ctx context.Context, fsys fs.FS, path string) (Attributes, error) {
 	if err := ctx.Err(); err != nil {
