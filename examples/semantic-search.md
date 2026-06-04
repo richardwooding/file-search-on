@@ -156,6 +156,34 @@ file-search-on 'is_image && similarity > 0' \
 
 Note: image files only have semantic-search-friendly content when they carry text metadata (EXIF caption, title, ImageDescription). Images without those fall back to similarity=0.
 
+## Hybrid keyword + semantic search (issue #335)
+
+Pure semantic search catches paraphrase but can rank a tangential document above an exact-term hit; pure keyword search is precise on exact terms but misses synonyms. **Hybrid search blends both.** The `bm25` CEL variable holds an Okapi BM25 keyword-relevance score (IDF computed over the matched candidate set), and it composes with `similarity` in a `--rank` expression.
+
+```sh
+# Keyword-only ranking (no embeddings needed) — Okapi BM25 over the bodies
+file-search-on 'is_pdf' --keyword-query "http caching proxies" -d ~/RFCs
+
+# Tune the blend yourself: 40% keyword, 60% semantic
+file-search-on 'is_pdf' \
+  --semantic-query "http caching and proxies" \
+  --keyword-query "http caching proxies" \
+  --embedding-model nomic-embed-text \
+  --rank 'bm25*0.4 + similarity*0.6' \
+  -d ~/RFCs
+
+# Let reciprocal-rank fusion pick the blend (no weights to choose)
+file-search-on 'is_pdf' \
+  --semantic-query "http caching and proxies" \
+  --hybrid \
+  --embedding-model nomic-embed-text \
+  -d ~/RFCs
+```
+
+`--keyword-query` alone populates `bm25` and sorts by it descending. `--hybrid` requires both a keyword and a semantic query (it defaults the keyword query to the `--semantic-query` text) and fuses the two rankings via reciprocal-rank fusion. The BM25 score is only comparable **within a single result set** — IDF is relative to the candidates that survived the CEL pre-filter.
+
+On the MCP server: the `search` tool takes `keyword_query` (BM25 + the `bm25` CEL var, for keyword-only or `rank`-composed ranking), and the `search_semantic` tool takes `keyword_query` + `hybrid` (reciprocal-rank fusion over the embedding ranking).
+
 ## Performance notes
 
 - **First call against a tree**: dominated by Ollama embedding latency. ~50-200ms per file depending on body length + model size. A 1000-file tree with `nomic-embed-text` typically completes in 1-3 minutes cold.

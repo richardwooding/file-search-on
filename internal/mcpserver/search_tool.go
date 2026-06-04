@@ -26,7 +26,8 @@ type SearchInput struct {
 	TimeoutSeconds   *float64 `json:"timeout_seconds,omitempty" jsonschema:"Override the server's default per-call timeout for this invocation (in seconds; fractions allowed). Omit to use the server default (set when the MCP server was started). Pass 0 to disable the timeout for this call. On expiry the walk is cancelled and the partial result set is returned with cancelled=true."`
 	SortBy           string   `json:"sort_by,omitempty" jsonschema:"Sort matches by attribute. Recognised keys: size, name, path, mod_time, word_count, line_count, page_count, duration, bitrate, sample_rate, video_height, video_width, frame_rate, iso, focal_length, taken_at, sent_at, year, entry_count, uncompressed_size, loc, attachment_count, email_count. Files missing the attribute group at the end. Sorting buffers the full result set (top-K is incoherent with streaming)."`
 	Order            string   `json:"order,omitempty" jsonschema:"Sort direction when sort_by is set: 'asc' (default) or 'desc'."`
-	Rank             string   `json:"rank,omitempty" jsonschema:"CEL expression returning double / int / bool — evaluated per file as a custom sort key. Higher values rank first. Composes with semantic_query (similarity is a CEL variable). When set, overrides sort_by; default order is desc. Example: 'similarity * 0.7 + (mod_time > timestamp(\"2025-01-01T00:00:00Z\") ? 0.3 : 0.0)'."`
+	Rank             string   `json:"rank,omitempty" jsonschema:"CEL expression returning double / int / bool — evaluated per file as a custom sort key. Higher values rank first. Composes with semantic_query (similarity is a CEL variable) AND keyword_query (bm25 is a CEL variable) for hybrid ranking, e.g. 'bm25*0.4 + similarity*0.6'. When set, overrides sort_by; default order is desc. Example: 'similarity * 0.7 + (mod_time > timestamp(\"2025-01-01T00:00:00Z\") ? 0.3 : 0.0)'."`
+	KeywordQuery     string   `json:"keyword_query,omitempty" jsonschema:"Keyword query for Okapi BM25 relevance scoring. When set, each match's 'bm25' field + CEL variable is populated (IDF computed over the candidate result set) and results sort by bm25 desc by default. Compose with rank for custom weighting, e.g. 'bm25 * 0.5 + (is_recent ? 1.0 : 0.0)'. For hybrid keyword+SEMANTIC ranking (bm25 fused with embedding similarity), use the search_semantic tool's keyword_query/hybrid inputs — this tool has no embedding model. Reads each candidate's body; pair with a tight expr. Issue #335."`
 	Limit            int      `json:"limit,omitempty" jsonschema:"Cap the returned match count. With sort_by, returns the top-N (after sorting). Without sort_by, returns the first N ordered by path. 0 = unlimited. When the result set is truncated by limit, the response carries an opaque next_cursor — pass it back as 'cursor' to fetch the next page."`
 	Cursor           string   `json:"cursor,omitempty" jsonschema:"Opaque pagination token from a previous response's next_cursor. Resumes the result set immediately after the last item of the prior page, using the SAME sort_by/order/rank as that call (a mismatch errors). Paging is stable across calls under an unchanged tree; the walk is re-run each page (cheap — attributes are cached). Combine with 'limit' to stream a large match set in bounded pages."`
 	IncludeSnippet   bool     `json:"include_snippet,omitempty" jsonschema:"When true, populate each match's 'snippet' field with the first N lines of the file body (see snippet_lines). Only text-based content types (markdown / text / html / csv / json / xml / source/*) populate; binary families leave snippet empty."`
@@ -209,6 +210,9 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 		// per file (during the walk), not post-collect. The eventual
 		// sort happens below in the sortAndLimit block.
 		RankExpr: in.Rank,
+		// KeywordQuery enables BM25 keyword ranking. The walker captures
+		// per-file carrier data; FinalizeBM25 (below) scores + ranks.
+		KeywordQuery: in.KeywordQuery,
 		// Sort, Order, Limit are applied via sortAndLimit AFTER we
 		// collect — see end of handler. We don't pass them to
 		// WalkStream because WalkStream doesn't honour them.
@@ -250,10 +254,21 @@ func (h *handlers) searchHandler(ctx context.Context, req *mcp.CallToolRequest, 
 		return nil, SearchOutput{}, fmt.Errorf("walk: %w", walkErr)
 	}
 
+	// BM25 keyword ranking post-pass (issue #335). Computes candidate-set
+	// IDF, populates each match's bm25 score, and sets Result.Rank (the
+	// rank expression re-evaluated with bm25 bound, or raw bm25). Must
+	// run on the collected set, before the sort below.
+	if in.KeywordQuery != "" {
+		if err := search.FinalizeBM25(results, walkOpts); err != nil {
+			return nil, SearchOutput{}, fmt.Errorf("bm25: %w", err)
+		}
+	}
+
 	// Resolve the effective sort key/order. Rank overrides sort_by:
 	// when set, sort by rank desc by default (mirrors the CLI / walker).
+	// A keyword query also writes Result.Rank, so it defaults the same.
 	sortKey, order := in.SortBy, in.Order
-	if in.Rank != "" {
+	if in.Rank != "" || in.KeywordQuery != "" {
 		sortKey = "rank"
 		if order == "" {
 			order = "desc"

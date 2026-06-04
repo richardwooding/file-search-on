@@ -275,6 +275,26 @@ type FileAttributes struct {
 	// typical thresholds for "related" content are 0.5-0.7.
 	Similarity float64
 
+	// BM25 is the Okapi BM25 keyword-relevance score of this file's body
+	// against BuildOptions.KeywordQuery (issue #335). Unlike Similarity,
+	// it can't be computed per-file in isolation — it needs corpus
+	// statistics (IDF, average doc length) over the candidate set, so the
+	// walker leaves it 0 and the buffered post-pass (search.FinalizeBM25)
+	// fills it in. Exposed as the `bm25` CEL variable so it composes with
+	// `similarity` in a --rank expression for hybrid keyword+semantic
+	// ranking. 0 when no keyword query is set.
+	BM25 float64
+
+	// BM25TermFreqs and BM25DocLen are the per-file carrier data the
+	// walker captures during body extraction so the post-pass can build
+	// IDF and score BM25 without re-reading bodies. BM25TermFreqs holds
+	// the term frequency of each KEYWORD-QUERY term in this body (query-
+	// scoped, so it's tiny regardless of body size); BM25DocLen is the
+	// body's total token count (for length normalisation). Not CEL
+	// variables — internal plumbing for the BM25 post-pass.
+	BM25TermFreqs map[string]int
+	BM25DocLen    int
+
 	// Git-aware metadata (issue #271). Populated when the caller sets
 	// BuildOptions.GitCache to a *gitmeta.Cache built from the walk
 	// root. Zero values everywhere when the walk isn't inside a git

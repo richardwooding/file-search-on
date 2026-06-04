@@ -49,6 +49,8 @@ type SearchCmd struct {
 	HashAllowlist    string        `name:"hash-allowlist" help:"Path to a hash allowlist (newline-separated md5/sha1/sha256 hex, mixed algorithms auto-detected by length, # comments allowed) OR a pre-built bbolt hashset file (via 'hash-set build'). When set, populates the is_known_good CEL predicate by looking up each matched file's hashes. Forces --with-hashes on. NSRL / corp allowlist / threat-intel allowlist interop."`
 	HashDenylist     string        `name:"hash-denylist" help:"Path to a hash denylist (same format as --hash-allowlist). Populates is_known_bad. Threat-intel-feed / IOC-list interop."`
 	SemanticQuery    string        `name:"semantic-query" help:"Natural-language query to embed and rank every matched file against. Populates the 'similarity' CEL variable (cosine in 0..1) so filters like 'is_pdf && similarity > 0.7' fire. Requires --embedding-model + a running Ollama instance (--embedding-server defaults to http://localhost:11434). Auto-sorts results by similarity desc and applies --similarity-threshold."`
+	KeywordQuery     string        `name:"keyword-query" help:"Keyword query for Okapi BM25 relevance scoring. Populates the 'bm25' CEL variable (IDF computed over the matched candidate set) and auto-sorts by bm25 desc. Compose with --rank for custom weighting, or with --semantic-query + --hybrid for keyword+semantic fusion. Reads each candidate's body. Issue #335."`
+	Hybrid           bool          `name:"hybrid" help:"Fuse the --keyword-query BM25 ranking and the --semantic-query similarity ranking via reciprocal-rank fusion (no manual weights). Requires both --keyword-query and --semantic-query (+ --embedding-model). When you want to tune the blend, drop --hybrid and use --rank 'bm25*0.4 + similarity*0.6' instead. Issue #335."`
 	SimilarityThreshold float64    `name:"similarity-threshold" default:"0.5" help:"Minimum similarity score (0..1) for a file to be returned when --semantic-query is set. Higher = stricter. Implemented by AND-ing 'similarity >= <value>' onto your CEL expression — so it combines with any 'similarity' comparison you write yourself (e.g. expr 'similarity > 0.6' plus the default 0.5 floor means the effective floor is 0.6)."`
 	EmbeddingServer  string        `name:"embedding-server" env:"OLLAMA_HOST" default:"http://localhost:11434" help:"Ollama base URL for embedding requests. Resolution order: --embedding-server flag > $OLLAMA_HOST env var > http://localhost:11434."`
 	EmbeddingModel   string        `name:"embedding-model" help:"Ollama embedding model name (e.g. nomic-embed-text, mxbai-embed-large). No default — user picks per-tree based on the model they've pulled. Required when --semantic-query is set."`
@@ -78,7 +80,7 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 	// Record path which already requires attrs). --body doesn't
 	// need Attrs surfaced on Result (the body lives in Extra only
 	// for CEL evaluation), but it's harmless to keep them.
-	includeAttrs := s.Format != "" || s.Output == "verbose" || s.Output == "json" || s.Sort != "" || s.Snippet || s.WithHashes || s.CheckDisguised || s.WithXattrs || s.HashAllowlist != "" || s.HashDenylist != "" || s.SemanticQuery != ""
+	includeAttrs := s.Format != "" || s.Output == "verbose" || s.Output == "json" || s.Sort != "" || s.Snippet || s.WithHashes || s.CheckDisguised || s.WithXattrs || s.HashAllowlist != "" || s.HashDenylist != "" || s.SemanticQuery != "" || s.KeywordQuery != ""
 
 	// Parse the template up front so a bad template fails before we walk.
 	var tmpl *template.Template
@@ -175,6 +177,18 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		}
 	}
 
+	// BM25 keyword ranking (issue #335). --hybrid is a convenience that
+	// requires both queries; the keyword query falls back to the semantic
+	// query when only --hybrid + --semantic-query are given.
+	if s.Hybrid {
+		if s.KeywordQuery == "" {
+			s.KeywordQuery = s.SemanticQuery
+		}
+		if s.KeywordQuery == "" || s.SemanticQuery == "" {
+			return fmt.Errorf("--hybrid requires both --keyword-query (or --semantic-query as its source) and --semantic-query")
+		}
+	}
+
 	opts := search.Options{
 		Roots:             s.Dir,
 		Expr:              s.Expr,
@@ -201,6 +215,8 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		Embedder:               embedder,
 		SemanticQueryEmbedding: queryVector,
 		EmbedInputMaxBytes:     s.EmbedMaxBytes,
+		KeywordQuery:           s.KeywordQuery,
+		Hybrid:                 s.Hybrid,
 		Excludes:            s.Exclude,
 		RespectGitignore:    s.RespectGitignore,
 		FollowSymlinks:      s.FollowSymlinks,
@@ -213,8 +229,11 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 	// --sort, --rank, and --limit all need the full result set in
 	// memory (sort, then truncate), so they force buffered mode
 	// regardless of --unsorted / -o bare / json / --format.
-	// Streaming + top-K is incoherent; bail to buffered.
-	forceBuffered := s.Sort != "" || s.Rank != "" || s.Limit > 0
+	// Streaming + top-K is incoherent; bail to buffered. --keyword-query
+	// (BM25, issue #335) also requires buffering — its candidate-set IDF
+	// and the resulting bm25 / rank are computed by FinalizeBM25 over the
+	// COLLECTED set, which streaming never assembles.
+	forceBuffered := s.Sort != "" || s.Rank != "" || s.Limit > 0 || s.KeywordQuery != ""
 	// Streaming-friendly modes (bare / json / template) always stream —
 	// first result lands on stdout immediately rather than waiting for
 	// the full walk. Default and verbose stream too when --unsorted is
@@ -343,12 +362,13 @@ func bufferedSearch(ctx context.Context, opts search.Options, tmpl *template.Tem
 	results, err := search.Walk(ctx, opts, contentpkg.DefaultRegistry())
 
 	// Path-sort default only when the user didn't ask for a specific
-	// ordering. With --sort OR --rank set, results are already in the
-	// order Walk produced; re-sorting would defeat the flag. (Walk
-	// itself transforms RankExpr into Sort="rank" internally; we
-	// check RankExpr here because that transformation runs on Walk's
-	// own copy of opts and isn't visible to this caller.)
-	if opts.Sort == "" && opts.RankExpr == "" {
+	// ordering. With --sort OR --rank OR --keyword-query set, results
+	// are already in the order Walk produced; re-sorting would defeat
+	// the flag. (Walk itself transforms RankExpr / KeywordQuery into
+	// Sort="rank" internally; we check the source fields here because
+	// that transformation runs on Walk's own copy of opts and isn't
+	// visible to this caller.)
+	if opts.Sort == "" && opts.RankExpr == "" && opts.KeywordQuery == "" {
 		sort.Slice(results, func(i, j int) bool {
 			return results[i].Path < results[j].Path
 		})

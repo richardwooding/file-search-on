@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/richardwooding/file-search-on/internal/bm25"
 	"github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/content/ocr"
 	"github.com/richardwooding/file-search-on/internal/cryptohash"
@@ -184,6 +185,30 @@ func populateSimilarity(ctx context.Context, fsys fs.FS, fsPath, displayPath, ca
 		_ = opts.Index.Put(cacheKey, entry)
 		opts.Index.BumpEmbedStat("put")
 	}
+}
+
+// populateBM25Doc captures the per-file BM25 carrier data — the term
+// frequency of each keyword-query term in this body, plus the body's
+// total token length — into attrs (issue #335). The score itself needs
+// corpus IDF, so it's computed later by the buffered post-pass; this
+// just records the cheap per-file inputs. No-op when no keyword query is
+// set or the content type isn't text-shaped. Body read is cache-aware
+// via lookupOrExtractBody, so it shares the bodies_v1 cache with the
+// similarity / IncludeBody readers in the same walk.
+func populateBM25Doc(ctx context.Context, fsys fs.FS, fsPath, displayPath, cacheKey string, info fs.FileInfo, contentTypeName string, attrs *FileAttributes, opts BuildOptions) {
+	if attrs == nil || len(opts.KeywordQuery) == 0 {
+		return
+	}
+	if !canExtractBody(contentTypeName) {
+		return
+	}
+	body := lookupOrExtractBody(ctx, fsys, fsPath, displayPath, cacheKey, info, contentTypeName, opts)
+	if body == "" {
+		return
+	}
+	stats := bm25.StatsFor(body, opts.KeywordQuery)
+	attrs.BM25TermFreqs = stats.TermFreqs
+	attrs.BM25DocLen = stats.DocLen
 }
 
 // defaultEmbedMaxChunks caps how many chunks a single document is split

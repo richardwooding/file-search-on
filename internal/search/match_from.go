@@ -126,6 +126,7 @@ func applyComputedAttrs(m *Match, a *celexpr.FileAttributes) {
 		m.BoundingBox = v
 	}
 	m.Similarity = a.Similarity
+	m.BM25 = a.BM25
 	if !a.CreatedAt.IsZero() {
 		m.CreatedAt = a.CreatedAt.Format(time.RFC3339)
 	}

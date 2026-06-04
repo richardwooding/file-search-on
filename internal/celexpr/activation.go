@@ -296,6 +296,8 @@ func (a *fileAttrsActivation) ResolveName(name string) (any, bool) {
 		return a.attrs.IsKnownBad, true
 	case "similarity":
 		return a.attrs.Similarity, true
+	case "bm25":
+		return a.attrs.BM25, true
 	case "git_last_commit_time":
 		return a.attrs.GitLastCommitTime, true
 	case "git_last_commit_author":
