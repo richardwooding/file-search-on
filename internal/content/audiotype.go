@@ -1,7 +1,6 @@
 package content
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -36,14 +35,9 @@ func (a *audioType) MagicBytes() [][]byte { return a.magic }
 // back to the standard prefix match.
 func (a *audioType) MatchMagic(head []byte) bool {
 	if a.name == "audio/wav" {
-		return len(head) >= 12 && string(head[0:4]) == "RIFF" && string(head[8:12]) == "WAVE"
+		return matchOffsetSigs(head, offsetSig{0, []byte("RIFF")}, offsetSig{8, []byte("WAVE")})
 	}
-	for _, m := range a.magic {
-		if bytes.HasPrefix(head, m) {
-			return true
-		}
-	}
-	return false
+	return matchAnyPrefix(head, a.magic)
 }
 
 // Attributes reads audio tags via dhowden/tag. The library auto-detects the

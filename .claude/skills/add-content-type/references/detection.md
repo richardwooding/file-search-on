@@ -7,12 +7,12 @@ How `Registry.Detect` decides what a file is, what `Attributes(ctx, fsys, path)`
 The detector is in `internal/content/detector.go`. The algorithm:
 
 1. **Extension first.** Lower-case `filepath.Ext(path)` and check it against each registered type's `Extensions()` slice. First match wins.
-2. **Magic-byte fallback.** If no extension matched, read up to 512 bytes from the file. For each registered type, walk its `MagicBytes()` slice; if any entry is a prefix of the read bytes, that type wins.
+2. **Magic-byte fallback.** If no extension matched, read up to 512 bytes from the file. For each registered type, the detector calls `magicMatches(ct, head)`: if the type implements the optional **`MagicMatcher`** interface (`MatchMagic(head []byte) bool`), that decides; otherwise it falls back to a prefix check over `MagicBytes()`. First match wins.
 3. **No match → `nil`.** `BuildAttributes` treats this as "no content type"; the `content_type` CEL attribute is the empty string and every `is_*` flag is false.
 
 This means:
 
-- Registration order matters when multiple types claim the same extension or the same magic prefix. The detector returns the first match. In practice the existing types don't overlap, but if you register a type whose extensions or magic overlap an existing one, expect a flaky-feeling bug.
+- Registration order matters when multiple types claim the same extension or the same magic prefix. The detector returns the first match. **If two types share an overlapping magic prefix, BOTH must implement `MagicMatcher` to disambiguate** — otherwise detection is silently registration-order-dependent. `TestMagicConflicts` (`internal/content/magic_conflict_test.go`) fails the build if you register an overlapping magic without a matcher, so you'll find out at test time, not in the field (issue #334).
 - A type with `Extensions() = nil` and `MagicBytes() = nil` is unreachable. The detector will never return it.
 
 ## Worked example: detecting an EPUB
@@ -31,6 +31,7 @@ Pragmatic recommendation: start with extension-only. Add magic bytes when you ha
 - **First 512 bytes only.** Magic deeper into the file is invisible. PDFs (`%PDF-`) at byte 0 work; EPUB `mimetype` entries usually do, by spec.
 - **Prefix, not substring.** The detector checks `bytes.HasPrefix(read, magic)`. A magic of `"foo"` won't match a file that starts with `"\xef\xbb\xbffoo"` (BOM-prefixed). If you need BOM tolerance, register multiple magic entries: `[]byte("foo"), []byte("\xef\xbb\xbffoo")`.
 - **Avoid super-short or super-common prefixes.** `"{"` matches every JSON file but also every file that happens to start with `{`. JSON gets away with it because almost nothing else does. CSV has no usable magic — leave `MagicBytes` as `nil`.
+- **Shared-magic containers need a `MagicMatcher`.** Several formats share a leading magic and carry their real type at a fixed later offset — the RIFF family (`RIFF` then `WEBP`/`AVI `/`WAVE` at bytes 8..11) and the `ftyp`-at-offset-4 family (MP4 / HEIC / …). Set `MagicBytes()` to the shared prefix AND implement `MatchMagic` using `matchOffsetSigs(head, offsetSig{0, []byte("RIFF")}, offsetSig{8, []byte("WEBP")})` (see `internal/content/magic.go`). For structural disambiguation that isn't a fixed-offset pattern (e.g. fat Mach-O vs Java `.class`, both `0xCAFEBABE`), write a custom check like `isMachoFatHeader`. `TestMagicConflicts` enforces this.
 
 ## What `Attributes(ctx, fsys, path)` should and should not do
 
