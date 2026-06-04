@@ -14,7 +14,7 @@ func init() {
 	Register(&audioType{name: "audio/mpeg", exts: []string{".mp3"}, magic: [][]byte{[]byte("ID3"), {0xFF, 0xFB}, {0xFF, 0xF3}, {0xFF, 0xF2}}})
 	Register(&audioType{name: "audio/mp4", exts: []string{".m4a", ".m4b", ".m4p", ".aac"}, magic: nil})
 	Register(&audioType{name: "audio/flac", exts: []string{".flac"}, magic: [][]byte{[]byte("fLaC")}})
-	Register(&audioType{name: "audio/ogg", exts: []string{".ogg", ".oga"}, magic: [][]byte{[]byte("OggS")}})
+	Register(&audioType{name: "audio/ogg", exts: []string{".ogg", ".oga", ".opus"}, magic: [][]byte{[]byte("OggS")}})
 	// WAV is a RIFF container ("RIFF"<size>"WAVE"); see MatchMagic for the
 	// form-type disambiguation against WebP / AVI (issue #322).
 	Register(&audioType{name: "audio/wav", exts: []string{".wav", ".wave"}, magic: [][]byte{[]byte("RIFF")}})
