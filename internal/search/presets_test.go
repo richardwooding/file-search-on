@@ -236,3 +236,32 @@ var marker = "FIXME: this is data"
 		})
 	}
 }
+
+// TestPresets_EbookSet asserts the EPUB-oriented presets exist, are
+// scoped to is_epub, and sort on a key meaningful for ebooks (EPUB has
+// no word_count/page_count, so size/name/mod_time only).
+func TestPresets_EbookSet(t *testing.T) {
+	want := map[string]string{
+		"large_ebooks":       "size",
+		"recent_ebooks":      "mod_time",
+		"untagged_ebooks":    "name",
+		"non_english_ebooks": "name",
+	}
+	for name, sortKey := range want {
+		p := search.PresetByName(name)
+		if p == nil {
+			t.Errorf("preset %q not found", name)
+			continue
+		}
+		opts := p.Build()
+		if !strings.Contains(opts.Expr, "is_epub") {
+			t.Errorf("preset %q expr %q is not scoped to is_epub", name, opts.Expr)
+		}
+		if opts.Sort != sortKey {
+			t.Errorf("preset %q sort = %q, want %q", name, opts.Sort, sortKey)
+		}
+		if _, err := celexpr.New(opts.Expr); err != nil {
+			t.Errorf("preset %q expr %q failed to compile: %v", name, opts.Expr, err)
+		}
+	}
+}
