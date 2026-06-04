@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/content/ocr"
@@ -150,7 +151,22 @@ func populateSimilarity(ctx context.Context, fsys fs.FS, fsPath, displayPath, ca
 	if opts.Index != nil && (cached == nil || len(cached.Vector) == 0) {
 		opts.Index.BumpEmbedStat("miss")
 	}
+	// Cap the text handed to the embedder. Embedding models truncate to
+	// their context window anyway, and some Ollama model/version combos
+	// reject over-long input with an HTTP error (which would surface as
+	// a silent "0 results") — see issue #305.
+	body = truncateForEmbed(body, opts.EmbedInputMaxBytes)
 	vec, err := opts.Embedder.Embed(ctx, body)
+	if err != nil && ctx.Err() == nil {
+		// Some models reject inputs whose TOKEN count exceeds their hard
+		// limit even after the byte cap — CJK / dense text packs far more
+		// tokens per byte than English prose. Retry once at a small,
+		// conservative size before giving up so a handful of multibyte
+		// documents don't silently drop out of the results (#305).
+		if retry := truncateForEmbed(body, embedRetryMaxBytes); len(retry) < len(body) {
+			vec, err = opts.Embedder.Embed(ctx, retry)
+		}
+	}
 	if err != nil || len(vec) == 0 {
 		if opts.Index != nil {
 			opts.Index.BumpEmbedStat("error")
@@ -179,6 +195,32 @@ func populateSimilarity(ctx context.Context, fsys fs.FS, fsPath, displayPath, ca
 		_ = opts.Index.Put(cacheKey, entry)
 		opts.Index.BumpEmbedStat("put")
 	}
+}
+
+// embedRetryMaxBytes is the conservative fallback size used when an
+// embed call fails on the primary (larger) input — small enough to stay
+// under common embedding models' hard token limits for any script
+// (≈2 KiB ≈ well under 2048 tokens even for single-byte-per-token text).
+const embedRetryMaxBytes = 2 << 10
+
+// truncateForEmbed caps text to maxBytes (0 → defaultEmbedInputMaxBytes)
+// on a UTF-8 rune boundary so the embedder never receives a split
+// multibyte character. Returns text unchanged when it's already within
+// the cap.
+func truncateForEmbed(text string, maxBytes int) string {
+	if maxBytes <= 0 {
+		maxBytes = defaultEmbedInputMaxBytes
+	}
+	if len(text) <= maxBytes {
+		return text
+	}
+	// Back off to the start of the rune that straddles the cut so we
+	// don't hand the embedder an invalid UTF-8 tail.
+	cut := maxBytes
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut]
 }
 
 // applyKnownStatus checks the file's MD5 / SHA1 / SHA256 against

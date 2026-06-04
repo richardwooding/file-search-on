@@ -198,6 +198,13 @@ type Options struct {
 	Embedder               embed.Embedder
 	SemanticQueryEmbedding []float32
 
+	// EmbedInputMaxBytes caps the body text handed to the embedder
+	// (distinct from BodyMaxBytes, which caps the body read for CEL
+	// `body.contains`). 0 → an 8 KiB default that fits common embedding
+	// models' context windows and avoids the over-long-input errors
+	// behind issue #305. Threaded into celexpr.BuildOptions.
+	EmbedInputMaxBytes int
+
 	// ResolveProjects, when true, makes BuildAttributesWith populate
 	// each match's `project_types` (list<string>) and `project_type`
 	// (string — first match) CEL variables by walking up from the
@@ -574,6 +581,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 						Denylist:               opts.Denylist,
 						Embedder:               opts.Embedder,
 						SemanticQueryEmbedding: opts.SemanticQueryEmbedding,
+						EmbedInputMaxBytes:     opts.EmbedInputMaxBytes,
 						OCRImages:              opts.OCRImages,
 						OCRTimeout:             opts.OCRTimeout,
 						WithPHash:              opts.WithPHash,

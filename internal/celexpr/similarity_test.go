@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/richardwooding/file-search-on/internal/celexpr"
@@ -424,6 +426,120 @@ func mockEmbedServer(t *testing.T, vec []float32, calls *int) *httptest.Server {
 	}))
 	t.Cleanup(srv.Close)
 	return srv
+}
+
+// TestBuildAttributesWith_Similarity_TruncatesEmbedInput is the
+// regression for issue #305: the body handed to the embedder must be
+// capped (default 8 KiB, or BuildOptions.EmbedInputMaxBytes) so
+// book-length input doesn't trip the over-long-input errors some
+// Ollama model/version combinations return.
+func TestBuildAttributesWith_Similarity_TruncatesEmbedInput(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "big.md")
+	// ~50 KiB of body text — well past any embed cap under test.
+	mustWrite(t, path, "# Big\n\n"+strings.Repeat("lorem ipsum dolor ", 3000)+"\n")
+
+	abs, _ := filepath.Abs(path)
+	base := filepath.Base(abs)
+	parent := filepath.Dir(abs)
+
+	var mu sync.Mutex
+	maxInput := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Input string `json:"input"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		mu.Lock()
+		if len(body.Input) > maxInput {
+			maxInput = len(body.Input)
+		}
+		mu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{"embeddings": [][]float32{{1, 0, 0}}})
+	}))
+	defer srv.Close()
+
+	run := func(cap, want int) {
+		idx := index.NewMemory()
+		defer func() { _ = idx.Close() }()
+		mu.Lock()
+		maxInput = 0
+		mu.Unlock()
+		_, err := celexpr.BuildAttributesWith(ctx, os.DirFS(parent), base, abs, content.DefaultRegistry(), celexpr.BuildOptions{
+			Index:                  idx,
+			Embedder:               embed.NewOllama(srv.URL, "mock"),
+			SemanticQueryEmbedding: []float32{1, 0, 0},
+			EmbedInputMaxBytes:     cap,
+		})
+		if err != nil {
+			t.Fatalf("cap=%d: %v", cap, err)
+		}
+		mu.Lock()
+		got := maxInput
+		mu.Unlock()
+		if got > want {
+			t.Errorf("cap=%d: embedder received %d bytes, want <= %d", cap, got, want)
+		}
+		if got == 0 {
+			t.Errorf("cap=%d: embedder never called", cap)
+		}
+	}
+
+	run(0, 8<<10)  // default 8 KiB
+	run(2048, 2048) // explicit smaller cap
+}
+
+// TestBuildAttributesWith_Similarity_RetriesSmallerOnError verifies the
+// #305 fallback: when the embedder rejects the (byte-capped) input
+// because its TOKEN count is still over the model's hard limit — as
+// dense / CJK text does — the walk retries once at a smaller size
+// instead of dropping the file with a silent embed error.
+func TestBuildAttributesWith_Similarity_RetriesSmallerOnError(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dense.md")
+	mustWrite(t, path, "# Dense\n\n"+strings.Repeat("token ", 20000)+"\n")
+
+	abs, _ := filepath.Abs(path)
+	base := filepath.Base(abs)
+	parent := filepath.Dir(abs)
+
+	// Mock rejects any input larger than 2 KiB (mimics a token-limit
+	// rejection at the default 8 KiB cap), succeeds at/below it.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Input string `json:"input"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if len(body.Input) > 2<<10 {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"embeddings": [][]float32{{1, 0, 0}}})
+	}))
+	defer srv.Close()
+
+	idx := index.NewMemory()
+	defer func() { _ = idx.Close() }()
+	a, err := celexpr.BuildAttributesWith(ctx, os.DirFS(parent), base, abs, content.DefaultRegistry(), celexpr.BuildOptions{
+		Index:                  idx,
+		Embedder:               embed.NewOllama(srv.URL, "mock"),
+		SemanticQueryEmbedding: []float32{1, 0, 0},
+	})
+	if err != nil {
+		t.Fatalf("BuildAttributesWith: %v", err)
+	}
+	if a.Similarity < 0.99 {
+		t.Errorf("Similarity=%f want ~1.0 — retry should have embedded the file", a.Similarity)
+	}
+	st := idx.Stats()
+	if st.EmbedErrors != 0 {
+		t.Errorf("EmbedErrors=%d want 0 — the smaller-input retry should have succeeded; stats=%+v", st.EmbedErrors, st)
+	}
+	if st.EmbedPuts != 1 {
+		t.Errorf("EmbedPuts=%d want 1 (vector cached after retry); stats=%+v", st.EmbedPuts, st)
+	}
 }
 
 // TestBuildAttributesWith_Similarity_MissPathRetainsExtra is the

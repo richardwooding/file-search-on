@@ -329,6 +329,19 @@ type BuildOptions struct {
 	Embedder               embed.Embedder
 	SemanticQueryEmbedding []float32
 
+	// EmbedInputMaxBytes caps the body text handed to the Embedder
+	// (NOT the body read / cached for `body.contains` — that's
+	// BodyMaxBytes). Embedding models have small context windows
+	// (a few hundred to a few thousand tokens) and some Ollama
+	// model/version combinations return an HTTP error rather than
+	// silently truncating book-length input, which would otherwise
+	// surface as a silent "0 results" (issue #305). Capping the embed
+	// input avoids that AND saves bandwidth — the model truncates to
+	// its context window anyway, so bytes past the window never
+	// influence the vector. 0 → defaultEmbedInputMaxBytes. The cap is
+	// applied on a UTF-8 rune boundary.
+	EmbedInputMaxBytes int
+
 	// GitCache, when non-nil, drives population of the git_* fields on
 	// FileAttributes (last commit time/author/subject, first seen,
 	// commit count, is_tracked, is_ignored). The walker builds one
@@ -369,6 +382,16 @@ type BuildOptions struct {
 // is plenty for typical text files (markdown posts, source modules,
 // JSON manifests) and bounds the worst case on adversarial input.
 const defaultBodyMaxBytes = 1 << 20
+
+// defaultEmbedInputMaxBytes caps the text handed to the embedding
+// model when BuildOptions.EmbedInputMaxBytes is unset. 8 KiB comfortably
+// covers the context window of the common Ollama embedding models
+// (all-minilm ~256 tokens, nomic-embed-text ~2048 tokens ≈ 8 KiB) and
+// stays under the input size at which some model/version combinations
+// reject the request outright (issue #305). Larger-context models can
+// raise it via --embed-max-bytes / the search_semantic embed_max_bytes
+// input.
+const defaultEmbedInputMaxBytes = 8 << 10
 
 // BuildAttributes is the no-cache wrapper. New callers should use
 // BuildAttributesWith and pass an index.Index when caching is desired.
