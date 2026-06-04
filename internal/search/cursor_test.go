@@ -192,6 +192,85 @@ func TestPaginate_MissingAttributeSortsLast(t *testing.T) {
 	}
 }
 
+// --- PaginateGeneric (group-shaped tools, issue #336) ---
+
+type bucket struct {
+	name  string
+	count int64
+}
+
+func bktKeyFn(b bucket) []any { return []any{b.count, b.name} }
+
+func collectGenericPages(t *testing.T, build func() []bucket, orders []string, limit int) []string {
+	t.Helper()
+	var names []string
+	cursor := ""
+	pages := 0
+	for {
+		pages++
+		if pages > 1000 {
+			t.Fatal("generic pagination did not terminate")
+		}
+		page, next, err := PaginateGeneric(build(), bktKeyFn, orders, cursor, limit)
+		if err != nil {
+			t.Fatalf("PaginateGeneric page %d: %v", pages, err)
+		}
+		for _, b := range page {
+			names = append(names, b.name)
+		}
+		if next == "" {
+			break
+		}
+		if len(page) == 0 {
+			t.Fatal("non-empty next cursor with empty page")
+		}
+		cursor = next
+	}
+	return names
+}
+
+func buckets() []bucket {
+	// count desc, name asc tiebreak on the two 5s.
+	return []bucket{
+		{"go", 5}, {"md", 2}, {"py", 5}, {"txt", 1}, {"json", 3},
+	}
+}
+
+func TestPaginateGeneric_CountDescNameAsc(t *testing.T) {
+	names := collectGenericPages(t, buckets, []string{"desc", "asc"}, 2)
+	want := []string{"go", "py", "json", "md", "txt"} // 5,5 (go<py), 3, 2, 1
+	if fmt.Sprint(names) != fmt.Sprint(want) {
+		t.Errorf("paged buckets = %v, want %v", names, want)
+	}
+}
+
+func TestPaginateGeneric_NoLimitNoCursor(t *testing.T) {
+	page, next, err := PaginateGeneric(buckets(), bktKeyFn, []string{"desc", "asc"}, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next != "" || len(page) != 5 {
+		t.Errorf("want single full page no cursor; got len=%d next=%q", len(page), next)
+	}
+}
+
+func TestPaginateGeneric_OrderMismatchErrors(t *testing.T) {
+	_, next, err := PaginateGeneric(buckets(), bktKeyFn, []string{"desc", "asc"}, "", 2)
+	if err != nil || next == "" {
+		t.Fatalf("setup: err=%v next=%q", err, next)
+	}
+	// Reuse a (desc,asc) cursor against (asc,asc) → reject.
+	if _, _, err := PaginateGeneric(buckets(), bktKeyFn, []string{"asc", "asc"}, next, 2); err == nil {
+		t.Error("expected an error when the cursor's ordering differs from the call's")
+	}
+}
+
+func TestPaginateGeneric_InvalidCursorErrors(t *testing.T) {
+	if _, _, err := PaginateGeneric(buckets(), bktKeyFn, []string{"desc", "asc"}, "@@bad@@", 2); err == nil {
+		t.Error("expected an error for a malformed generic cursor")
+	}
+}
+
 func TestPaginate_TimeKeyRoundTrips(t *testing.T) {
 	t0 := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	build := func() []Result {

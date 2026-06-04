@@ -24,6 +24,8 @@ type FindMatchesInput struct {
 	ContextAfter        int      `json:"context_after,omitempty" jsonschema:"Number of lines of trailing context to attach to each match. 0 means no After window."`
 	MaxMatchesPerFile   int      `json:"max_matches_per_file,omitempty" jsonschema:"Cap on matches reported per file. 0 = unlimited. The scan keeps reading past the cap until pending After windows are filled, so the last matches still carry full trailing context."`
 	MatchIn             string   `json:"match_in,omitempty" jsonschema:"Filter matches by per-line role. One of: 'any' (default — every regex hit), 'comments' (only hits on lines classified as a comment under the source file's language syntax: Go //, Python #, C /* */, plus block-comment continuation lines), 'code' (only hits on lines that AREN'T comments). Drops the typical TODO-sweep noise (test fixtures, string literals, fuzz seeds) without the agent having to hand-roll '^\\\\s*//<pattern>' regexes. Non-source files (markdown / json / plain text) are unaffected — they have no language syntax registered and the filter no-ops. Line-granular: a trailing-comment line like 'x := 1 // TODO' classifies as code. 'strings' mode (matching inside string literals) is deferred to a follow-up. Unknown values return an error. Issue #272."`
+	Limit               int      `json:"limit,omitempty" jsonschema:"Cap the number of line matches returned in this page (ordered by path, then line). 0 = all. When the set is truncated, the response carries next_cursor — pass it back as 'cursor' to fetch the next page. Distinct from max_matches_per_file (a per-file cap applied during the scan)."`
+	Cursor              string   `json:"cursor,omitempty" jsonschema:"Opaque pagination token from a previous response's next_cursor. Resumes the (path, line)-ordered match list after the last item of the prior page. Use the SAME pattern/expr/context for stable paging; the scan re-runs each page (attributes are cached, so it's cheap)."`
 	Excludes            []string `json:"excludes,omitempty" jsonschema:"Glob patterns matched against file/dir basenames; matches are pruned. Same semantics as search."`
 	RespectGitignore    bool     `json:"respect_gitignore,omitempty" jsonschema:"When true, parse a .gitignore at the walk root and skip matching paths."`
 	FollowSymlinks      bool     `json:"follow_symlinks,omitempty" jsonschema:"When true, descend through symbolic links to directories. Off by default."`
@@ -47,6 +49,11 @@ type FindMatchesOutput struct {
 	// wasn't scanned, so a regex match past the cap silently misses.
 	// Pair with the corresponding suggestion entry. Issue #283.
 	TruncatedFiles     []string `json:"truncated_files,omitempty"`
+	// NextCursor is present only when the match list was truncated by
+	// Limit and more hits remain. Count stays the total found across the
+	// walk; Matches is the current page. Pass next_cursor back as
+	// 'cursor' to fetch the next page. Issue #336.
+	NextCursor         string   `json:"next_cursor,omitempty"`
 	Cancelled          bool     `json:"cancelled,omitempty"`
 	CancellationReason string   `json:"cancellation_reason,omitempty"`
 	ElapsedSeconds     float64  `json:"elapsed_seconds,omitempty"`
@@ -173,6 +180,21 @@ func (h *handlers) findMatchesHandler(ctx context.Context, _ *mcp.CallToolReques
 					len(out.TruncatedFiles)))
 		}
 	}
+
+	// Cursor pagination over the (path, line)-ordered match list. Count
+	// stays the total found across the walk; Matches becomes the page.
+	// Computed AFTER the suggestion heuristics above so they see the full
+	// match set. Issue #336.
+	if in.Cursor != "" || in.Limit > 0 {
+		page, next, perr := search.PaginateGeneric(out.Matches, func(m LineMatch) []any {
+			return []any{m.Path, int64(m.Line)}
+		}, []string{"asc", "asc"}, in.Cursor, in.Limit)
+		if perr != nil {
+			return nil, FindMatchesOutput{}, fmt.Errorf("cursor: %w", perr)
+		}
+		out.Matches, out.NextCursor = page, next
+	}
+
 	out.ServerVersion = h.version
 	return nil, out, nil
 }

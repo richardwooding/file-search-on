@@ -28,7 +28,8 @@ type FindNearDuplicatesInput struct {
 	FollowSymlinks   bool     `json:"follow_symlinks,omitempty" jsonschema:"When true, descend through symbolic links to directories. Off by default."`
 	MinSize              int64 `json:"min_size,omitempty" jsonschema:"Skip files smaller than this many bytes (on-disk size, not extracted body)."`
 	MembersLimitPerGroup int   `json:"members_limit_per_group,omitempty" jsonschema:"Cap the per-group members list to this many entries. 0 (default) returns every member. Members are sorted by similarity descending before truncation so the survivors are the strongest matches. When a group is truncated, members_total + members_truncated are stamped on the group so the caller knows there's more to drill into. Useful for triage queries that just want a top-N preview per cluster. Issue #279."`
-	GroupLimit           int   `json:"group_limit,omitempty" jsonschema:"Cap the number of groups returned. 0 (default) returns every group. Groups are sorted by member count desc / representative size desc before truncation, so the largest / most-interesting clusters are kept. Pair with members_limit_per_group for bounded responses on huge corpora. Issue #279."`
+	GroupLimit           int   `json:"group_limit,omitempty" jsonschema:"Cap the number of groups returned per page. 0 (default) returns every group. Groups are ordered by member count desc, then representative path asc. When more groups remain, the response carries next_cursor — pass it back as 'cursor' to page through the rest. Pair with members_limit_per_group for bounded responses on huge corpora. Issue #279."`
+	Cursor               string `json:"cursor,omitempty" jsonschema:"Opaque pagination token from a previous response's next_cursor. Resumes the group list (count desc, representative asc) after the last group of the prior page. Use the SAME expr/threshold for stable paging. group_count always reflects the total number of clusters, not the page."`
 }
 
 // FindNearDuplicatesOutput mirrors search.NearDuplicates with a
@@ -40,6 +41,11 @@ type FindNearDuplicatesOutput struct {
 	GroupCount         int64                    `json:"group_count"`
 	Threshold          float64                  `json:"threshold"`
 	Groups             []NearDuplicateGroupWire `json:"groups"`
+	// NextCursor is present only when the group list was truncated by
+	// group_limit and more groups remain. group_count stays the total
+	// cluster count; Groups is the current page. Pass next_cursor back as
+	// 'cursor' to fetch the next page. Issue #336.
+	NextCursor         string                   `json:"next_cursor,omitempty"`
 	Cancelled          bool                     `json:"cancelled,omitempty"`
 	CancellationReason string                   `json:"cancellation_reason,omitempty"`
 	ElapsedSeconds     float64                  `json:"elapsed_seconds,omitempty"`
@@ -112,7 +118,9 @@ func (h *handlers) findNearDuplicatesHandler(ctx context.Context, _ *mcp.CallToo
 		MinSize:             in.MinSize,
 		SimilarityThreshold: in.Threshold,
 		NearDupMembersLimit: in.MembersLimitPerGroup,
-		NearDupGroupLimit:   in.GroupLimit,
+		// When paginating, let the engine return ALL groups (the handler
+		// pages them below); otherwise keep the legacy top-N truncation.
+		NearDupGroupLimit: groupEngineLimit(in),
 	}, content.DefaultRegistry())
 	elapsed := time.Since(start).Seconds()
 
@@ -147,7 +155,34 @@ func (h *handlers) findNearDuplicatesHandler(ctx context.Context, _ *mcp.CallToo
 				MembersTruncated: g.MembersTruncated,
 			}
 		}
+
+		// Cursor pagination over the cluster list (member count desc,
+		// representative path asc). group_count stays the total. The
+		// first page with group_limit=N matches the legacy top-N-by-count
+		// behaviour; next_cursor pages through the rest. Issue #336.
+		if in.Cursor != "" || in.GroupLimit > 0 {
+			page, next, perr := search.PaginateGeneric(out.Groups, func(g NearDuplicateGroupWire) []any {
+				return []any{int64(g.Count), g.Representative}
+			}, []string{"desc", "asc"}, in.Cursor, in.GroupLimit)
+			if perr != nil {
+				return nil, FindNearDuplicatesOutput{}, fmt.Errorf("cursor: %w", perr)
+			}
+			out.Groups, out.NextCursor = page, next
+		}
 	}
 	out.ServerVersion = h.version
 	return nil, out, nil
+}
+
+// groupEngineLimit returns the group cap to hand the dedup engine. When
+// the caller is paginating (cursor set, or group_limit used as a page
+// size), the engine must return every group so the handler can page over
+// the full ordered set — so we pass 0 (no truncation) and let
+// PaginateGeneric do the capping. Otherwise the legacy top-N truncation
+// stands.
+func groupEngineLimit(in FindNearDuplicatesInput) int {
+	if in.Cursor != "" || in.GroupLimit > 0 {
+		return 0
+	}
+	return in.GroupLimit
 }

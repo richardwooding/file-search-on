@@ -461,14 +461,14 @@ Twenty tools are exposed, grouped by family:
 
 | Tool | What it does |
 | --- | --- |
-| `stats` | Histogram + totals for a directory tree, bucketed by `group_by` (default `content_type`; recognised: `ext`, `dir`, `language`, `camera_make`, `camera_model`, `lens`, `artist`, `album`, `genre`, time buckets like `taken_at_month`, …). |
+| `stats` | Histogram + totals for a directory tree, bucketed by `group_by` (default `content_type`; recognised: `ext`, `dir`, `language`, `camera_make`, `camera_model`, `lens`, `artist`, `album`, `genre`, time buckets like `taken_at_month`, …). Buckets support `limit` / `cursor` pagination for high-cardinality keys. |
 
 **Dedup & diff**
 
 | Tool | What it does |
 | --- | --- |
 | `find_duplicates` | Byte-identical files keyed by sha256 — two-pass (size-bucket then hash). Sorted by `wasted_bytes` desc. |
-| `find_near_duplicates` | Similar files by SimHash fingerprint of extracted body. Catches typo edits, regenerated headers, template copies. Configurable similarity threshold (default 0.85). |
+| `find_near_duplicates` | Similar files by SimHash fingerprint of extracted body. Catches typo edits, regenerated headers, template copies. Configurable similarity threshold (default 0.85). Clusters support `group_limit` / `cursor` pagination. |
 | `diff_trees` | Cross-tree set operations by sha256 content hash — `a-minus-b`, `b-minus-a`, `intersect`, `union`, `mismatch` (same relative path, different content). Read-only; never mutates either tree. |
 
 **Archive**
@@ -482,7 +482,7 @@ Twenty tools are exposed, grouped by family:
 
 | Tool | What it does |
 | --- | --- |
-| `find_matches` | Line-level regex (RE2) hits across a tree with `context_before` / `context_after` windows. CEL pre-prune (e.g. `is_source && language == "go"`) keeps the regex pass narrow. Replaces the search-then-`read_lines` dance with one call. |
+| `find_matches` | Line-level regex (RE2) hits across a tree with `context_before` / `context_after` windows. CEL pre-prune (e.g. `is_source && language == "go"`) keeps the regex pass narrow. Replaces the search-then-`read_lines` dance with one call. Supports `limit` / `cursor` pagination over the (path, line)-ordered hits. |
 | `watch_search` | Bounded "tell me when X appears" subscription — block up to `duration_seconds` (default 30, capped at 600), return every new / changed file that matches the CEL filter. |
 
 **Project + introspection + monitoring**
@@ -500,7 +500,7 @@ Twenty tools are exposed, grouped by family:
 
 Every walking tool (`search`, `stats`, `find_duplicates`, `find_near_duplicates`, `find_matches`, `find_projects`, `diff_trees`) honours the same partial-result contract: on timeout the call returns `cancelled=true` with the results gathered so far, never an error. Agents inspect the flag rather than catching exceptions.
 
-**Pagination.** `search` and `search_semantic` support stateless **cursor pagination** for large result sets. Pass `limit` to cap a page; when the set is truncated the response carries an opaque `next_cursor`. Pass it back as `cursor` (with the *same* `sort_by` / `order` / `rank` / `query`) to fetch the next page. The cursor is a keyset over the sort key + path, so paging is stable under an unchanged tree and survives a server restart — there's no server-side cached result set. Each page re-walks the tree, but attribute extraction is index-cached, so re-walks are cheap. An agent can stream a 10k-match set in bounded pages without blowing its context or losing the tail to a hard `limit`.
+**Pagination.** `search`, `search_semantic`, `find_matches`, `stats`, and `find_near_duplicates` support stateless **cursor pagination** for large result sets. Pass `limit` (or `group_limit` for `find_near_duplicates`) to cap a page; when the set is truncated the response carries an opaque `next_cursor`. Pass it back as `cursor` (with the *same* sort / query / `group_by` / `threshold`) to fetch the next page. The cursor is a keyset over the result's ordering (sort key + path for `search`; path + line for `find_matches`; count-desc + name for `stats`; count-desc + representative for `find_near_duplicates`), so paging is stable under an unchanged tree and survives a server restart — there's no server-side cached result set. Each page re-walks the tree, but attribute extraction is index-cached, so re-walks are cheap. An agent can stream a 10k-result set in bounded pages without blowing its context or losing the tail to a hard `limit`. (For `find_matches` / `stats` / `find_near_duplicates`, the total counters — `count` / `total_count` / `group_count` — stay whole-tree, while the list field carries the current page.)
 
 Since v0.64.0 the on-disk index is **on by default**. The MCP server (like every other long-running subcommand) auto-creates a per-cwd bbolt cache at `<UserCacheDir>/file-search-on/indexes/<basename>-<sha1[:6]>.db` — repeated `search` / `read_attributes` calls against unchanged files skip parsing entirely. The default path is per-cwd so concurrent agents in different projects never collide; same-cwd contention falls back gracefully to in-memory (logged on stderr, surfaced on the dashboard as `index_fallback_reason: "lock_contention"`). Override with `--index-path`; opt out with `--no-index` for hermetic CI runs:
 
