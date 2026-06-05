@@ -191,10 +191,25 @@ On the MCP server: the `search` tool takes `keyword_query` (BM25 + the `bm25` CE
 - **Different queries against the same tree**: query embedding is one extra Ollama call (~50ms), per-file work is a dot product (microseconds). Sub-second after the first warm-up.
 - **Switching models** (e.g. `nomic-embed-text` → `mxbai-embed-large`): each cache entry records which model produced its vector. The next walk under the new model detects the mismatch, re-embeds, and stamps the new model name — no manual rebuild needed, no silently-wrong scores. The `embed_model_mismatches` counter in `index_stats` reports how many files were re-embedded vs. genuinely missed. Switching back and forth between models is correct but not free: each switch re-embeds the touched files.
 
+## Warm vector index (MCP server, issue #335)
+
+The MCP server keeps a **warm in-memory vector index** so repeat semantic queries skip the filesystem walk *and* the cosine scan. The first `search_semantic` over a `(dir, model)` pair runs the normal full walk (embedding + caching every text file) and warms the index; subsequent queries are answered directly from the in-memory vectors. The response reports which path ran:
+
+```jsonc
+// first call against a tree
+{ "ann_used": false, "count": 50, ... }   // full walk, warms the index
+// repeat call — same dir + model
+{ "ann_used": true,  "count": 50, ... }   // served from the warm index, no walk
+```
+
+**Coverage + freshness.** A query uses the warm path only when the directory structure is unchanged since it was warmed — adding or removing a file bumps the directory's mtime, invalidates coverage, and transparently falls back to a full walk (`ann_used=false`) that re-warms. A file whose *content* changed (same directory structure) is detected per-candidate by re-validating `(size, mtime)`: its stale vector is dropped and counted in `ann_stale_skipped`, and it returns on the next full walk. So results are always correct-or-conservative — the warm path never serves a vector it can't verify is current.
+
+**Backend.** The index is an exact brute-force top-K scan (100% recall), not an approximate-nearest-neighbour graph — fast enough for tens of thousands of files, and correct. It's process-lifetime (rebuilt from the persistent vector cache), so this is an MCP-server feature; a one-shot CLI run starts cold.
+
 ## Out of scope (for now)
 
 - **Bundled embedding model** — too heavy (600 MB+). Ollama lets the user pick.
-- **HNSW / FAISS indexes** — brute-force pairwise cosine is fast enough for tens of thousands of files. File a follow-up if you hit a scale where it isn't.
+- **Approximate-nearest-neighbour (HNSW / FAISS) indexes** — the MCP server keeps a warm, EXACT in-memory vector index (see "Warm vector index" above), which is fast enough for tens of thousands of files. A true sub-linear ANN index would only matter at millions of vectors; the pure-Go HNSW library evaluated for #335 had unacceptable recall, so an approximate index is deferred until a reliable one exists.
 - **Cross-encoder reranking** — bi-encoder (single-embedding) is enough for v1.
 - **OpenAI / llama.cpp / other embedding sources** — same wire shape; future plugin point. v1 is Ollama-only.
 - **Query expansion / synonym handling** — embeddings already handle paraphrase implicitly.

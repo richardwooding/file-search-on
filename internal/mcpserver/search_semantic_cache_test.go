@@ -79,23 +79,30 @@ func TestSearchSemanticReusesCachedEmbeddings(t *testing.T) {
 		t.Errorf("call 1: Title=%q want %q", out1.Matches[0].Title, "Neuromancer")
 	}
 
+	if out1.AnnUsed {
+		t.Errorf("call 1 should be the cold full walk (ann_used=false), got ann_used=true")
+	}
+
 	out2 := semantic("call 2")
 	if out2.Matches[0].Title != "Neuromancer" {
 		t.Errorf("call 2 (cached): Title=%q want %q (Finding #5: cached semantic match dropped title)", out2.Matches[0].Title, "Neuromancer")
 	}
+	// Call 2 must take the warm ANN fast path (issue #335 part 2): the
+	// first walk warmed the in-memory vector index, so the repeat query
+	// is answered without re-walking OR re-embedding the file — an even
+	// stronger guarantee than the #306 cached-vector reuse it replaces.
+	if !out2.AnnUsed {
+		t.Errorf("call 2 should use the warm ANN index (ann_used=true), got false")
+	}
 
 	// The single file must have been embedded exactly once across both
-	// calls (the query is embedded each call, hence > 1 total /api/embed
-	// hits, but the file's vector must come from cache on call 2).
+	// calls — neither the warm ANN path nor the #306 cache reuse re-embeds.
 	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "index_stats", Arguments: struct{}{}})
 	if err != nil {
 		t.Fatalf("index_stats: %v", err)
 	}
 	var stats IndexStatsOutput
 	mustDecodeStructured(t, res, &stats)
-	if stats.EmbedHits < 1 {
-		t.Errorf("EmbedHits=%d want >= 1 — the repeat semantic query re-embedded the tree (#306); stats=%+v", stats.EmbedHits, stats)
-	}
 	if stats.EmbedPuts != 1 {
 		t.Errorf("EmbedPuts=%d want 1 — the file should be embedded exactly once; stats=%+v", stats.EmbedPuts, stats)
 	}
