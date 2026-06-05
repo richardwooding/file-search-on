@@ -53,6 +53,11 @@ type handlers struct {
 	// the index_stats tool. nil when no watcher is wired (tests, or a
 	// server started without --watch-index) → reported as zeros.
 	indexWatch *search.IndexWatchStats
+	// semIndex is the warm in-memory vector index (issue #335 part 2).
+	// search_semantic queries it instead of re-walking the tree once a
+	// (dir, model) pair has been covered by a full walk. Always non-nil
+	// (initialised in New); backed by the same attribute cache as idx.
+	semIndex *semanticIndex
 }
 
 // Option configures the MCP server at construction. Used to attach
@@ -330,6 +335,7 @@ func New(version string, idx index.Index, defaultTimeout time.Duration, embedDef
 		defaultEmbeddingModel:  embedDefaults.Model,
 		version:                version,
 		gitPool:                gitmeta.NewPool(),
+		semIndex:               newSemanticIndex(idx),
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -342,7 +348,7 @@ func New(version string, idx index.Index, defaultTimeout time.Duration, embedDef
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "search_semantic",
-		Description: "Semantic similarity search via local Ollama embeddings. Returns files RANKED by conceptual similarity to a natural-language query — paraphrase, synonyms, and topic-level matches surface even when the exact words don't appear in the body. Required input: 'query' (the natural-language search). Optional: 'threshold' (default 0.5; cosine similarity floor — 0.7+ for strict topical match, 0.4-0.5 for loose / related), 'limit' (default 50; top-K cap), 'expr' (CEL pre-filter using the same vocabulary as the search tool — e.g. 'is_pdf || is_office' to scope to documents), 'model' / 'embedding_server' (per-call overrides for the server-startup defaults — useful when you've pulled multiple embedding models). Setup: requires Ollama running locally (https://ollama.com) and one embedding model pulled (e.g. 'ollama pull nomic-embed-text'). The MCP server boots WITHOUT Ollama; the first search_semantic call performs the connection check and returns a clear error if Ollama is unreachable or the model isn't pulled. The per-file embedding is cached alongside (size, mtime) so repeat searches against an unchanged tree are I/O-cheap. Use 'list_embedding_models' to discover what's installed and 'pull_embedding_model' to install a recommended one.",
+		Description: "Semantic similarity search via local Ollama embeddings. Returns files RANKED by conceptual similarity to a natural-language query — paraphrase, synonyms, and topic-level matches surface even when the exact words don't appear in the body. Required input: 'query' (the natural-language search). Optional: 'threshold' (default 0.5; cosine similarity floor — 0.7+ for strict topical match, 0.4-0.5 for loose / related), 'limit' (default 50; top-K cap), 'expr' (CEL pre-filter using the same vocabulary as the search tool — e.g. 'is_pdf || is_office' to scope to documents), 'model' / 'embedding_server' (per-call overrides for the server-startup defaults — useful when you've pulled multiple embedding models). Setup: requires Ollama running locally (https://ollama.com) and one embedding model pulled (e.g. 'ollama pull nomic-embed-text'). The MCP server boots WITHOUT Ollama; the first search_semantic call performs the connection check and returns a clear error if Ollama is unreachable or the model isn't pulled. The per-file embedding is cached alongside (size, mtime) so repeat searches against an unchanged tree are I/O-cheap. After the first full walk of a (dir, model) pair, repeat queries are served from a warm in-memory vector index — no filesystem walk and no re-embedding — and the response sets ann_used=true (it falls back to a full walk, ann_used=false, when the directory's structure changes; content edits are detected per-file and reported via ann_stale_skipped). For hybrid keyword+semantic ranking pass hybrid=true (fuses BM25 keyword relevance with embedding similarity via reciprocal-rank fusion). Use 'list_embedding_models' to discover what's installed and 'pull_embedding_model' to install a recommended one.",
 	}, instrument(h.metrics, "search_semantic", h.searchSemanticHandler))
 
 	mcp.AddTool(s, &mcp.Tool{

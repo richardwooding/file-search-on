@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -51,6 +52,15 @@ type SearchSemanticOutput struct {
 	// truncated by Limit and more matches remain. Pass it back as the
 	// 'cursor' input to fetch the next page. Empty means last page. #336.
 	NextCursor         string         `json:"next_cursor,omitempty"`
+	// AnnUsed reports which path served the query (issue #335 part 2):
+	// true when answered from the warm in-memory vector index (no
+	// filesystem walk, no re-embedding), false when the full walk ran
+	// (cold/uncovered dir — which also warms the index for next time).
+	AnnUsed            bool           `json:"ann_used"`
+	// AnnStaleSkipped counts candidates the ANN path dropped because the
+	// file changed / vanished since indexing (stale cached vector). Only
+	// meaningful when AnnUsed is true.
+	AnnStaleSkipped    int            `json:"ann_stale_skipped,omitempty"`
 	ElapsedSeconds     float64        `json:"elapsed_seconds"`
 	EmbeddingModel     string         `json:"embedding_model"`
 	SimilarityThreshold float64       `json:"similarity_threshold"`
@@ -176,35 +186,70 @@ func (h *handlers) searchSemanticHandler(ctx context.Context, req *mcp.CallToolR
 	// matches means embedding failed, not that nothing matched (#305).
 	embedErrsBefore := h.idx.Stats().EmbedErrors
 
-	out := make(chan search.Result, 64)
-	var walkErr error
-	done := make(chan struct{})
-	go func() {
-		walkErr = search.WalkStream(ctx, walkOpts, content.DefaultRegistry(), out)
-		close(done)
-	}()
-
-	token := req.Params.GetProgressToken()
 	var results []search.Result
-	processed := int64(0)
-	for r := range out {
-		results = append(results, r)
-		processed++
-		if token != nil && processed%progressNotifyStride == 0 {
-			_ = req.Session.NotifyProgress(ctx, &mcp.ProgressNotificationParams{
-				ProgressToken: token,
-				Progress:      float64(processed),
-				Message:       fmt.Sprintf("%d matches so far", processed),
-			})
+	var walkErr error
+	cancelled := false
+	annUsed := false
+	annStale := 0
+
+	// Warm ANN fast path (issue #335 part 2). Eligible only for a single
+	// directory, non-hybrid (hybrid needs the walk's BM25 capture), and
+	// without a body filter (the ANN path evaluates over cached attrs and
+	// can't bind the `body` variable). When the (dir, model) pair is
+	// covered by a prior full walk and the directory structure is
+	// unchanged, answer from the in-memory vector index — no walk, no
+	// re-embedding.
+	absDir := dir
+	if a, aerr := filepath.Abs(dir); aerr == nil {
+		absDir = a
+	}
+	annEligible := len(dirs) == 0 && !in.Hybrid && !in.IncludeBody
+	if annEligible && h.semIndex.Covered(absDir, model) {
+		if r, stale, qerr := h.semIndex.Query(ctx, absDir, model, queryVec, expr, content.DefaultRegistry()); qerr == nil {
+			results = r
+			annStale = stale
+			annUsed = true
+		}
+		// On a Query error, fall through to the full walk below.
+	}
+
+	if !annUsed {
+		out := make(chan search.Result, 64)
+		done := make(chan struct{})
+		go func() {
+			walkErr = search.WalkStream(ctx, walkOpts, content.DefaultRegistry(), out)
+			close(done)
+		}()
+
+		token := req.Params.GetProgressToken()
+		processed := int64(0)
+		for r := range out {
+			results = append(results, r)
+			processed++
+			if token != nil && processed%progressNotifyStride == 0 {
+				_ = req.Session.NotifyProgress(ctx, &mcp.ProgressNotificationParams{
+					ProgressToken: token,
+					Progress:      float64(processed),
+					Message:       fmt.Sprintf("%d matches so far", processed),
+				})
+			}
+		}
+		<-done
+
+		cancelled = errors.Is(walkErr, context.Canceled) || errors.Is(walkErr, context.DeadlineExceeded)
+		if walkErr != nil && !cancelled {
+			return nil, SearchSemanticOutput{}, fmt.Errorf("walk: %w", walkErr)
+		}
+		// Warm the in-memory vector index from the freshly-cached vectors
+		// so subsequent queries against this (dir, model) take the fast
+		// path. Only on a complete single-dir walk — a cancelled or
+		// multi-root walk hasn't covered the tree. The walk embeds every
+		// text file BEFORE the CEL filter, so coverage is query-agnostic.
+		if !cancelled && len(dirs) == 0 {
+			h.semIndex.Warm(absDir, model)
 		}
 	}
-	<-done
 	elapsed := time.Since(start).Seconds()
-
-	cancelled := errors.Is(walkErr, context.Canceled) || errors.Is(walkErr, context.DeadlineExceeded)
-	if walkErr != nil && !cancelled {
-		return nil, SearchSemanticOutput{}, fmt.Errorf("walk: %w", walkErr)
-	}
 
 	// Hybrid keyword+semantic ranking (issue #335). FinalizeBM25 scores
 	// BM25 over the candidate set and writes the reciprocal-rank-fused
@@ -239,6 +284,8 @@ func (h *handlers) searchSemanticHandler(ctx context.Context, req *mcp.CallToolR
 		Matches:             matches,
 		Count:               len(matches),
 		NextCursor:          nextCursor,
+		AnnUsed:             annUsed,
+		AnnStaleSkipped:     annStale,
 		ElapsedSeconds:      elapsed,
 		EmbeddingModel:      model,
 		SimilarityThreshold: threshold,
