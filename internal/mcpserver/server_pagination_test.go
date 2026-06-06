@@ -205,6 +205,44 @@ func TestStatsTool_CursorPagination(t *testing.T) {
 	}
 }
 
+// TestStatsTool_CursorGroupByMismatchErrors is the #347 regression: a
+// stats cursor issued for one group_by must be REJECTED when reused with
+// a different group_by, not silently return an empty page.
+func TestStatsTool_CursorGroupByMismatchErrors(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "a.md"), "x")
+	mustWrite(t, filepath.Join(dir, "b.json"), "{}")
+	mustWrite(t, filepath.Join(dir, "c.txt"), "x")
+
+	ctx, cs := newSession(t)
+
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "stats",
+		Arguments: StatsInput{Dir: dir, GroupBy: "ext", Limit: 1},
+	})
+	if err != nil {
+		t.Fatalf("page1: %v", err)
+	}
+	var out StatsOutput
+	mustDecodeStructured(t, res, &out)
+	if out.NextCursor == "" {
+		t.Fatal("expected a next_cursor after page 1")
+	}
+
+	// Reuse the group_by=ext cursor with group_by=content_type → must error
+	// (previously returned an empty page silently — #347).
+	res2, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "stats",
+		Arguments: StatsInput{Dir: dir, GroupBy: "content_type", Limit: 1, Cursor: out.NextCursor},
+	})
+	if err != nil {
+		t.Fatalf("page2 transport: %v", err)
+	}
+	if !res2.IsError {
+		t.Error("expected IsError=true reusing a group_by=ext cursor with group_by=content_type (#347)")
+	}
+}
+
 // TestFindNearDuplicatesTool_CursorPagination pages near-duplicate
 // clusters and asserts every cluster is visited once.
 func TestFindNearDuplicatesTool_CursorPagination(t *testing.T) {
