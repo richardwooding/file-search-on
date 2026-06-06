@@ -57,7 +57,18 @@ var decodeSem = make(chan struct{}, concurrentDecodeLimit)
 // frontmatter or absurdly long lists could otherwise bloat the on-disk file.
 // Above this we drop the Put and increment Stats.Errors — a cache miss is
 // always recoverable, a runaway DB is not.
-const maxEntryBytes = 256 * 1024
+//
+// The cap must accommodate the largest LEGITIMATE Entry, which since the
+// chunked-semantic work (#332) is dominated by ChunkVectors: up to
+// defaultEmbedMaxChunks (64) embeddings, each model-dim float32s. gob
+// encodes floats as length-prefixed byte-reversed float64s (~8-9 B per
+// value), so a 768-d model fills ~393 KB and a 1024-d model ~544 KB — both
+// of which blew past the original 256 KB cap, silently dropping every
+// book-length nomic vector and defeating the vector cache + #335 warm index
+// (issue #346). 2 MiB fits 64 chunks of even a 2048-d model with headroom
+// while still bounding a runaway Extra map. Larger-dim models would need a
+// bigger cap (or compact raw-float32 vector storage — a future optimisation).
+const maxEntryBytes = 2 * 1024 * 1024
 
 // bodyMaxBytes is the per-body encoded-size cap. Bigger than maxEntryBytes
 // because a body for a typical PDF / DOCX runs 10 KB – 1 MB and the agent
