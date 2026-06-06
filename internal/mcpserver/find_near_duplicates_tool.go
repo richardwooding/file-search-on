@@ -163,7 +163,7 @@ func (h *handlers) findNearDuplicatesHandler(ctx context.Context, _ *mcp.CallToo
 		if in.Cursor != "" || in.GroupLimit > 0 {
 			page, next, perr := search.PaginateGeneric(out.Groups, func(g NearDuplicateGroupWire) []any {
 				return []any{int64(g.Count), g.Representative}
-			}, []string{"desc", "asc"}, in.Cursor, in.GroupLimit)
+			}, []string{"desc", "asc"}, fmt.Sprintf("neardup:%g", out.Threshold), in.Cursor, in.GroupLimit)
 			if perr != nil {
 				return nil, FindNearDuplicatesOutput{}, fmt.Errorf("cursor: %w", perr)
 			}

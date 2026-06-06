@@ -188,7 +188,7 @@ func (h *handlers) findMatchesHandler(ctx context.Context, _ *mcp.CallToolReques
 	if in.Cursor != "" || in.Limit > 0 {
 		page, next, perr := search.PaginateGeneric(out.Matches, func(m LineMatch) []any {
 			return []any{m.Path, int64(m.Line)}
-		}, []string{"asc", "asc"}, in.Cursor, in.Limit)
+		}, []string{"asc", "asc"}, "find_matches:"+in.Pattern, in.Cursor, in.Limit)
 		if perr != nil {
 			return nil, FindMatchesOutput{}, fmt.Errorf("cursor: %w", perr)
 		}

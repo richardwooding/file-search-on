@@ -157,7 +157,7 @@ func (h *handlers) statsHandler(ctx context.Context, _ *mcp.CallToolRequest, in 
 		if in.Cursor != "" || in.Limit > 0 {
 			page, next, perr := search.PaginateGeneric(out.Groups, func(b StatsBucket) []any {
 				return []any{b.Count, b.Name}
-			}, []string{"desc", "asc"}, in.Cursor, in.Limit)
+			}, []string{"desc", "asc"}, "stats:"+out.GroupBy, in.Cursor, in.Limit)
 			if perr != nil {
 				return nil, StatsOutput{}, fmt.Errorf("cursor: %w", perr)
 			}

@@ -211,7 +211,7 @@ func collectGenericPages(t *testing.T, build func() []bucket, orders []string, l
 		if pages > 1000 {
 			t.Fatal("generic pagination did not terminate")
 		}
-		page, next, err := PaginateGeneric(build(), bktKeyFn, orders, cursor, limit)
+		page, next, err := PaginateGeneric(build(), bktKeyFn, orders, "test", cursor, limit)
 		if err != nil {
 			t.Fatalf("PaginateGeneric page %d: %v", pages, err)
 		}
@@ -245,7 +245,7 @@ func TestPaginateGeneric_CountDescNameAsc(t *testing.T) {
 }
 
 func TestPaginateGeneric_NoLimitNoCursor(t *testing.T) {
-	page, next, err := PaginateGeneric(buckets(), bktKeyFn, []string{"desc", "asc"}, "", 0)
+	page, next, err := PaginateGeneric(buckets(), bktKeyFn, []string{"desc", "asc"}, "test", "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,18 +255,32 @@ func TestPaginateGeneric_NoLimitNoCursor(t *testing.T) {
 }
 
 func TestPaginateGeneric_OrderMismatchErrors(t *testing.T) {
-	_, next, err := PaginateGeneric(buckets(), bktKeyFn, []string{"desc", "asc"}, "", 2)
+	_, next, err := PaginateGeneric(buckets(), bktKeyFn, []string{"desc", "asc"}, "test", "", 2)
 	if err != nil || next == "" {
 		t.Fatalf("setup: err=%v next=%q", err, next)
 	}
-	// Reuse a (desc,asc) cursor against (asc,asc) → reject.
-	if _, _, err := PaginateGeneric(buckets(), bktKeyFn, []string{"asc", "asc"}, next, 2); err == nil {
+	// Reuse a (desc,asc) cursor against (asc,asc), same scope → reject.
+	if _, _, err := PaginateGeneric(buckets(), bktKeyFn, []string{"asc", "asc"}, "test", next, 2); err == nil {
 		t.Error("expected an error when the cursor's ordering differs from the call's")
 	}
 }
 
+// TestPaginateGeneric_ScopeMismatchErrors is the #347 regression: a
+// cursor issued for one query dimension (scope) must be rejected when
+// reused against a different dimension, rather than silently mis-paging.
+func TestPaginateGeneric_ScopeMismatchErrors(t *testing.T) {
+	_, next, err := PaginateGeneric(buckets(), bktKeyFn, []string{"desc", "asc"}, "stats:ext", "", 2)
+	if err != nil || next == "" {
+		t.Fatalf("setup: err=%v next=%q", err, next)
+	}
+	// Same ordering, DIFFERENT scope → reject.
+	if _, _, err := PaginateGeneric(buckets(), bktKeyFn, []string{"desc", "asc"}, "stats:language", next, 2); err == nil {
+		t.Error("expected an error when the cursor's scope differs from the call's (#347)")
+	}
+}
+
 func TestPaginateGeneric_InvalidCursorErrors(t *testing.T) {
-	if _, _, err := PaginateGeneric(buckets(), bktKeyFn, []string{"desc", "asc"}, "@@bad@@", 2); err == nil {
+	if _, _, err := PaginateGeneric(buckets(), bktKeyFn, []string{"desc", "asc"}, "test", "@@bad@@", 2); err == nil {
 		t.Error("expected an error for a malformed generic cursor")
 	}
 }

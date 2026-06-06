@@ -205,9 +205,13 @@ func cmpCursorVal(a, b cursorVal) int {
 
 // genericCursor is the opaque token for PaginateGeneric. It records the
 // per-component order directions (so a cursor can't be reused against a
-// different ordering) plus the last returned item's full ordered key.
+// different ordering), the caller's SCOPE (the query dimension that
+// defines the ordered set — group_by / pattern / threshold — so a cursor
+// can't be reused against a different one, issue #347), plus the last
+// returned item's full ordered key.
 type genericCursor struct {
 	Orders []string    `json:"o"`
+	Scope  string      `json:"s,omitempty"`
 	Key    []cursorVal `json:"k"`
 }
 
@@ -225,7 +229,14 @@ type genericCursor struct {
 // path / name / representative is the usual choice). orders gives the
 // direction ("asc"/"desc") per component; the tuple compares
 // left-to-right. Issue #336.
-func PaginateGeneric[T any](items []T, keyOf func(T) []any, orders []string, token string, limit int) (page []T, next string, err error) {
+//
+// scope identifies the query dimension that defines the ordered set —
+// the caller passes a stable string built from its distinguishing input
+// (e.g. "stats:ext", "find_matches:TODO", "neardup:0.85"). A cursor
+// carries its scope and a call with a DIFFERENT scope is rejected, so a
+// token issued for one group_by / pattern / threshold can't silently
+// mis-page against another (issue #347). Pass "" to opt out.
+func PaginateGeneric[T any](items []T, keyOf func(T) []any, orders []string, scope, token string, limit int) (page []T, next string, err error) {
 	norm := make([]string, len(orders))
 	for i, o := range orders {
 		norm[i] = normalizeOrder(o)
@@ -248,6 +259,9 @@ func PaginateGeneric[T any](items []T, keyOf func(T) []any, orders []string, tok
 		if derr != nil {
 			return nil, "", derr
 		}
+		if gc.Scope != scope {
+			return nil, "", fmt.Errorf("cursor was issued for %q but this call uses %q — start a fresh page or match the original query", gc.Scope, scope)
+		}
 		if strings.Join(gc.Orders, ",") != strings.Join(norm, ",") {
 			return nil, "", fmt.Errorf("cursor was issued for ordering %v but this call uses %v — start a fresh page or match the original ordering", gc.Orders, norm)
 		}
@@ -259,7 +273,7 @@ func PaginateGeneric[T any](items []T, keyOf func(T) []any, orders []string, tok
 
 	if limit > 0 && len(items) > limit {
 		last := items[limit-1]
-		next = encodeGenericCursor(genericCursor{Orders: norm, Key: keyVals(last)})
+		next = encodeGenericCursor(genericCursor{Orders: norm, Scope: scope, Key: keyVals(last)})
 		return items[:limit], next, nil
 	}
 	return items, "", nil
