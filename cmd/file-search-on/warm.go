@@ -9,7 +9,7 @@ import (
 	"time"
 
 	contentpkg "github.com/richardwooding/file-search-on/internal/content"
-	"github.com/richardwooding/file-search-on/internal/embed"
+	"github.com/richardwooding/ollamaembed"
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/search"
 )
@@ -102,13 +102,13 @@ func warmIndex(ctx context.Context, idx index.Index, root string, workers int, l
 // file's body to feed Embedder.Embed; that makes the embeddings warm
 // substantially more expensive per file than warmIndex's attribute-only
 // pass.
-func warmEmbeddings(ctx context.Context, idx index.Index, root string, workers int, embedder embed.Embedder, log io.Writer) error {
+func warmEmbeddings(ctx context.Context, idx index.Index, root string, workers int, embedder ollamaembed.Embedder, log io.Writer) error {
 	workers = warmWorkers(workers)
 	queryVec, err := embedder.Embed(ctx, " ")
 	if err != nil {
 		return fmt.Errorf("warm: embed dummy query: %w", err)
 	}
-	embed.Normalize(queryVec)
+	ollamaembed.Normalize(queryVec)
 
 	opts := search.Options{
 		Root:                   root,

@@ -12,7 +12,7 @@ import (
 
 	"github.com/richardwooding/file-search-on/internal/celexpr"
 	contentpkg "github.com/richardwooding/file-search-on/internal/content"
-	"github.com/richardwooding/file-search-on/internal/embed"
+	"github.com/richardwooding/ollamaembed"
 	"github.com/richardwooding/file-search-on/internal/hashset"
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/search"
@@ -146,18 +146,18 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 	// so workers do one dot-product per file rather than re-embedding
 	// the query for every file. The Embedder is lazy-connect — no
 	// HTTP call happens until the first per-file embedding.
-	var embedder embed.Embedder
+	var embedder ollamaembed.Embedder
 	var queryVector []float32
 	if s.SemanticQuery != "" {
 		if s.EmbeddingModel == "" {
 			return fmt.Errorf("--semantic-query requires --embedding-model (pass an Ollama model name, e.g. nomic-embed-text)")
 		}
-		embedder = embed.NewOllama(s.EmbeddingServer, s.EmbeddingModel)
+		embedder = ollamaembed.NewOllama(s.EmbeddingServer, s.EmbeddingModel)
 		v, err := embedder.Embed(effectiveCtx, s.SemanticQuery)
 		if err != nil {
 			return fmt.Errorf("embed query: %w", err)
 		}
-		embed.Normalize(v)
+		ollamaembed.Normalize(v)
 		queryVector = v
 		// Force sort by similarity desc unless the user already
 		// specified one — semantic search without ranking is useless.

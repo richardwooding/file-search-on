@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/richardwooding/file-search-on/internal/embed"
+	"github.com/richardwooding/ollamaembed"
 	"github.com/richardwooding/file-search-on/internal/gitmeta"
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/mcpserver"
@@ -105,7 +105,7 @@ func (m *MCPCmd) Run(ctx context.Context) error {
 	}
 	var warmEmbedFn func(ctx context.Context, root string) error
 	if m.EmbeddingModel != "" {
-		embedder := embed.NewOllama(m.EmbeddingServer, m.EmbeddingModel)
+		embedder := ollamaembed.NewOllama(m.EmbeddingServer, m.EmbeddingModel)
 		warmEmbedFn = func(ctx context.Context, root string) error {
 			return warmEmbeddings(ctx, idx, root, m.WarmWorkers, embedder, os.Stderr)
 		}
@@ -202,7 +202,7 @@ func (m *MCPCmd) Run(ctx context.Context) error {
 				if deadline <= 0 {
 					deadline = 30 * time.Minute // embeddings are 10–100× slower than attrs
 				}
-				embedder := embed.NewOllama(m.EmbeddingServer, m.EmbeddingModel)
+				embedder := ollamaembed.NewOllama(m.EmbeddingServer, m.EmbeddingModel)
 				warmCtx, cancelWarm := context.WithTimeout(ctx, deadline)
 				go func() {
 					defer cancelWarm()

@@ -1,0 +1,65 @@
+# Contributing to <project-name>
+
+Thanks for considering a contribution. This document covers how to set up the project, the conventions for branches and commits, and how PRs get reviewed.
+
+By participating, you agree to abide by the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Reporting bugs
+
+Open a [GitHub issue](https://github.com/<owner>/<repo>/issues) using the bug report template. Please include:
+
+- What you expected to happen.
+- What actually happened.
+- The version (`<binary> --version`).
+- A minimal repro if possible.
+
+For **security issues**, do **not** open a public issue. See [SECURITY.md](SECURITY.md) for the private reporting channel.
+
+## Suggesting features
+
+Open a feature-request issue describing the use case before writing code. Helps us avoid two-week PRs that turn out to be the wrong shape.
+
+## Development setup
+
+```sh
+git clone https://github.com/<owner>/<repo>.git
+cd <repo>
+<install-deps>      # e.g. `go mod download`, `npm install`, `cargo build`
+<run-tests>         # e.g. `go test ./...`, `npm test`, `cargo test`
+```
+
+<one-paragraph on any non-obvious setup: env vars, fixtures, services that
+need to be running locally>.
+
+## Branching and commits
+
+- Work off **`main`**. Feature branches: `<type>/<short-name>` — e.g. `feat/markdown-frontmatter`, `fix/exif-orientation`.
+- Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `chore:`, `docs:`, `test:`, `refactor:`. The first line is a short summary; the body (optional) explains why, not what.
+- Sign-off (`git commit -s`) is appreciated but not required.
+
+## Pull requests
+
+1. Open a draft PR early if you'd like feedback on direction.
+2. Make sure tests pass locally before marking ready for review.
+3. CI must be green: build, tests, lint.
+4. PRs are squash-merged unless the change history is genuinely worth preserving.
+5. One reviewer minimum; two for changes touching public APIs / security / release pipeline.
+
+PRs should:
+
+- Include tests for new behaviour.
+- Update docs if user-facing behaviour changed.
+- Update CHANGELOG.md under `[Unreleased]` if applicable.
+
+## Code style
+
+```sh
+<format-command>    # e.g. `go fmt ./...`, `prettier --write .`, `cargo fmt`
+<lint-command>      # e.g. `golangci-lint run`, `eslint .`, `cargo clippy`
+```
+
+Run before pushing. CI will fail otherwise.
+
+## License of contributions
+
+By submitting a PR, you agree your contribution is licensed under the same license as the project — see [LICENSE](LICENSE).

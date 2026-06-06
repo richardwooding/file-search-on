@@ -25,7 +25,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/richardwooding/file-search-on/internal/embed"
+	"github.com/richardwooding/ollamaembed"
 )
 
 // Index is a thread-safe, exact in-memory vector index keyed by string.
@@ -94,7 +94,7 @@ func (i *Index) Search(query []float32, k int) []Neighbour {
 	i.mu.RLock()
 	scored := make([]Neighbour, 0, len(i.vecs))
 	for key, v := range i.vecs {
-		scored = append(scored, Neighbour{Key: key, Similarity: embed.Dot(query, v)})
+		scored = append(scored, Neighbour{Key: key, Similarity: ollamaembed.Dot(query, v)})
 	}
 	i.mu.RUnlock()
 

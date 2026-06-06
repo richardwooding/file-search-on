@@ -13,7 +13,7 @@ import (
 	"github.com/richardwooding/bm25"
 	"github.com/richardwooding/file-search-on/internal/celexpr"
 	"github.com/richardwooding/file-search-on/internal/content"
-	"github.com/richardwooding/file-search-on/internal/embed"
+	"github.com/richardwooding/ollamaembed"
 	"github.com/richardwooding/file-search-on/internal/gitmeta"
 	"github.com/richardwooding/file-search-on/internal/hashset"
 	"github.com/richardwooding/file-search-on/internal/index"
@@ -196,7 +196,7 @@ type Options struct {
 	// --semantic-query / --embedding-model / --embedding-server;
 	// MCP threads them from the search_semantic tool's inputs +
 	// server-startup defaults.
-	Embedder               embed.Embedder
+	Embedder               ollamaembed.Embedder
 	SemanticQueryEmbedding []float32
 
 	// EmbedInputMaxBytes caps the body text handed to the embedder

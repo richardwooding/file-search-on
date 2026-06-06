@@ -12,7 +12,7 @@ import (
 	"github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/content/ocr"
 	"github.com/richardwooding/file-search-on/internal/cryptohash"
-	"github.com/richardwooding/file-search-on/internal/embed"
+	"github.com/richardwooding/ollamaembed"
 	"github.com/richardwooding/fingerprint"
 	"github.com/richardwooding/file-search-on/internal/hashset"
 	"github.com/richardwooding/file-search-on/internal/index"
@@ -252,7 +252,7 @@ func chunkForEmbed(text string, chunkBytes int) []string {
 // smaller-input retry) is skipped rather than failing the whole
 // document. Honours ctx between chunks (#321 audit): a cancelled walk
 // stops and returns what it has.
-func embedChunks(ctx context.Context, embedder embed.Embedder, chunks []string) [][]float32 {
+func embedChunks(ctx context.Context, embedder ollamaembed.Embedder, chunks []string) [][]float32 {
 	vecs := make([][]float32, 0, len(chunks))
 	for _, c := range chunks {
 		if ctx.Err() != nil {
@@ -267,7 +267,7 @@ func embedChunks(ctx context.Context, embedder embed.Embedder, chunks []string) 
 		if err != nil || len(vec) == 0 {
 			continue // skip this chunk; others still contribute
 		}
-		embed.Normalize(vec)
+		ollamaembed.Normalize(vec)
 		vecs = append(vecs, vec)
 	}
 	return vecs
@@ -278,7 +278,7 @@ func embedChunks(ctx context.Context, embedder embed.Embedder, chunks []string) 
 func maxChunkSimilarity(query []float32, chunks [][]float32) float64 {
 	best := 0.0
 	for i, v := range chunks {
-		s := embed.Dot(query, v)
+		s := ollamaembed.Dot(query, v)
 		if i == 0 || s > best {
 			best = s
 		}

@@ -10,7 +10,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/richardwooding/file-search-on/internal/content"
-	"github.com/richardwooding/file-search-on/internal/embed"
+	"github.com/richardwooding/ollamaembed"
 	"github.com/richardwooding/file-search-on/internal/search"
 )
 
@@ -149,12 +149,12 @@ func (h *handlers) searchSemanticHandler(ctx context.Context, req *mcp.CallToolR
 	// Build + embed the query. This is the first HTTP call to Ollama
 	// — failures here are the natural "is Ollama running?" / "is the
 	// model pulled?" checkpoint. Surface them clearly.
-	embedder := embed.NewOllama(server, model)
+	embedder := ollamaembed.NewOllama(server, model)
 	queryVec, err := embedder.Embed(ctx, in.Query)
 	if err != nil {
 		return nil, SearchSemanticOutput{}, fmt.Errorf("embed query (model %q at %s): %w", model, server, err)
 	}
-	embed.Normalize(queryVec)
+	ollamaembed.Normalize(queryVec)
 
 	// Fold the threshold into the CEL filter. Pre-prune via in.Expr
 	// when set; otherwise just the threshold gate.
