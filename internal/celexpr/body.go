@@ -8,7 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/richardwooding/file-search-on/internal/bm25"
+	"github.com/richardwooding/bm25"
 	"github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/content/ocr"
 	"github.com/richardwooding/file-search-on/internal/cryptohash"
