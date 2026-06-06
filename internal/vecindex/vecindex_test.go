@@ -6,11 +6,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/richardwooding/file-search-on/internal/embed"
+	"github.com/richardwooding/ollamaembed"
 )
 
 func norm(v []float32) []float32 {
-	embed.Normalize(v)
+	ollamaembed.Normalize(v)
 	return v
 }
 

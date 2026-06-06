@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/richardwooding/file-search-on/internal/embed"
+	"github.com/richardwooding/ollamaembed"
 	"github.com/richardwooding/file-search-on/internal/index"
 )
 
@@ -57,7 +57,7 @@ type catalogOut struct {
 }
 
 func (c *EmbedListCmd) Run(ctx context.Context) error {
-	oll := embed.NewOllama(c.Server, "")
+	oll := ollamaembed.NewOllama(c.Server, "")
 	local, err := oll.ListLocal(ctx)
 	if err != nil {
 		return fmt.Errorf("list ollama models: %w", err)
@@ -66,7 +66,7 @@ func (c *EmbedListCmd) Run(ctx context.Context) error {
 	resp := embedListJSON{Server: c.Server, Local: []localOut{}, Catalog: []catalogOut{}}
 	pulledBare := make(map[string]struct{}, len(local))
 	for _, m := range local {
-		bare := embed.BareName(m.Name)
+		bare := ollamaembed.BareName(m.Name)
 		pulledBare[bare] = struct{}{}
 		row := localOut{
 			Name:       m.Name,
@@ -74,14 +74,14 @@ func (c *EmbedListCmd) Run(ctx context.Context) error {
 			ModifiedAt: m.ModifiedAt,
 			Digest:     m.Digest,
 		}
-		if cat := embed.CatalogLookup(bare); cat != nil {
+		if cat := ollamaembed.CatalogLookup(bare); cat != nil {
 			row.Catalogued = true
 			row.Description = cat.Description
 			row.Dimensions = cat.Dimensions
 		}
 		resp.Local = append(resp.Local, row)
 	}
-	for _, cat := range embed.Catalog {
+	for _, cat := range ollamaembed.Catalog {
 		_, pulled := pulledBare[cat.Name]
 		resp.Catalog = append(resp.Catalog, catalogOut{
 			Name:        cat.Name,
@@ -174,13 +174,13 @@ type EmbedPullCmd struct {
 }
 
 func (c *EmbedPullCmd) Run(ctx context.Context) error {
-	oll := embed.NewOllama(c.Server, "")
+	oll := ollamaembed.NewOllama(c.Server, "")
 
 	// Quick shortcut: if the model is already pulled, say so and exit.
 	if local, err := oll.ListLocal(ctx); err == nil {
-		bareWant := embed.BareName(c.Name)
+		bareWant := ollamaembed.BareName(c.Name)
 		for _, m := range local {
-			if embed.BareName(m.Name) == bareWant {
+			if ollamaembed.BareName(m.Name) == bareWant {
 				_, _ = fmt.Fprintf(os.Stderr, "%s is already pulled\n", c.Name)
 				return nil
 			}
@@ -194,7 +194,7 @@ func (c *EmbedPullCmd) Run(ctx context.Context) error {
 
 	var lastReport time.Time
 	var lastTotal, lastCompleted int64
-	progress := func(p embed.PullProgress) {
+	progress := func(p ollamaembed.PullProgress) {
 		if c.Quiet {
 			return
 		}
@@ -263,7 +263,7 @@ func (c *EmbedWarmCmd) Run(ctx context.Context) error {
 	}
 	defer func() { _ = idx.Close() }()
 
-	embedder := embed.NewOllama(c.Server, c.Model)
+	embedder := ollamaembed.NewOllama(c.Server, c.Model)
 
 	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
 	defer cancel()

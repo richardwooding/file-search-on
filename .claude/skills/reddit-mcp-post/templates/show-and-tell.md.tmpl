@@ -1,0 +1,54 @@
+---
+title: "Show & Tell: <project> — MCP server for <one-line description>"
+flair: Show & Tell
+---
+
+[Hook: 1-2 sentences. What the server does and one concrete reason
+someone scrolling r/mcp should care. Concrete > abstract.]
+
+**Repo**: [<project>](https://github.com/<you>/<repo>)
+**Tested with**: Claude Desktop, <other clients>
+**Transport(s)**: stdio, <Streamable HTTP / SSE if applicable>
+**Spec version**: 2025-06-18 (or whichever the SDK target is)
+
+## What it does
+
+[Concise description. What tools does it expose? What resources?
+Any prompts? One paragraph.]
+
+```ts
+// or python / go — small example of a tool definition or
+// a tools/call response. Pick the most informative excerpt.
+```
+
+## Why I built it
+
+[The itch you scratched. Skip if obvious from "what it does".]
+
+## Interesting bits
+
+[1-3 design decisions worth discussing — schema design, transport
+choice, sandboxing, resource design, sampling. This is what r/mcp
+is here for.]
+
+## Permissions / blast radius
+
+[What does the server access? Filesystem? Network? Local DB? Be
+explicit. Mention any sandboxing, allowlists, or read-only flags.]
+
+## What's next
+
+[Honest backlog. Acknowledge what's missing or in-progress.]
+
+[Optional: "Feedback welcome — particularly on X." — invites
+engagement on a specific axis.]
+
+<!--
+Notes for the author:
+
+- Length target: 200-600 words. Add a TL;DR at top or bottom over ~600.
+- Always disclose: tested clients, transports, spec version.
+- Always link the public repo. Closed-source MCP servers don't get installed.
+- Run `bash .claude/skills/reddit-mcp-post/scripts/copy.sh <this-file>`
+  to stage the body on the clipboard. Title and flair print to stderr.
+-->

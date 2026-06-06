@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/richardwooding/file-search-on/internal/embed"
+	"github.com/richardwooding/ollamaembed"
 )
 
 // PullEmbeddingModelInput is the input shape for `pull_embedding_model`.
@@ -54,14 +54,14 @@ func (h *handlers) pullEmbeddingModelHandler(ctx context.Context, _ *mcp.CallToo
 		Server:       server,
 	}
 
-	oll := embed.NewOllama(server, "")
+	oll := ollamaembed.NewOllama(server, "")
 
 	// Shortcut: if the model is already pulled, we're done.
 	local, err := oll.ListLocal(ctx)
 	if err == nil {
-		bareWant := embed.BareName(in.Name)
+		bareWant := ollamaembed.BareName(in.Name)
 		for _, m := range local {
-			if embed.BareName(m.Name) == bareWant {
+			if ollamaembed.BareName(m.Name) == bareWant {
 				out.AlreadyPulled = true
 				return nil, out, nil
 			}
@@ -72,7 +72,7 @@ func (h *handlers) pullEmbeddingModelHandler(ctx context.Context, _ *mcp.CallToo
 
 	var totalBytes int64
 	start := time.Now()
-	err = oll.Pull(ctx, in.Name, func(p embed.PullProgress) {
+	err = oll.Pull(ctx, in.Name, func(p ollamaembed.PullProgress) {
 		// Approximate total = sum of unique layer totals; Ollama may
 		// re-report the same layer multiple times as it streams, but
 		// each layer's Total is stable per-layer. We over-count if

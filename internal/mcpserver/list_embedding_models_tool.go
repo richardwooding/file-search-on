@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/richardwooding/file-search-on/internal/embed"
+	"github.com/richardwooding/ollamaembed"
 )
 
 // ListEmbeddingModelsInput is the input shape for `list_embedding_models`.
@@ -64,10 +64,10 @@ func (h *handlers) listEmbeddingModelsHandler(ctx context.Context, _ *mcp.CallTo
 		CommonOutput: CommonOutput{ServerVersion: h.version},
 		Server:       server,
 		Local:        []LocalModelOut{},
-		Catalog:      make([]CatalogOut, 0, len(embed.Catalog)),
+		Catalog:      make([]CatalogOut, 0, len(ollamaembed.Catalog)),
 	}
 
-	oll := embed.NewOllama(server, "")
+	oll := ollamaembed.NewOllama(server, "")
 	local, err := oll.ListLocal(ctx)
 	if err != nil {
 		return nil, out, err
@@ -75,7 +75,7 @@ func (h *handlers) listEmbeddingModelsHandler(ctx context.Context, _ *mcp.CallTo
 
 	pulledBare := make(map[string]struct{}, len(local))
 	for _, m := range local {
-		bare := embed.BareName(m.Name)
+		bare := ollamaembed.BareName(m.Name)
 		pulledBare[bare] = struct{}{}
 		row := LocalModelOut{
 			Name:       m.Name,
@@ -83,7 +83,7 @@ func (h *handlers) listEmbeddingModelsHandler(ctx context.Context, _ *mcp.CallTo
 			ModifiedAt: m.ModifiedAt,
 			Digest:     m.Digest,
 		}
-		if cat := embed.CatalogLookup(bare); cat != nil {
+		if cat := ollamaembed.CatalogLookup(bare); cat != nil {
 			row.Catalogued = true
 			row.Description = cat.Description
 			row.Dimensions = cat.Dimensions
@@ -91,7 +91,7 @@ func (h *handlers) listEmbeddingModelsHandler(ctx context.Context, _ *mcp.CallTo
 		out.Local = append(out.Local, row)
 	}
 
-	for _, c := range embed.Catalog {
+	for _, c := range ollamaembed.Catalog {
 		_, pulled := pulledBare[c.Name]
 		out.Catalog = append(out.Catalog, CatalogOut{
 			Name:        c.Name,

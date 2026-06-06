@@ -12,7 +12,7 @@ import (
 
 	"github.com/richardwooding/file-search-on/internal/celexpr"
 	"github.com/richardwooding/file-search-on/internal/content"
-	"github.com/richardwooding/file-search-on/internal/embed"
+	"github.com/richardwooding/ollamaembed"
 	"github.com/richardwooding/file-search-on/internal/index"
 )
 
@@ -63,7 +63,7 @@ func TestBuildAttributesWith_Similarity_PopulatesViaMock(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	embedder := embed.NewOllama(srv.URL, "mock")
+	embedder := ollamaembed.NewOllama(srv.URL, "mock")
 	idx := index.NewMemory()
 	defer func() { _ = idx.Close() }()
 
@@ -107,7 +107,7 @@ func TestBuildAttributesWith_Similarity_CacheHit(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	embedder := embed.NewOllama(srv.URL, "mock")
+	embedder := ollamaembed.NewOllama(srv.URL, "mock")
 	idx := index.NewMemory()
 	defer func() { _ = idx.Close() }()
 
@@ -174,7 +174,7 @@ func TestBuildAttributesWith_Similarity_ModelMismatch(t *testing.T) {
 	queryVec := []float32{0.6, 0.8}
 
 	// Walk 1: populate cache with model A.
-	embedderA := embed.NewOllama(srv.URL, "model-a")
+	embedderA := ollamaembed.NewOllama(srv.URL, "model-a")
 	if _, err := celexpr.BuildAttributesWith(ctx, os.DirFS(parent), base, abs, content.DefaultRegistry(), celexpr.BuildOptions{
 		Index:                  idx,
 		Embedder:               embedderA,
@@ -187,8 +187,8 @@ func TestBuildAttributesWith_Similarity_ModelMismatch(t *testing.T) {
 	}
 
 	// Walk 2: same tree, different model. Must NOT report a hit;
-	// must bump EmbedModelMismatches and re-embed.
-	embedderB := embed.NewOllama(srv.URL, "model-b")
+	// must bump EmbedModelMismatches and re-ollamaembed.
+	embedderB := ollamaembed.NewOllama(srv.URL, "model-b")
 	if _, err := celexpr.BuildAttributesWith(ctx, os.DirFS(parent), base, abs, content.DefaultRegistry(), celexpr.BuildOptions{
 		Index:                  idx,
 		Embedder:               embedderB,
@@ -270,7 +270,7 @@ func TestBuildAttributesWith_Similarity_PreV154EntryRejected(t *testing.T) {
 		EmbedModel:      "", // pre-#154 entries have empty EmbedModel
 	})
 
-	embedder := embed.NewOllama(srv.URL, "mock")
+	embedder := ollamaembed.NewOllama(srv.URL, "mock")
 	if _, err := celexpr.BuildAttributesWith(ctx, os.DirFS(parent), base, abs, content.DefaultRegistry(), celexpr.BuildOptions{
 		Index:                  idx,
 		Embedder:               embedder,
@@ -333,7 +333,7 @@ func TestBuildAttributesWith_Similarity_EmbedError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	embedder := embed.NewOllama(srv.URL, "missing-model")
+	embedder := ollamaembed.NewOllama(srv.URL, "missing-model")
 	idx := index.NewMemory()
 	defer func() { _ = idx.Close() }()
 
@@ -375,7 +375,7 @@ func TestBuildAttributesWith_Similarity_BinarySkipped(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	embedder := embed.NewOllama(srv.URL, "mock")
+	embedder := ollamaembed.NewOllama(srv.URL, "mock")
 
 	a, err := celexpr.BuildAttributesWith(ctx, os.DirFS(parent), base, abs, content.DefaultRegistry(), celexpr.BuildOptions{
 		Embedder:               embedder,
@@ -406,7 +406,7 @@ func TestEmbedder_NoModel_Surfaces(t *testing.T) {
 	parent := filepath.Dir(abs)
 
 	// No model set → ErrNoModel on first Embed call.
-	embedder := embed.NewOllama("http://localhost:11434", "")
+	embedder := ollamaembed.NewOllama("http://localhost:11434", "")
 
 	a, err := celexpr.BuildAttributesWith(ctx, os.DirFS(parent), base, abs, content.DefaultRegistry(), celexpr.BuildOptions{
 		Embedder:               embedder,
@@ -473,7 +473,7 @@ func TestBuildAttributesWith_Similarity_TruncatesEmbedInput(t *testing.T) {
 		mu.Unlock()
 		_, err := celexpr.BuildAttributesWith(ctx, os.DirFS(parent), base, abs, content.DefaultRegistry(), celexpr.BuildOptions{
 			Index:                  idx,
-			Embedder:               embed.NewOllama(srv.URL, "mock"),
+			Embedder:               ollamaembed.NewOllama(srv.URL, "mock"),
 			SemanticQueryEmbedding: []float32{1, 0, 0},
 			EmbedInputMaxBytes:     cap,
 		})
@@ -529,7 +529,7 @@ func TestBuildAttributesWith_Similarity_RetriesSmallerOnError(t *testing.T) {
 	defer func() { _ = idx.Close() }()
 	a, err := celexpr.BuildAttributesWith(ctx, os.DirFS(parent), base, abs, content.DefaultRegistry(), celexpr.BuildOptions{
 		Index:                  idx,
-		Embedder:               embed.NewOllama(srv.URL, "mock"),
+		Embedder:               ollamaembed.NewOllama(srv.URL, "mock"),
 		SemanticQueryEmbedding: []float32{1, 0, 0},
 	})
 	if err != nil {
@@ -570,7 +570,7 @@ func TestBuildAttributesWith_Similarity_MissPathRetainsExtra(t *testing.T) {
 
 	calls := 0
 	srv := mockEmbedServer(t, []float32{1, 0, 0}, &calls)
-	embedder := embed.NewOllama(srv.URL, "mock")
+	embedder := ollamaembed.NewOllama(srv.URL, "mock")
 	idx := index.NewMemory()
 	defer func() { _ = idx.Close() }()
 
@@ -631,7 +631,7 @@ func TestBuildAttributesWith_Similarity_MixedTrafficCacheHit(t *testing.T) {
 
 	calls := 0
 	srv := mockEmbedServer(t, []float32{1, 0, 0}, &calls)
-	embedder := embed.NewOllama(srv.URL, "mock")
+	embedder := ollamaembed.NewOllama(srv.URL, "mock")
 	idx := index.NewMemory()
 	defer func() { _ = idx.Close() }()
 
@@ -679,7 +679,7 @@ func TestBuildAttributesWith_Similarity_NonSemanticPreservesVector(t *testing.T)
 
 	calls := 0
 	srv := mockEmbedServer(t, []float32{1, 0, 0}, &calls)
-	embedder := embed.NewOllama(srv.URL, "mock")
+	embedder := ollamaembed.NewOllama(srv.URL, "mock")
 	idx := index.NewMemory()
 	defer func() { _ = idx.Close() }()
 
@@ -755,7 +755,7 @@ func TestBuildAttributesWith_Similarity_DeepPassageViaChunks(t *testing.T) {
 	idx := index.NewMemory()
 	defer func() { _ = idx.Close() }()
 
-	embedder := embed.NewOllama(srv.URL, "mock")
+	embedder := ollamaembed.NewOllama(srv.URL, "mock")
 	a, err := celexpr.BuildAttributesWith(ctx, os.DirFS(parent), base, abs, content.DefaultRegistry(), celexpr.BuildOptions{
 		Index:                  idx,
 		Embedder:               embedder,

@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/richardwooding/file-search-on/internal/embed"
+	"github.com/richardwooding/ollamaembed"
 	"github.com/richardwooding/file-search-on/internal/index"
 )
 
@@ -191,7 +191,7 @@ func TestWarmEmbeddings_PopulatesVectorCache(t *testing.T) {
 	idx := index.NewMemory()
 	t.Cleanup(func() { _ = idx.Close() })
 
-	embedder := embed.NewOllama(srv.URL, "test-model")
+	embedder := ollamaembed.NewOllama(srv.URL, "test-model")
 	var log bytes.Buffer
 	if err := warmEmbeddings(context.Background(), idx, dir, 1, embedder, &log); err != nil {
 		t.Fatalf("warmEmbeddings: %v", err)
@@ -228,7 +228,7 @@ func TestWarmEmbeddings_QueryEmbedFailureAborts(t *testing.T) {
 	idx := index.NewMemory()
 	t.Cleanup(func() { _ = idx.Close() })
 
-	embedder := embed.NewOllama(srv.URL, "test-model")
+	embedder := ollamaembed.NewOllama(srv.URL, "test-model")
 	err := warmEmbeddings(context.Background(), idx, dir, 1, embedder, nil)
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -258,7 +258,7 @@ func TestWarmEmbeddings_ContextCancel(t *testing.T) {
 	idx := index.NewMemory()
 	t.Cleanup(func() { _ = idx.Close() })
 
-	embedder := embed.NewOllama(srv.URL, "test-model")
+	embedder := ollamaembed.NewOllama(srv.URL, "test-model")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // pre-cancel
 	err := warmEmbeddings(ctx, idx, dir, 1, embedder, nil)
@@ -281,7 +281,7 @@ func TestWarmEmbeddings_NilLogOk(t *testing.T) {
 	idx := index.NewMemory()
 	t.Cleanup(func() { _ = idx.Close() })
 
-	embedder := embed.NewOllama(srv.URL, "test-model")
+	embedder := ollamaembed.NewOllama(srv.URL, "test-model")
 	if err := warmEmbeddings(context.Background(), idx, dir, 1, embedder, nil); err != nil {
 		t.Fatalf("warmEmbeddings with nil log: %v", err)
 	}
