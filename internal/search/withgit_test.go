@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	contentpkg "github.com/richardwooding/file-search-on/internal/content"
-	"github.com/richardwooding/file-search-on/internal/gitmeta"
+	"github.com/richardwooding/gitmeta"
 	"github.com/richardwooding/file-search-on/internal/search"
 )
 

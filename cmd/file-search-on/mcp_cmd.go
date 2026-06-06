@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/richardwooding/ollamaembed"
-	"github.com/richardwooding/file-search-on/internal/gitmeta"
+	"github.com/richardwooding/gitmeta"
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/mcpserver"
 	"github.com/richardwooding/file-search-on/internal/monitor"

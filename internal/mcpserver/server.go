@@ -13,7 +13,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/richardwooding/file-search-on/internal/gitmeta"
+	"github.com/richardwooding/gitmeta"
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/monitor"
 	"github.com/richardwooding/file-search-on/internal/search"
