@@ -94,6 +94,49 @@ func TestCodecRejectsOversize(t *testing.T) {
 	}
 }
 
+// TestCodecChunkedVectorsPersist is the regression for issue #346: a
+// full-length book embedded with a 768-d model fills the 64-chunk cap,
+// and the resulting Entry must encode under maxEntryBytes and round-trip
+// — otherwise the Put is silently dropped and the vector re-embeds on
+// every run (defeating the vector cache + the #335 warm index). The
+// original 256 KiB cap rejected this ~393 KiB entry; the raised cap fits
+// it. Also covers a 1024-d model (~544 KiB).
+func TestCodecChunkedVectorsPersist(t *testing.T) {
+	for _, dim := range []int{384, 768, 1024} {
+		const chunks = 64 // defaultEmbedMaxChunks
+		cv := make([][]float32, chunks)
+		for i := range cv {
+			v := make([]float32, dim)
+			for d := range v {
+				// Non-trivial mantissas so gob can't compress the floats —
+				// the realistic worst case for encoded size.
+				v[d] = float32(i*7+d) * 0.0137
+			}
+			cv[i] = v
+		}
+		e := &Entry{
+			Size:            1234,
+			ModTimeUnixNano: 5678,
+			ContentType:     "epub",
+			EmbedModel:      "model",
+			ChunkVectors:    cv,
+			Extra:           map[string]any{"title": "A Book", "author": "Someone"},
+		}
+		enc, err := encodeEntry(e)
+		if err != nil {
+			t.Fatalf("dim=%d: encodeEntry rejected a legitimate %d-chunk vector entry (#346): %v", dim, chunks, err)
+		}
+		out, err := decodeEntry(enc)
+		if err != nil {
+			t.Fatalf("dim=%d: decodeEntry: %v", dim, err)
+		}
+		if len(out.ChunkVectors) != chunks || len(out.ChunkVectors[chunks-1]) != dim {
+			t.Fatalf("dim=%d: round-trip lost chunk vectors: got %d chunks", dim, len(out.ChunkVectors))
+		}
+		t.Logf("dim=%d: %d-chunk entry encoded to %d KiB (cap %d KiB)", dim, chunks, len(enc)/1024, maxEntryBytes/1024)
+	}
+}
+
 // TestCodecDecodeBudgetSlowSeeds verifies decodeEntry's wrapper
 // catches the known-adversarial gob inputs that send the decoder
 // into multi-second CPU + multi-MB allocation paths. Both seeds
