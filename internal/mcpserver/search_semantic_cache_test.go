@@ -58,7 +58,7 @@ func TestSearchSemanticReusesCachedEmbeddings(t *testing.T) {
 		t.Helper()
 		res, err := cs.CallTool(ctx, &mcp.CallToolParams{
 			Name:      "search_semantic",
-			Arguments: SearchSemanticInput{Query: "cyberpunk hacker", Dir: dir, Threshold: 0.4, Limit: 10},
+			Arguments: SearchSemanticInput{Query: "cyberpunk hacker", Dir: dir, Threshold: new(0.4), Limit: 10},
 		})
 		if err != nil {
 			t.Fatalf("%s: CallTool: %v", label, err)
@@ -157,7 +157,7 @@ func TestSearchSemanticSurfacesEmbedErrors(t *testing.T) {
 
 	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "search_semantic",
-		Arguments: SearchSemanticInput{Query: "anything", Dir: dir, Threshold: 0.4, Limit: 10},
+		Arguments: SearchSemanticInput{Query: "anything", Dir: dir, Threshold: new(0.4), Limit: 10},
 	})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
