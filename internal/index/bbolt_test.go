@@ -172,3 +172,39 @@ func TestBoltRejectsRelativePath(t *testing.T) {
 		t.Errorf("expected Errors>0 for relative path; got %+v", st)
 	}
 }
+
+// TestBoltEntryOversizeCounter is the #348 regression: an entry whose
+// encoded form exceeds the cap is dropped on a DEDICATED EntryOversize
+// counter, not the generic Errors bucket — so a too-small cap (the #346
+// class of bug) is diagnosable via index_stats instead of silent.
+func TestBoltEntryOversizeCounter(t *testing.T) {
+	dir := t.TempDir()
+	idx, err := Open(filepath.Join(dir, "idx.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = idx.Close() }()
+
+	// An Extra value guaranteed to blow past maxEntryBytes.
+	huge := make([]byte, 0, maxEntryBytes+1024)
+	for len(huge) < maxEntryBytes+1024 {
+		huge = append(huge, 'x')
+	}
+	e := &Entry{
+		Size:            1,
+		ModTimeUnixNano: 1,
+		ContentType:     "text",
+		Extra:           map[string]any{"title": string(huge)},
+	}
+	if err := idx.Put("/abs/oversize.txt", e); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	st := idx.Stats()
+	if st.EntryOversize != 1 {
+		t.Errorf("EntryOversize = %d, want 1 (oversize Put must hit the dedicated counter, #348)", st.EntryOversize)
+	}
+	if st.Errors != 0 {
+		t.Errorf("Errors = %d, want 0 (an oversize drop is NOT a generic error)", st.Errors)
+	}
+}

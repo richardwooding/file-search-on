@@ -254,6 +254,13 @@ func (s *SearchCmd) Run(ctx context.Context) error {
 		st := idx.Stats()
 		fmt.Fprintf(os.Stderr, "index: %d hits, %d misses, %d stored, %d stale, %d errors\n",
 			st.Hits, st.Misses, st.Puts, st.Stales, st.Errors)
+		// Surface dropped-oversize Puts when any occur — a non-zero count
+		// means a payload (e.g. chunked embedding vectors) won't persist
+		// and re-computes every run. Silent before #348.
+		if st.EntryOversize > 0 {
+			fmt.Fprintf(os.Stderr, "index: %d entr%s dropped (encoded size over the cap; will re-compute each run)\n",
+				st.EntryOversize, map[bool]string{true: "y", false: "ies"}[st.EntryOversize == 1])
+		}
 		// Print body-cache line only when body caching actually fired
 		// — keeps the footer clean for callers that don't use --body.
 		if st.BodyHits+st.BodyMisses+st.BodyPuts+st.BodyStales+st.BodyEvictions+st.BodyOversize+st.BodyErrors > 0 {

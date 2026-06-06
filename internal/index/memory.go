@@ -17,11 +17,12 @@ type memoryIndex struct {
 }
 
 type memoryStats struct {
-	hits   atomic.Uint64
-	misses atomic.Uint64
-	puts   atomic.Uint64
-	stales atomic.Uint64
-	errors atomic.Uint64
+	hits          atomic.Uint64
+	misses        atomic.Uint64
+	puts          atomic.Uint64
+	stales        atomic.Uint64
+	errors        atomic.Uint64
+	entryOversize atomic.Uint64 // Put dropped: encoded Entry > maxEntryBytes (#346/#348)
 
 	bodyHits      atomic.Uint64
 	bodyMisses    atomic.Uint64
@@ -127,6 +128,7 @@ func (m *memoryIndex) Stats() Stats {
 		Puts:                 m.stats.puts.Load(),
 		Stales:               m.stats.stales.Load(),
 		Errors:               m.stats.errors.Load(),
+		EntryOversize:        m.stats.entryOversize.Load(),
 		BodyHits:             m.stats.bodyHits.Load(),
 		BodyMisses:           m.stats.bodyMisses.Load(),
 		BodyPuts:             m.stats.bodyPuts.Load(),

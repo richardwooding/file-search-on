@@ -20,6 +20,11 @@ type IndexStatsOutput struct {
 	Puts   uint64 `json:"puts"`
 	Stales uint64 `json:"stales"`
 	Errors uint64 `json:"errors"`
+	// EntryOversize: attribute Puts dropped because the encoded entry
+	// exceeded the index size cap. Non-zero means a real payload (e.g.
+	// chunked embedding vectors) isn't persisting and re-computes every
+	// run. bbolt-only. Issue #348.
+	EntryOversize uint64 `json:"entry_oversize,omitempty"`
 
 	BodyHits      uint64 `json:"body_hits"`
 	BodyMisses    uint64 `json:"body_misses"`
@@ -57,6 +62,7 @@ func (h *handlers) indexStatsHandler(_ context.Context, _ *mcp.CallToolRequest, 
 		Puts:          st.Puts,
 		Stales:        st.Stales,
 		Errors:        st.Errors,
+		EntryOversize: st.EntryOversize,
 		BodyHits:      st.BodyHits,
 		BodyMisses:    st.BodyMisses,
 		BodyPuts:      st.BodyPuts,
