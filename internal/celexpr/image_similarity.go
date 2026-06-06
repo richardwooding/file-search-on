@@ -9,7 +9,7 @@ import (
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
 
-	"github.com/richardwooding/file-search-on/internal/fingerprint"
+	"github.com/richardwooding/fingerprint"
 )
 
 // imageFunctions returns the cel.EnvOption set for image-similarity

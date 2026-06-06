@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/richardwooding/file-search-on/internal/content"
-	"github.com/richardwooding/file-search-on/internal/fingerprint"
+	"github.com/richardwooding/fingerprint"
 	"github.com/richardwooding/file-search-on/internal/index"
 )
 

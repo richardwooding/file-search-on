@@ -13,7 +13,7 @@ import (
 	"github.com/richardwooding/file-search-on/internal/content/ocr"
 	"github.com/richardwooding/file-search-on/internal/cryptohash"
 	"github.com/richardwooding/file-search-on/internal/embed"
-	"github.com/richardwooding/file-search-on/internal/fingerprint"
+	"github.com/richardwooding/fingerprint"
 	"github.com/richardwooding/file-search-on/internal/hashset"
 	"github.com/richardwooding/file-search-on/internal/index"
 )
