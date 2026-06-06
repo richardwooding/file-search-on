@@ -45,7 +45,7 @@ func semCall(t *testing.T, ctx context.Context, cs *mcp.ClientSession, dir strin
 	t.Helper()
 	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "search_semantic",
-		Arguments: SearchSemanticInput{Query: "anything", Dir: dir, Threshold: 0.4, Limit: 50},
+		Arguments: SearchSemanticInput{Query: "anything", Dir: dir, Threshold: fptr(0.4), Limit: 50},
 	})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)

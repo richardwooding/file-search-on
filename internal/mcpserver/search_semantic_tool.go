@@ -23,7 +23,7 @@ type SearchSemanticInput struct {
 	Dir             string   `json:"dir,omitempty" jsonschema:"Directory to search in. Defaults to '.'. Ignored when 'dirs' is non-empty."`
 	Dirs            []string `json:"dirs,omitempty" jsonschema:"Multiple directories to search in one call. When non-empty, takes precedence over 'dir'."`
 	Expr            string   `json:"expr,omitempty" jsonschema:"Optional CEL pre-filter using the regular search vocabulary (is_pdf, is_office, etc.). When set, the threshold is AND-combined: only files matching the CEL filter AND with similarity >= threshold are returned."`
-	Threshold       float64  `json:"threshold,omitempty" jsonschema:"Minimum cosine similarity (0..1) for a match. Default 0.5. Higher = stricter. 0.7 is a useful tightness for 'definitely about this topic'; 0.4-0.5 catches related-but-tangential content. Implemented by AND-ing 'similarity >= <value>' onto the expr filter, so it combines with (does not replace) any similarity comparison in your expr."`
+	Threshold       *float64 `json:"threshold,omitempty" jsonschema:"Minimum cosine similarity (0..1) for a match. OMITTED = default 0.5. Pass 0 explicitly for NO floor (return every ranked result, e.g. when you'll page or rank yourself). Higher = stricter; 0.7 is 'definitely about this topic', 0.4-0.5 catches related-but-tangential. Implemented by AND-ing 'similarity >= <value>' onto the expr filter, so it combines with (does not replace) any similarity comparison in your expr."`
 	Limit           int      `json:"limit,omitempty" jsonschema:"Cap on returned matches (top-K ranked by similarity desc). Default 50. When the ranked set is truncated by limit, the response carries an opaque next_cursor — pass it back as 'cursor' to fetch the next page."`
 	Cursor          string   `json:"cursor,omitempty" jsonschema:"Opaque pagination token from a previous response's next_cursor. Resumes the similarity-ranked result set immediately after the last item of the prior page. Re-embeds the query and re-walks each page (file vectors are cached, so the re-walk is cheap); paging is stable under an unchanged tree. Use the SAME query/threshold for consistent paging."`
 	Hybrid          bool     `json:"hybrid,omitempty" jsonschema:"Hybrid keyword+semantic ranking: fuse the BM25 keyword ranking with the embedding-similarity ranking via reciprocal-rank fusion (no manual weights). The keyword query defaults to 'query' unless keyword_query is set. Catches both exact-term hits and paraphrase. Issue #335."`
@@ -95,9 +95,13 @@ func (h *handlers) searchSemanticHandler(ctx context.Context, req *mcp.CallToolR
 		server = h.defaultEmbeddingServer
 	}
 
-	threshold := in.Threshold
-	if threshold == 0 {
-		threshold = 0.5
+	// Nil (omitted) → the 0.5 default. An explicit value — INCLUDING 0 —
+	// is honoured, so callers can pass threshold:0 for "no floor"
+	// (issue #349). Mirrors the CLI's --similarity-threshold, which
+	// already honours 0, and the timeout_seconds nil-vs-0 distinction.
+	threshold := 0.5
+	if in.Threshold != nil {
+		threshold = *in.Threshold
 	}
 	limit := in.Limit
 	if limit == 0 {

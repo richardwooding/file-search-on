@@ -38,6 +38,10 @@ func newSession(t *testing.T) (context.Context, *mcp.ClientSession) {
 	return ctx, cs
 }
 
+// fptr returns a pointer to f — for the nullable SearchSemanticInput.Threshold
+// (#349), where nil means "default 0.5" and an explicit value (incl 0) is honoured.
+func fptr(f float64) *float64 { return &f }
+
 func TestSearchTool(t *testing.T) {
 	dir := t.TempDir()
 	mustWrite(t, filepath.Join(dir, "a.md"), "# hello\n\nbody body body body body\n")

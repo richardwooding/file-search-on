@@ -110,7 +110,7 @@ func TestSearchSemanticTool_Hybrid(t *testing.T) {
 			Query:     marker + " attention mechanism",
 			Dir:       dir,
 			Hybrid:    true,
-			Threshold: 0.0, // keep both files so RRF has two to fuse
+			Threshold: fptr(0.0), // keep both files so RRF has two to fuse
 			Limit:     10,
 		},
 	})
