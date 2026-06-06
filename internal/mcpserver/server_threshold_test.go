@@ -78,7 +78,7 @@ func TestSearchSemantic_ThresholdZeroIsNoFloor(t *testing.T) {
 	}
 
 	// Explicit threshold:0 → no floor → both files returned.
-	zero := call(SearchSemanticInput{Query: marker, Dir: dir, Threshold: fptr(0), Limit: 10})
+	zero := call(SearchSemanticInput{Query: marker, Dir: dir, Threshold: new(0.0), Limit: 10})
 	if zero.SimilarityThreshold != 0 {
 		t.Errorf("threshold:0: similarity_threshold=%v want 0 (not coerced to 0.5) — #349", zero.SimilarityThreshold)
 	}
