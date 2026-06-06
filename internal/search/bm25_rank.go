@@ -3,7 +3,7 @@ package search
 import (
 	"sort"
 
-	"github.com/richardwooding/file-search-on/internal/bm25"
+	"github.com/richardwooding/bm25"
 	"github.com/richardwooding/file-search-on/internal/celexpr"
 )
 

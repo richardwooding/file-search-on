@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/richardwooding/file-search-on/internal/bm25"
+	"github.com/richardwooding/bm25"
 	"github.com/richardwooding/file-search-on/internal/celexpr"
 	"github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/embed"
