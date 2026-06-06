@@ -239,7 +239,16 @@ func (b *boltIndex) Put(path string, e *Entry) error {
 	}
 	val, err := encodeEntry(e)
 	if err != nil {
-		b.stats.errors.Add(1)
+		// An entry over maxEntryBytes is dropped — recoverable as a cache
+		// miss, but track it on a DEDICATED counter (not the generic
+		// errors bucket) so a silently-undersized cap is diagnosable via
+		// index_stats. This is how #346 (chunked 768-d vectors > the old
+		// 256 KiB cap → never persist) stayed invisible. Issue #348.
+		if errors.Is(err, errEntryTooLarge) {
+			b.stats.entryOversize.Add(1)
+		} else {
+			b.stats.errors.Add(1)
+		}
 		return nil
 	}
 	// Non-blocking enqueue — never throttle the walker on the cache.
@@ -340,6 +349,7 @@ func (b *boltIndex) Stats() Stats {
 		Puts:                 b.stats.puts.Load(),
 		Stales:               b.stats.stales.Load(),
 		Errors:               b.stats.errors.Load(),
+		EntryOversize:        b.stats.entryOversize.Load(),
 		BodyHits:             b.stats.bodyHits.Load(),
 		BodyMisses:           b.stats.bodyMisses.Load(),
 		BodyPuts:             b.stats.bodyPuts.Load(),

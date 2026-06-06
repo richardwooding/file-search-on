@@ -188,6 +188,13 @@ type Stats struct {
 	Puts   uint64
 	Stales uint64
 	Errors uint64
+	// EntryOversize counts Puts dropped because the encoded Entry exceeded
+	// maxEntryBytes — a recoverable cache miss, but a non-zero value means
+	// a real payload (e.g. chunked high-dim embedding vectors, #346) can't
+	// persist and is re-computed every run. Distinct from Errors so the
+	// silent drop is visible in index_stats. bbolt-only (the in-memory
+	// backend stores *Entry without encoding, so it has no size cap). #348.
+	EntryOversize uint64
 
 	BodyHits      uint64 // successful LookupBody
 	BodyMisses    uint64 // LookupBody with no entry
