@@ -432,6 +432,21 @@ func New(version string, idx index.Index, defaultTimeout time.Duration, embedDef
 	}, instrument(h.metrics, "find_matches", h.findMatchesHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name:        "imported_by",
+		Description: "Cross-file reverse-dependency lookup: list every source file that imports a given module. Builds a project-wide import graph from the per-file import lists (the same data the search tool surfaces as 'imports'), then inverts it — answering 'who depends on X?', which the per-file search tool cannot. Inputs: module (required — the import string exactly as written in source, e.g. 'github.com/spf13/cobra', 'react', 'numpy'), mode ('exact' default / 'prefix' / 'regex'), plus the usual expr (defaults to is_source) / dir / dirs / excludes / respect_gitignore / timeout_seconds. Accurate across every language whose imports are extracted (Go via AST; Python/Java/C#/PHP/Perl/R/MATLAB/Scala via the import-shape extractors). Output: importers[] {path, language} sorted by path + count + total_files. Honours the partial-result contract — a timeout returns the graph built so far with cancelled=true.",
+	}, instrument(h.metrics, "imported_by", h.importedByHandler))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "find_definition",
+		Description: "Locate where a function or type is DEFINED across a tree — the symbol-aware complement to find_matches (which is text-level regex). Builds the project-wide definition index from the per-file functions / type_names lists and looks up an exact symbol name. Inputs: symbol (required, exact name — e.g. 'ServeHTTP', 'OrderService'), kind ('function' / 'type' / empty for both), plus expr (defaults to is_source) / dir / dirs / excludes / respect_gitignore / timeout_seconds. NOTE: only languages with symbol extraction populate definitions — Go (AST) + Python / Java / C# / PHP / Perl / R / MATLAB / Scala; symbols defined only in other languages won't appear (use find_matches there). Output: definitions[] {path, language, kind} sorted by path + count + total_files.",
+	}, instrument(h.metrics, "find_definition", h.findDefinitionHandler))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "code_graph",
+		Description: "Project-wide code-structure overview built from the cross-file import + definition graph. Returns: import_hubs (modules ranked by how many files import them — the most-depended-on dependencies), high_fan_out (files importing the most modules — the most coupled files), duplicate_definitions (function/type names defined in more than one file — name collisions, overloads, copy-paste), a per-language file breakdown, and totals (files / distinct modules / distinct symbols). Inputs: expr (defaults to is_source — narrow with language == \"go\" etc.), top (cap each ranked list, default 20), plus dir / dirs / excludes / respect_gitignore / timeout_seconds. Reconnaissance for 'what does this codebase depend on most?' and 'where's the coupling?' without retrieving individual matches. Pair imported_by / find_definition for drill-down. Partial-result contract honoured on timeout.",
+	}, instrument(h.metrics, "code_graph", h.codeGraphHandler))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "watch_search",
 		Description: "Watch directories for a BOUNDED window and return every new / changed file that matches a CEL expression — the inverse of search ('tell me when X appears' instead of 'what already matches'). Same CEL vocabulary as the search tool (is_image, is_pdf, is_source && language == \"go\", size > 1000000, body.contains(\"error\"), …). Watches recursively (subdirectories created during the window are picked up). Blocks until duration_seconds elapses (default 30s, hard-capped at 600s), max_events matches are collected, or the call is cancelled — whichever comes first; then returns the collected matches. Inputs: expr (optional CEL filter), dir / dirs, duration_seconds (how long to watch), max_events (return early after N matches), plus the usual ocr_images / compute_hashes / with_phash / with_xattrs / include_body / excludes / respect_gitignore flags. Output: matches[] (same shape as search) + watched_seconds + hit_max_events. Use for short 'wait for the next screenshot / build artefact / download' flows; for open-ended streaming use the CLI 'watch' subcommand. Issue #211.",
 	}, instrument(h.metrics, "watch_search", h.watchSearchHandler))
