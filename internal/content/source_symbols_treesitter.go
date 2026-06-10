@@ -85,6 +85,19 @@ var tsRefQuery = map[string]string{
 (call_expression function: (field_expression field: (field_identifier) @reference))`,
 }
 
+// tsFuncSpanQuery captures a function definition's full node as @func.def
+// plus its name as @func.name, for languages whose bundled tags query
+// doesn't expose a function span (ruby/swift/kotlin — their tags emit
+// only definition.class). Used for per-function call attribution (#368)
+// via span-containment. The bundled-tags languages get spans from the
+// tags query's @definition.function capture instead.
+var tsFuncSpanQuery = map[string]string{
+	"ruby": `(method name: (identifier) @func.name) @func.def
+(singleton_method name: (identifier) @func.name) @func.def`,
+	"swift":  `(function_declaration (simple_identifier) @func.name) @func.def`,
+	"kotlin": `(function_declaration (simple_identifier) @func.name) @func.def`,
+}
+
 // tsLang holds the concurrent-safe machinery for one language: a
 // ParserPool (safe for concurrent Parse) plus compiled Query objects
 // (safe for concurrent Execute after construction). Built once per
@@ -95,6 +108,7 @@ type tsLang struct {
 	defQuery    *ts.Query // supplemental @function/@type; nil when none
 	importQuery *ts.Query // nil when none configured or compile failed
 	refQuery    *ts.Query // @reference call-site callees; nil when none
+	spanQuery   *ts.Query // @func.def + @func.name spans; nil when none
 }
 
 var (
@@ -153,6 +167,11 @@ func buildTSLang(language string) *tsLang {
 			tl.refQuery = refQ
 		}
 	}
+	if q := tsFuncSpanQuery[language]; q != "" {
+		if spanQ, err := ts.NewQuery(q, lang); err == nil {
+			tl.spanQuery = spanQ
+		}
+	}
 	return tl
 }
 
@@ -160,24 +179,30 @@ func buildTSLang(language string) *tsLang {
 // returns the function / type / import names. Matches the signature of
 // the hand-rolled extractXxxSymbols functions. Returns all-nil when the
 // language isn't tree-sitter-backed.
-func extractTreeSitterSymbols(language string, src []byte) (functions, types, imports, references []string) {
+func extractTreeSitterSymbols(language string, src []byte) (functions, types, imports, references, callEdges []string) {
 	tl := tsLangFor(language)
 	if tl == nil {
-		return nil, nil, nil, nil
+		return nil, nil, nil, nil, nil
 	}
 	tree, err := tl.pool.Parse(src)
 	if err != nil || tree == nil {
-		return nil, nil, nil, nil
+		return nil, nil, nil, nil, nil
 	}
+
+	// funcSpans: named function definitions with their byte span, for
+	// per-function call attribution by containment (#368).
+	var funcSpans []tsFuncSpan
 
 	for _, m := range tl.tagsQuery.Execute(tree) {
 		var name, kind string
+		var defNode *ts.Node
 		for _, c := range m.Captures {
 			switch {
 			case c.Name == "name":
 				name = c.Text(src)
 			case strings.HasPrefix(c.Name, "definition."):
 				kind = c.Name[len("definition."):]
+				defNode = c.Node
 			}
 		}
 		if name == "" {
@@ -186,6 +211,9 @@ func extractTreeSitterSymbols(language string, src []byte) (functions, types, im
 		switch kind {
 		case "function", "method", "macro", "constructor":
 			functions = append(functions, name)
+			if defNode != nil {
+				funcSpans = append(funcSpans, tsFuncSpan{name: name, start: defNode.StartByte(), end: defNode.EndByte()})
+			}
 		case "class", "struct", "interface", "enum", "trait", "type", "module", "union", "protocol", "namespace":
 			types = append(types, name)
 		}
@@ -218,19 +246,78 @@ func extractTreeSitterSymbols(language string, src []byte) (functions, types, im
 		}
 	}
 
+	// Supplemental function-span query (ruby/swift/kotlin) for languages
+	// whose bundled tags query doesn't carry a function span.
+	if tl.spanQuery != nil {
+		for _, m := range tl.spanQuery.Execute(tree) {
+			var name string
+			var defNode *ts.Node
+			for _, c := range m.Captures {
+				switch c.Name {
+				case "func.name":
+					name = c.Text(src)
+				case "func.def":
+					defNode = c.Node
+				}
+			}
+			if name != "" && defNode != nil {
+				funcSpans = append(funcSpans, tsFuncSpan{name: name, start: defNode.StartByte(), end: defNode.EndByte()})
+			}
+		}
+	}
+
+	// Call sites (callee name + position), for both the flat references
+	// list and per-function call attribution.
+	type callSite struct {
+		name string
+		pos  uint32
+	}
+	var calls []callSite
 	if tl.refQuery != nil {
 		for _, m := range tl.refQuery.Execute(tree) {
 			for _, c := range m.Captures {
 				if c.Name == "reference" {
 					if r := c.Text(src); r != "" {
 						references = append(references, r)
+						calls = append(calls, callSite{name: r, pos: c.Node.StartByte()})
 					}
 				}
 			}
 		}
 	}
 
-	return dedupeStrings(functions), dedupeStrings(types), dedupeStrings(imports), dedupeStrings(references)
+	// Attribute each call to the innermost enclosing function span.
+	for _, cs := range calls {
+		caller := innermostFuncSpan(funcSpans, cs.pos)
+		if caller != "" {
+			callEdges = append(callEdges, caller+"\x00"+cs.name)
+		}
+	}
+
+	return dedupeStrings(functions), dedupeStrings(types), dedupeStrings(imports), dedupeStrings(references), dedupeStrings(callEdges)
+}
+
+// tsFuncSpan is a named function definition's byte span.
+type tsFuncSpan struct {
+	name       string
+	start, end uint32
+}
+
+// innermostFuncSpan returns the name of the smallest function span that
+// contains pos, or "" if none does (call outside any captured function).
+func innermostFuncSpan(spans []tsFuncSpan, pos uint32) string {
+	best := ""
+	bestSize := ^uint32(0)
+	for _, s := range spans {
+		if pos < s.start || pos >= s.end {
+			continue
+		}
+		if size := s.end - s.start; size < bestSize {
+			bestSize = size
+			best = s.name
+		}
+	}
+	return best
 }
 
 // dedupeStrings returns s with duplicates removed, preserving first-seen

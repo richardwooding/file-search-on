@@ -1,6 +1,6 @@
 # Tool reference
 
-Every MCP tool the `file-search-on` server exposes (28 tools). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same families as the SKILL.md table.
+Every MCP tool the `file-search-on` server exposes (29 tools). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same families as the SKILL.md table.
 
 ## Contents
 
@@ -9,7 +9,7 @@ Every MCP tool the `file-search-on` server exposes (28 tools). Each entry has a 
 - Dedup & diff — `find_duplicates`, `find_near_duplicates`, `diff_trees`
 - Archive — `list_archive_contents`, `read_file_in_archive`
 - Pattern + watch — `find_matches`, `watch_search`
-- Cross-file code graph — `imported_by`, `find_definition`, `code_graph`, `who_calls`, `dead_code`
+- Cross-file code graph — `imported_by`, `find_definition`, `code_graph`, `who_calls`, `calls`, `dead_code`
 - CEL utilities — `validate_expr`, `list_attributes`
 - Project + presets + monitoring — `detect_project`, `find_projects`, `resolve_project_for_path`, `list_presets`, `query_preset`, `index_stats`, `monitor_info`
 
@@ -527,6 +527,22 @@ Gotcha: references are extracted for Go + the tree-sitter languages (Rust / Type
 
 ```json
 { "name": "who_calls", "arguments": { "symbol": "ServeHTTP", "dir": "." } }
+```
+
+### `calls`
+
+Forward call lookup — the distinct functions a given function calls ("what does Y call?").
+
+Key inputs:
+
+- `symbol` — exact function/method name (required).
+
+Output: `callees[]` (sorted distinct names), `count`, `total_files`.
+
+Gotcha: per-function attribution via span-containment (tree-sitter) / `go/ast` (Go); same language coverage and name-based caveats as `who_calls`. Callees include builtins/conversions where they appear by name (e.g. Go `len`, `append`); calls in nested closures attribute to the enclosing named function.
+
+```json
+{ "name": "calls", "arguments": { "symbol": "BuildCodeGraph", "dir": "." } }
 ```
 
 ### `dead_code`

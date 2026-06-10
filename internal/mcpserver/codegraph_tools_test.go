@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -240,5 +241,40 @@ func TestDeadCodeTool(t *testing.T) {
 	}
 	if out.ServerVersion == "" {
 		t.Error("server_version not populated")
+	}
+}
+
+func TestCallsTool(t *testing.T) {
+	dir := seedCodeGraphTree(t)
+	ctx, cs := newSession(t)
+	// a.go: func Alpha() { fmt.Println(strings.ToUpper("x")) } → Alpha calls Println, ToUpper.
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "calls",
+		Arguments: CallsInput{Symbol: "Alpha", codeGraphWalkInput: codeGraphWalkInput{Dir: dir}},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	var out CallsOutput
+	mustDecodeStructured(t, res, &out)
+	if !slices.Contains(out.Callees, "Println") || !slices.Contains(out.Callees, "ToUpper") {
+		t.Fatalf("calls(Alpha)=%v want Println + ToUpper", out.Callees)
+	}
+	if out.ServerVersion == "" {
+		t.Error("server_version not populated")
+	}
+}
+
+func TestCallsTool_MissingSymbol(t *testing.T) {
+	ctx, cs := newSession(t)
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "calls",
+		Arguments: CallsInput{codeGraphWalkInput: codeGraphWalkInput{Dir: "."}},
+	})
+	if err != nil {
+		t.Fatalf("CallTool transport error: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("expected a tool error for missing symbol")
 	}
 }

@@ -198,6 +198,9 @@ file-search-on who-calls ProcessOrder -d .
 # …or as a CEL filter via the `references` attribute:
 file-search-on 'is_source && "ProcessOrder" in references'
 
+# What does a function call? (forward direction; per-function attribution)
+file-search-on calls ProcessOrder -d .
+
 # Candidate dead code — defined but never called. HEURISTIC: pair with
 # !is_test_file to drop test-runner-invoked funcs; review, don't auto-delete.
 file-search-on dead-code 'is_source && language == "go" && !is_test_file' -d .
