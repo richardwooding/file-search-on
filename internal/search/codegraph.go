@@ -24,6 +24,9 @@ type SymbolDef struct {
 	Path     string `json:"path"`
 	Language string `json:"language,omitempty"`
 	Kind     string `json:"kind"`
+	// Symbol is the symbol name. Set by DeadCode (where the caller doesn't
+	// supply the name); empty for FindDefinition (caller already knows it).
+	Symbol string `json:"symbol,omitempty"`
 }
 
 // ModuleFanIn is a module ranked by how many files import it.
@@ -90,10 +93,22 @@ type CodeGraph struct {
 	importedBy map[string]map[string]string
 	// definedIn: symbol name -> every (path, kind) that defines it.
 	definedIn map[string][]symbolEntry
+	// referencedBy: callee name -> set of referencing file paths
+	// (path -> language). The call-site half of the graph (#363).
+	referencedBy map[string]map[string]string
 	// fanOut: file path -> language + number of modules it imports.
 	fanOut map[string]fileFanOut
 	// languages: language -> file count.
 	languages map[string]int64
+}
+
+// refExtractionLangs is the set of languages for which references
+// (call sites) are extracted — Go (go/ast) + the tree-sitter languages.
+// DeadCode only considers definitions in these languages: a symbol in a
+// language with no reference extraction would always look "dead".
+var refExtractionLangs = map[string]bool{
+	"go": true, "rust": true, "typescript": true, "javascript": true,
+	"ruby": true, "swift": true, "kotlin": true, "c": true, "cpp": true,
 }
 
 type fileFanOut struct {
@@ -121,10 +136,11 @@ func BuildCodeGraph(ctx context.Context, opts Options, registry *content.Registr
 	results, walkErr := Walk(ctx, opts, registry)
 
 	g := &CodeGraph{
-		importedBy: map[string]map[string]string{},
-		definedIn:  map[string][]symbolEntry{},
-		fanOut:     map[string]fileFanOut{},
-		languages:  map[string]int64{},
+		importedBy:   map[string]map[string]string{},
+		definedIn:    map[string][]symbolEntry{},
+		referencedBy: map[string]map[string]string{},
+		fanOut:       map[string]fileFanOut{},
+		languages:    map[string]int64{},
 	}
 	g.TotalFiles = int64(len(results))
 
@@ -156,6 +172,16 @@ func BuildCodeGraph(ctx context.Context, opts Options, registry *content.Registr
 		if types, ok := r.Attrs.Extra["type_names"].([]string); ok {
 			for _, t := range types {
 				g.definedIn[t] = append(g.definedIn[t], symbolEntry{path: r.Path, language: lang, kind: "type"})
+			}
+		}
+		if refs, ok := r.Attrs.Extra["references"].([]string); ok {
+			for _, ref := range refs {
+				set := g.referencedBy[ref]
+				if set == nil {
+					set = map[string]string{}
+					g.referencedBy[ref] = set
+				}
+				set[r.Path] = lang
 			}
 		}
 	}
@@ -259,6 +285,60 @@ func (g *CodeGraph) FindDefinition(symbol, kind string) []SymbolDef {
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Path != out[j].Path {
 			return out[i].Path < out[j].Path
+		}
+		return out[i].Kind < out[j].Kind
+	})
+	return out
+}
+
+// WhoCalls returns every file that references (calls) the given exact
+// symbol name, sorted by path. Name-based: a call `pkg.Foo()` is keyed
+// by "Foo". Reference extraction covers Go + the tree-sitter languages;
+// callers in other languages won't appear.
+func (g *CodeGraph) WhoCalls(name string) []Importer {
+	set := g.referencedBy[name]
+	out := make([]Importer, 0, len(set))
+	for p, lang := range set {
+		out = append(out, Importer{Path: p, Language: lang})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
+}
+
+// DeadCode returns defined functions / types whose name never appears as
+// a reference anywhere in the walked set — candidate dead code. Restricted
+// to definitions in languages with reference extraction (refExtractionLangs),
+// since a definition in a language we don't scan for calls would always
+// look unreferenced.
+//
+// HEURISTIC, name-based: exported/public API used only by external callers,
+// dynamic dispatch, reflection, and same-name collisions all produce false
+// positives. Callers must present results as candidates, never authoritative.
+func (g *CodeGraph) DeadCode() []SymbolDef {
+	var out []SymbolDef
+	seen := map[string]bool{}
+	for name, entries := range g.definedIn {
+		if _, referenced := g.referencedBy[name]; referenced {
+			continue
+		}
+		for _, e := range entries {
+			if !refExtractionLangs[e.language] {
+				continue
+			}
+			key := e.kind + "\x00" + name + "\x00" + e.path
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, SymbolDef{Path: e.path, Language: e.language, Kind: e.kind, Symbol: name})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Path != out[j].Path {
+			return out[i].Path < out[j].Path
+		}
+		if out[i].Symbol != out[j].Symbol {
+			return out[i].Symbol < out[j].Symbol
 		}
 		return out[i].Kind < out[j].Kind
 	})

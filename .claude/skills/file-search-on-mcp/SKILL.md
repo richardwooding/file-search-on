@@ -1,11 +1,11 @@
 ---
 name: file-search-on-mcp
-description: Uses the file-search-on MCP server (26 tools — search / search_semantic / validate_expr / stats / find_duplicates / find_near_duplicates / diff_trees / find_matches / imported_by / find_definition / code_graph / list_archive_contents / read_file_in_archive / watch_search / detect_project / find_projects / resolve_project_for_path / read_attributes / read_lines / list_attributes / list_presets / query_preset / list_embedding_models / pull_embedding_model / index_stats / monitor_info) to query files by typed content-type attributes via CEL expressions — PDF page_count, image EXIF (camera/lens/GPS/taken_at), audio tags + bitrate, video codec/duration, archive entry_count, binary architecture, source LOC + functions + imports, notebook cells, markdown frontmatter, git-aware (last commit time / author / churn) and codegen-aware (is_generated_code) attributes, plus body.contains / body.matches, fuzzy / phonetic / geo / image-similarity / secret-scan helpers, sha256 dedup + SimHash near-dup, cross-tree diff, and project-type detection. Use when the question is about file *attributes* (not filenames as with Glob or plain text as with Grep), when answers need aggregation or dedup, or when an agent needs photo / source / archive / email / binary metadata.
+description: Uses the file-search-on MCP server (28 tools — search / search_semantic / validate_expr / stats / find_duplicates / find_near_duplicates / diff_trees / find_matches / imported_by / find_definition / code_graph / who_calls / dead_code / list_archive_contents / read_file_in_archive / watch_search / detect_project / find_projects / resolve_project_for_path / read_attributes / read_lines / list_attributes / list_presets / query_preset / list_embedding_models / pull_embedding_model / index_stats / monitor_info) to query files by typed content-type attributes via CEL expressions — PDF page_count, image EXIF (camera/lens/GPS/taken_at), audio tags + bitrate, video codec/duration, archive entry_count, binary architecture, source LOC + functions + imports, notebook cells, markdown frontmatter, git-aware (last commit time / author / churn) and codegen-aware (is_generated_code) attributes, plus body.contains / body.matches, fuzzy / phonetic / geo / image-similarity / secret-scan helpers, sha256 dedup + SimHash near-dup, cross-tree diff, and project-type detection. Use when the question is about file *attributes* (not filenames as with Glob or plain text as with Grep), when answers need aggregation or dedup, or when an agent needs photo / source / archive / email / binary metadata.
 ---
 
 # file-search-on MCP
 
-`file-search-on` is a content-type-aware file search exposed as a Model Context Protocol server. Once registered with an MCP client, it gives an agent **typed access to file metadata** — not just paths and bytes but image EXIF, PDF page counts, audio bitrates, source-code LOC, archive entries, email headers, GPS coordinates, git-aware churn / authorship, and so on — through 26 tools driven by a CEL expression language.
+`file-search-on` is a content-type-aware file search exposed as a Model Context Protocol server. Once registered with an MCP client, it gives an agent **typed access to file metadata** — not just paths and bytes but image EXIF, PDF page counts, audio bitrates, source-code LOC, archive entries, email headers, GPS coordinates, git-aware churn / authorship, and so on — through 28 tools driven by a CEL expression language.
 
 This skill is the agent-facing usage guide. The codebase ships at `github.com/richardwooding/file-search-on`. The MCP launch shape is `file-search-on mcp` (stdio for desktop clients) or `file-search-on mcp --transport http --addr :8080` (Streamable HTTP). The skill assumes the server is already running and registered with the client.
 
@@ -70,7 +70,7 @@ Three canonical calls that demonstrate the patterns. Every walking tool accepts 
 }
 ```
 
-## The 26 tools at a glance
+## The 28 tools at a glance
 
 Grouped into seven families. Full inputs / outputs / gotchas in [references/tools.md](references/tools.md).
 
@@ -81,7 +81,7 @@ Grouped into seven families. Full inputs / outputs / gotchas in [references/tool
 | **Dedup & diff** | `find_duplicates`, `find_near_duplicates`, `diff_trees` | Byte-identical groups by sha256, fuzzy groups via SimHash on body (auto-bumps threshold for source-heavy trees + strips boilerplate), or cross-tree set ops (a-minus-b / intersect / mismatch) |
 | **Archive** | `list_archive_contents`, `read_file_in_archive` | Per-entry CEL filter inside ZIP / TAR / TAR.GZ / GZIP without extracting, or pull one entry's bytes out |
 | **Pattern + watch** | `find_matches`, `watch_search` | Line-level RE2 regex with context windows + `match_in: any\|comments\|code` per-language filter (CEL pre-prune for speed), or a bounded "tell me when X appears" subscription |
-| **Cross-file code graph** | `imported_by`, `find_definition`, `code_graph` | Reverse-dependency ("who imports X?"), symbol-definition lookup ("where is Y defined?"), and a project-wide overview (import hubs / high fan-out / duplicate defs) — built by inverting the per-file `imports` / `functions` / `type_names` lists |
+| **Cross-file code graph** | `imported_by`, `find_definition`, `code_graph`, `who_calls`, `dead_code` | Reverse-dependency ("who imports X?"), symbol-definition lookup ("where is Y defined?"), project-wide overview (import hubs / high fan-out / duplicate defs), reverse call lookup ("who calls Y?"), and a candidate dead-code finder — built by inverting the per-file `imports` / `functions` / `type_names` / `references` lists |
 | **CEL utilities** | `validate_expr`, `list_attributes` | Compile-only CEL validator with "did you mean" Levenshtein suggestions; schema discovery with summary / section / names modes |
 | **Project + presets + monitoring** | `detect_project`, `find_projects`, `resolve_project_for_path`, `list_presets`, `query_preset`, `list_embedding_models`, `pull_embedding_model`, `index_stats`, `monitor_info` | Project-root detection (18 built-in types), 14 named recipe presets, on-demand Ollama embedding model catalog + pull, cache stats, live dashboard URL + peer instances |
 

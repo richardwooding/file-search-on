@@ -431,6 +431,7 @@ var zeroDefaults = map[string]any{
 	"functions":             []string{},
 	"type_names":            []string{},
 	"imports":               []string{},
+	"references":            []string{},
 	"cell_count":            int64(0),
 	"code_cell_count":       int64(0),
 	"markdown_cell_count":   int64(0),

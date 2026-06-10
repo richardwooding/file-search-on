@@ -204,3 +204,68 @@ func writeJSON(w *os.File, v any) error {
 	enc.SetIndent("", "  ")
 	return enc.Encode(v)
 }
+
+// WhoCallsCmd — reverse call lookup.
+type WhoCallsCmd struct {
+	Symbol string `arg:"" help:"Exact function/method name to find callers of."`
+	codeGraphWalkFlags
+	Expr   string `name:"expr" help:"CEL pre-filter. Defaults to is_source."`
+	Output string `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table | json."`
+}
+
+func (c *WhoCallsCmd) Run(ctx context.Context) error {
+	g, parentCtx, effectiveCtx, cleanup, err := c.build(ctx, defaultSourceExpr(c.Expr))
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	if g == nil {
+		return nil
+	}
+	callers := g.WhoCalls(c.Symbol)
+	if c.Output == "json" {
+		_ = writeJSON(os.Stdout, map[string]any{
+			"symbol": c.Symbol, "callers": callers, "count": len(callers), "total_files": g.TotalFiles,
+		})
+	} else {
+		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		for _, im := range callers {
+			_, _ = fmt.Fprintf(tw, "%s\t%s\n", im.Language, im.Path)
+		}
+		_ = tw.Flush()
+		_, _ = fmt.Fprintf(os.Stderr, "%d file(s) call %q (of %d source files)\n", len(callers), c.Symbol, g.TotalFiles)
+	}
+	return codeGraphExit(c.Timeout, parentCtx, effectiveCtx, g, "who-calls")
+}
+
+// DeadCodeCmd — candidate unreferenced definitions.
+type DeadCodeCmd struct {
+	Expr string `arg:"" optional:"" help:"CEL pre-filter for which files enter the graph. Defaults to is_source."`
+	codeGraphWalkFlags
+	Output string `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table | json."`
+}
+
+func (c *DeadCodeCmd) Run(ctx context.Context) error {
+	g, parentCtx, effectiveCtx, cleanup, err := c.build(ctx, defaultSourceExpr(c.Expr))
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	if g == nil {
+		return nil
+	}
+	candidates := g.DeadCode()
+	if c.Output == "json" {
+		_ = writeJSON(os.Stdout, map[string]any{
+			"candidates": candidates, "count": len(candidates), "total_files": g.TotalFiles,
+		})
+	} else {
+		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		for _, d := range candidates {
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", d.Kind, d.Symbol, d.Path)
+		}
+		_ = tw.Flush()
+		_, _ = fmt.Fprintf(os.Stderr, "%d candidate(s) — heuristic; exported API / entry points / dynamic dispatch may be false positives\n", len(candidates))
+	}
+	return codeGraphExit(c.Timeout, parentCtx, effectiveCtx, g, "dead-code")
+}

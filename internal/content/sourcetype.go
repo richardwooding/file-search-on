@@ -152,10 +152,10 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 		attrs["is_generated_code"] = true
 	}
 	if bodyBuf != nil && bodyBuf.Len() > 0 {
-		var funcs, types, imports []string
+		var funcs, types, imports, refs []string
 		switch s.language {
 		case "go":
-			funcs, types, imports = extractGoSymbols(bodyBuf.Bytes())
+			funcs, types, imports, refs = extractGoSymbols(bodyBuf.Bytes())
 		case "python":
 			funcs, types, imports = extractPythonSymbols(bodyBuf.Bytes())
 		case "java":
@@ -178,7 +178,7 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 			// for any language not tree-sitter-backed — but
 			// symbolExtractorWired gates this block, so default only
 			// fires for wired tree-sitter languages.
-			funcs, types, imports = extractTreeSitterSymbols(s.language, bodyBuf.Bytes())
+			funcs, types, imports, refs = extractTreeSitterSymbols(s.language, bodyBuf.Bytes())
 		}
 		if len(funcs) > 0 {
 			attrs["functions"] = funcs
@@ -188,6 +188,9 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 		}
 		if len(imports) > 0 {
 			attrs["imports"] = imports
+		}
+		if len(refs) > 0 {
+			attrs["references"] = refs
 		}
 	}
 	return attrs, nil

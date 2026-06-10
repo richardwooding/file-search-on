@@ -166,6 +166,76 @@ func TestCodeGraph_FindDefinition_DedupesSameFile(t *testing.T) {
 	}
 }
 
+// buildCallFixture has clear intra-repo call edges:
+//
+//	a.go    — func Helper(); func Used() { Helper() }   (Helper is called)
+//	b.go    — func Orphan()                              (never called)
+//	main.go — func main() { Used() }                     (calls Used)
+func buildCallFixture(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	mk := func(rel, body string) {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("a/a.go", "package a\n\nfunc Helper() {}\nfunc Used() { Helper() }\n")
+	mk("b/b.go", "package b\n\nfunc Orphan() {}\n")
+	mk("m/main.go", "package main\n\nfunc main() { Used() }\n")
+	return dir
+}
+
+func TestCodeGraph_WhoCalls(t *testing.T) {
+	g := mustBuildGraph(t, buildCallFixture(t))
+	callers := g.WhoCalls("Helper")
+	if len(callers) != 1 || filepath.Base(callers[0].Path) != "a.go" {
+		t.Fatalf("WhoCalls(Helper)=%+v want [a/a.go]", callers)
+	}
+	if used := g.WhoCalls("Used"); len(used) != 1 || filepath.Base(used[0].Path) != "main.go" {
+		t.Fatalf("WhoCalls(Used)=%+v want [m/main.go]", used)
+	}
+	if none := g.WhoCalls("Orphan"); len(none) != 0 {
+		t.Errorf("WhoCalls(Orphan)=%+v want empty", none)
+	}
+}
+
+func TestCodeGraph_DeadCode(t *testing.T) {
+	g := mustBuildGraph(t, buildCallFixture(t))
+	dead := map[string]bool{}
+	for _, d := range g.DeadCode() {
+		dead[d.Symbol] = true
+	}
+	if !dead["Orphan"] {
+		t.Errorf("DeadCode should flag Orphan: %v", dead)
+	}
+	if dead["Helper"] {
+		t.Error("DeadCode wrongly flagged Helper (it's called by Used)")
+	}
+	if dead["Used"] {
+		t.Error("DeadCode wrongly flagged Used (it's called by main)")
+	}
+}
+
+// TestCodeGraph_DeadCode_SkipsNonRefLanguages ensures a definition in a
+// language without reference extraction (e.g. Python) is NOT reported as
+// dead — we don't scan those for calls, so everything would look unused.
+func TestCodeGraph_DeadCode_SkipsNonRefLanguages(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "x.py"), []byte("def lonely():\n    pass\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	g := mustBuildGraph(t, dir)
+	for _, d := range g.DeadCode() {
+		if d.Symbol == "lonely" {
+			t.Errorf("DeadCode flagged a Python symbol (no ref extraction): %+v", d)
+		}
+	}
+}
+
 func TestCodeGraph_Overview(t *testing.T) {
 	g := mustBuildGraph(t, buildGraphFixture(t))
 	ov := g.Overview(10)

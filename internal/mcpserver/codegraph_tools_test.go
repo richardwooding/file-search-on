@@ -181,3 +181,64 @@ func TestCodeGraphTool(t *testing.T) {
 		t.Errorf("duplicate_definitions missing Alpha: %+v", out.Overview.DuplicateDefs)
 	}
 }
+
+func TestWhoCallsTool(t *testing.T) {
+	dir := seedCodeGraphTree(t)
+	ctx, cs := newSession(t)
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "who_calls",
+		Arguments: WhoCallsInput{Symbol: "Println", codeGraphWalkInput: codeGraphWalkInput{Dir: dir}},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	var out WhoCallsOutput
+	mustDecodeStructured(t, res, &out)
+	if out.Count != 2 {
+		t.Fatalf("who_calls(Println) count=%d want 2: %+v", out.Count, out.Callers)
+	}
+	if out.ServerVersion == "" {
+		t.Error("server_version not populated")
+	}
+}
+
+func TestWhoCallsTool_MissingSymbol(t *testing.T) {
+	ctx, cs := newSession(t)
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "who_calls",
+		Arguments: WhoCallsInput{codeGraphWalkInput: codeGraphWalkInput{Dir: "."}},
+	})
+	if err != nil {
+		t.Fatalf("CallTool transport error: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("expected a tool error for missing symbol")
+	}
+}
+
+func TestDeadCodeTool(t *testing.T) {
+	dir := seedCodeGraphTree(t)
+	ctx, cs := newSession(t)
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "dead_code",
+		Arguments: DeadCodeInput{codeGraphWalkInput: codeGraphWalkInput{Dir: dir}},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	var out DeadCodeOutput
+	mustDecodeStructured(t, res, &out)
+	// Nothing in the seed tree calls Gamma — it's a candidate.
+	var foundGamma bool
+	for _, d := range out.Candidates {
+		if d.Symbol == "Gamma" {
+			foundGamma = true
+		}
+	}
+	if !foundGamma {
+		t.Errorf("dead_code should include Gamma: %+v", out.Candidates)
+	}
+	if out.ServerVersion == "" {
+		t.Error("server_version not populated")
+	}
+}

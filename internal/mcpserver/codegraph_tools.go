@@ -219,3 +219,91 @@ func (h *handlers) codeGraphHandler(ctx context.Context, _ *mcp.CallToolRequest,
 	out.ServerVersion = h.version
 	return nil, out, nil
 }
+
+// --- who_calls ----------------------------------------------------------
+
+// WhoCallsInput is the JSON-schema input for the `who_calls` tool.
+type WhoCallsInput struct {
+	codeGraphWalkInput
+	Symbol string `json:"symbol" jsonschema:"The exact function / method name to find callers of (e.g. 'ServeHTTP', 'process'). Required. Name-based: a call pkg.Foo() or x.Method() is keyed by 'Foo' / 'Method'."`
+}
+
+// WhoCallsOutput lists every file that calls/references the symbol.
+type WhoCallsOutput struct {
+	CommonOutput
+	Symbol             string            `json:"symbol"`
+	Callers            []search.Importer `json:"callers"`
+	Count              int               `json:"count"`
+	TotalFiles         int64             `json:"total_files"`
+	Cancelled          bool              `json:"cancelled,omitempty"`
+	CancellationReason string            `json:"cancellation_reason,omitempty"`
+}
+
+func (h *handlers) whoCallsHandler(ctx context.Context, _ *mcp.CallToolRequest, in WhoCallsInput) (*mcp.CallToolResult, WhoCallsOutput, error) {
+	if in.Symbol == "" {
+		return nil, WhoCallsOutput{}, fmt.Errorf("symbol is required")
+	}
+	opts, err := h.codeGraphOptions(in.codeGraphWalkInput)
+	if err != nil {
+		return nil, WhoCallsOutput{}, err
+	}
+	ctx, cancel := h.resolveTimeout(ctx, in.TimeoutSeconds)
+	defer cancel()
+
+	g, err := search.BuildCodeGraph(ctx, opts, content.DefaultRegistry())
+	if err != nil {
+		return nil, WhoCallsOutput{}, fmt.Errorf("who_calls: %w", err)
+	}
+	callers := g.WhoCalls(in.Symbol)
+	out := WhoCallsOutput{
+		Symbol:             in.Symbol,
+		Callers:            callers,
+		Count:              len(callers),
+		TotalFiles:         g.TotalFiles,
+		Cancelled:          g.Cancelled,
+		CancellationReason: g.CancellationReason,
+	}
+	out.ServerVersion = h.version
+	return nil, out, nil
+}
+
+// --- dead_code ----------------------------------------------------------
+
+// DeadCodeInput is the JSON-schema input for the `dead_code` tool.
+type DeadCodeInput struct {
+	codeGraphWalkInput
+}
+
+// DeadCodeOutput lists candidate unreferenced definitions.
+type DeadCodeOutput struct {
+	CommonOutput
+	Candidates         []search.SymbolDef `json:"candidates"`
+	Count              int                `json:"count"`
+	TotalFiles         int64              `json:"total_files"`
+	Cancelled          bool               `json:"cancelled,omitempty"`
+	CancellationReason string             `json:"cancellation_reason,omitempty"`
+}
+
+func (h *handlers) deadCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, in DeadCodeInput) (*mcp.CallToolResult, DeadCodeOutput, error) {
+	opts, err := h.codeGraphOptions(in.codeGraphWalkInput)
+	if err != nil {
+		return nil, DeadCodeOutput{}, err
+	}
+	ctx, cancel := h.resolveTimeout(ctx, in.TimeoutSeconds)
+	defer cancel()
+
+	g, err := search.BuildCodeGraph(ctx, opts, content.DefaultRegistry())
+	if err != nil {
+		return nil, DeadCodeOutput{}, fmt.Errorf("dead_code: %w", err)
+	}
+	candidates := g.DeadCode()
+	out := DeadCodeOutput{
+		Candidates:         candidates,
+		Count:              len(candidates),
+		TotalFiles:         g.TotalFiles,
+		Cancelled:          g.Cancelled,
+		CancellationReason: g.CancellationReason,
+	}
+	out.ServerVersion = h.version
+	return nil, out, nil
+}

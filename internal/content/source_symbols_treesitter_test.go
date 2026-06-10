@@ -139,7 +139,7 @@ int main() { return 0; }
 
 	for _, tc := range cases {
 		t.Run(tc.language, func(t *testing.T) {
-			funcs, types, imports := extractTreeSitterSymbols(tc.language, []byte(tc.src))
+			funcs, types, imports, _ := extractTreeSitterSymbols(tc.language, []byte(tc.src))
 			checkContains(t, "functions", funcs, tc.wantFuncs)
 			checkContains(t, "type_names", types, tc.wantTypes)
 			checkContains(t, "imports", imports, tc.wantImports)
@@ -153,6 +153,31 @@ func checkContains(t *testing.T, label string, got, want []string) {
 		if !slices.Contains(got, w) {
 			t.Errorf("%s missing %q; got %v", label, w, got)
 		}
+	}
+}
+
+// TestExtractTreeSitterReferences checks call-site (callee name) capture
+// per language — the @reference half powering who_calls / dead_code.
+func TestExtractTreeSitterReferences(t *testing.T) {
+	cases := []struct {
+		language string
+		src      string
+		wantRefs []string
+	}{
+		{"rust", `fn main() { setup(); thing.run(); helper::go(); println!("x"); }`, []string{"setup", "run", "go", "println"}},
+		{"typescript", `function main() { setup(); obj.run(); }`, []string{"setup", "run"}},
+		{"javascript", `function main() { setup(); obj.run(); }`, []string{"setup", "run"}},
+		{"ruby", "def main\n  setup\n  do_thing(1)\nend\n", []string{"do_thing"}},
+		{"swift", `func main() { setup(); obj.run() }`, []string{"setup", "run"}},
+		{"kotlin", `fun main() { setup(); obj.run() }`, []string{"setup", "run"}},
+		{"c", `int main() { setup(); compute(1); return 0; }`, []string{"setup", "compute"}},
+		{"cpp", `int main() { setup(); obj.run(); return 0; }`, []string{"setup", "run"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.language, func(t *testing.T) {
+			_, _, _, refs := extractTreeSitterSymbols(tc.language, []byte(tc.src))
+			checkContains(t, "references", refs, tc.wantRefs)
+		})
 	}
 }
 
@@ -170,7 +195,7 @@ pub fn g() {}
 	done := make(chan bool, goroutines)
 	for range goroutines {
 		go func() {
-			funcs, types, imports := extractTreeSitterSymbols("rust", src)
+			funcs, types, imports, _ := extractTreeSitterSymbols("rust", src)
 			done <- len(funcs) == 2 && len(types) == 1 && len(imports) == 1
 		}()
 	}
@@ -182,7 +207,7 @@ pub fn g() {}
 }
 
 func TestExtractTreeSitterSymbols_UnknownLanguage(t *testing.T) {
-	f, ty, im := extractTreeSitterSymbols("brainfuck", []byte("+++."))
+	f, ty, im, _ := extractTreeSitterSymbols("brainfuck", []byte("+++."))
 	if f != nil || ty != nil || im != nil {
 		t.Errorf("expected all-nil for unsupported language, got %v %v %v", f, ty, im)
 	}

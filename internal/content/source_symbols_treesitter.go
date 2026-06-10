@@ -62,6 +62,29 @@ var tsImportQuery = map[string]string{
 	"cpp":        `(preproc_include path: (_) @import)`,
 }
 
+// tsRefQuery is the per-language query capturing call-site callee names
+// as @reference. Powers who_calls / dead_code (issue #363). Bare names
+// only (name-based resolution); method/field calls capture the method
+// name. Empty/missing → references left unpopulated.
+var tsRefQuery = map[string]string{
+	"rust": `(call_expression function: (identifier) @reference)
+(call_expression function: (scoped_identifier name: (identifier) @reference))
+(call_expression function: (field_expression field: (field_identifier) @reference))
+(macro_invocation macro: (identifier) @reference)`,
+	"typescript": `(call_expression function: (identifier) @reference)
+(call_expression function: (member_expression property: (property_identifier) @reference))`,
+	"javascript": `(call_expression function: (identifier) @reference)
+(call_expression function: (member_expression property: (property_identifier) @reference))`,
+	"ruby": `(call method: (identifier) @reference)`,
+	"swift": `(call_expression (simple_identifier) @reference)
+(call_expression (navigation_expression suffix: (navigation_suffix (simple_identifier) @reference)))`,
+	"kotlin": `(call_expression (simple_identifier) @reference)
+(call_expression (navigation_expression (navigation_suffix (simple_identifier) @reference)))`,
+	"c":   `(call_expression function: (identifier) @reference)`,
+	"cpp": `(call_expression function: (identifier) @reference)
+(call_expression function: (field_expression field: (field_identifier) @reference))`,
+}
+
 // tsLang holds the concurrent-safe machinery for one language: a
 // ParserPool (safe for concurrent Parse) plus compiled Query objects
 // (safe for concurrent Execute after construction). Built once per
@@ -71,6 +94,7 @@ type tsLang struct {
 	tagsQuery   *ts.Query
 	defQuery    *ts.Query // supplemental @function/@type; nil when none
 	importQuery *ts.Query // nil when none configured or compile failed
+	refQuery    *ts.Query // @reference call-site callees; nil when none
 }
 
 var (
@@ -124,6 +148,11 @@ func buildTSLang(language string) *tsLang {
 			tl.importQuery = impQ
 		}
 	}
+	if q := tsRefQuery[language]; q != "" {
+		if refQ, err := ts.NewQuery(q, lang); err == nil {
+			tl.refQuery = refQ
+		}
+	}
 	return tl
 }
 
@@ -131,14 +160,14 @@ func buildTSLang(language string) *tsLang {
 // returns the function / type / import names. Matches the signature of
 // the hand-rolled extractXxxSymbols functions. Returns all-nil when the
 // language isn't tree-sitter-backed.
-func extractTreeSitterSymbols(language string, src []byte) (functions, types, imports []string) {
+func extractTreeSitterSymbols(language string, src []byte) (functions, types, imports, references []string) {
 	tl := tsLangFor(language)
 	if tl == nil {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	tree, err := tl.pool.Parse(src)
 	if err != nil || tree == nil {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 
 	for _, m := range tl.tagsQuery.Execute(tree) {
@@ -189,7 +218,19 @@ func extractTreeSitterSymbols(language string, src []byte) (functions, types, im
 		}
 	}
 
-	return dedupeStrings(functions), dedupeStrings(types), dedupeStrings(imports)
+	if tl.refQuery != nil {
+		for _, m := range tl.refQuery.Execute(tree) {
+			for _, c := range m.Captures {
+				if c.Name == "reference" {
+					if r := c.Text(src); r != "" {
+						references = append(references, r)
+					}
+				}
+			}
+		}
+	}
+
+	return dedupeStrings(functions), dedupeStrings(types), dedupeStrings(imports), dedupeStrings(references)
 }
 
 // dedupeStrings returns s with duplicates removed, preserving first-seen
