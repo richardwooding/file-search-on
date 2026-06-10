@@ -14,6 +14,21 @@ builds:
       - CGO_ENABLED=0
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
+    # Embed only the tree-sitter grammars used for symbol extraction
+    # (internal/content/source_symbols_treesitter.go). Without these tags
+    # the gotreesitter `grammars` package embeds all ~206 grammars
+    # (~+22 MB); the subset keeps the binary delta to ~+11 MB. Keep in
+    # sync with the language set in source_symbols_treesitter.go.
+    tags:
+      - grammar_subset
+      - grammar_subset_rust
+      - grammar_subset_typescript
+      - grammar_subset_javascript
+      - grammar_subset_ruby
+      - grammar_subset_swift
+      - grammar_subset_kotlin
+      - grammar_subset_c
+      - grammar_subset_cpp
     ldflags:
       - -s -w
       - -X main.version={{.Version}}

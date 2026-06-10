@@ -22,6 +22,14 @@ go fix ./...                                    # apply them
 golangci-lint run                               # CI uses `latest` version
 ```
 
+**Tree-sitter grammars (binary size).** `internal/content/source_symbols_treesitter.go` extracts symbols for Rust / TypeScript / JavaScript / Ruby / Swift / Kotlin / C / C++ via the pure-Go `github.com/odvcencio/gotreesitter` runtime. A plain `go build` / `go test` embeds **all ~206 grammars** (~+22 MB) — fine for dev. Release builds (`.goreleaser.yaml`) pass `grammar_subset` + one `grammar_subset_<lang>` tag per supported language so only those embed (~+11 MB). To reproduce a release-equivalent local build:
+
+```sh
+go build -tags 'grammar_subset grammar_subset_rust grammar_subset_typescript grammar_subset_javascript grammar_subset_ruby grammar_subset_swift grammar_subset_kotlin grammar_subset_c grammar_subset_cpp' -o file-search-on ./cmd/file-search-on
+```
+
+When adding/removing a tree-sitter language, keep three places in sync: the `tsDetectFile` map in `source_symbols_treesitter.go`, `symbolExtractorWired` in `sourcetype.go`, and the `tags:` list in `.goreleaser.yaml`.
+
 CI runs `go fix ./... && git diff --exit-code` after build, so any unapplied modernizer fails the pipeline. Re-run `go fix` until idempotent — applying one fix can unlock another. `go tool fix help` lists fixers.
 
 Run the CLI:

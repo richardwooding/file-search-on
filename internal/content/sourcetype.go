@@ -172,6 +172,13 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 			funcs, types, imports = extractMATLABSymbols(bodyBuf.Bytes())
 		case "scala":
 			funcs, types, imports = extractScalaSymbols(bodyBuf.Bytes())
+		default:
+			// Tree-sitter-backed languages (Rust / TypeScript /
+			// JavaScript / Ruby / Swift / Kotlin / C / C++). Returns nil
+			// for any language not tree-sitter-backed — but
+			// symbolExtractorWired gates this block, so default only
+			// fires for wired tree-sitter languages.
+			funcs, types, imports = extractTreeSitterSymbols(s.language, bodyBuf.Bytes())
 		}
 		if len(funcs) > 0 {
 			attrs["functions"] = funcs
@@ -192,6 +199,9 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 func symbolExtractorWired(language string) bool {
 	switch language {
 	case "go", "python", "java", "csharp", "php", "perl", "r", "matlab", "scala":
+		return true
+	// Tree-sitter-backed (extractTreeSitterSymbols via the switch default).
+	case "rust", "typescript", "javascript", "ruby", "swift", "kotlin", "c", "cpp":
 		return true
 	}
 	return false
