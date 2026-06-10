@@ -202,6 +202,30 @@ file-search-on 'is_source && functions.size() == 1 && imports.size() > 10'
 
 Repeat queries on unchanged trees are sub-second — symbols cache alongside the other attributes via the bbolt index, validated against `(size, mtime)`.
 
+## Cross-file code graph (`imported_by` / `find_definition` / `code_graph`)
+
+The `imports` / `functions` / `type_names` attributes above are *per-file*. Inverting them across a tree answers the *relationship* questions a single-file filter can't: **who imports X?**, **where is Y defined?**, **what does this codebase depend on most?** Three CLI subcommands (and the matching MCP tools) build that project-wide graph from the same walk + index:
+
+```sh
+# Reverse dependency — every file that imports a module ("who depends on X?").
+file-search-on imported-by github.com/spf13/cobra -d .
+
+# Prefix mode — everything under an internal package path.
+file-search-on imported-by github.com/myorg/app/internal --mode prefix -d .
+
+# Where is a function or type defined? (exact name; symbol-aware, not text grep)
+file-search-on find-definition ServeHTTP --kind function -d .
+file-search-on find-definition OrderService --kind type -d ./src
+
+# Project-wide overview — import hubs, most-coupled files, duplicate definitions.
+file-search-on code-graph 'is_source && language == "go"' --top 10 -d .
+
+# JSON for tooling / dashboards.
+file-search-on code-graph -o json -d . | jq '.import_hubs[:5]'
+```
+
+`imported_by` is accurate for every language whose imports are extracted (Go via AST; Python / Java / C# / PHP / Perl / R / MATLAB / Scala via the import-shape extractors). `find_definition` is limited to the languages with symbol extraction — for the rest, fall back to `find-matches`. Genuine call-graph ("who *calls* Y?") is still out of scope (see below) — it needs call-site extraction.
+
 ## Filtering out generated code
 
 ```sh
@@ -270,7 +294,7 @@ When the MCP server is started with `--warm`, the git cache is primed at startup
 - **Symbol extraction for languages beyond Go / Python / Java / C# / PHP / Perl / R / MATLAB / Scala.** Rust / TypeScript / Kotlin / Ruby / Swift / Lua / Haskell / etc. leave `functions` / `type_names` / `imports` empty today. The extractor interface is stable — adding more languages is a follow-up PR per language (see GitHub issues for tracked candidates).
 - **True AST for Python and Java.** Regex is best-effort. Tree-sitter is the obvious upgrade path; deferred to avoid a heavy dependency in v1.
 - **Receiver-qualified Go methods** (e.g. `Handler.ServeHTTP` vs bare `ServeHTTP`). Bare names are what agents look up; matching `"ServeHTTP" in functions` works. A future `methods []string` could surface receiver pairs.
-- **Cross-file symbol graph** (reverse-imports: "who imports me?"). Different shape — needs a project-wide index, not per-file attributes.
+- **Call graph** ("who *calls* function Y?") and symbol-level dead-code. Call sites aren't extracted today, so neither is derivable — they want the tree-sitter upgrade path above. (The *cross-file import + definition graph* — "who imports X?", "where is Y defined?" — is now built; see [Cross-file code graph](#cross-file-code-graph-imported_by--find_definition--code_graph) below.)
 - **Documentation extraction** (docstrings, godoc lines per function). Worth a follow-up.
 - **String-aware comment classification.** A line containing `s = "//"` is treated as code (correct, since `s = "//"` doesn't start with `//`). A line whose code happens to start with `//` inside a string... is rare enough to ignore.
 - **Generated-file detection.** Use name-based filters explicitly (see above).

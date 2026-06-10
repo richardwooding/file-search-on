@@ -34,7 +34,7 @@ brew install richardwooding/tap/file-search-on
 claude mcp add file-search-on -- file-search-on mcp
 ```
 
-That's it. Claude Code can now query your files by typed content-type attributes — ask it things like *"find every PDF over 10 pages I haven't opened this year"*, *"which Go files have the highest git churn?"*, or *"are there any AWS keys in this repo?"* and it drives the [twenty MCP tools](#mcp-server-mode) behind the scenes.
+That's it. Claude Code can now query your files by typed content-type attributes — ask it things like *"find every PDF over 10 pages I haven't opened this year"*, *"which Go files have the highest git churn?"*, or *"are there any AWS keys in this repo?"* and it drives the [MCP tools](#mcp-server-mode) behind the scenes — including a cross-file code graph (`imported_by`, `find_definition`, `code_graph`) for "who depends on X?" and "where is Y defined?".
 
 - Make it available in **every** project (not just the current one) with the user scope: `claude mcp add -s user file-search-on -- file-search-on mcp`.
 - Confirm the connection with `claude mcp list`, or `/mcp` inside a Claude Code session.
@@ -86,7 +86,7 @@ Prefer the command line? The same binary is a standalone CLI — `file-search-on
 - **CEL expressions** — the full Common Expression Language: comparisons, `&&`/`||`, string functions, list membership, timestamp arithmetic. Composes naturally with structural attributes.
 - **Fuzzy, phonetic, and geographic matching** — built-in `levenshtein`, `soundex`, `ngrams`, `ngram_similarity`, and `point_in_polygon` (for GPS bboxes / city outlines) let you write typo-tolerant and "sounds-like" queries against any string attribute. EXIF camera make in `Nikkon` instead of `Nikon`? Artist tag mistyped as `Radiohad`? Same query catches all of them. See [examples/fuzzy-search.md](./examples/fuzzy-search.md).
 - **Multiple output formats** — `bare` (paths only), `default`, `verbose` (multi-line), `json` (NDJSON), or a Go `text/template` via `--format`.
-- **MCP server mode** — same binary doubles as a [Model Context Protocol](https://modelcontextprotocol.io) server (stdio, HTTP, or SSE). Twenty tools exposed: `search`, `search_semantic`, `read_attributes`, `read_lines`, `stats`, `find_duplicates`, `find_near_duplicates`, `diff_trees`, `find_matches`, `watch_search`, `list_archive_contents`, `read_file_in_archive`, `detect_project`, `find_projects`, `resolve_project_for_path`, `list_attributes`, `list_presets`, `query_preset`, `index_stats`, `monitor_info`.
+- **MCP server mode** — same binary doubles as a [Model Context Protocol](https://modelcontextprotocol.io) server (stdio, HTTP, or SSE). Twenty-six tools exposed: `search`, `search_semantic`, `read_attributes`, `read_lines`, `stats`, `find_duplicates`, `find_near_duplicates`, `diff_trees`, `find_matches`, `imported_by`, `find_definition`, `code_graph`, `watch_search`, `list_archive_contents`, `read_file_in_archive`, `detect_project`, `find_projects`, `resolve_project_for_path`, `list_attributes`, `validate_expr`, `list_presets`, `query_preset`, `list_embedding_models`, `pull_embedding_model`, `index_stats`, `monitor_info`.
 - **Pure Go, no CGO** — cross-compiles cleanly to all six release targets. No image/audio/video decoder dependencies.
 - **Parallel walking** — files are evaluated across a worker pool (defaults to `NumCPU`).
 
@@ -486,6 +486,16 @@ Twenty tools are exposed, grouped by family:
 | `find_matches` | Line-level regex (RE2) hits across a tree with `context_before` / `context_after` windows. CEL pre-prune (e.g. `is_source && language == "go"`) keeps the regex pass narrow. Replaces the search-then-`read_lines` dance with one call. Supports `limit` / `cursor` pagination over the (path, line)-ordered hits. |
 | `watch_search` | Bounded "tell me when X appears" subscription — block up to `duration_seconds` (default 30, capped at 600), return every new / changed file that matches the CEL filter. |
 
+**Cross-file code graph**
+
+Built by inverting the per-file `imports` / `functions` / `type_names` lists into a project-wide graph (no extra dependencies; same walk + index as `search`). Answers the relationship questions per-file `search` can't.
+
+| Tool | What it does |
+| --- | --- |
+| `imported_by` | Reverse-dependency lookup: every file that imports a given `module` (`exact` / `prefix` / `regex` mode). "Who depends on X?" Accurate for every language whose imports are extracted (Go via AST; Python / Java / C# / PHP / Perl / R / MATLAB / Scala). |
+| `find_definition` | Where a `symbol` (function or type, exact name) is defined across the tree — the symbol-aware complement to `find_matches`. Limited to the languages with symbol extraction. |
+| `code_graph` | Project-wide overview: `import_hubs` (most-depended-on modules), `high_fan_out` (most-coupled files), `duplicate_definitions` (names defined in >1 file), language breakdown, totals. |
+
 **Project + introspection + monitoring**
 
 | Tool | What it does |
@@ -499,7 +509,7 @@ Twenty tools are exposed, grouped by family:
 | `index_stats` | Cache counters for the running server (hits, misses, puts, stales, errors; same for body + embedding caches). When `--watch-index` is on, also reports `watch_refreshed` / `watch_evicted` / `watch_errors`. |
 | `monitor_info` | This server's monitoring-dashboard URL + the registry of sibling instances. Pass `enable: true` to start the dashboard on demand if it isn't already running. |
 
-Every walking tool (`search`, `stats`, `find_duplicates`, `find_near_duplicates`, `find_matches`, `find_projects`, `diff_trees`) honours the same partial-result contract: on timeout the call returns `cancelled=true` with the results gathered so far, never an error. Agents inspect the flag rather than catching exceptions.
+Every walking tool (`search`, `stats`, `find_duplicates`, `find_near_duplicates`, `find_matches`, `imported_by`, `find_definition`, `code_graph`, `find_projects`, `diff_trees`) honours the same partial-result contract: on timeout the call returns `cancelled=true` with the results gathered so far, never an error. Agents inspect the flag rather than catching exceptions.
 
 **Pagination.** `search`, `search_semantic`, `find_matches`, `stats`, and `find_near_duplicates` support stateless **cursor pagination** for large result sets. Pass `limit` (or `group_limit` for `find_near_duplicates`) to cap a page; when the set is truncated the response carries an opaque `next_cursor`. Pass it back as `cursor` (with the *same* sort / query / `group_by` / `threshold`) to fetch the next page. The cursor is a keyset over the result's ordering (sort key + path for `search`; path + line for `find_matches`; count-desc + name for `stats`; count-desc + representative for `find_near_duplicates`), so paging is stable under an unchanged tree and survives a server restart — there's no server-side cached result set. Each page re-walks the tree, but attribute extraction is index-cached, so re-walks are cheap. An agent can stream a 10k-result set in bounded pages without blowing its context or losing the tail to a hard `limit`. (For `find_matches` / `stats` / `find_near_duplicates`, the total counters — `count` / `total_count` / `group_count` — stay whole-tree, while the list field carries the current page.)
 

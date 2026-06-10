@@ -1,6 +1,6 @@
 # Tool reference
 
-Every MCP tool the `file-search-on` server exposes (23 tools as of v0.75.0). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same seven families as the SKILL.md table.
+Every MCP tool the `file-search-on` server exposes (26 tools). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same families as the SKILL.md table.
 
 ## Contents
 
@@ -9,6 +9,7 @@ Every MCP tool the `file-search-on` server exposes (23 tools as of v0.75.0). Eac
 - Dedup & diff — `find_duplicates`, `find_near_duplicates`, `diff_trees`
 - Archive — `list_archive_contents`, `read_file_in_archive`
 - Pattern + watch — `find_matches`, `watch_search`
+- Cross-file code graph — `imported_by`, `find_definition`, `code_graph`
 - CEL utilities — `validate_expr`, `list_attributes`
 - Project + presets + monitoring — `detect_project`, `find_projects`, `resolve_project_for_path`, `list_presets`, `query_preset`, `index_stats`, `monitor_info`
 
@@ -437,6 +438,78 @@ Example — wait for a screenshot mentioning "error":
     "max_events": 5,
     "ocr_images": true
   }
+}
+```
+
+---
+
+## Cross-file code graph
+
+Built by inverting the per-file `imports` / `functions` / `type_names` lists (the same data `search` surfaces) into a project-wide graph. One walk, then in-memory lookups. No extra dependencies. Answers the relationship questions per-file `search` can't. All three honour the partial-result contract (`cancelled=true` on timeout) and accept the shared walking inputs (`dir` / `dirs[]` / `excludes[]` / `respect_gitignore` / `follow_symlinks` / `workers` / `timeout_seconds`), plus `expr` (defaults to `is_source`).
+
+### `imported_by`
+
+Reverse-dependency lookup: every file that imports a given module.
+
+Key inputs:
+
+- `module` — the import string exactly as written in source (e.g. `github.com/spf13/cobra`, `numpy`, `react`). Required.
+- `mode` — `exact` (default), `prefix` (module is a leading substring), or `regex` (RE2 against each import string).
+
+Output: `importers[]` (`{path, language}`, sorted by path), `count`, `total_files`.
+
+Gotcha: accurate for every language whose imports are extracted (Go via AST; Python / Java / C# / PHP / Perl / R / MATLAB / Scala). Other languages won't contribute edges.
+
+Example — who depends on the internal `content` package:
+
+```json
+{
+  "name": "imported_by",
+  "arguments": {
+    "module": "github.com/richardwooding/file-search-on/internal/content",
+    "dir": "."
+  }
+}
+```
+
+### `find_definition`
+
+Where a function or type is defined across the tree — symbol-aware, the complement to `find_matches` (which is text regex).
+
+Key inputs:
+
+- `symbol` — exact function or type name (not a substring). Required.
+- `kind` — `function` / `type` / empty for both.
+
+Output: `definitions[]` (`{path, language, kind}`, deduped per file per kind), `count`, `total_files`.
+
+Gotcha: limited to the languages with symbol extraction (Go + Python / Java / C# / PHP / Perl / R / MATLAB / Scala). For others, fall back to `find_matches`.
+
+Example:
+
+```json
+{
+  "name": "find_definition",
+  "arguments": { "symbol": "ServeHTTP", "kind": "function", "dir": "." }
+}
+```
+
+### `code_graph`
+
+Project-wide structure overview.
+
+Key inputs:
+
+- `top` — cap each ranked list (default 20).
+
+Output: `overview` with `import_hubs` (modules by fan-in), `high_fan_out` (files by import count), `duplicate_definitions` (names defined in >1 file), `languages` (file counts), and `total_files` / `distinct_modules` / `distinct_symbols`.
+
+Example — Go-only overview, top 10:
+
+```json
+{
+  "name": "code_graph",
+  "arguments": { "expr": "is_source && language == \"go\"", "top": 10, "dir": "." }
 }
 ```
 
