@@ -24,7 +24,7 @@ func ProcessOrder(id string) error {
 	return nil
 }
 `)
-	funcs, types, imports := extractGoSymbols(src)
+	funcs, types, imports, _ := extractGoSymbols(src)
 	sort.Strings(funcs)
 	sort.Strings(types)
 	sort.Strings(imports)
@@ -49,7 +49,7 @@ import (
 	_ "embed"
 )
 `)
-	_, _, imports := extractGoSymbols(src)
+	_, _, imports, _ := extractGoSymbols(src)
 	sort.Strings(imports)
 	want := []string{"embed", "fmt", "net/http"}
 	if !reflect.DeepEqual(imports, want) {
@@ -71,7 +71,7 @@ type Pair[A, B any] struct {
 
 func Map[T, U any](items []T, fn func(T) U) []U { return nil }
 `)
-	funcs, types, _ := extractGoSymbols(src)
+	funcs, types, _, _ := extractGoSymbols(src)
 	if !contains(funcs, "Map") {
 		t.Errorf("expected Map in functions, got %v", funcs)
 	}
@@ -97,7 +97,7 @@ func Working() {
 
 func Broken( {  // syntax error here
 `)
-	funcs, types, imports := extractGoSymbols(src)
+	funcs, types, imports, _ := extractGoSymbols(src)
 	if !contains(imports, "fmt") {
 		t.Errorf("imports should include fmt despite parse error, got %v", imports)
 	}
@@ -110,14 +110,14 @@ func Broken( {  // syntax error here
 }
 
 func TestExtractGoSymbols_Empty(t *testing.T) {
-	funcs, types, imports := extractGoSymbols([]byte{})
+	funcs, types, imports, _ := extractGoSymbols([]byte{})
 	if len(funcs) != 0 || len(types) != 0 || len(imports) != 0 {
 		t.Errorf("empty input should yield empty results, got %v/%v/%v", funcs, types, imports)
 	}
 }
 
 func TestExtractGoSymbols_PackageOnly(t *testing.T) {
-	funcs, types, imports := extractGoSymbols([]byte("package main\n"))
+	funcs, types, imports, _ := extractGoSymbols([]byte("package main\n"))
 	if len(funcs) != 0 || len(types) != 0 || len(imports) != 0 {
 		t.Errorf("package-only file should yield empty results, got %v/%v/%v", funcs, types, imports)
 	}

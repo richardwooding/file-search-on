@@ -1,6 +1,6 @@
 # Tool reference
 
-Every MCP tool the `file-search-on` server exposes (26 tools). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same families as the SKILL.md table.
+Every MCP tool the `file-search-on` server exposes (28 tools). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same families as the SKILL.md table.
 
 ## Contents
 
@@ -9,7 +9,7 @@ Every MCP tool the `file-search-on` server exposes (26 tools). Each entry has a 
 - Dedup & diff — `find_duplicates`, `find_near_duplicates`, `diff_trees`
 - Archive — `list_archive_contents`, `read_file_in_archive`
 - Pattern + watch — `find_matches`, `watch_search`
-- Cross-file code graph — `imported_by`, `find_definition`, `code_graph`
+- Cross-file code graph — `imported_by`, `find_definition`, `code_graph`, `who_calls`, `dead_code`
 - CEL utilities — `validate_expr`, `list_attributes`
 - Project + presets + monitoring — `detect_project`, `find_projects`, `resolve_project_for_path`, `list_presets`, `query_preset`, `index_stats`, `monitor_info`
 
@@ -511,6 +511,34 @@ Example — Go-only overview, top 10:
   "name": "code_graph",
   "arguments": { "expr": "is_source && language == \"go\"", "top": 10, "dir": "." }
 }
+```
+
+### `who_calls`
+
+Reverse call lookup — every file that calls/references a symbol name.
+
+Key inputs:
+
+- `symbol` — exact function/method name (required). Name-based: `pkg.Foo()` / `x.Method()` key by `Foo` / `Method`.
+
+Output: `callers[]` (`{path, language}`, sorted by path), `count`, `total_files`.
+
+Gotcha: references are extracted for Go + the tree-sitter languages (Rust / TypeScript / JavaScript / Ruby / Swift / Kotlin / C / C++) only; callers in other languages won't appear.
+
+```json
+{ "name": "who_calls", "arguments": { "symbol": "ServeHTTP", "dir": "." } }
+```
+
+### `dead_code`
+
+Candidate definitions (functions/types) whose name is never referenced anywhere in the walked set.
+
+Output: `candidates[]` (`{path, language, kind, symbol}`, sorted by path), `count`, `total_files`.
+
+**Gotcha — these are CANDIDATES, not authoritative.** Name-based heuristic; exported/public API used only externally, entry points (`main`), dynamic dispatch, reflection, and same-name collisions all produce false positives. Restricted to definitions in languages with reference extraction (Go + tree-sitter). Pair with `expr: "is_source && !is_test_file"` to drop test-runner-invoked functions. Use as a review starting point, never a delete list.
+
+```json
+{ "name": "dead_code", "arguments": { "expr": "is_source && language == \"go\" && !is_test_file", "dir": "." } }
 ```
 
 ---

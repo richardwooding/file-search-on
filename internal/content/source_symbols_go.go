@@ -22,12 +22,16 @@ import (
 // agents asking "where is FooBar?" want both shapes, and capturing the
 // method name only (not the receiver-qualified name) keeps CEL
 // queries like `"FooBar" in functions` simple.
-func extractGoSymbols(src []byte) (functions, types, imports []string) {
+//
+// references holds the bare callee names of every call expression
+// (`foo()` → "foo"; `pkg.Foo()` / `x.Method()` → "Foo" / "Method") —
+// the call-site half of the code graph (issue #363). Name-based, deduped.
+func extractGoSymbols(src []byte) (functions, types, imports, references []string) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "", src, parser.AllErrors)
 	if f == nil {
 		_ = err
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	for _, decl := range f.Decls {
 		switch d := decl.(type) {
@@ -50,5 +54,20 @@ func extractGoSymbols(src []byte) (functions, types, imports []string) {
 			}
 		}
 	}
-	return
+	ast.Inspect(f, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		switch fn := call.Fun.(type) {
+		case *ast.Ident:
+			references = append(references, fn.Name)
+		case *ast.SelectorExpr:
+			if fn.Sel != nil {
+				references = append(references, fn.Sel.Name)
+			}
+		}
+		return true
+	})
+	return functions, types, imports, dedupeStrings(references)
 }

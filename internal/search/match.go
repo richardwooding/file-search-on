@@ -523,6 +523,14 @@ type Match struct {
 	// same per-language extractor as Functions / Imports. Issue #278.
 	TypeNames []string `json:"type_names,omitempty"`
 
+	// References lists the distinct callee names of call sites in this
+	// source file (the call-site half of the code graph). Populated for
+	// source/go (via go/ast CallExpr) and the tree-sitter languages
+	// (Rust / TypeScript / JavaScript / Ruby / Swift / Kotlin / C / C++).
+	// Name-based: `pkg.Foo()` / `x.Method()` capture "Foo" / "Method".
+	// Powers who_calls / dead_code. Issue #363.
+	References []string `json:"references,omitempty"`
+
 	CellCount         int64  `json:"cell_count,omitempty"`
 	CodeCellCount     int64  `json:"code_cell_count,omitempty"`
 	MarkdownCellCount int64  `json:"markdown_cell_count,omitempty"`

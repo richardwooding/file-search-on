@@ -424,6 +424,9 @@ func applyEmailSourceAttrs(m *Match, a *celexpr.FileAttributes) {
 	if v, ok := a.Extra["type_names"].([]string); ok {
 		m.TypeNames = v
 	}
+	if v, ok := a.Extra["references"].([]string); ok {
+		m.References = v
+	}
 	if v, ok := a.Extra["cell_count"].(int64); ok {
 		m.CellCount = v
 	}

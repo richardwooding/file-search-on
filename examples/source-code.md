@@ -193,6 +193,15 @@ file-search-on 'is_source && language == "scala" && "OrderService" in type_names
 # (def operator methods like "+" are captured in functions too)
 file-search-on 'is_source && language == "scala" && type_names.size() > 0' -d ./domain
 
+# Who calls a function? (references = call sites; Go + tree-sitter languages)
+file-search-on who-calls ProcessOrder -d .
+# …or as a CEL filter via the `references` attribute:
+file-search-on 'is_source && "ProcessOrder" in references'
+
+# Candidate dead code — defined but never called. HEURISTIC: pair with
+# !is_test_file to drop test-runner-invoked funcs; review, don't auto-delete.
+file-search-on dead-code 'is_source && language == "go" && !is_test_file' -d .
+
 # Rust: every file importing a crate (tree-sitter-extracted)
 file-search-on 'is_source && language == "rust" && imports.exists(i, i.startsWith("serde"))'
 
