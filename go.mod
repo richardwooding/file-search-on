@@ -12,6 +12,7 @@ require (
 	github.com/google/cel-go v0.28.1
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
 	github.com/modelcontextprotocol/go-sdk v1.6.1
+	github.com/odvcencio/gotreesitter v0.20.2
 	github.com/pelletier/go-toml/v2 v2.3.1
 	github.com/richardwooding/bm25 v0.1.0
 	github.com/richardwooding/fingerprint v0.1.0
@@ -33,6 +34,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/kr/text v0.2.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
