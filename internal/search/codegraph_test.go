@@ -203,6 +203,25 @@ func TestCodeGraph_WhoCalls(t *testing.T) {
 	}
 }
 
+func TestCodeGraph_Calls(t *testing.T) {
+	g := mustBuildGraph(t, buildCallFixture(t))
+	// Used() { Helper() } → Used calls Helper.
+	if got := g.Calls("Used"); len(got) != 1 || got[0] != "Helper" {
+		t.Fatalf("Calls(Used)=%v want [Helper]", got)
+	}
+	// main() { Used() } → main calls Used.
+	if got := g.Calls("main"); len(got) != 1 || got[0] != "Used" {
+		t.Fatalf("Calls(main)=%v want [Used]", got)
+	}
+	// Helper() {} calls nothing.
+	if got := g.Calls("Helper"); len(got) != 0 {
+		t.Errorf("Calls(Helper)=%v want empty", got)
+	}
+	if got := g.Calls("DoesNotExist"); len(got) != 0 {
+		t.Errorf("Calls(missing)=%v want empty", got)
+	}
+}
+
 func TestCodeGraph_DeadCode(t *testing.T) {
 	g := mustBuildGraph(t, buildCallFixture(t))
 	dead := map[string]bool{}

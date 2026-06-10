@@ -269,3 +269,34 @@ func (c *DeadCodeCmd) Run(ctx context.Context) error {
 	}
 	return codeGraphExit(c.Timeout, parentCtx, effectiveCtx, g, "dead-code")
 }
+
+// CallsCmd — forward call lookup (what does a function call).
+type CallsCmd struct {
+	Symbol string `arg:"" help:"Exact function/method name whose callees to list."`
+	codeGraphWalkFlags
+	Expr   string `name:"expr" help:"CEL pre-filter. Defaults to is_source."`
+	Output string `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table | json."`
+}
+
+func (c *CallsCmd) Run(ctx context.Context) error {
+	g, parentCtx, effectiveCtx, cleanup, err := c.build(ctx, defaultSourceExpr(c.Expr))
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	if g == nil {
+		return nil
+	}
+	callees := g.Calls(c.Symbol)
+	if c.Output == "json" {
+		_ = writeJSON(os.Stdout, map[string]any{
+			"symbol": c.Symbol, "callees": callees, "count": len(callees), "total_files": g.TotalFiles,
+		})
+	} else {
+		for _, callee := range callees {
+			fmt.Println(callee)
+		}
+		_, _ = fmt.Fprintf(os.Stderr, "%q calls %d distinct function(s) (of %d source files)\n", c.Symbol, len(callees), g.TotalFiles)
+	}
+	return codeGraphExit(c.Timeout, parentCtx, effectiveCtx, g, "calls")
+}

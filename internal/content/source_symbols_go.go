@@ -26,18 +26,28 @@ import (
 // references holds the bare callee names of every call expression
 // (`foo()` → "foo"; `pkg.Foo()` / `x.Method()` → "Foo" / "Method") —
 // the call-site half of the code graph (issue #363). Name-based, deduped.
-func extractGoSymbols(src []byte) (functions, types, imports, references []string) {
+//
+// callEdges holds per-function call attribution as "caller\x00callee"
+// pairs (issue #368): for each top-level FuncDecl, every callee in its
+// body (including nested closures). Powers the calls() tool. Builder-
+// internal — not a CEL variable.
+func extractGoSymbols(src []byte) (functions, types, imports, references, callEdges []string) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "", src, parser.AllErrors)
 	if f == nil {
 		_ = err
-		return nil, nil, nil, nil
+		return nil, nil, nil, nil, nil
 	}
 	for _, decl := range f.Decls {
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
 			if d.Name != nil {
 				functions = append(functions, d.Name.Name)
+				if d.Body != nil {
+					for _, callee := range goCallees(d.Body) {
+						callEdges = append(callEdges, d.Name.Name+"\x00"+callee)
+					}
+				}
 			}
 		case *ast.GenDecl:
 			for _, spec := range d.Specs {
@@ -55,19 +65,40 @@ func extractGoSymbols(src []byte) (functions, types, imports, references []strin
 		}
 	}
 	ast.Inspect(f, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		switch fn := call.Fun.(type) {
-		case *ast.Ident:
-			references = append(references, fn.Name)
-		case *ast.SelectorExpr:
-			if fn.Sel != nil {
-				references = append(references, fn.Sel.Name)
+		if call, ok := n.(*ast.CallExpr); ok {
+			if name := goCallee(call); name != "" {
+				references = append(references, name)
 			}
 		}
 		return true
 	})
-	return functions, types, imports, dedupeStrings(references)
+	return functions, types, imports, dedupeStrings(references), dedupeStrings(callEdges)
+}
+
+// goCallee returns the bare callee name of a call expression, or "" for
+// shapes without a simple name (e.g. calls through a returned func value).
+func goCallee(call *ast.CallExpr) string {
+	switch fn := call.Fun.(type) {
+	case *ast.Ident:
+		return fn.Name
+	case *ast.SelectorExpr:
+		if fn.Sel != nil {
+			return fn.Sel.Name
+		}
+	}
+	return ""
+}
+
+// goCallees returns every callee name reached from node (deduped).
+func goCallees(node ast.Node) []string {
+	var out []string
+	ast.Inspect(node, func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok {
+			if name := goCallee(call); name != "" {
+				out = append(out, name)
+			}
+		}
+		return true
+	})
+	return dedupeStrings(out)
 }

@@ -307,3 +307,50 @@ func (h *handlers) deadCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, 
 	out.ServerVersion = h.version
 	return nil, out, nil
 }
+
+// --- calls --------------------------------------------------------------
+
+// CallsInput is the JSON-schema input for the `calls` tool.
+type CallsInput struct {
+	codeGraphWalkInput
+	Symbol string `json:"symbol" jsonschema:"The exact function/method name whose callees you want — 'what does Y call?'. Required."`
+}
+
+// CallsOutput lists the distinct callees of the queried function.
+type CallsOutput struct {
+	CommonOutput
+	Symbol             string   `json:"symbol"`
+	Callees            []string `json:"callees"`
+	Count              int      `json:"count"`
+	TotalFiles         int64    `json:"total_files"`
+	Cancelled          bool     `json:"cancelled,omitempty"`
+	CancellationReason string   `json:"cancellation_reason,omitempty"`
+}
+
+func (h *handlers) callsHandler(ctx context.Context, _ *mcp.CallToolRequest, in CallsInput) (*mcp.CallToolResult, CallsOutput, error) {
+	if in.Symbol == "" {
+		return nil, CallsOutput{}, fmt.Errorf("symbol is required")
+	}
+	opts, err := h.codeGraphOptions(in.codeGraphWalkInput)
+	if err != nil {
+		return nil, CallsOutput{}, err
+	}
+	ctx, cancel := h.resolveTimeout(ctx, in.TimeoutSeconds)
+	defer cancel()
+
+	g, err := search.BuildCodeGraph(ctx, opts, content.DefaultRegistry())
+	if err != nil {
+		return nil, CallsOutput{}, fmt.Errorf("calls: %w", err)
+	}
+	callees := g.Calls(in.Symbol)
+	out := CallsOutput{
+		Symbol:             in.Symbol,
+		Callees:            callees,
+		Count:              len(callees),
+		TotalFiles:         g.TotalFiles,
+		Cancelled:          g.Cancelled,
+		CancellationReason: g.CancellationReason,
+	}
+	out.ServerVersion = h.version
+	return nil, out, nil
+}

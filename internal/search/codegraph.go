@@ -96,6 +96,9 @@ type CodeGraph struct {
 	// referencedBy: callee name -> set of referencing file paths
 	// (path -> language). The call-site half of the graph (#363).
 	referencedBy map[string]map[string]string
+	// callsByName: caller function name -> set of callee names it calls,
+	// unioned across every file (name-based). Powers Calls (#368).
+	callsByName map[string]map[string]bool
 	// fanOut: file path -> language + number of modules it imports.
 	fanOut map[string]fileFanOut
 	// languages: language -> file count.
@@ -139,6 +142,7 @@ func BuildCodeGraph(ctx context.Context, opts Options, registry *content.Registr
 		importedBy:   map[string]map[string]string{},
 		definedIn:    map[string][]symbolEntry{},
 		referencedBy: map[string]map[string]string{},
+		callsByName:  map[string]map[string]bool{},
 		fanOut:       map[string]fileFanOut{},
 		languages:    map[string]int64{},
 	}
@@ -182,6 +186,20 @@ func BuildCodeGraph(ctx context.Context, opts Options, registry *content.Registr
 					g.referencedBy[ref] = set
 				}
 				set[r.Path] = lang
+			}
+		}
+		if edges, ok := r.Attrs.Extra["call_edges"].([]string); ok {
+			for _, e := range edges {
+				caller, callee, found := strings.Cut(e, "\x00")
+				if !found || caller == "" || callee == "" {
+					continue
+				}
+				set := g.callsByName[caller]
+				if set == nil {
+					set = map[string]bool{}
+					g.callsByName[caller] = set
+				}
+				set[callee] = true
 			}
 		}
 	}
@@ -302,6 +320,20 @@ func (g *CodeGraph) WhoCalls(name string) []Importer {
 		out = append(out, Importer{Path: p, Language: lang})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
+}
+
+// Calls returns the distinct callee names that any function named `name`
+// invokes, sorted. Name-based and unioned across every file that defines
+// a function with that name. Covers Go + the tree-sitter languages whose
+// grammar exposes function spans; same heuristic caveats as WhoCalls.
+func (g *CodeGraph) Calls(name string) []string {
+	set := g.callsByName[name]
+	out := make([]string, 0, len(set))
+	for callee := range set {
+		out = append(out, callee)
+	}
+	sort.Strings(out)
 	return out
 }
 

@@ -457,6 +457,11 @@ func New(version string, idx index.Index, defaultTimeout time.Duration, embedDef
 	}, instrument(h.metrics, "dead_code", h.deadCodeHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name:        "calls",
+		Description: "Forward call lookup: list the distinct functions that a given function calls — \"what does Y call?\". The forward complement to who_calls. Input: symbol (required, exact function/method name), plus expr (defaults to is_source) / dir / dirs / excludes / respect_gitignore / timeout_seconds. Built by attributing each call site to its enclosing function (span containment for tree-sitter; go/ast for Go). Coverage: Go + the tree-sitter languages whose grammar exposes function spans (Rust / TypeScript / JavaScript / Ruby / Swift / Kotlin / C / C++). Name-based and unioned across all functions sharing the name: a callee pkg.Foo() / x.Method() is keyed by 'Foo' / 'Method'; dynamic dispatch and function values aren't resolved; calls inside nested closures attribute to the enclosing named function. Output: callees[] (sorted distinct names) + count + total_files.",
+	}, instrument(h.metrics, "calls", h.callsHandler))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "watch_search",
 		Description: "Watch directories for a BOUNDED window and return every new / changed file that matches a CEL expression — the inverse of search ('tell me when X appears' instead of 'what already matches'). Same CEL vocabulary as the search tool (is_image, is_pdf, is_source && language == \"go\", size > 1000000, body.contains(\"error\"), …). Watches recursively (subdirectories created during the window are picked up). Blocks until duration_seconds elapses (default 30s, hard-capped at 600s), max_events matches are collected, or the call is cancelled — whichever comes first; then returns the collected matches. Inputs: expr (optional CEL filter), dir / dirs, duration_seconds (how long to watch), max_events (return early after N matches), plus the usual ocr_images / compute_hashes / with_phash / with_xattrs / include_body / excludes / respect_gitignore flags. Output: matches[] (same shape as search) + watched_seconds + hit_max_events. Use for short 'wait for the next screenshot / build artefact / download' flows; for open-ended streaming use the CLI 'watch' subcommand. Issue #211.",
 	}, instrument(h.metrics, "watch_search", h.watchSearchHandler))
