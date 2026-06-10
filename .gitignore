@@ -8,6 +8,10 @@
 *.so
 *.dylib
 
+# The CLI binary built via `go build -o file-search-on ./cmd/file-search-on`
+# (root-anchored so it doesn't match the cmd/file-search-on/ source dir).
+/file-search-on
+
 # But the binary content-type fixtures are committed.
 !internal/content/testdata/fixtures/sample.exe
 !internal/content/testdata/fixtures/sample.macho
