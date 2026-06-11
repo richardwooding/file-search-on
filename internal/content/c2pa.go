@@ -1,6 +1,7 @@
 package content
 
 import (
+	"context"
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/binary"
@@ -61,7 +62,14 @@ type c2paInfo struct {
 // container ("jpeg" / "png"), locates + parses the JUMBF manifest. Returns
 // a zero c2paInfo (Present=false) when there's no manifest. Never errors —
 // provenance is best-effort metadata, like EXIF.
-func extractC2PA(container string, rs io.Reader) c2paInfo {
+//
+// ctx is honoured at entry and inside the input-scaled scan loops (up to
+// maxC2PAScan = 16 MiB), so a cancelled search surrenders promptly mid-scan
+// rather than parsing a full adversarial header (issue #337).
+func extractC2PA(ctx context.Context, container string, rs io.Reader) c2paInfo {
+	if ctx.Err() != nil {
+		return c2paInfo{}
+	}
 	data, err := io.ReadAll(io.LimitReader(rs, maxC2PAScan))
 	if err != nil || len(data) == 0 {
 		return c2paInfo{}
@@ -69,25 +77,28 @@ func extractC2PA(container string, rs io.Reader) c2paInfo {
 	var jumbf []byte
 	switch container {
 	case "jpeg":
-		jumbf = jpegJUMBF(data)
+		jumbf = jpegJUMBF(ctx, data)
 	case "png":
-		jumbf = pngJUMBF(data)
+		jumbf = pngJUMBF(ctx, data)
 	default:
 		return c2paInfo{}
 	}
 	if len(jumbf) == 0 {
 		return c2paInfo{}
 	}
-	return parseC2PAManifest(jumbf)
+	return parseC2PAManifest(ctx, jumbf)
 }
 
 // jpegJUMBF reassembles the JUMBF box from APP11 (0xFFEB) marker segments,
 // stopping at start-of-scan. Packet 1 of a box keeps its LBox+TBox; later
 // packets repeat them and are skipped (ISO 19566-5 JPEG embedding).
-func jpegJUMBF(data []byte) []byte {
+func jpegJUMBF(ctx context.Context, data []byte) []byte {
 	var out []byte
 	i := 2 // skip SOI
 	for i < len(data)-1 {
+		if ctx.Err() != nil {
+			return out
+		}
 		if data[i] != 0xFF {
 			i++
 			continue
@@ -125,13 +136,16 @@ func jpegJUMBF(data []byte) []byte {
 
 // pngJUMBF concatenates the data of all `caBX` chunks (PNG's C2PA carrier),
 // stopping at IDAT. PNG: 8-byte signature, then [len(4)][type(4)][data][crc(4)].
-func pngJUMBF(data []byte) []byte {
+func pngJUMBF(ctx context.Context, data []byte) []byte {
 	if len(data) < 8 {
 		return nil
 	}
 	var out []byte
 	i := 8
 	for i+8 <= len(data) {
+		if ctx.Err() != nil {
+			return out
+		}
 		ln := int(binary.BigEndian.Uint32(data[i : i+4]))
 		typ := string(data[i+4 : i+8])
 		if ln < 0 || i+12+ln > len(data) {
@@ -150,9 +164,9 @@ func pngJUMBF(data []byte) []byte {
 
 // parseC2PAManifest walks the JUMBF box tree, decodes the c2pa.claim and
 // c2pa.actions CBOR, and returns the surfaced fields.
-func parseC2PAManifest(jumbf []byte) c2paInfo {
+func parseC2PAManifest(ctx context.Context, jumbf []byte) c2paInfo {
 	info := c2paInfo{}
-	walkJUMBFBoxes(jumbf, "", func(label string, tbox string, content []byte) {
+	walkJUMBFBoxes(ctx, jumbf, "", func(label string, tbox string, content []byte) {
 		switch {
 		case tbox != "cbor":
 			return
@@ -343,15 +357,18 @@ const maxJUMBFDepth = 64
 // walkJUMBFBoxes recursively walks JUMBF boxes, invoking fn(label, tbox,
 // content) for every box. label is the nearest enclosing superbox's jumd
 // label.
-func walkJUMBFBoxes(b []byte, label string, fn func(label, tbox string, content []byte)) {
-	walkJUMBFBoxesDepth(b, label, 0, fn)
+func walkJUMBFBoxes(ctx context.Context, b []byte, label string, fn func(label, tbox string, content []byte)) {
+	walkJUMBFBoxesDepth(ctx, b, label, 0, fn)
 }
 
-func walkJUMBFBoxesDepth(b []byte, label string, depth int, fn func(label, tbox string, content []byte)) {
+func walkJUMBFBoxesDepth(ctx context.Context, b []byte, label string, depth int, fn func(label, tbox string, content []byte)) {
 	if depth > maxJUMBFDepth {
 		return
 	}
 	for len(b) >= 8 {
+		if ctx.Err() != nil {
+			return
+		}
 		lbox := int(binary.BigEndian.Uint32(b[:4]))
 		tbox := string(b[4:8])
 		if lbox < 8 || lbox > len(b) {
@@ -360,7 +377,7 @@ func walkJUMBFBoxesDepth(b []byte, label string, depth int, fn func(label, tbox 
 		content := b[8:lbox]
 		if tbox == "jumb" {
 			childLabel, rest := jumdLabel(content)
-			walkJUMBFBoxesDepth(rest, childLabel, depth+1, fn)
+			walkJUMBFBoxesDepth(ctx, rest, childLabel, depth+1, fn)
 		} else {
 			fn(label, tbox, content)
 		}
