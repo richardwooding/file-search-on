@@ -531,6 +531,13 @@ type Match struct {
 	// Powers who_calls / dead_code. Issue #363.
 	References []string `json:"references,omitempty"`
 
+	// MaxComplexity is the highest cyclomatic complexity of any function
+	// in this source file (gocyclo-style: 1 + branch points). File-level
+	// hotspot signal — `is_source && max_complexity > 15`. Populated for
+	// Go + the tree-sitter languages. Drill into individual functions with
+	// the complexity tool. Issue #364.
+	MaxComplexity int64 `json:"max_complexity,omitempty"`
+
 	CellCount         int64  `json:"cell_count,omitempty"`
 	CodeCellCount     int64  `json:"code_cell_count,omitempty"`
 	MarkdownCellCount int64  `json:"markdown_cell_count,omitempty"`

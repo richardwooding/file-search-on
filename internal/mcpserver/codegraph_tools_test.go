@@ -278,3 +278,28 @@ func TestCallsTool_MissingSymbol(t *testing.T) {
 		t.Fatal("expected a tool error for missing symbol")
 	}
 }
+
+func TestComplexityTool(t *testing.T) {
+	dir := t.TempDir()
+	body := "package a\n\nfunc Simple() {}\nfunc Hairy(x int) {\n\tif x > 0 {\n\t\tfor i := 0; i < x; i++ {\n\t\t\tif i > 1 {}\n\t\t}\n\t}\n}\n"
+	mkWrite(t, filepath.Join(dir, "a.go"), body)
+	ctx, cs := newSession(t)
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "complexity",
+		Arguments: ComplexityInput{codeGraphWalkInput: codeGraphWalkInput{Dir: dir, Expr: `is_source && language == "go"`}},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	var out ComplexityOutput
+	mustDecodeStructured(t, res, &out)
+	if out.TotalFunctions != 2 {
+		t.Fatalf("total_functions=%d want 2", out.TotalFunctions)
+	}
+	if len(out.Functions) == 0 || out.Functions[0].Function != "Hairy" || out.Functions[0].Complexity != 4 {
+		t.Errorf("worst=%+v want Hairy/4", out.Functions)
+	}
+	if out.ServerVersion == "" {
+		t.Error("server_version not populated")
+	}
+}

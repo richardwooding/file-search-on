@@ -1,6 +1,6 @@
 # Tool reference
 
-Every MCP tool the `file-search-on` server exposes (29 tools). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same families as the SKILL.md table.
+Every MCP tool the `file-search-on` server exposes (30 tools). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same families as the SKILL.md table.
 
 ## Contents
 
@@ -9,7 +9,7 @@ Every MCP tool the `file-search-on` server exposes (29 tools). Each entry has a 
 - Dedup & diff — `find_duplicates`, `find_near_duplicates`, `diff_trees`
 - Archive — `list_archive_contents`, `read_file_in_archive`
 - Pattern + watch — `find_matches`, `watch_search`
-- Cross-file code graph — `imported_by`, `find_definition`, `code_graph`, `who_calls`, `calls`, `dead_code`
+- Cross-file code graph — `imported_by`, `find_definition`, `code_graph`, `who_calls`, `calls`, `dead_code`, `complexity`
 - CEL utilities — `validate_expr`, `list_attributes`
 - Project + presets + monitoring — `detect_project`, `find_projects`, `resolve_project_for_path`, `list_presets`, `query_preset`, `index_stats`, `monitor_info`
 
@@ -555,6 +555,22 @@ Output: `candidates[]` (`{path, language, kind, symbol}`, sorted by path), `coun
 
 ```json
 { "name": "dead_code", "arguments": { "expr": "is_source && language == \"go\" && !is_test_file", "dir": "." } }
+```
+
+### `complexity`
+
+Functions ranked by cyclomatic complexity, worst-first — maintenance hotspots.
+
+Key inputs:
+
+- `top` — cap on functions returned (default 50).
+
+Output: `functions[]` (`{path, function, complexity, start_line, end_line, lines}`, sorted by complexity desc), `total_functions`.
+
+Gotcha: gocyclo-style (1 + branch points). Coverage = Go + the tree-sitter languages. Directional for *ranking* hotspots — the exact number depends on per-grammar node coverage, not a certified metric. For a file-level filter use the search tool's `max_complexity` attribute; this is the per-function drill-down.
+
+```json
+{ "name": "complexity", "arguments": { "expr": "is_source && language == \"go\"", "top": 20, "dir": "." } }
 ```
 
 ---

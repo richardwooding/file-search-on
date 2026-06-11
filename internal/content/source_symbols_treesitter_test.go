@@ -139,7 +139,7 @@ int main() { return 0; }
 
 	for _, tc := range cases {
 		t.Run(tc.language, func(t *testing.T) {
-			funcs, types, imports, _, _ := extractTreeSitterSymbols(tc.language, []byte(tc.src))
+			funcs, types, imports, _, _, _ := extractTreeSitterSymbols(tc.language, []byte(tc.src))
 			checkContains(t, "functions", funcs, tc.wantFuncs)
 			checkContains(t, "type_names", types, tc.wantTypes)
 			checkContains(t, "imports", imports, tc.wantImports)
@@ -175,7 +175,7 @@ func TestExtractTreeSitterReferences(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.language, func(t *testing.T) {
-			_, _, _, refs, _ := extractTreeSitterSymbols(tc.language, []byte(tc.src))
+			_, _, _, refs, _, _ := extractTreeSitterSymbols(tc.language, []byte(tc.src))
 			checkContains(t, "references", refs, tc.wantRefs)
 		})
 	}
@@ -202,7 +202,7 @@ function d() { e(); }`, []string{"a\x00b", "a\x00c", "d\x00e"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.language, func(t *testing.T) {
-			_, _, _, _, edges := extractTreeSitterSymbols(tc.language, []byte(tc.src))
+			_, _, _, _, edges, _ := extractTreeSitterSymbols(tc.language, []byte(tc.src))
 			checkContains(t, "call_edges", edges, tc.want)
 		})
 	}
@@ -222,7 +222,7 @@ pub fn g() {}
 	done := make(chan bool, goroutines)
 	for range goroutines {
 		go func() {
-			funcs, types, imports, _, _ := extractTreeSitterSymbols("rust", src)
+			funcs, types, imports, _, _, _ := extractTreeSitterSymbols("rust", src)
 			done <- len(funcs) == 2 && len(types) == 1 && len(imports) == 1
 		}()
 	}
@@ -234,8 +234,41 @@ pub fn g() {}
 }
 
 func TestExtractTreeSitterSymbols_UnknownLanguage(t *testing.T) {
-	f, ty, im, _, _ := extractTreeSitterSymbols("brainfuck", []byte("+++."))
+	f, ty, im, _, _, _ := extractTreeSitterSymbols("brainfuck", []byte("+++."))
 	if f != nil || ty != nil || im != nil {
 		t.Errorf("expected all-nil for unsupported language, got %v %v %v", f, ty, im)
+	}
+}
+
+// TestExtractTreeSitterComplexity checks cyclomatic complexity per
+// function: a function with nested if/for/if should score 1+3 = 4.
+func TestExtractTreeSitterComplexity(t *testing.T) {
+	cases := []struct {
+		language string
+		src      string
+	}{
+		{"rust", `fn a(x: i32) { if x > 0 { for i in 0..x { if i > 1 {} } } }`},
+		{"typescript", `function a(x: number) { if (x > 0) { for (;;) { if (x > 1) {} } } }`},
+		{"javascript", `function a(x) { if (x > 0) { for (;;) { if (x > 1) {} } } }`},
+		{"ruby", "def a\n  if x then\n    while y do\n      if z then\n      end\n    end\n  end\nend\n"},
+		{"swift", `func a() { if x { for i in y { if z {} } } }`},
+		{"kotlin", `fun a() { if (x) { for (i in y) { if (z) {} } } }`},
+		{"c", `int a(int x) { if (x) { for (;;) { if (x) {} } } return 0; }`},
+		{"cpp", `int a(int x) { if (x) { for (;;) { if (x) {} } } return 0; }`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.language, func(t *testing.T) {
+			_, _, _, _, _, rows := extractTreeSitterSymbols(tc.language, []byte(tc.src))
+			cx := ""
+			for _, r := range rows {
+				p := splitNUL(r)
+				if len(p) >= 2 && p[0] == "a" {
+					cx = p[1]
+				}
+			}
+			if cx != "4" {
+				t.Errorf("%s: complexity of a()=%q want 4; rows=%v", tc.language, cx, rows)
+			}
+		})
 	}
 }

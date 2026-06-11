@@ -1,6 +1,8 @@
 package content
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -98,6 +100,21 @@ var tsFuncSpanQuery = map[string]string{
 	"kotlin": `(function_declaration (simple_identifier) @func.name) @func.def`,
 }
 
+// tsDecisionQuery captures cyclomatic-complexity decision points as
+// @decision (issue #364): branch/loop/case nodes + short-circuit
+// operators. Counted per enclosing function span; complexity = 1 + count.
+// Node names vary per grammar; iterated via tests.
+var tsDecisionQuery = map[string]string{
+	"rust": `[(if_expression) (while_expression) (for_expression) (loop_expression) (match_arm) (binary_expression "&&") (binary_expression "||")] @decision`,
+	"typescript": `[(if_statement) (while_statement) (for_statement) (for_in_statement) (do_statement) (switch_case) (catch_clause) (ternary_expression) (binary_expression "&&") (binary_expression "||")] @decision`,
+	"javascript": `[(if_statement) (while_statement) (for_statement) (for_in_statement) (do_statement) (switch_case) (catch_clause) (ternary_expression) (binary_expression "&&") (binary_expression "||")] @decision`,
+	"ruby":   `[(if) (elsif) (unless) (while) (until) (for) (when) (rescue) (conditional) (binary "&&") (binary "||")] @decision`,
+	"swift":  `[(if_statement) (guard_statement) (while_statement) (for_statement) (switch_entry) (catch_block) (ternary_expression) (conjunction_expression) (disjunction_expression)] @decision`,
+	"kotlin": `[(if_expression) (while_statement) (do_while_statement) (for_statement) (when_entry) (catch_block) (conjunction_expression) (disjunction_expression)] @decision`,
+	"c":      `[(if_statement) (while_statement) (for_statement) (do_statement) (case_statement) (conditional_expression) (binary_expression "&&") (binary_expression "||")] @decision`,
+	"cpp":    `[(if_statement) (while_statement) (for_statement) (do_statement) (case_statement) (catch_clause) (conditional_expression) (binary_expression "&&") (binary_expression "||")] @decision`,
+}
+
 // tsLang holds the concurrent-safe machinery for one language: a
 // ParserPool (safe for concurrent Parse) plus compiled Query objects
 // (safe for concurrent Execute after construction). Built once per
@@ -107,8 +124,9 @@ type tsLang struct {
 	tagsQuery   *ts.Query
 	defQuery    *ts.Query // supplemental @function/@type; nil when none
 	importQuery *ts.Query // nil when none configured or compile failed
-	refQuery    *ts.Query // @reference call-site callees; nil when none
-	spanQuery   *ts.Query // @func.def + @func.name spans; nil when none
+	refQuery      *ts.Query // @reference call-site callees; nil when none
+	spanQuery     *ts.Query // @func.def + @func.name spans; nil when none
+	decisionQuery *ts.Query // @decision complexity points; nil when none
 }
 
 var (
@@ -172,6 +190,11 @@ func buildTSLang(language string) *tsLang {
 			tl.spanQuery = spanQ
 		}
 	}
+	if q := tsDecisionQuery[language]; q != "" {
+		if decQ, err := ts.NewQuery(q, lang); err == nil {
+			tl.decisionQuery = decQ
+		}
+	}
 	return tl
 }
 
@@ -179,14 +202,14 @@ func buildTSLang(language string) *tsLang {
 // returns the function / type / import names. Matches the signature of
 // the hand-rolled extractXxxSymbols functions. Returns all-nil when the
 // language isn't tree-sitter-backed.
-func extractTreeSitterSymbols(language string, src []byte) (functions, types, imports, references, callEdges []string) {
+func extractTreeSitterSymbols(language string, src []byte) (functions, types, imports, references, callEdges, complexityRows []string) {
 	tl := tsLangFor(language)
 	if tl == nil {
-		return nil, nil, nil, nil, nil
+		return nil, nil, nil, nil, nil, nil
 	}
 	tree, err := tl.pool.Parse(src)
 	if err != nil || tree == nil {
-		return nil, nil, nil, nil, nil
+		return nil, nil, nil, nil, nil, nil
 	}
 
 	// funcSpans: named function definitions with their byte span, for
@@ -212,7 +235,7 @@ func extractTreeSitterSymbols(language string, src []byte) (functions, types, im
 		case "function", "method", "macro", "constructor":
 			functions = append(functions, name)
 			if defNode != nil {
-				funcSpans = append(funcSpans, tsFuncSpan{name: name, start: defNode.StartByte(), end: defNode.EndByte()})
+				funcSpans = append(funcSpans, tsFuncSpan{name: name, start: defNode.StartByte(), end: defNode.EndByte(), startLine: defNode.StartPoint().Row + 1, endLine: defNode.EndPoint().Row + 1})
 			}
 		case "class", "struct", "interface", "enum", "trait", "type", "module", "union", "protocol", "namespace":
 			types = append(types, name)
@@ -261,7 +284,7 @@ func extractTreeSitterSymbols(language string, src []byte) (functions, types, im
 				}
 			}
 			if name != "" && defNode != nil {
-				funcSpans = append(funcSpans, tsFuncSpan{name: name, start: defNode.StartByte(), end: defNode.EndByte()})
+				funcSpans = append(funcSpans, tsFuncSpan{name: name, start: defNode.StartByte(), end: defNode.EndByte(), startLine: defNode.StartPoint().Row + 1, endLine: defNode.EndPoint().Row + 1})
 			}
 		}
 	}
@@ -294,27 +317,74 @@ func extractTreeSitterSymbols(language string, src []byte) (functions, types, im
 		}
 	}
 
-	return dedupeStrings(functions), dedupeStrings(types), dedupeStrings(imports), dedupeStrings(references), dedupeStrings(callEdges)
+	// Cyclomatic complexity per function: 1 + decision points contained
+	// in the innermost enclosing span (#364).
+	if tl.decisionQuery != nil && len(funcSpans) > 0 {
+		decisionCount := make([]int, len(funcSpans))
+		for _, m := range tl.decisionQuery.Execute(tree) {
+			for _, c := range m.Captures {
+				if c.Name != "decision" {
+					continue
+				}
+				if i := innermostFuncSpanIndex(funcSpans, c.Node.StartByte()); i >= 0 {
+					decisionCount[i]++
+				}
+			}
+		}
+		for i, s := range funcSpans {
+			complexityRows = append(complexityRows,
+				fmt.Sprintf("%s\x00%d\x00%d\x00%d", s.name, 1+decisionCount[i], s.startLine, s.endLine))
+		}
+	}
+
+	return dedupeStrings(functions), dedupeStrings(types), dedupeStrings(imports), dedupeStrings(references), dedupeStrings(callEdges), complexityRows
 }
 
-// tsFuncSpan is a named function definition's byte span.
+// maxComplexityOf returns the highest complexity across the per-function
+// rows ("func\x00complexity\x00startLine\x00endLine"), as the int64 the
+// CEL `max_complexity` attribute carries. 0 when no rows.
+func maxComplexityOf(rows []string) int64 {
+	var max int64
+	for _, r := range rows {
+		parts := strings.SplitN(r, "\x00", 4)
+		if len(parts) < 2 {
+			continue
+		}
+		if cx, err := strconv.ParseInt(parts[1], 10, 64); err == nil && cx > max {
+			max = cx
+		}
+	}
+	return max
+}
+
+// tsFuncSpan is a named function definition's byte span + 1-based line span.
 type tsFuncSpan struct {
-	name       string
-	start, end uint32
+	name               string
+	start, end         uint32
+	startLine, endLine uint32
 }
 
 // innermostFuncSpan returns the name of the smallest function span that
 // contains pos, or "" if none does (call outside any captured function).
 func innermostFuncSpan(spans []tsFuncSpan, pos uint32) string {
-	best := ""
+	if i := innermostFuncSpanIndex(spans, pos); i >= 0 {
+		return spans[i].name
+	}
+	return ""
+}
+
+// innermostFuncSpanIndex returns the index of the smallest function span
+// containing pos, or -1 if none does.
+func innermostFuncSpanIndex(spans []tsFuncSpan, pos uint32) int {
+	best := -1
 	bestSize := ^uint32(0)
-	for _, s := range spans {
+	for i, s := range spans {
 		if pos < s.start || pos >= s.end {
 			continue
 		}
 		if size := s.end - s.start; size < bestSize {
 			bestSize = size
-			best = s.name
+			best = i
 		}
 	}
 	return best

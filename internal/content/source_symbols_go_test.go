@@ -24,7 +24,7 @@ func ProcessOrder(id string) error {
 	return nil
 }
 `)
-	funcs, types, imports, _, _ := extractGoSymbols(src)
+	funcs, types, imports, _, _, _ := extractGoSymbols(src)
 	sort.Strings(funcs)
 	sort.Strings(types)
 	sort.Strings(imports)
@@ -49,7 +49,7 @@ import (
 	_ "embed"
 )
 `)
-	_, _, imports, _, _ := extractGoSymbols(src)
+	_, _, imports, _, _, _ := extractGoSymbols(src)
 	sort.Strings(imports)
 	want := []string{"embed", "fmt", "net/http"}
 	if !reflect.DeepEqual(imports, want) {
@@ -71,7 +71,7 @@ type Pair[A, B any] struct {
 
 func Map[T, U any](items []T, fn func(T) U) []U { return nil }
 `)
-	funcs, types, _, _, _ := extractGoSymbols(src)
+	funcs, types, _, _, _, _ := extractGoSymbols(src)
 	if !contains(funcs, "Map") {
 		t.Errorf("expected Map in functions, got %v", funcs)
 	}
@@ -97,7 +97,7 @@ func Working() {
 
 func Broken( {  // syntax error here
 `)
-	funcs, types, imports, _, _ := extractGoSymbols(src)
+	funcs, types, imports, _, _, _ := extractGoSymbols(src)
 	if !contains(imports, "fmt") {
 		t.Errorf("imports should include fmt despite parse error, got %v", imports)
 	}
@@ -110,14 +110,14 @@ func Broken( {  // syntax error here
 }
 
 func TestExtractGoSymbols_Empty(t *testing.T) {
-	funcs, types, imports, _, _ := extractGoSymbols([]byte{})
+	funcs, types, imports, _, _, _ := extractGoSymbols([]byte{})
 	if len(funcs) != 0 || len(types) != 0 || len(imports) != 0 {
 		t.Errorf("empty input should yield empty results, got %v/%v/%v", funcs, types, imports)
 	}
 }
 
 func TestExtractGoSymbols_PackageOnly(t *testing.T) {
-	funcs, types, imports, _, _ := extractGoSymbols([]byte("package main\n"))
+	funcs, types, imports, _, _, _ := extractGoSymbols([]byte("package main\n"))
 	if len(funcs) != 0 || len(types) != 0 || len(imports) != 0 {
 		t.Errorf("package-only file should yield empty results, got %v/%v/%v", funcs, types, imports)
 	}
@@ -133,7 +133,7 @@ func TestExtractGoSymbols_CallEdges(t *testing.T) {
 func Alpha() { Beta(); helper.Do() }
 func Beta()  {}
 `)
-	_, _, _, refs, edges := extractGoSymbols(src)
+	_, _, _, refs, edges, _ := extractGoSymbols(src)
 	if !contains(refs, "Beta") || !contains(refs, "Do") {
 		t.Errorf("references missing Beta/Do: %v", refs)
 	}
@@ -148,4 +148,46 @@ func Beta()  {}
 			t.Errorf("unexpected edge from Beta: %q", e)
 		}
 	}
+}
+
+func TestExtractGoSymbols_Complexity(t *testing.T) {
+	src := []byte(`package p
+
+func Simple() {}
+func Branchy(x int) {
+	if x > 0 {
+		for i := 0; i < x; i++ {
+			if i%2 == 0 && x > 5 {
+			}
+		}
+	}
+}
+`)
+	_, _, _, _, _, rows := extractGoSymbols(src)
+	got := map[string]string{}
+	for _, r := range rows {
+		p := splitNUL(r)
+		got[p[0]] = p[1] // name -> complexity
+	}
+	if got["Simple"] != "1" {
+		t.Errorf("Simple complexity=%q want 1", got["Simple"])
+	}
+	// Branchy: base 1 + if + for + if + && = 5.
+	if got["Branchy"] != "5" {
+		t.Errorf("Branchy complexity=%q want 5; rows=%v", got["Branchy"], rows)
+	}
+}
+
+func splitNUL(s string) []string {
+	out := []string{}
+	cur := ""
+	for _, r := range s {
+		if r == 0 {
+			out = append(out, cur)
+			cur = ""
+			continue
+		}
+		cur += string(r)
+	}
+	return append(out, cur)
 }

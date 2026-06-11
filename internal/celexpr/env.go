@@ -474,6 +474,7 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("type_names", cel.ListType(cel.StringType)),
 		cel.Variable("imports", cel.ListType(cel.StringType)),
 		cel.Variable("references", cel.ListType(cel.StringType)),
+		cel.Variable("max_complexity", cel.IntType),
 		cel.Variable("cell_count", cel.IntType),
 		cel.Variable("code_cell_count", cel.IntType),
 		cel.Variable("markdown_cell_count", cel.IntType),
