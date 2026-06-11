@@ -275,6 +275,16 @@ type FileAttributes struct {
 	// typical thresholds for "related" content are 0.5-0.7.
 	Similarity float64
 
+	// MatchStartLine / MatchEndLine / MatchSymbol describe the chunk that
+	// produced Similarity — the 1-based inclusive line range of the
+	// best-matching embedding chunk and, for function-level chunking of
+	// source files, the enclosing symbol name (issue #366). Zero / empty
+	// for non-semantic searches and for entries embedded before #366.
+	// Output-only (surfaced on search.Match); not CEL variables.
+	MatchStartLine int
+	MatchEndLine   int
+	MatchSymbol    string
+
 	// BM25 is the Okapi BM25 keyword-relevance score of this file's body
 	// against BuildOptions.KeywordQuery (issue #335). Unlike Similarity,
 	// it can't be computed per-file in isolation — it needs corpus

@@ -70,6 +70,17 @@ func fileFromChunkKey(key string) string {
 	return key
 }
 
+// chunkIndexFromKey recovers the chunk index encoded by chunkKey, or -1 when
+// the key carries none (issue #366).
+func chunkIndexFromKey(key string) int {
+	if _, after, ok := strings.Cut(key, "\x00"); ok {
+		if i, err := strconv.Atoi(after); err == nil {
+			return i
+		}
+	}
+	return -1
+}
+
 func coverageKey(model, absDir string) string { return model + "\x00" + absDir }
 
 // Covered reports whether the index can answer a semantic query for
@@ -140,6 +151,10 @@ func (s *semanticIndex) indexFor(model string) *vecindex.Index {
 type fileHit struct {
 	Path       string
 	Similarity float64
+	// ChunkIdx is the index (into the file's ChunkVectors / ChunkSpans) of
+	// the chunk that produced Similarity — so the result can report which
+	// function / region matched (issue #366). -1 if unknown.
+	ChunkIdx int
 }
 
 // Search returns up to k files most similar to query under the model,
@@ -159,6 +174,7 @@ func (s *semanticIndex) Search(model string, query []float32, k int) []fileHit {
 	fetch := k*8 + 64
 	neighbours := vi.Search(query, fetch)
 	best := make(map[string]float64, len(neighbours))
+	bestIdx := make(map[string]int, len(neighbours))
 	order := make([]string, 0, len(neighbours))
 	for _, n := range neighbours {
 		f := fileFromChunkKey(n.Key)
@@ -167,11 +183,12 @@ func (s *semanticIndex) Search(model string, query []float32, k int) []fileHit {
 				order = append(order, f)
 			}
 			best[f] = n.Similarity
+			bestIdx[f] = chunkIndexFromKey(n.Key)
 		}
 	}
 	hits := make([]fileHit, 0, len(order))
 	for _, f := range order {
-		hits = append(hits, fileHit{Path: f, Similarity: best[f]})
+		hits = append(hits, fileHit{Path: f, Similarity: best[f], ChunkIdx: bestIdx[f]})
 	}
 	sort.Slice(hits, func(a, b int) bool {
 		if hits[a].Similarity != hits[b].Similarity {
@@ -214,7 +231,8 @@ func (s *semanticIndex) Query(ctx context.Context, absDir, model string, queryVe
 		// Freshness gate: the cached vector is only valid if the file's
 		// (size, mtime) still matches. A content edit invalidates it —
 		// skip rather than rank on a stale vector.
-		if _, ok := s.idx.Lookup(hit.Path, fi.Size(), fi.ModTime()); !ok {
+		entry, ok := s.idx.Lookup(hit.Path, fi.Size(), fi.ModTime())
+		if !ok {
 			stale++
 			continue
 		}
@@ -225,6 +243,15 @@ func (s *semanticIndex) Query(ctx context.Context, absDir, model string, queryVe
 			continue
 		}
 		attrs.Similarity = hit.Similarity
+		// Report which chunk matched — the function span / line range of the
+		// winning chunk (issue #366). Guarded: pre-#366 entries have vectors
+		// but no spans.
+		if entry != nil && hit.ChunkIdx >= 0 && hit.ChunkIdx < len(entry.ChunkSpans) {
+			sp := entry.ChunkSpans[hit.ChunkIdx]
+			attrs.MatchStartLine = sp.StartLine
+			attrs.MatchEndLine = sp.EndLine
+			attrs.MatchSymbol = sp.Symbol
+		}
 		if ok, eerr := ev.Evaluate(attrs); eerr != nil || !ok {
 			continue
 		}
