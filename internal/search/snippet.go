@@ -81,3 +81,14 @@ func isTextContentType(name string) bool {
 	// Source code (Go, Python, JS, …) — all 18 languages are text.
 	return strings.HasPrefix(name, "source/")
 }
+
+// IsTextBodyType reports whether a content type's body is the raw file
+// (vs extracted text), so a 1-based line range over the body maps directly
+// to lines on disk. The matched-region snippet for search_semantic
+// (match_snippet, issue #366 follow-up) is gated on this: reading
+// [match_start_line, match_end_line] off disk only makes sense when the body
+// IS the file. Structured types (PDF / office / epub / email) extract text
+// whose line numbers don't correspond to file lines, so they're excluded.
+func IsTextBodyType(name string) bool {
+	return isTextContentType(name)
+}

@@ -641,6 +641,16 @@ type Match struct {
 	MatchEndLine   int    `json:"match_end_line,omitempty"`
 	MatchSymbol    string `json:"match_symbol,omitempty"`
 
+	// MatchSnippet is the source text of the matched region
+	// [MatchStartLine, MatchEndLine] — the matching function for source
+	// files, the matching passage otherwise. Populated only when the
+	// search_semantic call sets include_match_snippet AND the file is a
+	// line-addressable text type (text / source — types whose body is the
+	// raw file, so line numbers map to disk). Empty for structured types
+	// (PDF / office / …) whose body is extracted text. May end with a
+	// truncation marker when the region exceeds the snippet line cap.
+	MatchSnippet string `json:"match_snippet,omitempty"`
+
 	// BM25 is the Okapi BM25 keyword-relevance score against the keyword
 	// query, with IDF over the candidate set (issue #335). Populated only
 	// when keyword_query / hybrid is set. 0 otherwise. Only comparable

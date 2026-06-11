@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -13,6 +15,12 @@ import (
 	"github.com/richardwooding/ollamaembed"
 	"github.com/richardwooding/file-search-on/internal/search"
 )
+
+// defaultMatchSnippetLines caps the matched region inlined into
+// Match.MatchSnippet when include_match_snippet is set without an explicit
+// snippet_lines. Enough for most functions; longer regions truncate with a
+// marker and the caller can read_lines the full range.
+const defaultMatchSnippetLines = 60
 
 // SearchSemanticInput is the JSON-schema input for the `search_semantic`
 // tool. Distinct from SearchInput because the discovery shape differs:
@@ -38,6 +46,8 @@ type SearchSemanticInput struct {
 	EmbedMaxBytes    int      `json:"embed_max_bytes,omitempty" jsonschema:"Cap on the body text handed to the embedding model in bytes. 0 uses an 8 KiB default that fits common models' context windows. Embedding models truncate to their context anyway, and over-long input can be rejected by Ollama; raise only for large-context models (e.g. bge-m3)."`
 	TimeoutSeconds  *float64 `json:"timeout_seconds,omitempty" jsonschema:"Per-call timeout in seconds. 0 disables; nil falls through to the server default. On timeout the partial ranked set is returned with cancelled=true; not an error."`
 	Workers         int      `json:"workers,omitempty" jsonschema:"Parallel walker workers. 0 = runtime.NumCPU()."`
+	IncludeMatchSnippet bool `json:"include_match_snippet,omitempty" jsonschema:"When true, each hit's match_snippet carries the source text of the matched region [match_start_line, match_end_line] — the matching function for source files (which are chunked per function), the matching passage otherwise. Saves a read_lines round-trip. Only populated for line-addressable text types (text / source); structured types (PDF / office / …) extract text whose lines don't map to disk, so they get no snippet."`
+	SnippetLines        int  `json:"snippet_lines,omitempty" jsonschema:"Max lines of the matched region to include in match_snippet (default 60). A larger region is truncated with a marker; use read_lines on [match_start_line, match_end_line] for the full text. Ignored when include_match_snippet is false."`
 }
 
 // SearchSemanticOutput mirrors SearchOutput but the Matches field is
@@ -283,6 +293,23 @@ func (h *handlers) searchSemanticHandler(ctx context.Context, req *mcp.CallToolR
 	for i, r := range results {
 		matches[i] = search.MatchFrom(r)
 	}
+	// Opt-in matched-region snippet (#366 follow-up): read the matched line
+	// range off disk for this page only. Gated to line-addressable text types
+	// — structured bodies (PDF / office) extract text whose lines don't map to
+	// the file. Best-effort: a read error (file changed/vanished) leaves it empty.
+	if in.IncludeMatchSnippet {
+		snippetLines := in.SnippetLines
+		if snippetLines <= 0 {
+			snippetLines = defaultMatchSnippetLines
+		}
+		for i := range matches {
+			m := &matches[i]
+			if m.MatchStartLine <= 0 || m.Path == "" || !search.IsTextBodyType(m.ContentType) {
+				continue
+			}
+			m.MatchSnippet = matchSnippet(ctx, m.Path, m.MatchStartLine, m.MatchEndLine, snippetLines)
+		}
+	}
 
 	output := SearchSemanticOutput{
 		Matches:             matches,
@@ -308,4 +335,20 @@ func (h *handlers) searchSemanticHandler(ctx context.Context, req *mcp.CallToolR
 	}
 	output.ServerVersion = h.version
 	return nil, output, nil
+}
+
+// matchSnippet reads lines [start, end] of absPath (capped at maxLines) and
+// returns them joined, with a truncation marker appended when the range was
+// clipped. Returns "" on any read error — the snippet is best-effort context,
+// never a hard failure. Reuses search.ReadLines (per-line 64 KiB cap).
+func matchSnippet(ctx context.Context, absPath string, start, end, maxLines int) string {
+	res, err := search.ReadLines(ctx, os.DirFS(filepath.Dir(absPath)), filepath.Base(absPath), start, end, maxLines)
+	if err != nil || res == nil || len(res.Lines) == 0 {
+		return ""
+	}
+	s := strings.Join(res.Lines, "\n")
+	if res.Truncated {
+		s += "\n… (truncated; use read_lines for the full range)"
+	}
+	return s
 }
