@@ -255,6 +255,39 @@ func TestCodeGraph_DeadCode_SkipsNonRefLanguages(t *testing.T) {
 	}
 }
 
+// TestCodeGraph_DeadCode_ExcludesReflectionEntryPoints pins issue #385:
+// reflection-dispatched entry points (Go test functions, kong-style *Cmd
+// types) must NOT be reported as dead code, while genuinely-unreferenced
+// production functions still are.
+func TestCodeGraph_DeadCode_ExcludesReflectionEntryPoints(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "app.go"), "package app\n\n"+
+		"type RunCmd struct{}\n"+ // kong command type → excluded
+		"func orphan() {}\n"+ // genuinely unreferenced → flagged
+		"func Tester() {}\n") // Test-prefixed but NOT a test entry → flagged
+	mustWriteFile(t, filepath.Join(dir, "app_test.go"), "package app\n\n"+
+		"import \"testing\"\n\n"+
+		"func TestRun(t *testing.T) {}\n") // test runner entry point → excluded
+
+	g := mustBuildGraph(t, dir)
+	dead := map[string]bool{}
+	for _, d := range g.DeadCode() {
+		dead[d.Symbol] = true
+	}
+	if !dead["orphan"] {
+		t.Errorf("DeadCode should still flag the unreferenced orphan: %v", dead)
+	}
+	if !dead["Tester"] {
+		t.Errorf("DeadCode should flag Tester (Test-prefixed but not a test entry): %v", dead)
+	}
+	if dead["TestRun"] {
+		t.Error("DeadCode wrongly flagged TestRun (a go-test entry point)")
+	}
+	if dead["RunCmd"] {
+		t.Error("DeadCode wrongly flagged RunCmd (a kong-style command type)")
+	}
+}
+
 func TestCodeGraph_Overview(t *testing.T) {
 	g := mustBuildGraph(t, buildGraphFixture(t))
 	ov := g.Overview(10)

@@ -357,6 +357,9 @@ func (g *CodeGraph) DeadCode() []SymbolDef {
 			if !refExtractionLangs[e.language] {
 				continue
 			}
+			if isReflectionDispatchedEntry(e.kind, name, e.path, e.language) {
+				continue
+			}
 			key := e.kind + "\x00" + name + "\x00" + e.path
 			if seen[key] {
 				continue
@@ -375,6 +378,51 @@ func (g *CodeGraph) DeadCode() []SymbolDef {
 		return out[i].Kind < out[j].Kind
 	})
 	return out
+}
+
+// isReflectionDispatchedEntry reports whether a definition is an entry point
+// invoked by a framework via reflection rather than by a static call — so it
+// never appears in the call-reference graph and would always be a dead-code
+// false positive (issue #385). Two well-known cases:
+//
+//   - Go test-runner entry points (TestXxx / BenchmarkXxx / FuzzXxx /
+//     ExampleXxx in a *_test.go file): run by `go test`, never called.
+//     Unused test *helpers* are still reported — only the runner entry
+//     points are excluded.
+//   - CLI command types (the kong / cobra `…Cmd` convention): dispatched off
+//     struct-tag reflection, so they're referenced only as field types, which
+//     the call-reference graph doesn't track.
+func isReflectionDispatchedEntry(kind, name, path, language string) bool {
+	if language == "go" && strings.HasSuffix(path, "_test.go") && isGoTestEntry(kind, name) {
+		return true
+	}
+	if kind != "function" && kind != "method" && strings.HasSuffix(name, "Cmd") {
+		return true
+	}
+	return false
+}
+
+// isGoTestEntry reports whether name is a Go test-runner entry point — a
+// function named Test/Benchmark/Fuzz/Example optionally followed by a
+// non-lowercase rune (the convention `go test` matches). "Tester" is a normal
+// function, not an entry point.
+func isGoTestEntry(kind, name string) bool {
+	if kind != "function" {
+		return false
+	}
+	for _, p := range [...]string{"Test", "Benchmark", "Fuzz", "Example"} {
+		rest, ok := strings.CutPrefix(name, p)
+		if !ok {
+			continue
+		}
+		if rest == "" {
+			return true
+		}
+		if r := rest[0]; r < 'a' || r > 'z' {
+			return true
+		}
+	}
+	return false
 }
 
 // Overview computes the project-wide summary: import hubs (modules with
