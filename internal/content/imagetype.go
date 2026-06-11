@@ -87,7 +87,7 @@ func (i *imageType) Attributes(ctx context.Context, fsys fs.FS, path string) (At
 	// Surfaces the file's CLAIMED provenance, unverified (see c2pa.go).
 	if container := c2paContainer(i.name); container != "" {
 		if _, err := rs.Seek(0, io.SeekStart); err == nil {
-			if c := extractC2PA(container, rs); c.Present {
+			if c := extractC2PA(ctx, container, rs); c.Present {
 				attrs["is_c2pa"] = true
 				if c.ClaimGenerator != "" {
 					attrs["c2pa_claim_generator"] = c.ClaimGenerator

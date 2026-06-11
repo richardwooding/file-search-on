@@ -19,7 +19,7 @@ func TestExtractC2PA_SignedJPEG(t *testing.T) {
 	}
 	defer func() { _ = f.Close() }()
 
-	c := extractC2PA("jpeg", f)
+	c := extractC2PA(context.Background(), "jpeg", f)
 	if !c.Present {
 		t.Fatal("expected a C2PA manifest")
 	}
@@ -45,7 +45,7 @@ func TestExtractC2PA_SignedJPEG(t *testing.T) {
 // TestExtractC2PA_NoManifest returns Present=false for content with no
 // C2PA manifest.
 func TestExtractC2PA_NoManifest(t *testing.T) {
-	if c := extractC2PA("jpeg", bytes.NewReader([]byte("\xff\xd8\xff\xe0 not a real manifest"))); c.Present {
+	if c := extractC2PA(context.Background(), "jpeg", bytes.NewReader([]byte("\xff\xd8\xff\xe0 not a real manifest"))); c.Present {
 		t.Errorf("expected no manifest, got %+v", c)
 	}
 }
@@ -68,6 +68,23 @@ func TestExtractC2PA_Integration(t *testing.T) {
 	}
 	if at, _ := attrs["c2pa_signed_at"].(time.Time); at.IsZero() {
 		t.Errorf("c2pa_signed_at not set")
+	}
+}
+
+// TestExtractC2PA_Cancellation pins issue #337: a cancelled context must be
+// honoured by the C2PA scan, not run to completion. With a pre-cancelled
+// ctx, extractC2PA bails at entry and parses nothing.
+func TestExtractC2PA_Cancellation(t *testing.T) {
+	f, err := os.Open("testdata/fixtures/c2pa_signed.jpg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if c := extractC2PA(ctx, "jpeg", f); c.Present {
+		t.Errorf("cancelled ctx should yield no manifest, got %+v", c)
 	}
 }
 

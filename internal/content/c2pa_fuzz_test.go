@@ -2,6 +2,7 @@ package content
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"testing"
 )
@@ -38,8 +39,8 @@ func FuzzExtractC2PA(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		_ = extractC2PA("jpeg", bytes.NewReader(data))
-		_ = extractC2PA("png", bytes.NewReader(data))
+		_ = extractC2PA(context.Background(), "jpeg", bytes.NewReader(data))
+		_ = extractC2PA(context.Background(), "png", bytes.NewReader(data))
 	})
 }
 
@@ -72,7 +73,7 @@ func FuzzWalkJUMBFBoxes(f *testing.F) {
 	})
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		walkJUMBFBoxes(data, "", func(string, string, []byte) {})
+		walkJUMBFBoxes(context.Background(), data, "", func(string, string, []byte) {})
 	})
 }
 
