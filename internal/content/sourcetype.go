@@ -227,87 +227,88 @@ func symbolExtractorWired(language string) bool {
 //	Scala      *Spec.scala, *Test.scala
 //	Shell      *_test.sh, test_*.sh
 //	Elixir     *_test.exs
+// testConvention is a per-language test-filename rule: a basename matches
+// if it ends with any suffix, OR (when prefixExt is set) it starts with a
+// prefix AND ends with prefixExt. All values are lowercase.
+type testConvention struct {
+	suffixes  []string
+	prefixes  []string
+	prefixExt string
+}
+
+// jsTestSuffixes is the `.test.<ext>` / `.spec.<ext>` set shared by JS/TS.
+var jsTestSuffixes = func() []string {
+	var s []string
+	for _, ext := range []string{".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx"} {
+		s = append(s, ".test"+ext, ".spec"+ext)
+	}
+	return s
+}()
+
+// testFileConventions drives isSourceTestFile for the suffix/prefix-shaped
+// languages. Rust (tests/ directory) and C/C++ (stem-based) are handled
+// specially in isSourceTestFile. See the doc comment for the source of
+// each convention.
+var testFileConventions = map[string]testConvention{
+	"go":         {suffixes: []string{"_test.go"}},
+	"python":     {suffixes: []string{"_test.py"}, prefixes: []string{"test_"}, prefixExt: ".py"},
+	"javascript": {suffixes: jsTestSuffixes},
+	"typescript": {suffixes: jsTestSuffixes},
+	"java":       {suffixes: []string{"test.java", "tests.java", "it.java"}},
+	"ruby":       {suffixes: []string{"_spec.rb", "_test.rb"}},
+	"swift":      {suffixes: []string{"tests.swift", "test.swift"}},
+	"kotlin":     {suffixes: []string{"test.kt", "tests.kt"}},
+	"scala":      {suffixes: []string{"spec.scala", "test.scala"}},
+	"shell":      {suffixes: []string{"_test.sh"}, prefixes: []string{"test_"}, prefixExt: ".sh"},
+	"elixir":     {suffixes: []string{"_test.exs"}},
+	"csharp":     {suffixes: []string{"test.cs", "tests.cs"}},
+	"php":        {suffixes: []string{"test.php"}},
+	"perl":       {suffixes: []string{".t"}}, // Test::More: the .t extension IS the convention
+	"r":          {prefixes: []string{"test-", "test_"}, prefixExt: ".r"},
+	"vb":         {suffixes: []string{"test.vb", "tests.vb"}},
+	"matlab":     {suffixes: []string{"test.m", "tests.m"}},
+}
+
+// cTestExts are the C/C++ source extensions whose stem is checked for a
+// test prefix/suffix.
+var cTestExts = []string{".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".hh", ".hxx"}
+
 func isSourceTestFile(language, path string) bool {
 	base := strings.ToLower(filepathBase(path))
 	switch language {
-	case "go":
-		return strings.HasSuffix(base, "_test.go")
-	case "python":
-		return strings.HasPrefix(base, "test_") && strings.HasSuffix(base, ".py") ||
-			strings.HasSuffix(base, "_test.py")
-	case "javascript", "typescript":
-		// Order matters — check longest suffixes first to avoid
-		// claiming ".test.tsx" only by ".ts" stripping logic. Each
-		// supported extension gets a `.test.<ext>` and `.spec.<ext>`
-		// variant.
-		for _, ext := range []string{".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx"} {
-			if strings.HasSuffix(base, ".test"+ext) ||
-				strings.HasSuffix(base, ".spec"+ext) {
-				return true
-			}
-		}
-		return false
 	case "rust":
-		// Integration tests live under a `tests/` directory anywhere
-		// in the path. We can't tell from the basename alone — match
-		// either a leading "tests/" or a "/tests/" segment.
+		// Integration tests live under a `tests/` directory anywhere in
+		// the path — not detectable from the basename alone.
 		lp := strings.ToLower(path)
 		return strings.HasSuffix(base, ".rs") &&
 			(strings.Contains(lp, "/tests/") || strings.HasPrefix(lp, "tests/"))
 	case "c", "cpp":
-		exts := []string{".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".hh", ".hxx"}
-		for _, ext := range exts {
-			if before, ok := strings.CutSuffix(base, ext); ok {
-				stem := before
+		// Stem-based: test_foo.c / foo_test.c / foo_tests.cpp.
+		for _, ext := range cTestExts {
+			if stem, ok := strings.CutSuffix(base, ext); ok {
 				if strings.HasPrefix(stem, "test_") ||
-					strings.HasSuffix(stem, "_test") ||
-					strings.HasSuffix(stem, "_tests") {
+					strings.HasSuffix(stem, "_test") || strings.HasSuffix(stem, "_tests") {
 					return true
 				}
 			}
 		}
 		return false
-	case "java":
-		return strings.HasSuffix(base, "test.java") ||
-			strings.HasSuffix(base, "tests.java") ||
-			strings.HasSuffix(base, "it.java")
-	case "ruby":
-		return strings.HasSuffix(base, "_spec.rb") ||
-			strings.HasSuffix(base, "_test.rb")
-	case "swift":
-		return strings.HasSuffix(base, "tests.swift") ||
-			strings.HasSuffix(base, "test.swift")
-	case "kotlin":
-		return strings.HasSuffix(base, "test.kt") ||
-			strings.HasSuffix(base, "tests.kt")
-	case "scala":
-		return strings.HasSuffix(base, "spec.scala") ||
-			strings.HasSuffix(base, "test.scala")
-	case "shell":
-		return strings.HasSuffix(base, "_test.sh") ||
-			(strings.HasPrefix(base, "test_") && strings.HasSuffix(base, ".sh"))
-	case "elixir":
-		return strings.HasSuffix(base, "_test.exs")
-	case "csharp":
-		return strings.HasSuffix(base, "test.cs") ||
-			strings.HasSuffix(base, "tests.cs")
-	case "php":
-		return strings.HasSuffix(base, "test.php")
-	case "perl":
-		// In Test::More / Test::Simple the .t extension IS the test
-		// convention — there is no library / test naming distinction.
-		return strings.HasSuffix(base, ".t")
-	case "r":
-		// testthat convention: test-foo.R or test_foo.R (both styles
-		// in the wild). lowercase basename already applied above.
-		return (strings.HasPrefix(base, "test-") || strings.HasPrefix(base, "test_")) &&
-			(strings.HasSuffix(base, ".r"))
-	case "vb":
-		return strings.HasSuffix(base, "test.vb") ||
-			strings.HasSuffix(base, "tests.vb")
-	case "matlab":
-		return strings.HasSuffix(base, "test.m") ||
-			strings.HasSuffix(base, "tests.m")
+	}
+	c, ok := testFileConventions[language]
+	if !ok {
+		return false
+	}
+	for _, s := range c.suffixes {
+		if strings.HasSuffix(base, s) {
+			return true
+		}
+	}
+	if c.prefixExt != "" && strings.HasSuffix(base, c.prefixExt) {
+		for _, p := range c.prefixes {
+			if strings.HasPrefix(base, p) {
+				return true
+			}
+		}
 	}
 	return false
 }

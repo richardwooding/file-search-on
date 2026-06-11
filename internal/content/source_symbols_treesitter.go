@@ -276,10 +276,29 @@ func extractTreeSitterSymbols(language string, src []byte) (functions, types, im
 		return nil, nil, nil, nil, nil, nil
 	}
 
-	// funcSpans: named function definitions with their byte span, for
-	// per-function call attribution by containment (#368).
-	var funcSpans []tsFuncSpan
+	// funcSpans (named function definitions + byte/line span) are shared
+	// by call attribution (#368) and complexity (#364).
+	functions, types, funcSpans := tsCollectDefs(tl, tree, src)
+	imports = tsCollectImports(tl, tree, src)
+	references, callEdges = tsCollectReferences(tl, tree, src, funcSpans)
+	complexityRows = tsComplexityRows(tl, tree, funcSpans)
 
+	return dedupeStrings(functions), dedupeStrings(types), dedupeStrings(imports),
+		dedupeStrings(references), dedupeStrings(callEdges), complexityRows
+}
+
+// newFuncSpan builds a tsFuncSpan from a definition node (byte + 1-based
+// line span).
+func newFuncSpan(name string, n *ts.Node) tsFuncSpan {
+	return tsFuncSpan{
+		name: name, start: n.StartByte(), end: n.EndByte(),
+		startLine: n.StartPoint().Row + 1, endLine: n.EndPoint().Row + 1,
+	}
+}
+
+// tsCollectDefs gathers function / type names from the bundled tags query
+// plus the supplemental def + span queries, and the function spans.
+func tsCollectDefs(tl *tsLang, tree *ts.Tree, src []byte) (functions, types []string, funcSpans []tsFuncSpan) {
 	for _, m := range tagsMatches(tl, tree) {
 		var name, kind string
 		var defNode *ts.Node
@@ -299,15 +318,15 @@ func extractTreeSitterSymbols(language string, src []byte) (functions, types, im
 		case "function", "method", "macro", "constructor":
 			functions = append(functions, name)
 			if defNode != nil {
-				funcSpans = append(funcSpans, tsFuncSpan{name: name, start: defNode.StartByte(), end: defNode.EndByte(), startLine: defNode.StartPoint().Row + 1, endLine: defNode.EndPoint().Row + 1})
+				funcSpans = append(funcSpans, newFuncSpan(name, defNode))
 			}
 		case "class", "struct", "interface", "enum", "trait", "type", "module", "union", "protocol", "namespace":
 			types = append(types, name)
 		}
 	}
 
-	// Supplemental definition query for languages with weak bundled tags
-	// (ruby / swift / kotlin): captures @function / @type directly.
+	// Supplemental def query for languages with weak/empty bundled tags
+	// (php / perl / ruby / swift / kotlin): captures @function / @type.
 	if tl.defQuery != nil {
 		for _, m := range tl.defQuery.Execute(tree) {
 			for _, c := range m.Captures {
@@ -321,24 +340,8 @@ func extractTreeSitterSymbols(language string, src []byte) (functions, types, im
 		}
 	}
 
-	if tl.importQuery != nil {
-		for _, m := range tl.importQuery.Execute(tree) {
-			for _, c := range m.Captures {
-				if c.Name == "import" {
-					p := strings.Trim(c.Text(src), "\"'`<>")
-					// Some grammars (Scala) have no single import-path node,
-					// so we capture the whole declaration; strip the keyword.
-					p = strings.TrimSpace(strings.TrimPrefix(p, "import "))
-					if p != "" {
-						imports = append(imports, p)
-					}
-				}
-			}
-		}
-	}
-
-	// Supplemental function-span query (ruby/swift/kotlin) for languages
-	// whose bundled tags query doesn't carry a function span.
+	// Supplemental function-span query for grammars whose tags query
+	// carries no function span (ruby / swift / kotlin).
 	if tl.spanQuery != nil {
 		for _, m := range tl.spanQuery.Execute(tree) {
 			var name string
@@ -352,60 +355,81 @@ func extractTreeSitterSymbols(language string, src []byte) (functions, types, im
 				}
 			}
 			if name != "" && defNode != nil {
-				funcSpans = append(funcSpans, tsFuncSpan{name: name, start: defNode.StartByte(), end: defNode.EndByte(), startLine: defNode.StartPoint().Row + 1, endLine: defNode.EndPoint().Row + 1})
+				funcSpans = append(funcSpans, newFuncSpan(name, defNode))
 			}
 		}
 	}
+	return functions, types, funcSpans
+}
 
-	// Call sites (callee name + position), for both the flat references
-	// list and per-function call attribution.
-	type callSite struct {
-		name string
-		pos  uint32
+// tsCollectImports gathers import paths via the per-language import query.
+func tsCollectImports(tl *tsLang, tree *ts.Tree, src []byte) (imports []string) {
+	if tl.importQuery == nil {
+		return nil
 	}
-	var calls []callSite
-	if tl.refQuery != nil {
-		for _, m := range tl.refQuery.Execute(tree) {
-			for _, c := range m.Captures {
-				if c.Name == "reference" {
-					if r := c.Text(src); r != "" {
-						references = append(references, r)
-						calls = append(calls, callSite{name: r, pos: c.Node.StartByte()})
-					}
-				}
+	for _, m := range tl.importQuery.Execute(tree) {
+		for _, c := range m.Captures {
+			if c.Name != "import" {
+				continue
+			}
+			p := strings.Trim(c.Text(src), "\"'`<>")
+			// Some grammars (Scala) have no single import-path node, so we
+			// capture the whole declaration; strip the keyword.
+			if p = strings.TrimSpace(strings.TrimPrefix(p, "import ")); p != "" {
+				imports = append(imports, p)
 			}
 		}
 	}
+	return imports
+}
 
-	// Attribute each call to the innermost enclosing function span.
-	for _, cs := range calls {
-		caller := innermostFuncSpan(funcSpans, cs.pos)
-		if caller != "" {
-			callEdges = append(callEdges, caller+"\x00"+cs.name)
-		}
+// tsCollectReferences gathers call-site callee names (the flat references
+// list) and attributes each to the innermost enclosing function span as a
+// "caller\x00callee" edge.
+func tsCollectReferences(tl *tsLang, tree *ts.Tree, src []byte, funcSpans []tsFuncSpan) (references, callEdges []string) {
+	if tl.refQuery == nil {
+		return nil, nil
 	}
-
-	// Cyclomatic complexity per function: 1 + decision points contained
-	// in the innermost enclosing span (#364).
-	if tl.decisionQuery != nil && len(funcSpans) > 0 {
-		decisionCount := make([]int, len(funcSpans))
-		for _, m := range tl.decisionQuery.Execute(tree) {
-			for _, c := range m.Captures {
-				if c.Name != "decision" {
-					continue
-				}
-				if i := innermostFuncSpanIndex(funcSpans, c.Node.StartByte()); i >= 0 {
-					decisionCount[i]++
-				}
+	for _, m := range tl.refQuery.Execute(tree) {
+		for _, c := range m.Captures {
+			if c.Name != "reference" {
+				continue
+			}
+			r := c.Text(src)
+			if r == "" {
+				continue
+			}
+			references = append(references, r)
+			if caller := innermostFuncSpan(funcSpans, c.Node.StartByte()); caller != "" {
+				callEdges = append(callEdges, caller+"\x00"+r)
 			}
 		}
-		for i, s := range funcSpans {
-			complexityRows = append(complexityRows,
-				fmt.Sprintf("%s\x00%d\x00%d\x00%d", s.name, 1+decisionCount[i], s.startLine, s.endLine))
+	}
+	return references, callEdges
+}
+
+// tsComplexityRows computes per-function cyclomatic complexity (1 +
+// decision points contained in the innermost enclosing span) as
+// "name\x00complexity\x00startLine\x00endLine" rows (#364).
+func tsComplexityRows(tl *tsLang, tree *ts.Tree, funcSpans []tsFuncSpan) (rows []string) {
+	if tl.decisionQuery == nil || len(funcSpans) == 0 {
+		return nil
+	}
+	decisionCount := make([]int, len(funcSpans))
+	for _, m := range tl.decisionQuery.Execute(tree) {
+		for _, c := range m.Captures {
+			if c.Name != "decision" {
+				continue
+			}
+			if i := innermostFuncSpanIndex(funcSpans, c.Node.StartByte()); i >= 0 {
+				decisionCount[i]++
+			}
 		}
 	}
-
-	return dedupeStrings(functions), dedupeStrings(types), dedupeStrings(imports), dedupeStrings(references), dedupeStrings(callEdges), complexityRows
+	for i, s := range funcSpans {
+		rows = append(rows, fmt.Sprintf("%s\x00%d\x00%d\x00%d", s.name, 1+decisionCount[i], s.startLine, s.endLine))
+	}
+	return rows
 }
 
 // tagsMatches runs the bundled tags query, or returns nil when the
