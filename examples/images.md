@@ -235,3 +235,20 @@ file-search-on '(is_image) && taken_at >= timestamp("2024-07-01T00:00:00Z") && t
 - **`raw_vendor` is a property of the format, not the camera.** A DNG produced by an iPhone reports `raw_vendor == "adobe"` because DNG is Adobe's container — the actual camera shows up in `camera_make`. Same for Leica / Pentax cameras that emit native DNG.
 
 The algorithm is planar ray-casting — accurate for neighbourhoods, cities, and small countries. For continent-scale polygons or anything near the poles, project to a flat coordinate system before feeding the vertices in.
+
+## C2PA / Content Credentials (provenance)
+
+`file-search-on` reads the [C2PA](https://c2pa.org) provenance manifest embedded in JPEG and PNG files and surfaces what it **claims** — `is_c2pa`, `c2pa_claim_generator` (the creating/editing tool), `c2pa_title`, `c2pa_format`, and `c2pa_ai_generated`. **Unverified**: the JUMBF manifest is parsed but its cryptographic signature / trust chain is *not* validated (treat like EXIF — accurate-as-recorded, not authenticated).
+
+```sh
+# Images carrying Content Credentials
+file-search-on 'is_image && is_c2pa' -d ~/Pictures
+
+# AI-generated images (declared via a c2pa.actions digitalSourceType)
+file-search-on 'is_image && c2pa_ai_generated' -d ~/Downloads
+
+# Assets made/edited by a particular tool
+file-search-on 'is_c2pa && c2pa_claim_generator.contains("Firefly")' -d ~/Assets
+```
+
+Note: absence of `c2pa_ai_generated` does **not** mean "not AI" — most files carry no manifest at all.

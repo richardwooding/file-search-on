@@ -33,6 +33,15 @@ type Match struct {
 	ImgWidth  int64 `json:"img_width,omitempty"`
 	ImgHeight int64 `json:"img_height,omitempty"`
 
+	// C2PA / Content Credentials (#374) — the file's CLAIMED, unverified
+	// provenance (we read the embedded JUMBF manifest without validating
+	// its signature). IsC2PA marks presence; the rest mirror the claim.
+	IsC2PA             bool   `json:"is_c2pa,omitempty"`
+	C2PAClaimGenerator string `json:"c2pa_claim_generator,omitempty"`
+	C2PATitle          string `json:"c2pa_title,omitempty"`
+	C2PAFormat         string `json:"c2pa_format,omitempty"`
+	C2PAAIGenerated    bool   `json:"c2pa_ai_generated,omitempty"`
+
 	CameraMake   string  `json:"camera_make,omitempty"`
 	CameraModel  string  `json:"camera_model,omitempty"`
 	Lens         string  `json:"lens,omitempty"`

@@ -223,6 +223,21 @@ func applyImageAttrs(m *Match, a *celexpr.FileAttributes) {
 	if v, ok := a.Extra["img_height"].(int64); ok {
 		m.ImgHeight = v
 	}
+	if v, ok := a.Extra["is_c2pa"].(bool); ok {
+		m.IsC2PA = v
+	}
+	if v, ok := a.Extra["c2pa_claim_generator"].(string); ok {
+		m.C2PAClaimGenerator = v
+	}
+	if v, ok := a.Extra["c2pa_title"].(string); ok {
+		m.C2PATitle = v
+	}
+	if v, ok := a.Extra["c2pa_format"].(string); ok {
+		m.C2PAFormat = v
+	}
+	if v, ok := a.Extra["c2pa_ai_generated"].(bool); ok {
+		m.C2PAAIGenerated = v
+	}
 	if v, ok := a.Extra["camera_make"].(string); ok {
 		m.CameraMake = v
 	}
