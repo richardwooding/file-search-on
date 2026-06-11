@@ -101,30 +101,14 @@ func applyTypedPredicates(m *Match, a *celexpr.FileAttributes) {
 
 // applyComputedAttrs handles the opt-in computed attributes (phash, model3d, similarity) and the filesystem-timestamp / disguise / known-hash typed fields.
 func applyComputedAttrs(m *Match, a *celexpr.FileAttributes) {
-	if v, ok := a.Extra["phash"].(string); ok {
-		m.PHash = v
-	}
-	if v, ok := a.Extra["model3d_format"].(string); ok {
-		m.Model3DFormat = v
-	}
-	if v, ok := a.Extra["vertex_count"].(int64); ok {
-		m.VertexCount = v
-	}
-	if v, ok := a.Extra["face_count"].(int64); ok {
-		m.FaceCount = v
-	}
-	if v, ok := a.Extra["has_normals"].(bool); ok {
-		m.HasNormals = v
-	}
-	if v, ok := a.Extra["has_textures"].(bool); ok {
-		m.HasTextures = v
-	}
-	if v, ok := a.Extra["materials"].([]string); ok {
-		m.Materials = v
-	}
-	if v, ok := a.Extra["bounding_box"].([]float64); ok {
-		m.BoundingBox = v
-	}
+	setExtra(&m.PHash, a.Extra, "phash")
+	setExtra(&m.Model3DFormat, a.Extra, "model3d_format")
+	setExtra(&m.VertexCount, a.Extra, "vertex_count")
+	setExtra(&m.FaceCount, a.Extra, "face_count")
+	setExtra(&m.HasNormals, a.Extra, "has_normals")
+	setExtra(&m.HasTextures, a.Extra, "has_textures")
+	setExtra(&m.Materials, a.Extra, "materials")
+	setExtra(&m.BoundingBox, a.Extra, "bounding_box")
 	m.Similarity = a.Similarity
 	m.MatchStartLine = a.MatchStartLine
 	m.MatchEndLine = a.MatchEndLine
@@ -162,243 +146,105 @@ func applyComputedAttrs(m *Match, a *celexpr.FileAttributes) {
 
 // applyCommonAttrs covers the cross-family scalars (title/author/language/counts), manifest module fields, and project context.
 func applyCommonAttrs(m *Match, a *celexpr.FileAttributes) {
-	if v, ok := a.Extra["title"].(string); ok {
-		m.Title = v
-	}
-	if v, ok := a.Extra["author"].(string); ok {
-		m.Author = v
-	}
-	if v, ok := a.Extra["language"].(string); ok {
-		m.Language = v
-	}
-	if v, ok := a.Extra["word_count"].(int64); ok {
-		m.WordCount = v
-	}
-	if v, ok := a.Extra["line_count"].(int64); ok {
-		m.LineCount = v
-	}
-	if v, ok := a.Extra["page_count"].(int64); ok {
-		m.PageCount = v
-	}
-	if v, ok := a.Extra["column_count"].(int64); ok {
-		m.ColumnCount = v
-	}
-	if v, ok := a.Extra["csv_columns"].([]string); ok {
-		m.CSVColumns = v
-	}
-	if v, ok := a.Extra["root_element"].(string); ok {
-		m.RootElement = v
-	}
-	if v, ok := a.Extra["json_kind"].(string); ok {
-		m.JSONKind = v
-	}
-	if v, ok := a.Extra["yaml_kind"].(string); ok {
-		m.YAMLKind = v
-	}
-	if v, ok := a.Extra["yaml_document_count"].(int64); ok {
-		m.YAMLDocumentCount = v
-	}
-	if v, ok := a.Extra["module"].(string); ok {
-		m.Module = v
-	}
-	if v, ok := a.Extra["go_version"].(string); ok {
-		m.GoVersion = v
-	}
-	if v, ok := a.Extra["base_image"].(string); ok {
-		m.BaseImage = v
-	}
+	setExtra(&m.Title, a.Extra, "title")
+	setExtra(&m.Author, a.Extra, "author")
+	setExtra(&m.Language, a.Extra, "language")
+	setExtra(&m.WordCount, a.Extra, "word_count")
+	setExtra(&m.LineCount, a.Extra, "line_count")
+	setExtra(&m.PageCount, a.Extra, "page_count")
+	setExtra(&m.ColumnCount, a.Extra, "column_count")
+	setExtra(&m.CSVColumns, a.Extra, "csv_columns")
+	setExtra(&m.RootElement, a.Extra, "root_element")
+	setExtra(&m.JSONKind, a.Extra, "json_kind")
+	setExtra(&m.YAMLKind, a.Extra, "yaml_kind")
+	setExtra(&m.YAMLDocumentCount, a.Extra, "yaml_document_count")
+	setExtra(&m.Module, a.Extra, "module")
+	setExtra(&m.GoVersion, a.Extra, "go_version")
+	setExtra(&m.BaseImage, a.Extra, "base_image")
 	if v, ok := a.Extra["project_types"].([]string); ok && len(v) > 0 {
 		m.ProjectTypes = v
 	}
-	if v, ok := a.Extra["project_type"].(string); ok {
-		m.ProjectType = v
-	}
-	if v, ok := a.Extra["is_static_site"].(bool); ok {
-		m.IsStaticSite = v
-	}
+	setExtra(&m.ProjectType, a.Extra, "project_type")
+	setExtra(&m.IsStaticSite, a.Extra, "is_static_site")
 }
 
 // applyImageAttrs covers image dimensions and EXIF (camera / GPS / exposure).
 func applyImageAttrs(m *Match, a *celexpr.FileAttributes) {
-	if v, ok := a.Extra["img_width"].(int64); ok {
-		m.ImgWidth = v
-	}
-	if v, ok := a.Extra["img_height"].(int64); ok {
-		m.ImgHeight = v
-	}
-	if v, ok := a.Extra["is_c2pa"].(bool); ok {
-		m.IsC2PA = v
-	}
-	if v, ok := a.Extra["c2pa_claim_generator"].(string); ok {
-		m.C2PAClaimGenerator = v
-	}
-	if v, ok := a.Extra["c2pa_title"].(string); ok {
-		m.C2PATitle = v
-	}
-	if v, ok := a.Extra["c2pa_format"].(string); ok {
-		m.C2PAFormat = v
-	}
-	if v, ok := a.Extra["c2pa_ai_generated"].(bool); ok {
-		m.C2PAAIGenerated = v
-	}
-	if v, ok := a.Extra["c2pa_signed_by"].(string); ok {
-		m.C2PASignedBy = v
-	}
+	setExtra(&m.ImgWidth, a.Extra, "img_width")
+	setExtra(&m.ImgHeight, a.Extra, "img_height")
+	setExtra(&m.IsC2PA, a.Extra, "is_c2pa")
+	setExtra(&m.C2PAClaimGenerator, a.Extra, "c2pa_claim_generator")
+	setExtra(&m.C2PATitle, a.Extra, "c2pa_title")
+	setExtra(&m.C2PAFormat, a.Extra, "c2pa_format")
+	setExtra(&m.C2PAAIGenerated, a.Extra, "c2pa_ai_generated")
+	setExtra(&m.C2PASignedBy, a.Extra, "c2pa_signed_by")
 	if v, ok := a.Extra["c2pa_signed_at"].(time.Time); ok && !v.IsZero() {
 		m.C2PASignedAt = v.Format(time.RFC3339)
 	}
-	if v, ok := a.Extra["camera_make"].(string); ok {
-		m.CameraMake = v
-	}
-	if v, ok := a.Extra["camera_model"].(string); ok {
-		m.CameraModel = v
-	}
-	if v, ok := a.Extra["lens"].(string); ok {
-		m.Lens = v
-	}
+	setExtra(&m.CameraMake, a.Extra, "camera_make")
+	setExtra(&m.CameraModel, a.Extra, "camera_model")
+	setExtra(&m.Lens, a.Extra, "lens")
 	if v, ok := a.Extra["taken_at"].(time.Time); ok && !v.IsZero() {
 		m.TakenAt = v.Format(time.RFC3339)
 	}
-	if v, ok := a.Extra["orientation"].(int64); ok {
-		m.Orientation = v
-	}
-	if v, ok := a.Extra["gps_lat"].(float64); ok {
-		m.GPSLat = v
-	}
-	if v, ok := a.Extra["gps_lon"].(float64); ok {
-		m.GPSLon = v
-	}
-	if v, ok := a.Extra["iso"].(int64); ok {
-		m.ISO = v
-	}
-	if v, ok := a.Extra["focal_length"].(float64); ok {
-		m.FocalLength = v
-	}
-	if v, ok := a.Extra["f_stop"].(float64); ok {
-		m.FStop = v
-	}
-	if v, ok := a.Extra["exposure_time"].(float64); ok {
-		m.ExposureTime = v
-	}
+	setExtra(&m.Orientation, a.Extra, "orientation")
+	setExtra(&m.GPSLat, a.Extra, "gps_lat")
+	setExtra(&m.GPSLon, a.Extra, "gps_lon")
+	setExtra(&m.ISO, a.Extra, "iso")
+	setExtra(&m.FocalLength, a.Extra, "focal_length")
+	setExtra(&m.FStop, a.Extra, "f_stop")
+	setExtra(&m.ExposureTime, a.Extra, "exposure_time")
 }
 
 // applyMediaAttrs covers audio tags and video codec / colour / subtitle / replaygain attributes.
 func applyMediaAttrs(m *Match, a *celexpr.FileAttributes) {
-	if v, ok := a.Extra["artist"].(string); ok {
-		m.Artist = v
-	}
-	if v, ok := a.Extra["album"].(string); ok {
-		m.Album = v
-	}
-	if v, ok := a.Extra["album_artist"].(string); ok {
-		m.AlbumArtist = v
-	}
-	if v, ok := a.Extra["composer"].(string); ok {
-		m.Composer = v
-	}
-	if v, ok := a.Extra["year"].(int64); ok {
-		m.Year = v
-	}
-	if v, ok := a.Extra["track"].(int64); ok {
-		m.Track = v
-	}
-	if v, ok := a.Extra["genre"].(string); ok {
-		m.Genre = v
-	}
-	if v, ok := a.Extra["duration"].(float64); ok {
-		m.Duration = v
-	}
-	if v, ok := a.Extra["bitrate"].(int64); ok {
-		m.Bitrate = v
-	}
-	if v, ok := a.Extra["sample_rate"].(int64); ok {
-		m.SampleRate = v
-	}
-	if v, ok := a.Extra["channels"].(int64); ok {
-		m.Channels = v
-	}
-	if v, ok := a.Extra["bit_depth"].(int64); ok {
-		m.BitDepth = v
-	}
-	if v, ok := a.Extra["nominal_bitrate"].(int64); ok {
-		m.NominalBitrate = v
-	}
-	if v, ok := a.Extra["video_codec"].(string); ok {
-		m.VideoCodec = v
-	}
-	if v, ok := a.Extra["audio_codec"].(string); ok {
-		m.AudioCodec = v
-	}
-	if v, ok := a.Extra["video_width"].(int64); ok {
-		m.VideoWidth = v
-	}
-	if v, ok := a.Extra["video_height"].(int64); ok {
-		m.VideoHeight = v
-	}
-	if v, ok := a.Extra["frame_rate"].(float64); ok {
-		m.FrameRate = v
-	}
-	if v, ok := a.Extra["rotation"].(int64); ok {
-		m.Rotation = v
-	}
-	if v, ok := a.Extra["color_primaries"].(string); ok {
-		m.ColorPrimaries = v
-	}
-	if v, ok := a.Extra["color_transfer"].(string); ok {
-		m.ColorTransfer = v
-	}
-	if v, ok := a.Extra["is_hdr"].(bool); ok {
-		m.IsHDR = v
-	}
-	if v, ok := a.Extra["subtitles"].(bool); ok {
-		m.Subtitles = v
-	}
+	setExtra(&m.Artist, a.Extra, "artist")
+	setExtra(&m.Album, a.Extra, "album")
+	setExtra(&m.AlbumArtist, a.Extra, "album_artist")
+	setExtra(&m.Composer, a.Extra, "composer")
+	setExtra(&m.Year, a.Extra, "year")
+	setExtra(&m.Track, a.Extra, "track")
+	setExtra(&m.Genre, a.Extra, "genre")
+	setExtra(&m.Duration, a.Extra, "duration")
+	setExtra(&m.Bitrate, a.Extra, "bitrate")
+	setExtra(&m.SampleRate, a.Extra, "sample_rate")
+	setExtra(&m.Channels, a.Extra, "channels")
+	setExtra(&m.BitDepth, a.Extra, "bit_depth")
+	setExtra(&m.NominalBitrate, a.Extra, "nominal_bitrate")
+	setExtra(&m.VideoCodec, a.Extra, "video_codec")
+	setExtra(&m.AudioCodec, a.Extra, "audio_codec")
+	setExtra(&m.VideoWidth, a.Extra, "video_width")
+	setExtra(&m.VideoHeight, a.Extra, "video_height")
+	setExtra(&m.FrameRate, a.Extra, "frame_rate")
+	setExtra(&m.Rotation, a.Extra, "rotation")
+	setExtra(&m.ColorPrimaries, a.Extra, "color_primaries")
+	setExtra(&m.ColorTransfer, a.Extra, "color_transfer")
+	setExtra(&m.IsHDR, a.Extra, "is_hdr")
+	setExtra(&m.Subtitles, a.Extra, "subtitles")
 	if v, ok := a.Extra["subtitle_languages"].([]string); ok && len(v) > 0 {
 		m.SubtitleLanguages = v
 	}
-	if v, ok := a.Extra["replaygain_track_gain"].(float64); ok {
-		m.ReplayGainTrackGain = v
-	}
-	if v, ok := a.Extra["replaygain_album_gain"].(float64); ok {
-		m.ReplayGainAlbumGain = v
-	}
+	setExtra(&m.ReplayGainTrackGain, a.Extra, "replaygain_track_gain")
+	setExtra(&m.ReplayGainAlbumGain, a.Extra, "replaygain_album_gain")
 }
 
 // applyArchiveBinaryAttrs covers archive entry stats and compiled-binary architecture attributes.
 func applyArchiveBinaryAttrs(m *Match, a *celexpr.FileAttributes) {
-	if v, ok := a.Extra["entry_count"].(int64); ok {
-		m.EntryCount = v
-	}
-	if v, ok := a.Extra["uncompressed_size"].(int64); ok {
-		m.UncompressedSize = v
-	}
+	setExtra(&m.EntryCount, a.Extra, "entry_count")
+	setExtra(&m.UncompressedSize, a.Extra, "uncompressed_size")
 	if v, ok := a.Extra["top_level_entries"].([]string); ok && len(v) > 0 {
 		m.TopLevelEntries = v
 	}
-	if v, ok := a.Extra["has_root_dir"].(bool); ok {
-		m.HasRootDir = v
-	}
+	setExtra(&m.HasRootDir, a.Extra, "has_root_dir")
 	if v, ok := a.Extra["architectures"].([]string); ok && len(v) > 0 {
 		m.Architectures = v
 	}
-	if v, ok := a.Extra["bitness"].(int64); ok {
-		m.Bitness = v
-	}
-	if v, ok := a.Extra["binary_format"].(string); ok {
-		m.BinaryFormat = v
-	}
-	if v, ok := a.Extra["binary_type"].(string); ok {
-		m.BinaryType = v
-	}
-	if v, ok := a.Extra["is_dynamically_linked"].(bool); ok {
-		m.IsDynamicallyLinked = v
-	}
-	if v, ok := a.Extra["is_stripped"].(bool); ok {
-		m.IsStripped = v
-	}
-	if v, ok := a.Extra["entry_point"].(int64); ok {
-		m.EntryPoint = v
-	}
+	setExtra(&m.Bitness, a.Extra, "bitness")
+	setExtra(&m.BinaryFormat, a.Extra, "binary_format")
+	setExtra(&m.BinaryType, a.Extra, "binary_type")
+	setExtra(&m.IsDynamicallyLinked, a.Extra, "is_dynamically_linked")
+	setExtra(&m.IsStripped, a.Extra, "is_stripped")
+	setExtra(&m.EntryPoint, a.Extra, "entry_point")
 }
 
 // applyEmailSourceAttrs covers email headers, source LOC, and notebook cell counts.
@@ -409,70 +255,36 @@ func applyEmailSourceAttrs(m *Match, a *celexpr.FileAttributes) {
 	if v, ok := a.Extra["email_cc"].([]string); ok && len(v) > 0 {
 		m.EmailCc = v
 	}
-	if v, ok := a.Extra["email_message_id"].(string); ok {
-		m.EmailMessageID = v
-	}
-	if v, ok := a.Extra["email_in_reply_to"].(string); ok {
-		m.EmailInReplyTo = v
-	}
+	setExtra(&m.EmailMessageID, a.Extra, "email_message_id")
+	setExtra(&m.EmailInReplyTo, a.Extra, "email_in_reply_to")
 	if v, ok := a.Extra["sent_at"].(time.Time); ok && !v.IsZero() {
 		m.SentAt = v.Format(time.RFC3339)
 	}
-	if v, ok := a.Extra["attachment_count"].(int64); ok {
-		m.AttachmentCount = v
-	}
-	if v, ok := a.Extra["email_count"].(int64); ok {
-		m.EmailCount = v
-	}
-	if v, ok := a.Extra["loc"].(int64); ok {
-		m.LOC = v
-	}
-	if v, ok := a.Extra["comment_loc"].(int64); ok {
-		m.CommentLOC = v
-	}
-	if v, ok := a.Extra["blank_loc"].(int64); ok {
-		m.BlankLOC = v
-	}
+	setExtra(&m.AttachmentCount, a.Extra, "attachment_count")
+	setExtra(&m.EmailCount, a.Extra, "email_count")
+	setExtra(&m.LOC, a.Extra, "loc")
+	setExtra(&m.CommentLOC, a.Extra, "comment_loc")
+	setExtra(&m.BlankLOC, a.Extra, "blank_loc")
 	// imports / functions / type_names all live on Extra as []string
 	// from the per-language extractors in
 	// internal/content/source_symbols_*.go. Surfacing each to a typed
 	// Match field unblocks fields: ["imports"|"functions"|"type_names"]
 	// projection and gets the lists into the wire response.
 	// #275 (imports), #278 (functions + type_names).
-	if v, ok := a.Extra["imports"].([]string); ok {
-		m.Imports = v
-	}
-	if v, ok := a.Extra["functions"].([]string); ok {
-		m.Functions = v
-	}
-	if v, ok := a.Extra["type_names"].([]string); ok {
-		m.TypeNames = v
-	}
-	if v, ok := a.Extra["references"].([]string); ok {
-		m.References = v
-	}
-	if v, ok := a.Extra["max_complexity"].(int64); ok {
-		m.MaxComplexity = v
-	}
-	if v, ok := a.Extra["cell_count"].(int64); ok {
-		m.CellCount = v
-	}
-	if v, ok := a.Extra["code_cell_count"].(int64); ok {
-		m.CodeCellCount = v
-	}
-	if v, ok := a.Extra["markdown_cell_count"].(int64); ok {
-		m.MarkdownCellCount = v
-	}
-	if v, ok := a.Extra["kernel"].(string); ok {
-		m.Kernel = v
-	}
+	setExtra(&m.Imports, a.Extra, "imports")
+	setExtra(&m.Functions, a.Extra, "functions")
+	setExtra(&m.TypeNames, a.Extra, "type_names")
+	setExtra(&m.References, a.Extra, "references")
+	setExtra(&m.MaxComplexity, a.Extra, "max_complexity")
+	setExtra(&m.CellCount, a.Extra, "cell_count")
+	setExtra(&m.CodeCellCount, a.Extra, "code_cell_count")
+	setExtra(&m.MarkdownCellCount, a.Extra, "markdown_cell_count")
+	setExtra(&m.Kernel, a.Extra, "kernel")
 }
 
 // applyFrontmatterAttrs covers markdown front-matter (format / tags / categories / draft / date).
 func applyFrontmatterAttrs(m *Match, a *celexpr.FileAttributes) {
-	if v, ok := a.Extra["frontmatter_format"].(string); ok {
-		m.FrontmatterFormat = v
-	}
+	setExtra(&m.FrontmatterFormat, a.Extra, "frontmatter_format")
 	if v, ok := a.Extra["frontmatter"].(map[string]any); ok && len(v) > 0 {
 		m.Frontmatter = v
 	}
@@ -482,9 +294,7 @@ func applyFrontmatterAttrs(m *Match, a *celexpr.FileAttributes) {
 	if v, ok := a.Extra["categories"].([]string); ok && len(v) > 0 {
 		m.Categories = v
 	}
-	if v, ok := a.Extra["draft"].(bool); ok {
-		m.Draft = v
-	}
+	setExtra(&m.Draft, a.Extra, "draft")
 	if v, ok := a.Extra["date"].(time.Time); ok && !v.IsZero() {
 		m.Date = v.Format(time.RFC3339)
 	}
@@ -493,75 +303,41 @@ func applyFrontmatterAttrs(m *Match, a *celexpr.FileAttributes) {
 // applyDiskImageAttrs covers the disk-image family attributes.
 func applyDiskImageAttrs(m *Match, a *celexpr.FileAttributes) {
 	// Disk-image family.
-	if v, ok := a.Extra["disk_image_format"].(string); ok {
-		m.DiskImageFormat = v
-	}
-	if v, ok := a.Extra["virtual_size"].(int64); ok {
-		m.VirtualSize = v
-	}
-	if v, ok := a.Extra["disk_type"].(string); ok {
-		m.DiskType = v
-	}
-	if v, ok := a.Extra["volume_label"].(string); ok {
-		m.VolumeLabel = v
-	}
+	setExtra(&m.DiskImageFormat, a.Extra, "disk_image_format")
+	setExtra(&m.VirtualSize, a.Extra, "virtual_size")
+	setExtra(&m.DiskType, a.Extra, "disk_type")
+	setExtra(&m.VolumeLabel, a.Extra, "volume_label")
 	if v, ok := a.Extra["disk_image_created_at"].(time.Time); ok && !v.IsZero() {
 		m.DiskImageCreatedAt = v.Format(time.RFC3339)
 	}
-	if v, ok := a.Extra["cluster_bits"].(int64); ok {
-		m.ClusterBits = v
-	}
-	if v, ok := a.Extra["is_encrypted"].(bool); ok {
-		m.IsEncrypted = v
-	}
-	if v, ok := a.Extra["image_count"].(int64); ok {
-		m.ImageCount = v
-	}
+	setExtra(&m.ClusterBits, a.Extra, "cluster_bits")
+	setExtra(&m.IsEncrypted, a.Extra, "is_encrypted")
+	setExtra(&m.ImageCount, a.Extra, "image_count")
 }
 
 // applyInstallPackageAttrs covers the install-package family attributes.
 func applyInstallPackageAttrs(m *Match, a *celexpr.FileAttributes) {
 	// Install-package family.
-	if v, ok := a.Extra["package_format"].(string); ok {
-		m.PackageFormat = v
-	}
-	if v, ok := a.Extra["package_name"].(string); ok {
-		m.PackageName = v
-	}
-	if v, ok := a.Extra["package_version"].(string); ok {
-		m.PackageVersion = v
-	}
-	if v, ok := a.Extra["package_release"].(string); ok {
-		m.PackageRelease = v
-	}
-	if v, ok := a.Extra["package_arch"].(string); ok {
-		m.PackageArch = v
-	}
-	if v, ok := a.Extra["package_kind"].(string); ok {
-		m.PackageKind = v
-	}
-	if v, ok := a.Extra["appimage_version"].(int64); ok {
-		m.AppImageVersion = v
-	}
+	setExtra(&m.PackageFormat, a.Extra, "package_format")
+	setExtra(&m.PackageName, a.Extra, "package_name")
+	setExtra(&m.PackageVersion, a.Extra, "package_version")
+	setExtra(&m.PackageRelease, a.Extra, "package_release")
+	setExtra(&m.PackageArch, a.Extra, "package_arch")
+	setExtra(&m.PackageKind, a.Extra, "package_kind")
+	setExtra(&m.AppImageVersion, a.Extra, "appimage_version")
 }
 
 // applyMiscAttrs covers license id, test-file detection, and symlink target.
 func applyMiscAttrs(m *Match, a *celexpr.FileAttributes) {
 	// License id.
-	if v, ok := a.Extra["license_id"].(string); ok {
-		m.LicenseID = v
-	}
+	setExtra(&m.LicenseID, a.Extra, "license_id")
 
 	// Test-file detection.
-	if v, ok := a.Extra["is_test_file"].(bool); ok {
-		m.IsTestFile = v
-	}
+	setExtra(&m.IsTestFile, a.Extra, "is_test_file")
 
 	// Symlink awareness — target_path lives in Extra; the two
 	// booleans come from typed FileAttributes fields above.
-	if v, ok := a.Extra["target_path"].(string); ok {
-		m.TargetPath = v
-	}
+	setExtra(&m.TargetPath, a.Extra, "target_path")
 }
 
 // applyCodesignAttrs covers the Mach-O code signature and entitlement attributes.
@@ -569,213 +345,97 @@ func applyCodesignAttrs(m *Match, a *celexpr.FileAttributes) {
 	// Mach-O code signature (issue #187). Everything lives in Extra
 	// since the parser is content-type-specific (not surfaced via
 	// FileAttributes struct fields).
-	if v, ok := a.Extra["is_codesigned"].(bool); ok {
-		m.IsCodesigned = v
-	}
-	if v, ok := a.Extra["is_apple_signed"].(bool); ok {
-		m.IsAppleSigned = v
-	}
-	if v, ok := a.Extra["is_third_party_signed"].(bool); ok {
-		m.IsThirdPartySigned = v
-	}
-	if v, ok := a.Extra["codesign_identifier"].(string); ok {
-		m.CodesignIdentifier = v
-	}
-	if v, ok := a.Extra["codesign_team_id"].(string); ok {
-		m.CodesignTeamID = v
-	}
-	if v, ok := a.Extra["codesign_hash_type"].(string); ok {
-		m.CodesignHashType = v
-	}
-	if v, ok := a.Extra["codesign_hardened_runtime"].(bool); ok {
-		m.CodesignHardenedRuntime = v
-	}
-	if v, ok := a.Extra["codesign_library_validation"].(bool); ok {
-		m.CodesignLibraryValidation = v
-	}
-	if v, ok := a.Extra["codesign_killed"].(bool); ok {
-		m.CodesignKilled = v
-	}
-	if v, ok := a.Extra["codesign_adhoc"].(bool); ok {
-		m.CodesignAdhoc = v
-	}
+	setExtra(&m.IsCodesigned, a.Extra, "is_codesigned")
+	setExtra(&m.IsAppleSigned, a.Extra, "is_apple_signed")
+	setExtra(&m.IsThirdPartySigned, a.Extra, "is_third_party_signed")
+	setExtra(&m.CodesignIdentifier, a.Extra, "codesign_identifier")
+	setExtra(&m.CodesignTeamID, a.Extra, "codesign_team_id")
+	setExtra(&m.CodesignHashType, a.Extra, "codesign_hash_type")
+	setExtra(&m.CodesignHardenedRuntime, a.Extra, "codesign_hardened_runtime")
+	setExtra(&m.CodesignLibraryValidation, a.Extra, "codesign_library_validation")
+	setExtra(&m.CodesignKilled, a.Extra, "codesign_killed")
+	setExtra(&m.CodesignAdhoc, a.Extra, "codesign_adhoc")
 	if v, ok := a.Extra["entitlements"].([]string); ok && len(v) > 0 {
 		m.Entitlements = v
 	}
-	if v, ok := a.Extra["entitlement_app_sandbox"].(bool); ok {
-		m.EntitlementAppSandbox = v
-	}
-	if v, ok := a.Extra["entitlement_full_disk_access"].(bool); ok {
-		m.EntitlementFullDiskAccess = v
-	}
-	if v, ok := a.Extra["entitlement_network_client"].(bool); ok {
-		m.EntitlementNetworkClient = v
-	}
-	if v, ok := a.Extra["entitlement_network_server"].(bool); ok {
-		m.EntitlementNetworkServer = v
-	}
+	setExtra(&m.EntitlementAppSandbox, a.Extra, "entitlement_app_sandbox")
+	setExtra(&m.EntitlementFullDiskAccess, a.Extra, "entitlement_full_disk_access")
+	setExtra(&m.EntitlementNetworkClient, a.Extra, "entitlement_network_client")
+	setExtra(&m.EntitlementNetworkServer, a.Extra, "entitlement_network_server")
 }
 
 // applyPlistAttrs covers the Apple property-list attributes.
 func applyPlistAttrs(m *Match, a *celexpr.FileAttributes) {
 	// Apple property list (issue #185). is_plist comes from the typed
 	// FileAttributes field above; the rest live in Extra.
-	if v, ok := a.Extra["plist_format"].(string); ok {
-		m.PlistFormat = v
-	}
-	if v, ok := a.Extra["plist_root_kind"].(string); ok {
-		m.PlistRootKind = v
-	}
-	if v, ok := a.Extra["plist_kind"].(string); ok {
-		m.PlistKind = v
-	}
-	if v, ok := a.Extra["plist_bundle_identifier"].(string); ok {
-		m.PlistBundleIdentifier = v
-	}
-	if v, ok := a.Extra["plist_bundle_name"].(string); ok {
-		m.PlistBundleName = v
-	}
-	if v, ok := a.Extra["plist_bundle_version"].(string); ok {
-		m.PlistBundleVersion = v
-	}
-	if v, ok := a.Extra["plist_bundle_short_version"].(string); ok {
-		m.PlistBundleShortVersion = v
-	}
-	if v, ok := a.Extra["plist_executable"].(string); ok {
-		m.PlistExecutable = v
-	}
-	if v, ok := a.Extra["plist_min_os_version"].(string); ok {
-		m.PlistMinOSVersion = v
-	}
-	if v, ok := a.Extra["plist_label"].(string); ok {
-		m.PlistLabel = v
-	}
-	if v, ok := a.Extra["plist_program"].(string); ok {
-		m.PlistProgram = v
-	}
+	setExtra(&m.PlistFormat, a.Extra, "plist_format")
+	setExtra(&m.PlistRootKind, a.Extra, "plist_root_kind")
+	setExtra(&m.PlistKind, a.Extra, "plist_kind")
+	setExtra(&m.PlistBundleIdentifier, a.Extra, "plist_bundle_identifier")
+	setExtra(&m.PlistBundleName, a.Extra, "plist_bundle_name")
+	setExtra(&m.PlistBundleVersion, a.Extra, "plist_bundle_version")
+	setExtra(&m.PlistBundleShortVersion, a.Extra, "plist_bundle_short_version")
+	setExtra(&m.PlistExecutable, a.Extra, "plist_executable")
+	setExtra(&m.PlistMinOSVersion, a.Extra, "plist_min_os_version")
+	setExtra(&m.PlistLabel, a.Extra, "plist_label")
+	setExtra(&m.PlistProgram, a.Extra, "plist_program")
 	if v, ok := a.Extra["plist_program_arguments"].([]string); ok && len(v) > 0 {
 		m.PlistProgramArguments = v
 	}
-	if v, ok := a.Extra["plist_run_at_load"].(bool); ok {
-		m.PlistRunAtLoad = v
-	}
-	if v, ok := a.Extra["plist_keep_alive"].(bool); ok {
-		m.PlistKeepAlive = v
-	}
+	setExtra(&m.PlistRunAtLoad, a.Extra, "plist_run_at_load")
+	setExtra(&m.PlistKeepAlive, a.Extra, "plist_keep_alive")
 }
 
 // applyBytecodeAttrs covers the VM-bytecode family attributes.
 func applyBytecodeAttrs(m *Match, a *celexpr.FileAttributes) {
 	// VM-bytecode family attributes.
-	if v, ok := a.Extra["bytecode_format"].(string); ok {
-		m.BytecodeFormat = v
-	}
-	if v, ok := a.Extra["runtime_version"].(string); ok {
-		m.RuntimeVersion = v
-	}
-	if v, ok := a.Extra["class_name"].(string); ok {
-		m.ClassName = v
-	}
-	if v, ok := a.Extra["super_class"].(string); ok {
-		m.SuperClass = v
-	}
+	setExtra(&m.BytecodeFormat, a.Extra, "bytecode_format")
+	setExtra(&m.RuntimeVersion, a.Extra, "runtime_version")
+	setExtra(&m.ClassName, a.Extra, "class_name")
+	setExtra(&m.SuperClass, a.Extra, "super_class")
 	if v, ok := a.Extra["interfaces"].([]string); ok && len(v) > 0 {
 		m.Interfaces = v
 	}
-	if v, ok := a.Extra["method_count"].(int64); ok {
-		m.MethodCount = v
-	}
-	if v, ok := a.Extra["field_count"].(int64); ok {
-		m.FieldCount = v
-	}
+	setExtra(&m.MethodCount, a.Extra, "method_count")
+	setExtra(&m.FieldCount, a.Extra, "field_count")
 	if v, ok := a.Extra["access_flags"].([]string); ok && len(v) > 0 {
 		m.AccessFlags = v
 	}
-	if v, ok := a.Extra["python_version"].(string); ok {
-		m.PythonVersion = v
-	}
+	setExtra(&m.PythonVersion, a.Extra, "python_version")
 	if v, ok := a.Extra["source_mtime"].(time.Time); ok && !v.IsZero() {
 		m.SourceMtime = v.Format(time.RFC3339)
 	}
-	if v, ok := a.Extra["wasm_version"].(int64); ok {
-		m.WasmVersion = v
-	}
-	if v, ok := a.Extra["section_count"].(int64); ok {
-		m.SectionCount = v
-	}
-	if v, ok := a.Extra["import_count"].(int64); ok {
-		m.ImportCount = v
-	}
-	if v, ok := a.Extra["export_count"].(int64); ok {
-		m.ExportCount = v
-	}
+	setExtra(&m.WasmVersion, a.Extra, "wasm_version")
+	setExtra(&m.SectionCount, a.Extra, "section_count")
+	setExtra(&m.ImportCount, a.Extra, "import_count")
+	setExtra(&m.ExportCount, a.Extra, "export_count")
 }
 
 // applyScienceAttrs covers the science-data family (FITS / VOTable / HDF5 / PDS / CDF).
 func applyScienceAttrs(m *Match, a *celexpr.FileAttributes) {
 	// Science-data family.
-	if v, ok := a.Extra["science_format"].(string); ok {
-		m.ScienceFormat = v
-	}
-	if v, ok := a.Extra["telescope"].(string); ok {
-		m.Telescope = v
-	}
-	if v, ok := a.Extra["instrument"].(string); ok {
-		m.Instrument = v
-	}
-	if v, ok := a.Extra["object"].(string); ok {
-		m.Object = v
-	}
-	if v, ok := a.Extra["observer"].(string); ok {
-		m.Observer = v
-	}
-	if v, ok := a.Extra["date_obs"].(string); ok {
-		m.DateObs = v
-	}
-	if v, ok := a.Extra["exptime"].(float64); ok {
-		m.Exptime = v
-	}
-	if v, ok := a.Extra["filter"].(string); ok {
-		m.Filter = v
-	}
-	if v, ok := a.Extra["airmass"].(float64); ok {
-		m.Airmass = v
-	}
-	if v, ok := a.Extra["ra"].(float64); ok {
-		m.RA = v
-	}
-	if v, ok := a.Extra["dec"].(float64); ok {
-		m.Dec = v
-	}
-	if v, ok := a.Extra["bitpix"].(int64); ok {
-		m.Bitpix = v
-	}
-	if v, ok := a.Extra["naxis"].(int64); ok {
-		m.Naxis = v
-	}
-	if v, ok := a.Extra["naxis1"].(int64); ok {
-		m.Naxis1 = v
-	}
-	if v, ok := a.Extra["naxis2"].(int64); ok {
-		m.Naxis2 = v
-	}
-	if v, ok := a.Extra["hdu_count"].(int64); ok {
-		m.HDUCount = v
-	}
-	if v, ok := a.Extra["fits_kind"].(string); ok {
-		m.FITSKind = v
-	}
+	setExtra(&m.ScienceFormat, a.Extra, "science_format")
+	setExtra(&m.Telescope, a.Extra, "telescope")
+	setExtra(&m.Instrument, a.Extra, "instrument")
+	setExtra(&m.Object, a.Extra, "object")
+	setExtra(&m.Observer, a.Extra, "observer")
+	setExtra(&m.DateObs, a.Extra, "date_obs")
+	setExtra(&m.Exptime, a.Extra, "exptime")
+	setExtra(&m.Filter, a.Extra, "filter")
+	setExtra(&m.Airmass, a.Extra, "airmass")
+	setExtra(&m.RA, a.Extra, "ra")
+	setExtra(&m.Dec, a.Extra, "dec")
+	setExtra(&m.Bitpix, a.Extra, "bitpix")
+	setExtra(&m.Naxis, a.Extra, "naxis")
+	setExtra(&m.Naxis1, a.Extra, "naxis1")
+	setExtra(&m.Naxis2, a.Extra, "naxis2")
+	setExtra(&m.HDUCount, a.Extra, "hdu_count")
+	setExtra(&m.FITSKind, a.Extra, "fits_kind")
 
 	// VOTable.
-	if v, ok := a.Extra["votable_version"].(string); ok {
-		m.VOTableVersion = v
-	}
-	if v, ok := a.Extra["table_count"].(int64); ok {
-		m.TableCount = v
-	}
-	if v, ok := a.Extra["total_rows"].(int64); ok {
-		m.TotalRows = v
-	}
+	setExtra(&m.VOTableVersion, a.Extra, "votable_version")
+	setExtra(&m.TableCount, a.Extra, "table_count")
+	setExtra(&m.TotalRows, a.Extra, "total_rows")
 	if v, ok := a.Extra["field_names"].([]string); ok && len(v) > 0 {
 		m.FieldNames = v
 	}
@@ -785,143 +445,67 @@ func applyScienceAttrs(m *Match, a *celexpr.FileAttributes) {
 	if v, ok := a.Extra["field_ucds"].([]string); ok && len(v) > 0 {
 		m.FieldUCDs = v
 	}
-	if v, ok := a.Extra["votable_data_format"].(string); ok {
-		m.VOTableDataFormat = v
-	}
+	setExtra(&m.VOTableDataFormat, a.Extra, "votable_data_format")
 
 	// HDF5.
-	if v, ok := a.Extra["hdf5_format_version"].(int64); ok {
-		m.HDF5FormatVersion = v
-	}
-	if v, ok := a.Extra["hdf5_size_of_offsets"].(int64); ok {
-		m.HDF5SizeOfOffsets = v
-	}
-	if v, ok := a.Extra["hdf5_size_of_lengths"].(int64); ok {
-		m.HDF5SizeOfLengths = v
-	}
+	setExtra(&m.HDF5FormatVersion, a.Extra, "hdf5_format_version")
+	setExtra(&m.HDF5SizeOfOffsets, a.Extra, "hdf5_size_of_offsets")
+	setExtra(&m.HDF5SizeOfLengths, a.Extra, "hdf5_size_of_lengths")
 
 	// PDS.
-	if v, ok := a.Extra["pds_version"].(string); ok {
-		m.PDSVersion = v
-	}
-	if v, ok := a.Extra["mission_name"].(string); ok {
-		m.MissionName = v
-	}
-	if v, ok := a.Extra["spacecraft_name"].(string); ok {
-		m.SpacecraftName = v
-	}
-	if v, ok := a.Extra["instrument_name"].(string); ok {
-		m.InstrumentName = v
-	}
-	if v, ok := a.Extra["target_name"].(string); ok {
-		m.TargetName = v
-	}
-	if v, ok := a.Extra["product_id"].(string); ok {
-		m.ProductID = v
-	}
-	if v, ok := a.Extra["start_time"].(string); ok {
-		m.StartTime = v
-	}
+	setExtra(&m.PDSVersion, a.Extra, "pds_version")
+	setExtra(&m.MissionName, a.Extra, "mission_name")
+	setExtra(&m.SpacecraftName, a.Extra, "spacecraft_name")
+	setExtra(&m.InstrumentName, a.Extra, "instrument_name")
+	setExtra(&m.TargetName, a.Extra, "target_name")
+	setExtra(&m.ProductID, a.Extra, "product_id")
+	setExtra(&m.StartTime, a.Extra, "start_time")
 
 	// CDF.
-	if v, ok := a.Extra["cdf_version"].(string); ok {
-		m.CDFVersion = v
-	}
-	if v, ok := a.Extra["cdf_encoding"].(string); ok {
-		m.CDFEncoding = v
-	}
-	if v, ok := a.Extra["cdf_majority"].(string); ok {
-		m.CDFMajority = v
-	}
-	if v, ok := a.Extra["variable_count"].(int64); ok {
-		m.VariableCount = v
-	}
-	if v, ok := a.Extra["attribute_count"].(int64); ok {
-		m.AttributeCount = v
-	}
+	setExtra(&m.CDFVersion, a.Extra, "cdf_version")
+	setExtra(&m.CDFEncoding, a.Extra, "cdf_encoding")
+	setExtra(&m.CDFMajority, a.Extra, "cdf_majority")
+	setExtra(&m.VariableCount, a.Extra, "variable_count")
+	setExtra(&m.AttributeCount, a.Extra, "attribute_count")
 }
 
 // applyDatabaseAttrs covers the SQLite / database family attributes.
 func applyDatabaseAttrs(m *Match, a *celexpr.FileAttributes) {
 	// Database family.
-	if v, ok := a.Extra["database_format"].(string); ok {
-		m.DatabaseFormat = v
-	}
-	if v, ok := a.Extra["sqlite_page_size"].(int64); ok {
-		m.SQLitePageSize = v
-	}
-	if v, ok := a.Extra["sqlite_format_version"].(int64); ok {
-		m.SQLiteFormatVersion = v
-	}
-	if v, ok := a.Extra["sqlite_page_count"].(int64); ok {
-		m.SQLitePageCount = v
-	}
-	if v, ok := a.Extra["sqlite_schema_version"].(int64); ok {
-		m.SQLiteSchemaVersion = v
-	}
-	if v, ok := a.Extra["sqlite_text_encoding"].(string); ok {
-		m.SQLiteTextEncoding = v
-	}
-	if v, ok := a.Extra["sqlite_user_version"].(int64); ok {
-		m.SQLiteUserVersion = v
-	}
-	if v, ok := a.Extra["sqlite_application_id"].(int64); ok {
-		m.SQLiteApplicationID = v
-	}
-	if v, ok := a.Extra["sqlite_application_name"].(string); ok {
-		m.SQLiteApplicationName = v
-	}
-	if v, ok := a.Extra["sqlite_table_count"].(int64); ok {
-		m.SQLiteTableCount = v
-	}
-	if v, ok := a.Extra["sqlite_view_count"].(int64); ok {
-		m.SQLiteViewCount = v
-	}
-	if v, ok := a.Extra["sqlite_index_count"].(int64); ok {
-		m.SQLiteIndexCount = v
-	}
-	if v, ok := a.Extra["sqlite_trigger_count"].(int64); ok {
-		m.SQLiteTriggerCount = v
-	}
+	setExtra(&m.DatabaseFormat, a.Extra, "database_format")
+	setExtra(&m.SQLitePageSize, a.Extra, "sqlite_page_size")
+	setExtra(&m.SQLiteFormatVersion, a.Extra, "sqlite_format_version")
+	setExtra(&m.SQLitePageCount, a.Extra, "sqlite_page_count")
+	setExtra(&m.SQLiteSchemaVersion, a.Extra, "sqlite_schema_version")
+	setExtra(&m.SQLiteTextEncoding, a.Extra, "sqlite_text_encoding")
+	setExtra(&m.SQLiteUserVersion, a.Extra, "sqlite_user_version")
+	setExtra(&m.SQLiteApplicationID, a.Extra, "sqlite_application_id")
+	setExtra(&m.SQLiteApplicationName, a.Extra, "sqlite_application_name")
+	setExtra(&m.SQLiteTableCount, a.Extra, "sqlite_table_count")
+	setExtra(&m.SQLiteViewCount, a.Extra, "sqlite_view_count")
+	setExtra(&m.SQLiteIndexCount, a.Extra, "sqlite_index_count")
+	setExtra(&m.SQLiteTriggerCount, a.Extra, "sqlite_trigger_count")
 	if v, ok := a.Extra["sqlite_table_names"].([]string); ok && len(v) > 0 {
 		m.SQLiteTableNames = v
 	}
-	if v, ok := a.Extra["sqlite_schema_fingerprint"].(string); ok {
-		m.SQLiteSchemaFingerprint = v
-	}
-	if v, ok := a.Extra["sqlite_fts_table_count"].(int64); ok {
-		m.SQLiteFTSTableCount = v
-	}
+	setExtra(&m.SQLiteSchemaFingerprint, a.Extra, "sqlite_schema_fingerprint")
+	setExtra(&m.SQLiteFTSTableCount, a.Extra, "sqlite_fts_table_count")
 	if v, ok := a.Extra["sqlite_fts_table_names"].([]string); ok && len(v) > 0 {
 		m.SQLiteFTSTableNames = v
 	}
-	if v, ok := a.Extra["sqlite_wal_format_version"].(int64); ok {
-		m.SQLiteWALFormatVersion = v
-	}
-	if v, ok := a.Extra["sqlite_wal_page_size"].(int64); ok {
-		m.SQLiteWALPageSize = v
-	}
-	if v, ok := a.Extra["sqlite_wal_checkpoint_seq"].(int64); ok {
-		m.SQLiteWALCheckpointSeq = v
-	}
-	if v, ok := a.Extra["sqlite_wal_frame_count"].(int64); ok {
-		m.SQLiteWALFrameCount = v
-	}
-	if v, ok := a.Extra["sqlite_wal_byte_order"].(string); ok {
-		m.SQLiteWALByteOrder = v
-	}
+	setExtra(&m.SQLiteWALFormatVersion, a.Extra, "sqlite_wal_format_version")
+	setExtra(&m.SQLiteWALPageSize, a.Extra, "sqlite_wal_page_size")
+	setExtra(&m.SQLiteWALCheckpointSeq, a.Extra, "sqlite_wal_checkpoint_seq")
+	setExtra(&m.SQLiteWALFrameCount, a.Extra, "sqlite_wal_frame_count")
+	setExtra(&m.SQLiteWALByteOrder, a.Extra, "sqlite_wal_byte_order")
 }
 
 // applyBookmarkAttrs covers the browser-bookmark attributes.
 func applyBookmarkAttrs(m *Match, a *celexpr.FileAttributes) {
 	// Browser bookmarks (issue #188). Bool predicates come from the
 	// typed FileAttributes fields above; per-file attrs live in Extra.
-	if v, ok := a.Extra["bookmark_count"].(int64); ok {
-		m.BookmarkCount = v
-	}
-	if v, ok := a.Extra["bookmark_folder_count"].(int64); ok {
-		m.BookmarkFolderCount = v
-	}
+	setExtra(&m.BookmarkCount, a.Extra, "bookmark_count")
+	setExtra(&m.BookmarkFolderCount, a.Extra, "bookmark_folder_count")
 	if v, ok := a.Extra["bookmark_folders"].([]string); ok && len(v) > 0 {
 		m.BookmarkFolders = v
 	}
@@ -931,30 +515,20 @@ func applyBookmarkAttrs(m *Match, a *celexpr.FileAttributes) {
 	if v, ok := a.Extra["bookmark_titles"].([]string); ok && len(v) > 0 {
 		m.BookmarkTitles = v
 	}
-	if v, ok := a.Extra["browser_vendor"].(string); ok {
-		m.BrowserVendor = v
-	}
-	if v, ok := a.Extra["bookmark_profile"].(string); ok {
-		m.BookmarkProfile = v
-	}
+	setExtra(&m.BrowserVendor, a.Extra, "browser_vendor")
+	setExtra(&m.BookmarkProfile, a.Extra, "bookmark_profile")
 }
 
 // applyChatAttrs covers the chat-export attributes.
 func applyChatAttrs(m *Match, a *celexpr.FileAttributes) {
 	// Chat exports (issue #214). Bool predicates come from the typed
 	// FileAttributes fields above; per-file attrs live in Extra.
-	if v, ok := a.Extra["chat_message_count"].(int64); ok {
-		m.ChatMessageCount = v
-	}
+	setExtra(&m.ChatMessageCount, a.Extra, "chat_message_count")
 	if v, ok := a.Extra["chat_participants"].([]string); ok && len(v) > 0 {
 		m.ChatParticipants = v
 	}
-	if v, ok := a.Extra["chat_channel"].(string); ok {
-		m.ChatChannel = v
-	}
-	if v, ok := a.Extra["chat_workspace"].(string); ok {
-		m.ChatWorkspace = v
-	}
+	setExtra(&m.ChatChannel, a.Extra, "chat_channel")
+	setExtra(&m.ChatWorkspace, a.Extra, "chat_workspace")
 	if v, ok := a.Extra["chat_start_at"].(time.Time); ok && !v.IsZero() {
 		m.ChatStartAt = v.Format(time.RFC3339)
 	}
@@ -968,105 +542,47 @@ func applyFontAttrs(m *Match, a *celexpr.FileAttributes) {
 	// Font content types (issue #197). Per-format bool umbrellas
 	// come from the typed FileAttributes fields above; per-trait
 	// predicates and all string/int/list attrs live in Extra.
-	if v, ok := a.Extra["is_variable_font"].(bool); ok {
-		m.IsVariableFont = v
-	}
-	if v, ok := a.Extra["is_color_font"].(bool); ok {
-		m.IsColorFont = v
-	}
-	if v, ok := a.Extra["is_monospace_font"].(bool); ok {
-		m.IsMonospaceFont = v
-	}
-	if v, ok := a.Extra["is_italic_font"].(bool); ok {
-		m.IsItalicFont = v
-	}
-	if v, ok := a.Extra["is_bold_font"].(bool); ok {
-		m.IsBoldFont = v
-	}
-	if v, ok := a.Extra["font_format"].(string); ok {
-		m.FontFormat = v
-	}
-	if v, ok := a.Extra["font_outline_kind"].(string); ok {
-		m.FontOutlineKind = v
-	}
-	if v, ok := a.Extra["font_family"].(string); ok {
-		m.FontFamily = v
-	}
-	if v, ok := a.Extra["font_subfamily"].(string); ok {
-		m.FontSubfamily = v
-	}
-	if v, ok := a.Extra["font_full_name"].(string); ok {
-		m.FontFullName = v
-	}
-	if v, ok := a.Extra["font_version"].(string); ok {
-		m.FontVersion = v
-	}
-	if v, ok := a.Extra["font_postscript_name"].(string); ok {
-		m.FontPostScriptName = v
-	}
-	if v, ok := a.Extra["font_manufacturer"].(string); ok {
-		m.FontManufacturer = v
-	}
-	if v, ok := a.Extra["font_designer"].(string); ok {
-		m.FontDesigner = v
-	}
-	if v, ok := a.Extra["font_license"].(string); ok {
-		m.FontLicense = v
-	}
-	if v, ok := a.Extra["font_license_url"].(string); ok {
-		m.FontLicenseURL = v
-	}
-	if v, ok := a.Extra["font_typographic_family"].(string); ok {
-		m.FontTypographicFamily = v
-	}
-	if v, ok := a.Extra["font_weight"].(int64); ok {
-		m.FontWeight = v
-	}
-	if v, ok := a.Extra["font_width"].(int64); ok {
-		m.FontWidth = v
-	}
-	if v, ok := a.Extra["font_embedding"].(string); ok {
-		m.FontEmbedding = v
-	}
-	if v, ok := a.Extra["font_panose"].(string); ok {
-		m.FontPanose = v
-	}
+	setExtra(&m.IsVariableFont, a.Extra, "is_variable_font")
+	setExtra(&m.IsColorFont, a.Extra, "is_color_font")
+	setExtra(&m.IsMonospaceFont, a.Extra, "is_monospace_font")
+	setExtra(&m.IsItalicFont, a.Extra, "is_italic_font")
+	setExtra(&m.IsBoldFont, a.Extra, "is_bold_font")
+	setExtra(&m.FontFormat, a.Extra, "font_format")
+	setExtra(&m.FontOutlineKind, a.Extra, "font_outline_kind")
+	setExtra(&m.FontFamily, a.Extra, "font_family")
+	setExtra(&m.FontSubfamily, a.Extra, "font_subfamily")
+	setExtra(&m.FontFullName, a.Extra, "font_full_name")
+	setExtra(&m.FontVersion, a.Extra, "font_version")
+	setExtra(&m.FontPostScriptName, a.Extra, "font_postscript_name")
+	setExtra(&m.FontManufacturer, a.Extra, "font_manufacturer")
+	setExtra(&m.FontDesigner, a.Extra, "font_designer")
+	setExtra(&m.FontLicense, a.Extra, "font_license")
+	setExtra(&m.FontLicenseURL, a.Extra, "font_license_url")
+	setExtra(&m.FontTypographicFamily, a.Extra, "font_typographic_family")
+	setExtra(&m.FontWeight, a.Extra, "font_weight")
+	setExtra(&m.FontWidth, a.Extra, "font_width")
+	setExtra(&m.FontEmbedding, a.Extra, "font_embedding")
+	setExtra(&m.FontPanose, a.Extra, "font_panose")
 	if v, ok := a.Extra["font_unicode_ranges"].([]string); ok && len(v) > 0 {
 		m.FontUnicodeRanges = v
 	}
-	if v, ok := a.Extra["font_revision"].(float64); ok {
-		m.FontRevision = v
-	}
-	if v, ok := a.Extra["font_units_per_em"].(int64); ok {
-		m.FontUnitsPerEm = v
-	}
+	setExtra(&m.FontRevision, a.Extra, "font_revision")
+	setExtra(&m.FontUnitsPerEm, a.Extra, "font_units_per_em")
 	if v, ok := a.Extra["font_mac_style"].([]string); ok && len(v) > 0 {
 		m.FontMacStyle = v
 	}
-	if v, ok := a.Extra["font_italic_angle"].(float64); ok {
-		m.FontItalicAngle = v
-	}
-	if v, ok := a.Extra["font_glyph_count"].(int64); ok {
-		m.FontGlyphCount = v
-	}
-	if v, ok := a.Extra["font_axis_count"].(int64); ok {
-		m.FontAxisCount = v
-	}
+	setExtra(&m.FontItalicAngle, a.Extra, "font_italic_angle")
+	setExtra(&m.FontGlyphCount, a.Extra, "font_glyph_count")
+	setExtra(&m.FontAxisCount, a.Extra, "font_axis_count")
 	if v, ok := a.Extra["font_axes"].([]string); ok && len(v) > 0 {
 		m.FontAxes = v
 	}
-	if v, ok := a.Extra["font_collection_count"].(int64); ok {
-		m.FontCollectionCount = v
-	}
+	setExtra(&m.FontCollectionCount, a.Extra, "font_collection_count")
 	if v, ok := a.Extra["font_collection_families"].([]string); ok && len(v) > 0 {
 		m.FontCollectionFamilies = v
 	}
-	if v, ok := a.Extra["woff2_total_sfnt_size"].(int64); ok {
-		m.WOFF2TotalSfntSize = v
-	}
-	if v, ok := a.Extra["woff2_total_compressed_size"].(int64); ok {
-		m.WOFF2TotalCompressedSize = v
-	}
+	setExtra(&m.WOFF2TotalSfntSize, a.Extra, "woff2_total_sfnt_size")
+	setExtra(&m.WOFF2TotalCompressedSize, a.Extra, "woff2_total_compressed_size")
 }
 
 // applyXattrAttrs covers the extended-attribute (xattr) family.
@@ -1076,34 +592,29 @@ func applyXattrAttrs(m *Match, a *celexpr.FileAttributes) {
 	if v, ok := a.Extra["xattr_keys"].([]string); ok && len(v) > 0 {
 		m.XattrKeys = v
 	}
-	if v, ok := a.Extra["xattr_count"].(int64); ok {
-		m.XattrCount = v
-	}
-	if v, ok := a.Extra["quarantine_agent"].(string); ok {
-		m.QuarantineAgent = v
-	}
-	if v, ok := a.Extra["quarantine_event_id"].(string); ok {
-		m.QuarantineEventID = v
-	}
-	if v, ok := a.Extra["quarantine_source_url"].(string); ok {
-		m.QuarantineSourceURL = v
-	}
-	if v, ok := a.Extra["quarantine_referrer_url"].(string); ok {
-		m.QuarantineReferrerURL = v
-	}
-	if v, ok := a.Extra["quarantine_download_date"].(time.Time); ok {
-		m.QuarantineDownloadDate = v
-	}
-	if v, ok := a.Extra["quarantine_user_approved"].(bool); ok {
-		m.QuarantineUserApproved = v
-	}
+	setExtra(&m.XattrCount, a.Extra, "xattr_count")
+	setExtra(&m.QuarantineAgent, a.Extra, "quarantine_agent")
+	setExtra(&m.QuarantineEventID, a.Extra, "quarantine_event_id")
+	setExtra(&m.QuarantineSourceURL, a.Extra, "quarantine_source_url")
+	setExtra(&m.QuarantineReferrerURL, a.Extra, "quarantine_referrer_url")
+	setExtra(&m.QuarantineDownloadDate, a.Extra, "quarantine_download_date")
+	setExtra(&m.QuarantineUserApproved, a.Extra, "quarantine_user_approved")
 	if v, ok := a.Extra["finder_tags"].([]string); ok && len(v) > 0 {
 		m.FinderTags = v
 	}
-	if v, ok := a.Extra["finder_color"].(string); ok {
-		m.FinderColor = v
-	}
-	if v, ok := a.Extra["has_finder_comment"].(bool); ok {
-		m.HasFinderComment = v
+	setExtra(&m.FinderColor, a.Extra, "finder_color")
+	setExtra(&m.HasFinderComment, a.Extra, "has_finder_comment")
+}
+
+// setExtra copies a.Extra[key] onto *dst when the key is present and holds a
+// value of dst's type. It captures the dominant attribute-plumbing idiom in
+// this file — `if v, ok := a.Extra["k"].(T); ok { m.F = v }` — as one
+// declarative line (issue #384). T is inferred from dst, so the call site
+// never repeats the type. Pass-through only: sites with extra guards
+// (`&& len(v) > 0`, `&& !v.IsZero()`) or transforms (`v.Format(...)`,
+// `int(v)`) stay spelled out.
+func setExtra[T any](dst *T, extra map[string]any, key string) {
+	if v, ok := extra[key].(T); ok {
+		*dst = v
 	}
 }
