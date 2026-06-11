@@ -44,7 +44,7 @@ Empty `Expr` defaults to `"true"` (matches all files). Worker count defaults to 
 
 ### Fuzz testing
 
-High-risk parsers (frontmatter, MP3 ID3v2 + Xing, MKV EBML, MP4 box walker, office/EPUB/email/PDF body extractors, CEL compile, index gob decoder, every hand-rolled binary header walker) have `FuzzXxx` targets in `*_fuzz_test.go`.
+High-risk parsers (frontmatter, MP3 ID3v2 + Xing, MKV EBML, MP4 box walker, C2PA JUMBF box walker + COSE_Sign1 + RFC 3161 ASN.1 timestamp, office/EPUB/email/PDF body extractors, CEL compile, index gob decoder, every hand-rolled binary header walker) have `FuzzXxx` targets in `*_fuzz_test.go`.
 
 - **Regular CI** (`ci.yml`): `go test ./...` runs each target's seed corpus — a seed panic fails the build.
 - **Scheduled fuzz** (`fuzz.yml`): 5 min/target nightly at 03:30 UTC. Crashes land in `testdata/fuzz/<FuzzName>/<hash>` — commit those to lock in regression coverage. Manual `workflow_dispatch` accepts a `fuzztime` input for bug-hunt sessions.
