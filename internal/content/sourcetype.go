@@ -152,10 +152,10 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 		attrs["is_generated_code"] = true
 	}
 	if bodyBuf != nil && bodyBuf.Len() > 0 {
-		var funcs, types, imports, refs, callEdges []string
+		var funcs, types, imports, refs, callEdges, complexityRows []string
 		switch s.language {
 		case "go":
-			funcs, types, imports, refs, callEdges = extractGoSymbols(bodyBuf.Bytes())
+			funcs, types, imports, refs, callEdges, complexityRows = extractGoSymbols(bodyBuf.Bytes())
 		case "python":
 			funcs, types, imports = extractPythonSymbols(bodyBuf.Bytes())
 		case "java":
@@ -178,7 +178,7 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 			// for any language not tree-sitter-backed — but
 			// symbolExtractorWired gates this block, so default only
 			// fires for wired tree-sitter languages.
-			funcs, types, imports, refs, callEdges = extractTreeSitterSymbols(s.language, bodyBuf.Bytes())
+			funcs, types, imports, refs, callEdges, complexityRows = extractTreeSitterSymbols(s.language, bodyBuf.Bytes())
 		}
 		if len(funcs) > 0 {
 			attrs["functions"] = funcs
@@ -195,6 +195,12 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 		if len(callEdges) > 0 {
 			// Builder-internal (call graph #368); not a CEL variable.
 			attrs["call_edges"] = callEdges
+		}
+		if len(complexityRows) > 0 {
+			// Builder-internal per-function rows (#364) for the complexity
+			// tool; max_complexity is the file-level CEL attribute.
+			attrs["complexity_rows"] = complexityRows
+			attrs["max_complexity"] = maxComplexityOf(complexityRows)
 		}
 	}
 	return attrs, nil

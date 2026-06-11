@@ -300,3 +300,61 @@ func (c *CallsCmd) Run(ctx context.Context) error {
 	}
 	return codeGraphExit(c.Timeout, parentCtx, effectiveCtx, g, "calls")
 }
+
+// ComplexityCmd — functions ranked by cyclomatic complexity.
+type ComplexityCmd struct {
+	Expr string `arg:"" optional:"" help:"CEL pre-filter for which files enter the report. Defaults to is_source."`
+	codeGraphWalkFlags
+	Top    int    `name:"top" default:"50" help:"Cap on functions returned (worst-first)."`
+	Output string `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table | json."`
+}
+
+func (c *ComplexityCmd) Run(ctx context.Context) error {
+	parentCtx := ctx
+	effectiveCtx := ctx
+	cancel := func() {}
+	if c.Timeout > 0 {
+		effectiveCtx, cancel = context.WithTimeout(ctx, c.Timeout)
+	}
+	defer cancel()
+	idx, _, err := openIndex(c.IndexPath, c.NoIndex, index.BodyCacheCap{})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = idx.Close() }()
+
+	rep, rerr := search.Complexity(effectiveCtx, search.Options{
+		Roots:            c.Dir,
+		Expr:             defaultSourceExpr(c.Expr),
+		Workers:          c.Workers,
+		Index:            idx,
+		Excludes:         c.Exclude,
+		RespectGitignore: c.RespectGitignore,
+		FollowSymlinks:   c.FollowSymlinks,
+	}, contentpkg.DefaultRegistry(), c.Top)
+	if rerr != nil && !isCancellation(rerr) {
+		return fmt.Errorf("complexity failed: %w", rerr)
+	}
+	if rep != nil {
+		if c.Output == "json" {
+			_ = writeJSON(os.Stdout, rep)
+		} else {
+			tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+			_, _ = fmt.Fprintln(tw, "COMPLEXITY\tLINES\tFUNCTION\tLOCATION")
+			for _, f := range rep.Functions {
+				_, _ = fmt.Fprintf(tw, "%d\t%d\t%s\t%s:%d\n", f.Complexity, f.Lines, f.Function, f.Path, f.StartLine)
+			}
+			_ = tw.Flush()
+			_, _ = fmt.Fprintf(os.Stderr, "%d function(s) total; showing worst %d\n", rep.TotalFunctions, len(rep.Functions))
+		}
+	}
+	if rep != nil && rep.Cancelled {
+		switch {
+		case errors.Is(parentCtx.Err(), context.Canceled):
+			return &exitCodeError{code: 130, msg: "interrupted"}
+		case c.Timeout > 0 && errors.Is(effectiveCtx.Err(), context.DeadlineExceeded):
+			return &exitCodeError{code: 124, msg: "timeout"}
+		}
+	}
+	return nil
+}
