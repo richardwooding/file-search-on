@@ -332,10 +332,25 @@ func rfc3161GenTime(der []byte) time.Time {
 	return tst.GenTime
 }
 
+// maxJUMBFDepth caps superbox nesting. Real C2PA manifests nest only a few
+// levels (store → manifest → c2pa.assertions → assertion ≈ 4); 64 is far
+// above that yet well below a stack-overflow threshold. Without this an
+// adversarial input — a chain of nested `jumb` boxes, each stripping only
+// the 8-byte header — could nest ~maxC2PAScan/8 levels deep and exhaust the
+// goroutine stack. We degrade gracefully (stop descending) instead.
+const maxJUMBFDepth = 64
+
 // walkJUMBFBoxes recursively walks JUMBF boxes, invoking fn(label, tbox,
 // content) for every box. label is the nearest enclosing superbox's jumd
 // label.
 func walkJUMBFBoxes(b []byte, label string, fn func(label, tbox string, content []byte)) {
+	walkJUMBFBoxesDepth(b, label, 0, fn)
+}
+
+func walkJUMBFBoxesDepth(b []byte, label string, depth int, fn func(label, tbox string, content []byte)) {
+	if depth > maxJUMBFDepth {
+		return
+	}
 	for len(b) >= 8 {
 		lbox := int(binary.BigEndian.Uint32(b[:4]))
 		tbox := string(b[4:8])
@@ -345,7 +360,7 @@ func walkJUMBFBoxes(b []byte, label string, fn func(label, tbox string, content 
 		content := b[8:lbox]
 		if tbox == "jumb" {
 			childLabel, rest := jumdLabel(content)
-			walkJUMBFBoxes(rest, childLabel, fn)
+			walkJUMBFBoxesDepth(rest, childLabel, depth+1, fn)
 		} else {
 			fn(label, tbox, content)
 		}

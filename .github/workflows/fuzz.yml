@@ -51,6 +51,15 @@ jobs:
           - name: ReadMP4VideoInfo
             pkg: ./internal/content/
             func: FuzzReadMP4VideoInfo
+          - name: ExtractC2PA
+            pkg: ./internal/content/
+            func: FuzzExtractC2PA
+          - name: WalkJUMBFBoxes
+            pkg: ./internal/content/
+            func: FuzzWalkJUMBFBoxes
+          - name: RFC3161GenTime
+            pkg: ./internal/content/
+            func: FuzzRFC3161GenTime
           - name: ExtractXMLText
             pkg: ./internal/content/
             func: FuzzExtractXMLText
