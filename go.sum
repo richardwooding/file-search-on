@@ -69,6 +69,8 @@ github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec h1:W09IVJc94
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec/go.mod h1:qqbHyh8v60DhA7CoWK5oRCqLrMHRGoxYCSS9EjAz6Eo=
 github.com/richardwooding/bm25 v0.1.0 h1:+LtY1wrEln6i1Abp4OEBgSHL3Q7DPQGTRuJwsoeVAfc=
 github.com/richardwooding/bm25 v0.1.0/go.mod h1:HpvUZKKKAnhQonRU6FWJiAWuw0Wn1bISvKyYFMj8DjY=
+github.com/richardwooding/c2pa v0.1.0 h1:VqM9+z4H8hU63v3vF8v+9gBa4mQGsSd8WKddLO6DnnE=
+github.com/richardwooding/c2pa v0.1.0/go.mod h1:jRCsC0rbIqXJU7YWR1Myp67lHw6/r7FTnN4P4SlIVlo=
 github.com/richardwooding/fingerprint v0.1.0 h1:Dch6OdHUboH4PKOaMiwe4Xqbfk/rxQfdhdTctzkKfMc=
 github.com/richardwooding/fingerprint v0.1.0/go.mod h1:VYCbaXMrpgHewwYnv8GfQoEEcnQwsKFtDlH5bTI00w0=
 github.com/richardwooding/gitmeta v0.1.0 h1:TOf6P+dzcFh5fFbDwJrJFVUGPzbwqyg76wRosuYrlBA=

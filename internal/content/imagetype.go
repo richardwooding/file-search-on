@@ -12,6 +12,7 @@ import (
 
 	"github.com/evanoberholster/imagemeta"
 	"github.com/evanoberholster/imagemeta/meta/exif"
+	"github.com/richardwooding/c2pa"
 )
 
 func init() {
@@ -84,10 +85,11 @@ func (i *imageType) Attributes(ctx context.Context, fsys fs.FS, path string) (At
 	}
 
 	// C2PA / Content Credentials (#374) — JPEG (APP11) + PNG (caBX).
-	// Surfaces the file's CLAIMED provenance, unverified (see c2pa.go).
-	if container := c2paContainer(i.name); container != "" {
+	// Surfaces the file's CLAIMED provenance, unverified — parsed by the
+	// extracted github.com/richardwooding/c2pa module.
+	if container, ok := c2paContainer(i.name); ok {
 		if _, err := rs.Seek(0, io.SeekStart); err == nil {
-			if c := extractC2PA(ctx, container, rs); c.Present {
+			if c := c2pa.Read(ctx, container, rs); c.Present {
 				attrs["is_c2pa"] = true
 				if c.ClaimGenerator != "" {
 					attrs["c2pa_claim_generator"] = c.ClaimGenerator
@@ -113,17 +115,17 @@ func (i *imageType) Attributes(ctx context.Context, fsys fs.FS, path string) (At
 	return attrs, nil
 }
 
-// c2paContainer maps an image content-type to the C2PA carrier parser, or
-// "" when we don't (yet) read manifests for it. JPEG + PNG today; HEIF/MP4
-// (jumb box) are a follow-up.
-func c2paContainer(name string) string {
+// c2paContainer maps an image content-type to the C2PA carrier parser,
+// reporting ok=false when we don't (yet) read manifests for it. JPEG + PNG
+// today; HEIF/MP4 (jumb box) are a follow-up.
+func c2paContainer(name string) (c2pa.Container, bool) {
 	switch name {
 	case "image/jpeg":
-		return "jpeg"
+		return c2pa.JPEG, true
 	case "image/png":
-		return "png"
+		return c2pa.PNG, true
 	}
-	return ""
+	return "", false
 }
 
 // supportsEXIF reports whether the named image content type is worth feeding

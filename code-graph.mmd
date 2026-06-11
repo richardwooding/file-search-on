@@ -1,0 +1,53 @@
+graph TD
+    cmd["cmd/file-search-on"]
+    mcpserver["mcpserver"]
+    monitor["monitor"]
+    search["search"]
+    celexpr["celexpr"]
+    content["content"]
+    index["index"]
+    projecttype["projecttype"]
+    ocr["content/ocr"]
+    cryptohash["cryptohash"]
+    hashset["hashset"]
+    pathguard["pathguard"]
+    vecindex["vecindex"]
+
+    cmd --> mcpserver
+    cmd --> monitor
+    cmd --> search
+    cmd --> celexpr
+    cmd --> projecttype
+    cmd --> content
+    cmd --> index
+    cmd --> hashset
+    cmd --> pathguard
+
+    mcpserver --> monitor
+    mcpserver --> search
+    mcpserver --> celexpr
+    mcpserver --> projecttype
+    mcpserver --> content
+    mcpserver --> index
+    mcpserver --> hashset
+    mcpserver --> pathguard
+    mcpserver --> vecindex
+
+    monitor --> content
+    monitor --> ocr
+    monitor --> index
+    monitor --> projecttype
+
+    search --> celexpr
+    search --> content
+    search --> index
+    search --> projecttype
+    search --> cryptohash
+    search --> hashset
+
+    celexpr --> content
+    celexpr --> ocr
+    celexpr --> index
+    celexpr --> projecttype
+    celexpr --> cryptohash
+    celexpr --> hashset
