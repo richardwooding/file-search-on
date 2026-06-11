@@ -78,14 +78,18 @@ Key inputs:
 - `limit` — top-K cap (default 50).
 - `expr` — CEL pre-filter (scope to `is_pdf || is_office` etc.).
 - `model`, `embedding_server` — per-call overrides for the server-startup defaults.
+- `hybrid` — fuse BM25 keyword relevance with embedding similarity via reciprocal-rank fusion; `keyword_query` overrides the BM25 query (defaults to `query`).
+- `include_match_snippet` — inline the matched region's source as `match_snippet` on each hit (opt-in; text/source files only). `snippet_lines` caps it (default 60).
 
-Output: `matches[]` ranked by `similarity` desc, `count`, `cancelled`, `cancellation_reason`, `elapsed_seconds`.
+Output: `matches[]` ranked by `similarity` desc, `count`, `cancelled`, `cancellation_reason`, `elapsed_seconds`, `ann_used`. Each match locates **where** it matched (issue #366): `match_start_line` / `match_end_line` (1-based inclusive line range of the best-matching embedding chunk) and, for **source files** — which are embedded **one chunk per function** — `match_symbol` (the matching function / method name). With `include_match_snippet`, `match_snippet` carries that region's source text.
 
 Gotchas:
 
 - Requires a running Ollama with at least one embedding model pulled (e.g. `ollama pull nomic-embed-text`). The server boots without Ollama; the first call fails clearly if Ollama is unreachable or the model isn't pulled.
-- The per-file embedding caches alongside (size, mtime); repeat searches against an unchanged tree are I/O-cheap.
+- The per-file embedding caches alongside (size, mtime); repeat searches against an unchanged tree are I/O-cheap. Source files are chunked by function span — the **first** search after upgrading to v0.91.0 re-embeds cached source files once (byte windows → function chunks); non-source stays a cache hit.
+- `match_symbol` is empty when the winning chunk isn't a function (e.g. a file's leading package/imports/doc header) or for non-source files — `match_start_line`/`match_end_line` still pinpoint the region. `match_snippet` is only populated for line-addressable text/source types (structured bodies like PDF/office extract text whose lines don't map to disk).
 - `similarity` is exposed as a CEL variable on each match so it composes with `rank` (e.g. `"rank": "similarity * 0.7 + (mod_time > timestamp(\"2025-01-01T00:00:00Z\") ? 0.3 : 0.0)"`).
+- To fetch a matched function's full code, call `read_lines` on `[match_start_line, match_end_line]` (or set `include_match_snippet` to get it inline).
 
 Example:
 

@@ -15,6 +15,8 @@ Copy-pasteable scenarios. Each is a single MCP call (or a tiny sequence) for a r
 - Photos by camera, last 30 days (histogram)
 - Find the Go module that owns a path
 - Semantic search a docs tree
+- Find the function that does X (function-level semantic search)
+- AI-generated images via Content Credentials
 - Wait for the next screenshot mentioning "invoice"
 
 ## Top-5 longest videos
@@ -215,6 +217,39 @@ Conceptual match — paraphrase-tolerant, surfaces synonyms / topic-level hits e
 ```
 
 Requires Ollama running locally with an embedding model pulled. The first call fails clearly if Ollama is unreachable; embeddings cache per file (size, mtime).
+
+## Find the function that does X (function-level semantic search)
+
+Source files are embedded one chunk per function, so a hit pinpoints the matching function — not just the file. Ask `include_match_snippet` to inline its code:
+
+```json
+{
+  "name": "search_semantic",
+  "arguments": {
+    "query": "retry an HTTP request with exponential backoff",
+    "dir": "./internal",
+    "expr": "is_source && language == \"go\"",
+    "threshold": 0.5,
+    "include_match_snippet": true,
+    "limit": 10
+  }
+}
+```
+
+Each match carries `match_symbol` (the function/method), `match_start_line`/`match_end_line`, and `match_snippet` (its source, capped by `snippet_lines`, default 60). Drop `include_match_snippet` and `read_lines` the range yourself for the full body. `match_symbol` is empty when the best chunk is a file's leading package/imports header rather than a function.
+
+## AI-generated images via Content Credentials
+
+C2PA provenance is read (unverified, like EXIF) from JPEG/PNG:
+
+```json
+{
+  "name": "search",
+  "arguments": { "dir": "~/Downloads", "expr": "is_image && c2pa_ai_generated" }
+}
+```
+
+Other C2PA filters: `is_c2pa` (has a manifest), `c2pa_claim_generator.contains(\"Firefly\")` (creating tool), `c2pa_signed_by.contains(\"Adobe\")` (claimed signer). Absence of `c2pa_ai_generated` does **not** mean "not AI" — most files carry no manifest.
 
 ## Wait for the next screenshot mentioning "invoice"
 
