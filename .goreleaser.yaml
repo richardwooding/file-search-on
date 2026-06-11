@@ -29,6 +29,14 @@ builds:
       - grammar_subset_kotlin
       - grammar_subset_c
       - grammar_subset_cpp
+      - grammar_subset_python
+      - grammar_subset_java
+      - grammar_subset_c_sharp
+      - grammar_subset_php
+      - grammar_subset_perl
+      - grammar_subset_r
+      - grammar_subset_matlab
+      - grammar_subset_scala
     ldflags:
       - -s -w
       - -X main.version={{.Version}}

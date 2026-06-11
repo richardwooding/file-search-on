@@ -22,10 +22,10 @@ go fix ./...                                    # apply them
 golangci-lint run                               # CI uses `latest` version
 ```
 
-**Tree-sitter grammars (binary size).** `internal/content/source_symbols_treesitter.go` extracts symbols for Rust / TypeScript / JavaScript / Ruby / Swift / Kotlin / C / C++ via the pure-Go `github.com/odvcencio/gotreesitter` runtime. A plain `go build` / `go test` embeds **all ~206 grammars** (~+22 MB) — fine for dev. Release builds (`.goreleaser.yaml`) pass `grammar_subset` + one `grammar_subset_<lang>` tag per supported language so only those embed (~+11 MB). To reproduce a release-equivalent local build:
+**Tree-sitter grammars (binary size).** `internal/content/source_symbols_treesitter.go` extracts symbols for every source language except Go (which keeps the stdlib AST) — Rust / TypeScript / JavaScript / Ruby / Swift / Kotlin / C / C++ plus Python / Java / C# / PHP / Perl / R / MATLAB / Scala (migrated off regex in #365) — via the pure-Go `github.com/odvcencio/gotreesitter` runtime. A plain `go build` / `go test` embeds **all ~206 grammars** (~+22 MB) — fine for dev. Release builds (`.goreleaser.yaml`) pass `grammar_subset` + one `grammar_subset_<lang>` tag per supported language so only those embed (~+13 MB for the 16). To reproduce a release-equivalent local build:
 
 ```sh
-go build -tags 'grammar_subset grammar_subset_rust grammar_subset_typescript grammar_subset_javascript grammar_subset_ruby grammar_subset_swift grammar_subset_kotlin grammar_subset_c grammar_subset_cpp' -o file-search-on ./cmd/file-search-on
+go build -tags 'grammar_subset grammar_subset_rust grammar_subset_typescript grammar_subset_javascript grammar_subset_ruby grammar_subset_swift grammar_subset_kotlin grammar_subset_c grammar_subset_cpp grammar_subset_python grammar_subset_java grammar_subset_c_sharp grammar_subset_php grammar_subset_perl grammar_subset_r grammar_subset_matlab grammar_subset_scala' -o file-search-on ./cmd/file-search-on
 ```
 
 When adding/removing a tree-sitter language, keep three places in sync: the `tsDetectFile` map in `source_symbols_treesitter.go`, `symbolExtractorWired` in `sourcetype.go`, and the `tags:` list in `.goreleaser.yaml`.

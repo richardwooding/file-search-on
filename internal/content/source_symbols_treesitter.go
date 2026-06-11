@@ -31,6 +31,15 @@ var tsDetectFile = map[string]string{
 	"kotlin":     "x.kt",
 	"c":          "x.c",
 	"cpp":        "x.cpp",
+	// Migrated from regex extractors (#365).
+	"python": "x.py",
+	"java":   "x.java",
+	"csharp": "x.cs",
+	"php":    "x.php",
+	"perl":   "x.pl",
+	"r":      "x.r",
+	"matlab": "x.m",
+	"scala":  "x.scala",
 }
 
 // tsDefQuery supplements the grammar's bundled tags query for languages
@@ -49,6 +58,30 @@ var tsDefQuery = map[string]string{
 	"kotlin": `(function_declaration (simple_identifier) @function)
 (class_declaration (type_identifier) @type)
 (object_declaration (type_identifier) @type)`,
+	// #365 migrations. Bundled tags cover class+function/method for
+	// java / csharp / scala / matlab / python; these supplements add the
+	// type kinds tags miss. php / perl / r have empty or call-only tags,
+	// so their full def set lives here.
+	"java": `(interface_declaration (identifier) @type)
+(enum_declaration (identifier) @type)
+(record_declaration (identifier) @type)`,
+	"csharp": `(struct_declaration (identifier) @type)
+(interface_declaration (identifier) @type)
+(enum_declaration (identifier) @type)
+(record_declaration (identifier) @type)`,
+	"scala": `(object_definition (identifier) @type)
+(trait_definition (identifier) @type)
+(enum_definition (identifier) @type)`,
+	"matlab": `(class_definition (identifier) @type)`,
+	"php": `(class_declaration (name) @type)
+(interface_declaration (name) @type)
+(trait_declaration (name) @type)
+(enum_declaration (name) @type)
+(function_definition (name) @function)
+(method_declaration (name) @function)`,
+	"perl": `(subroutine_declaration_statement (bareword) @function)
+(package_statement (package) @type)`,
+	"r": `(binary_operator (identifier) @function (function_definition))`,
 }
 
 // tsImportQuery is the per-language tree-sitter query capturing the
@@ -62,6 +95,16 @@ var tsImportQuery = map[string]string{
 	"kotlin":     `(import_header (identifier) @import)`,
 	"c":          `(preproc_include path: (_) @import)`,
 	"cpp":        `(preproc_include path: (_) @import)`,
+	// #365 migrations.
+	"python": `(import_statement (dotted_name) @import)
+(import_from_statement module_name: (dotted_name) @import)`,
+	"java":   `(import_declaration (scoped_identifier) @import)`,
+	"csharp": `(using_directive (qualified_name) @import)
+(using_directive (identifier) @import)`,
+	"php":    `(namespace_use_clause (qualified_name) @import)`,
+	"perl":   `(use_statement (package) @import)`,
+	"r":      `((call function: (identifier) @_f arguments: (arguments (argument (identifier) @import))) (#match? @_f "^(library|require|requireNamespace)$"))`,
+	"scala":  `(import_declaration) @import`,
 }
 
 // tsRefQuery is the per-language query capturing call-site callee names
@@ -85,6 +128,19 @@ var tsRefQuery = map[string]string{
 	"c":   `(call_expression function: (identifier) @reference)`,
 	"cpp": `(call_expression function: (identifier) @reference)
 (call_expression function: (field_expression field: (field_identifier) @reference))`,
+	// #365 migrations — call-site callees.
+	"python": `(call function: (identifier) @reference)
+(call function: (attribute attribute: (identifier) @reference))`,
+	"java":   `(method_invocation name: (identifier) @reference)`,
+	"csharp": `(invocation_expression function: (identifier) @reference)
+(invocation_expression function: (member_access_expression name: (identifier) @reference))`,
+	"php":    `(function_call_expression (name) @reference)
+(member_call_expression name: (name) @reference)
+(scoped_call_expression name: (name) @reference)`,
+	"perl":   `(ambiguous_function_call_expression (function) @reference)`,
+	"r":      `(call function: (identifier) @reference)`,
+	"scala":  `(call_expression (identifier) @reference)`,
+	"matlab":  `(function_call (identifier) @reference)`,
 }
 
 // tsFuncSpanQuery captures a function definition's full node as @func.def
@@ -113,6 +169,15 @@ var tsDecisionQuery = map[string]string{
 	"kotlin": `[(if_expression) (while_statement) (do_while_statement) (for_statement) (when_entry) (catch_block) (conjunction_expression) (disjunction_expression)] @decision`,
 	"c":      `[(if_statement) (while_statement) (for_statement) (do_statement) (case_statement) (conditional_expression) (binary_expression "&&") (binary_expression "||")] @decision`,
 	"cpp":    `[(if_statement) (while_statement) (for_statement) (do_statement) (case_statement) (catch_clause) (conditional_expression) (binary_expression "&&") (binary_expression "||")] @decision`,
+	// #365 migrations.
+	"python": `[(if_statement) (elif_clause) (for_statement) (while_statement) (except_clause) (conditional_expression) (boolean_operator)] @decision`,
+	"java":   `[(if_statement) (for_statement) (enhanced_for_statement) (while_statement) (do_statement) (switch_label) (catch_clause) (ternary_expression) (binary_expression "&&") (binary_expression "||")] @decision`,
+	"csharp": `[(if_statement) (for_statement) (for_each_statement) (while_statement) (do_statement) (switch_section) (catch_clause) (conditional_expression) (binary_expression "&&") (binary_expression "||")] @decision`,
+	"php":    `[(if_statement) (else_if_clause) (for_statement) (foreach_statement) (while_statement) (do_statement) (case_statement) (catch_clause) (conditional_expression) (binary_expression "&&") (binary_expression "||")] @decision`,
+	"perl":   `[(conditional_statement) (postfix_conditional_expression)] @decision`,
+	"r":      `[(if_statement) (for_statement) (while_statement)] @decision`,
+	"matlab": `[(if_statement) (elseif_clause) (for_statement) (while_statement) (case_clause) (catch_clause)] @decision`,
+	"scala":  `[(if_expression) (for_expression) (while_expression) (case_clause) (catch_clause)] @decision`,
 }
 
 // tsLang holds the concurrent-safe machinery for one language: a
@@ -161,15 +226,14 @@ func buildTSLang(language string) *tsLang {
 	if lang == nil {
 		return nil
 	}
-	tagsSrc := grammars.ResolveTagsQuery(*entry)
-	if tagsSrc == "" {
-		return nil
+	tl := &tsLang{pool: ts.NewParserPool(lang)}
+	// Bundled tags query is optional — some grammars (PHP, Perl) ship an
+	// empty one, in which case definitions come entirely from tsDefQuery.
+	if tagsSrc := grammars.ResolveTagsQuery(*entry); tagsSrc != "" {
+		if tagsQ, err := ts.NewQuery(tagsSrc, lang); err == nil {
+			tl.tagsQuery = tagsQ
+		}
 	}
-	tagsQ, err := ts.NewQuery(tagsSrc, lang)
-	if err != nil {
-		return nil
-	}
-	tl := &tsLang{pool: ts.NewParserPool(lang), tagsQuery: tagsQ}
 	if q := tsDefQuery[language]; q != "" {
 		if defQ, err := ts.NewQuery(q, lang); err == nil {
 			tl.defQuery = defQ
@@ -216,7 +280,7 @@ func extractTreeSitterSymbols(language string, src []byte) (functions, types, im
 	// per-function call attribution by containment (#368).
 	var funcSpans []tsFuncSpan
 
-	for _, m := range tl.tagsQuery.Execute(tree) {
+	for _, m := range tagsMatches(tl, tree) {
 		var name, kind string
 		var defNode *ts.Node
 		for _, c := range m.Captures {
@@ -261,7 +325,11 @@ func extractTreeSitterSymbols(language string, src []byte) (functions, types, im
 		for _, m := range tl.importQuery.Execute(tree) {
 			for _, c := range m.Captures {
 				if c.Name == "import" {
-					if p := strings.Trim(c.Text(src), "\"'`<>"); p != "" {
+					p := strings.Trim(c.Text(src), "\"'`<>")
+					// Some grammars (Scala) have no single import-path node,
+					// so we capture the whole declaration; strip the keyword.
+					p = strings.TrimSpace(strings.TrimPrefix(p, "import "))
+					if p != "" {
 						imports = append(imports, p)
 					}
 				}
@@ -338,6 +406,15 @@ func extractTreeSitterSymbols(language string, src []byte) (functions, types, im
 	}
 
 	return dedupeStrings(functions), dedupeStrings(types), dedupeStrings(imports), dedupeStrings(references), dedupeStrings(callEdges), complexityRows
+}
+
+// tagsMatches runs the bundled tags query, or returns nil when the
+// grammar ships no tags query (PHP / Perl) — defs then come from defQuery.
+func tagsMatches(tl *tsLang, tree *ts.Tree) []ts.QueryMatch {
+	if tl.tagsQuery == nil {
+		return nil
+	}
+	return tl.tagsQuery.Execute(tree)
 }
 
 // maxComplexityOf returns the highest complexity across the per-function

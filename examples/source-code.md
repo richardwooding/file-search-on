@@ -134,7 +134,7 @@ file-search-on 'is_source' -d . -o json |
 
 ## Symbols + imports (17 languages)
 
-Three list-valued attributes — `functions`, `type_names`, `imports` — give structured answers to the universal "where is X defined?" and "which files use Y?" questions. Go uses the stdlib AST; Python / Java / C# / PHP / Perl / R / MATLAB / Scala use focused regex (best-effort; the README's Known limitations section calls out the gaps); Rust / TypeScript / JavaScript / Ruby / Swift / Kotlin / C / C++ use an embedded pure-Go tree-sitter grammar (accurate parse, not regex). Other languages leave these arrays empty.
+Three list-valued attributes — `functions`, `type_names`, `imports` — give structured answers to the universal "where is X defined?" and "which files use Y?" questions. Go uses the stdlib AST; the other 15 languages — Python / Java / C# / PHP / Perl / R / MATLAB / Scala / Rust / TypeScript / JavaScript / Ruby / Swift / Kotlin / C / C++ — use an embedded pure-Go tree-sitter grammar (accurate parse, no regex since #365). Other languages leave these arrays empty.
 
 ```sh
 # Where is ProcessOrder defined?  (define-X)
@@ -318,7 +318,6 @@ When the MCP server is started with `--warm`, the git cache is primed at startup
 
 - **Shebang detection** for extensionless scripts (`~/bin/foo` containing `#!/usr/bin/env python3`). Detection is extension-only; a follow-up could add shebang routing, but it requires changes to the detector contract.
 - **Symbol extraction for languages beyond the 17 supported** (Go / Python / Java / C# / PHP / Perl / R / MATLAB / Scala + tree-sitter's Rust / TypeScript / JavaScript / Ruby / Swift / Kotlin / C / C++). Lua / Haskell / Elixir / Zig / etc. leave `functions` / `type_names` / `imports` empty today — adding one is a small tree-sitter query addition per language. (Kotlin `interface` declarations parse imperfectly in the bundled grammar — classes/objects/functions are captured.)
-- **True AST for the regex-extracted 8** (Python / Java / C# / PHP / Perl / R / MATLAB / Scala). Now that the pure-Go tree-sitter runtime is wired in, migrating these off regex is a clean follow-up.
 - **Call graph** ("who *calls* Y?") and symbol-level dead code — needs call-site extraction; now feasible on the tree-sitter foundation.
 - **Receiver-qualified Go methods** (e.g. `Handler.ServeHTTP` vs bare `ServeHTTP`). Bare names are what agents look up; matching `"ServeHTTP" in functions` works. A future `methods []string` could surface receiver pairs.
 - **Call graph** ("who *calls* function Y?") and symbol-level dead-code. Call sites aren't extracted today, so neither is derivable — they want the tree-sitter upgrade path above. (The *cross-file import + definition graph* — "who imports X?", "where is Y defined?" — is now built; see [Cross-file code graph](#cross-file-code-graph-imported_by--find_definition--code_graph) below.)
