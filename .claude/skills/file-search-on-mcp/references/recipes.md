@@ -351,4 +351,4 @@ Cheap typo-check + "did you mean" suggestion before paying the walk setup cost. 
 { "name": "validate_expr", "arguments": { "expr": "is_markown && word_count > 500" } }
 ```
 
-Returns `{"valid": false, "error": "undeclared reference to 'is_markown'", "suggestions": ["is_markdown"]}`.
+Returns `{"ok": false, "error": "undeclared reference to 'is_markown'", "suggestion": "is_markdown"}`.
