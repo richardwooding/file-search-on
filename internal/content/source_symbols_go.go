@@ -86,6 +86,31 @@ func extractGoSymbols(src []byte) (functions, types, imports, references, callEd
 	return functions, types, imports, dedupeStrings(references), dedupeStrings(callEdges), complexityRows
 }
 
+// goFunctionSpans returns the 1-based inclusive line span of every top-level
+// func / method declaration with a body (issue #366). Reuses the same go/ast
+// parse as extractGoSymbols; a nil AST (unrecoverable parse) yields nil.
+func goFunctionSpans(src []byte) []FunctionSpan {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "", src, parser.AllErrors)
+	if f == nil {
+		_ = err
+		return nil
+	}
+	var spans []FunctionSpan
+	for _, decl := range f.Decls {
+		d, ok := decl.(*ast.FuncDecl)
+		if !ok || d.Name == nil || d.Body == nil {
+			continue
+		}
+		spans = append(spans, FunctionSpan{
+			Name:      d.Name.Name,
+			StartLine: fset.Position(d.Pos()).Line,
+			EndLine:   fset.Position(d.End()).Line,
+		})
+	}
+	return spans
+}
+
 // goComplexity returns the cyclomatic complexity of a function body —
 // gocyclo's definition: 1 + one per branch point (if / for / range /
 // case / comm-clause / && / ||).

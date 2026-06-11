@@ -287,6 +287,34 @@ func extractTreeSitterSymbols(language string, src []byte) (functions, types, im
 		dedupeStrings(references), dedupeStrings(callEdges), complexityRows
 }
 
+// tsFunctionSpans returns the 1-based inclusive line span of every named
+// function / method definition the grammar surfaces (issue #366). Reuses the
+// same tsCollectDefs path as symbol extraction; nil when the language isn't
+// tree-sitter-backed or nothing parses.
+func tsFunctionSpans(language string, src []byte) []FunctionSpan {
+	tl := tsLangFor(language)
+	if tl == nil {
+		return nil
+	}
+	tree, err := tl.pool.Parse(src)
+	if err != nil || tree == nil {
+		return nil
+	}
+	_, _, funcSpans := tsCollectDefs(tl, tree, src)
+	if len(funcSpans) == 0 {
+		return nil
+	}
+	out := make([]FunctionSpan, 0, len(funcSpans))
+	for _, s := range funcSpans {
+		out = append(out, FunctionSpan{
+			Name:      s.name,
+			StartLine: int(s.startLine),
+			EndLine:   int(s.endLine),
+		})
+	}
+	return out
+}
+
 // newFuncSpan builds a tsFuncSpan from a definition node (byte + 1-based
 // line span).
 func newFuncSpan(name string, n *ts.Node) tsFuncSpan {

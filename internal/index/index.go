@@ -29,6 +29,16 @@ import (
 // content.Attributes — a map[string]any of primitives, []string,
 // time.Time, and nested map[string]any (frontmatter). Treat the map
 // as read-only after a Lookup.
+// ChunkSpan is the source region one embedding chunk covers: a 1-based
+// inclusive line range plus, for function-level chunking, the enclosing
+// symbol name (empty for byte-window chunks). Parallel to Entry.ChunkVectors
+// (issue #366).
+type ChunkSpan struct {
+	StartLine int
+	EndLine   int
+	Symbol    string
+}
+
 type Entry struct {
 	Size            int64
 	ModTimeUnixNano int64
@@ -85,6 +95,22 @@ type Entry struct {
 	// Vector (no ChunkVectors) as "not chunked yet" → re-embed.
 	// gob-additive.
 	ChunkVectors [][]float32
+	// ChunkSpans holds, parallel to ChunkVectors, the source span each chunk
+	// covers — the 1-based inclusive line range and (for function-level
+	// chunking of source files) the enclosing symbol name (issue #366). Lets
+	// a semantic hit report which function/region matched, not just the file.
+	// Empty for entries embedded before #366 (their match line range surfaces
+	// only after the next re-embed). gob-additive.
+	ChunkSpans []ChunkSpan
+	// ChunkScheme records how the body was chunked for embedding: "symbol"
+	// (function-span chunking, used for source/* content types) or "bytes"
+	// (overlapping byte windows, used for everything else). It stores the
+	// INTENT for the content type, not the literal chunk shape — a source
+	// file whose functions don't parse still records "symbol" so it isn't
+	// re-embedded every walk. Empty means a pre-#366 entry (treated as
+	// "bytes"); populateSimilarity re-embeds when the effective scheme
+	// differs from what the content type now wants. gob-additive.
+	ChunkScheme string
 	// EmbedModel is the model name that produced Vector / ChunkVectors.
 	// Empty when none are set OR when the vector came from a pre-#154
 	// cache entry (in which case populateSimilarity treats it as a

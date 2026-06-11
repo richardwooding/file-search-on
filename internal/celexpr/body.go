@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"io/fs"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -121,15 +122,25 @@ func populateSimilarity(ctx context.Context, fsys fs.FS, fsPath, displayPath, ca
 	//      models, so a Dot would be 0 or nonsense).
 	//   3. No ChunkVectors (incl. a legacy single Vector from before
 	//      #332) → "miss" below in the re-embed path.
+	// wantScheme is "symbol" for source/* (function-span chunking, #366),
+	// "bytes" otherwise. A cached entry is only reusable if BOTH the model
+	// and the (effective) chunk scheme still match — a pre-#366 source entry
+	// (legacy "bytes") must re-embed once into function chunks.
+	wantScheme := wantEmbedScheme(attrs.ContentType)
 	if cached != nil && len(cached.ChunkVectors) > 0 {
-		if cached.EmbedModel == currentModel && currentModel != "" {
-			attrs.Similarity = maxChunkSimilarity(opts.SemanticQueryEmbedding, cached.ChunkVectors)
+		schemeOK := effectiveEmbedScheme(cached.ChunkScheme) == wantScheme
+		if cached.EmbedModel == currentModel && currentModel != "" && schemeOK {
+			best, idx := bestChunkSimilarity(opts.SemanticQueryEmbedding, cached.ChunkVectors)
+			attrs.Similarity = best
+			setMatchSpan(attrs, cached.ChunkSpans, idx)
 			if opts.Index != nil {
 				opts.Index.BumpEmbedStat("hit")
 			}
 			return
 		}
 		if opts.Index != nil {
+			// Couldn't reuse the cached vectors (model or chunk-scheme drift) —
+			// re-embed below. Counted as model_mismatch, not a fresh miss.
 			opts.Index.BumpEmbedStat("model_mismatch")
 		}
 		// fall through to re-embed; don't also bump "miss".
@@ -156,15 +167,17 @@ func populateSimilarity(ctx context.Context, fsys fs.FS, fsPath, displayPath, ca
 	// so the whole document is covered rather than just the opening
 	// (issue #332). Per-chunk size is the embed cap (#305); embedChunks
 	// applies the same oversized-input retry per chunk.
-	chunks := chunkForEmbed(body, opts.EmbedInputMaxBytes)
-	vecs := embedChunks(ctx, opts.Embedder, chunks)
+	chunks := buildEmbedChunks(attrs.ContentType, body, opts.EmbedInputMaxBytes)
+	vecs, spans := embedChunks(ctx, opts.Embedder, chunks)
 	if len(vecs) == 0 {
 		if opts.Index != nil {
 			opts.Index.BumpEmbedStat("error")
 		}
 		return
 	}
-	attrs.Similarity = maxChunkSimilarity(opts.SemanticQueryEmbedding, vecs)
+	best, idx := bestChunkSimilarity(opts.SemanticQueryEmbedding, vecs)
+	attrs.Similarity = best
+	setMatchSpan(attrs, spans, idx)
 
 	// Write the freshly-computed chunk vectors back to the cache so the
 	// next walk against the same (size, mtime, model) skips the Embedder
@@ -180,7 +193,9 @@ func populateSimilarity(ctx context.Context, fsys fs.FS, fsPath, displayPath, ca
 			}
 		}
 		entry.ChunkVectors = vecs
-		entry.Vector = nil // superseded by ChunkVectors (#332)
+		entry.ChunkSpans = spans     // per-chunk line range + symbol (#366)
+		entry.ChunkScheme = wantScheme // intent scheme; gates future reuse
+		entry.Vector = nil           // superseded by ChunkVectors (#332)
 		entry.EmbedModel = currentModel
 		_ = opts.Index.Put(cacheKey, entry)
 		opts.Index.BumpEmbedStat("put")
@@ -218,28 +233,110 @@ func populateBM25Doc(ctx context.Context, fsys fs.FS, fsPath, displayPath, cache
 // calls per file.
 const defaultEmbedMaxChunks = 64
 
+// embedChunk is one unit handed to the embedder: the text to embed plus the
+// source span it covers (its line range, and symbol name for function-level
+// chunks). The span rides through to the cache and onto the matching result
+// so a hit reports which region matched (issue #366).
+type embedChunk struct {
+	text string
+	span index.ChunkSpan
+}
+
+// buildEmbedChunks splits a body into embedding chunks per the content type's
+// scheme: source/* files are chunked by function span (#366); everything else
+// (and any source file with no usable functions or too many) uses overlapping
+// byte windows. The two schemes are interchangeable downstream — both carry a
+// line range; only function chunks carry a symbol name.
+func buildEmbedChunks(contentType, body string, chunkBytes int) []embedChunk {
+	if wantEmbedScheme(contentType) == "symbol" {
+		if spans := content.FunctionSpans(contentType, []byte(body)); len(spans) > 0 {
+			if sc := chunkSource(body, spans, chunkBytes); sc != nil {
+				return sc
+			}
+		}
+	}
+	return chunkForEmbed(body, chunkBytes)
+}
+
+// chunkSource chunks a source body by function span (issue #366): a leading
+// header chunk (package / imports / top-of-file docs before the first
+// function) plus one chunk per top-level function. Inter-function gaps are
+// dropped — mostly braces and blank lines with little semantic signal. Returns
+// nil to signal "fall back to byte windows": no usable functions, or more than
+// defaultEmbedMaxChunks of them (pathological — uniform windows cover better).
+func chunkSource(body string, spans []content.FunctionSpan, chunkBytes int) []embedChunk {
+	if chunkBytes <= 0 {
+		chunkBytes = defaultEmbedInputMaxBytes
+	}
+	lines := strings.Split(body, "\n")
+	n := len(lines)
+
+	sorted := append([]content.FunctionSpan(nil), spans...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].StartLine < sorted[j].StartLine })
+
+	type fnSpan struct {
+		name               string
+		startLine, endLine int
+	}
+	var funcs []fnSpan
+	cursor := 0 // last 1-based line already covered by an emitted function
+	for _, s := range sorted {
+		if s.StartLine < 1 || s.StartLine > n || s.EndLine < s.StartLine {
+			continue
+		}
+		if s.StartLine <= cursor {
+			continue // nested / overlapping def — absorbed into the enclosing chunk
+		}
+		end := min(s.EndLine, n)
+		funcs = append(funcs, fnSpan{name: s.Name, startLine: s.StartLine, endLine: end})
+		cursor = end
+	}
+	if len(funcs) == 0 || len(funcs)+1 > defaultEmbedMaxChunks {
+		return nil
+	}
+
+	out := make([]embedChunk, 0, len(funcs)+1)
+	if first := funcs[0].startLine; first > 1 {
+		header := strings.Join(lines[:first-1], "\n")
+		if strings.TrimSpace(header) != "" {
+			out = append(out, embedChunk{
+				text: truncateForEmbed(header, chunkBytes),
+				span: index.ChunkSpan{StartLine: 1, EndLine: first - 1},
+			})
+		}
+	}
+	for _, f := range funcs {
+		text := strings.Join(lines[f.startLine-1:f.endLine], "\n")
+		out = append(out, embedChunk{
+			text: truncateForEmbed(text, chunkBytes),
+			span: index.ChunkSpan{StartLine: f.startLine, EndLine: f.endLine, Symbol: f.name},
+		})
+	}
+	return out
+}
+
 // chunkForEmbed splits text into overlapping, rune-safe windows of
 // chunkBytes (0 → defaultEmbedInputMaxBytes), capped at
 // defaultEmbedMaxChunks. The overlap (1/8 of a chunk) keeps a phrase
 // that straddles a boundary intact in at least one chunk. Short text
-// returns a single chunk.
-func chunkForEmbed(text string, chunkBytes int) []string {
+// returns a single chunk. Each window carries its line range (no symbol).
+func chunkForEmbed(text string, chunkBytes int) []embedChunk {
 	if chunkBytes <= 0 {
 		chunkBytes = defaultEmbedInputMaxBytes
 	}
 	if len(text) <= chunkBytes {
-		return []string{text}
+		return []embedChunk{{text: text, span: byteWindowSpan(text, 0, len(text))}}
 	}
 	overlap := chunkBytes / 8
 	step := chunkBytes - overlap
-	out := make([]string, 0, len(text)/step+1)
+	out := make([]embedChunk, 0, len(text)/step+1)
 	for start := 0; start < len(text) && len(out) < defaultEmbedMaxChunks; start += step {
 		end := min(start+chunkBytes, len(text))
 		// Back the cut off a rune boundary so we never split a multibyte char.
 		for end < len(text) && !utf8.RuneStart(text[end]) {
 			end++
 		}
-		out = append(out, text[start:end])
+		out = append(out, embedChunk{text: text[start:end], span: byteWindowSpan(text, start, end)})
 		if end >= len(text) {
 			break
 		}
@@ -247,43 +344,92 @@ func chunkForEmbed(text string, chunkBytes int) []string {
 	return out
 }
 
+// byteWindowSpan returns the 1-based inclusive line range covered by
+// text[start:end]. Symbol is left empty — byte windows don't align to symbols.
+func byteWindowSpan(text string, start, end int) index.ChunkSpan {
+	startLine := 1 + strings.Count(text[:start], "\n")
+	endLine := startLine + strings.Count(text[start:end], "\n")
+	return index.ChunkSpan{StartLine: startLine, EndLine: endLine}
+}
+
+// wantEmbedScheme is the chunking scheme a content type should use: "symbol"
+// (function-span chunking, #366) for source files, "bytes" (overlapping
+// windows) otherwise. It's the INTENT — a source file whose functions don't
+// parse still records "symbol" so the entry isn't re-embedded every walk.
+func wantEmbedScheme(contentType string) string {
+	if strings.HasPrefix(contentType, "source/") {
+		return "symbol"
+	}
+	return "bytes"
+}
+
+// effectiveEmbedScheme maps a stored scheme to its meaning, treating the empty
+// string (pre-#366 cache entries) as the legacy byte-window scheme.
+func effectiveEmbedScheme(stored string) string {
+	if stored == "" {
+		return "bytes"
+	}
+	return stored
+}
+
+// setMatchSpan copies the winning chunk's span onto attrs (issue #366). No-op
+// when idx is out of range — e.g. a pre-#366 entry with vectors but no spans.
+func setMatchSpan(attrs *FileAttributes, spans []index.ChunkSpan, idx int) {
+	if idx < 0 || idx >= len(spans) {
+		return
+	}
+	attrs.MatchStartLine = spans[idx].StartLine
+	attrs.MatchEndLine = spans[idx].EndLine
+	attrs.MatchSymbol = spans[idx].Symbol
+}
+
 // embedChunks embeds each chunk and returns the L2-normalised vectors of
 // the chunks that succeeded. A chunk that errors (after the #305
 // smaller-input retry) is skipped rather than failing the whole
 // document. Honours ctx between chunks (#321 audit): a cancelled walk
 // stops and returns what it has.
-func embedChunks(ctx context.Context, embedder ollamaembed.Embedder, chunks []string) [][]float32 {
-	vecs := make([][]float32, 0, len(chunks))
+// embedChunks embeds each chunk and returns the L2-normalised vectors of the
+// chunks that succeeded, plus their spans in the SAME order (issue #366: the
+// returned slices stay index-aligned so a hit maps back to its line range).
+// A chunk that errors (after the #305 smaller-input retry) is skipped — both
+// its vector AND its span — rather than failing the whole document. Honours
+// ctx between chunks (#321 audit): a cancelled walk stops and returns what it
+// has.
+func embedChunks(ctx context.Context, embedder ollamaembed.Embedder, chunks []embedChunk) (vecs [][]float32, spans []index.ChunkSpan) {
+	vecs = make([][]float32, 0, len(chunks))
+	spans = make([]index.ChunkSpan, 0, len(chunks))
 	for _, c := range chunks {
 		if ctx.Err() != nil {
 			break
 		}
-		vec, err := embedder.Embed(ctx, c)
+		vec, err := embedder.Embed(ctx, c.text)
 		if err != nil && ctx.Err() == nil {
-			if retry := truncateForEmbed(c, embedRetryMaxBytes); len(retry) < len(c) {
+			if retry := truncateForEmbed(c.text, embedRetryMaxBytes); len(retry) < len(c.text) {
 				vec, err = embedder.Embed(ctx, retry)
 			}
 		}
 		if err != nil || len(vec) == 0 {
-			continue // skip this chunk; others still contribute
+			continue // skip this chunk (and its span); others still contribute
 		}
 		ollamaembed.Normalize(vec)
 		vecs = append(vecs, vec)
+		spans = append(spans, c.span)
 	}
-	return vecs
+	return vecs, spans
 }
 
-// maxChunkSimilarity returns the highest cosine between the pre-normalised
-// query and any chunk vector (issue #332). 0 when there are no chunks.
-func maxChunkSimilarity(query []float32, chunks [][]float32) float64 {
-	best := 0.0
+// bestChunkSimilarity returns the highest cosine between the pre-normalised
+// query and any chunk vector, plus that chunk's index (issue #332 / #366).
+// idx is -1 when there are no chunks.
+func bestChunkSimilarity(query []float32, chunks [][]float32) (best float64, idx int) {
+	idx = -1
 	for i, v := range chunks {
 		s := ollamaembed.Dot(query, v)
-		if i == 0 || s > best {
-			best = s
+		if idx < 0 || s > best {
+			best, idx = s, i
 		}
 	}
-	return best
+	return best, idx
 }
 
 // embedRetryMaxBytes is the conservative fallback size used when an

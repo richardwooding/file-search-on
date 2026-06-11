@@ -631,6 +631,16 @@ type Match struct {
 	// + an embedding model are configured. 0 otherwise.
 	Similarity float64 `json:"similarity,omitempty"`
 
+	// MatchStartLine / MatchEndLine / MatchSymbol locate the part of the file
+	// that produced Similarity (issue #366): the 1-based inclusive line range
+	// of the best-matching embedding chunk and, for source files chunked by
+	// function span, the enclosing symbol name. Populated only for semantic
+	// search; for source files, MatchSymbol is the matched function. Use
+	// read_lines on [MatchStartLine, MatchEndLine] to fetch the code.
+	MatchStartLine int    `json:"match_start_line,omitempty"`
+	MatchEndLine   int    `json:"match_end_line,omitempty"`
+	MatchSymbol    string `json:"match_symbol,omitempty"`
+
 	// BM25 is the Okapi BM25 keyword-relevance score against the keyword
 	// query, with IDF over the candidate set (issue #335). Populated only
 	// when keyword_query / hybrid is set. 0 otherwise. Only comparable
