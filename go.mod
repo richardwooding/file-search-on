@@ -20,6 +20,7 @@ require (
 	github.com/richardwooding/gitmeta v0.1.0
 	github.com/richardwooding/ollamaembed v0.1.0
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
+	github.com/veraison/go-cose v1.3.0
 	go.etcd.io/bbolt v1.4.3
 	golang.org/x/image v0.41.0
 	golang.org/x/mod v0.36.0

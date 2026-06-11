@@ -238,6 +238,12 @@ func applyImageAttrs(m *Match, a *celexpr.FileAttributes) {
 	if v, ok := a.Extra["c2pa_ai_generated"].(bool); ok {
 		m.C2PAAIGenerated = v
 	}
+	if v, ok := a.Extra["c2pa_signed_by"].(string); ok {
+		m.C2PASignedBy = v
+	}
+	if v, ok := a.Extra["c2pa_signed_at"].(time.Time); ok && !v.IsZero() {
+		m.C2PASignedAt = v.Format(time.RFC3339)
+	}
 	if v, ok := a.Extra["camera_make"].(string); ok {
 		m.CameraMake = v
 	}

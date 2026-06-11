@@ -41,6 +41,8 @@ type Match struct {
 	C2PATitle          string `json:"c2pa_title,omitempty"`
 	C2PAFormat         string `json:"c2pa_format,omitempty"`
 	C2PAAIGenerated    bool   `json:"c2pa_ai_generated,omitempty"`
+	C2PASignedBy       string `json:"c2pa_signed_by,omitempty"`
+	C2PASignedAt       string `json:"c2pa_signed_at,omitempty"` // RFC3339 when set
 
 	CameraMake   string  `json:"camera_make,omitempty"`
 	CameraModel  string  `json:"camera_model,omitempty"`

@@ -358,6 +358,8 @@ var zeroDefaults = map[string]any{
 	"c2pa_title":            "",
 	"c2pa_format":           "",
 	"c2pa_ai_generated":     false,
+	"c2pa_signed_by":        "",
+	"c2pa_signed_at":        time.Time{},
 	"camera_make":           "",
 	"camera_model":          "",
 	"lens":                  "",

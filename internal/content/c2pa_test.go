@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/fxamacker/cbor/v2"
 )
@@ -31,6 +32,14 @@ func TestExtractC2PA_SignedJPEG(t *testing.T) {
 	if c.AIGenerated {
 		t.Errorf("CA.jpg is edited, not AI-generated; want AIGenerated=false")
 	}
+	// #375 — signer identity + signing time from the COSE_Sign1 envelope.
+	if c.SignedBy != "C2PA Signer" {
+		t.Errorf("signed_by=%q want %q", c.SignedBy, "C2PA Signer")
+	}
+	wantSignedAt := time.Date(2024, 8, 6, 21, 53, 37, 0, time.UTC)
+	if !c.SignedAt.Equal(wantSignedAt) {
+		t.Errorf("signed_at=%s want %s", c.SignedAt.Format(time.RFC3339), wantSignedAt.Format(time.RFC3339))
+	}
 }
 
 // TestExtractC2PA_NoManifest returns Present=false for content with no
@@ -53,6 +62,12 @@ func TestExtractC2PA_Integration(t *testing.T) {
 	}
 	if g, _ := attrs["c2pa_claim_generator"].(string); g == "" {
 		t.Errorf("c2pa_claim_generator not set")
+	}
+	if by, _ := attrs["c2pa_signed_by"].(string); by != "C2PA Signer" {
+		t.Errorf("c2pa_signed_by=%q want %q", by, "C2PA Signer")
+	}
+	if at, _ := attrs["c2pa_signed_at"].(time.Time); at.IsZero() {
+		t.Errorf("c2pa_signed_at not set")
 	}
 }
 

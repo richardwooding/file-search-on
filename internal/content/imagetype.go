@@ -101,6 +101,12 @@ func (i *imageType) Attributes(ctx context.Context, fsys fs.FS, path string) (At
 				if c.AIGenerated {
 					attrs["c2pa_ai_generated"] = true
 				}
+				if c.SignedBy != "" {
+					attrs["c2pa_signed_by"] = c.SignedBy
+				}
+				if !c.SignedAt.IsZero() {
+					attrs["c2pa_signed_at"] = c.SignedAt
+				}
 			}
 		}
 	}

@@ -218,6 +218,8 @@ func Schema() SchemaDoc {
 			{"c2pa_title", "string", "the C2PA claim's dc:title (the asset's declared title). Empty when no manifest."},
 			{"c2pa_format", "string", "the C2PA claim's dc:format (declared media type, e.g. image/jpeg). Empty when no manifest."},
 			{"c2pa_ai_generated", "bool", "true when the C2PA manifest declares AI-generated content — a c2pa.actions assertion whose digitalSourceType is trainedAlgorithmicMedia or compositeWithTrainedAlgorithmicMedia. Find AI-generated images: is_image && c2pa_ai_generated. Unverified claim (see is_c2pa); absence does NOT mean 'not AI' — most files carry no manifest."},
+			{"c2pa_signed_by", "string", "the COSE_Sign1 signer's leaf x509 certificate common name (Subject CN, falling back to Organization), from the C2PA signature. Empty when no manifest or no signer cert. UNVERIFIED — the certificate chain is NOT validated against the C2PA trust list (full validation needs c2pa-rs via CGO); this is the CLAIMED signer, like an unverified email From header. Issue #375. By signer: is_c2pa && c2pa_signed_by.contains('Adobe')."},
+			{"c2pa_signed_at", "timestamp", "the signing time from the RFC 3161 timestamp embedded in the C2PA signature envelope (sigTst). Zero when no manifest or no timestamp. Unverified claim (see c2pa_signed_by). Recently-signed credentials: is_c2pa && c2pa_signed_at > timestamp('2024-01-01T00:00:00Z')."},
 			{"camera_make", "string", "EXIF camera make (JPEG/TIFF/HEIC/PNG)"},
 			{"camera_model", "string", "EXIF camera model"},
 			{"lens", "string", "EXIF lens model"},
