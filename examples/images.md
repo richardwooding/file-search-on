@@ -238,7 +238,7 @@ The algorithm is planar ray-casting — accurate for neighbourhoods, cities, and
 
 ## C2PA / Content Credentials (provenance)
 
-`file-search-on` reads the [C2PA](https://c2pa.org) provenance manifest embedded in JPEG and PNG files and surfaces what it **claims** — `is_c2pa`, `c2pa_claim_generator` (the creating/editing tool), `c2pa_title`, `c2pa_format`, and `c2pa_ai_generated`. **Unverified**: the JUMBF manifest is parsed but its cryptographic signature / trust chain is *not* validated (treat like EXIF — accurate-as-recorded, not authenticated).
+`file-search-on` reads the [C2PA](https://c2pa.org) provenance manifest embedded in JPEG and PNG files and surfaces what it **claims** — `is_c2pa`, `c2pa_claim_generator` (the creating/editing tool), `c2pa_title`, `c2pa_format`, `c2pa_ai_generated`, plus `c2pa_signed_by` (the COSE signer's x509 certificate common name) and `c2pa_signed_at` (the RFC 3161 signing time). **Unverified**: the JUMBF manifest is parsed but its cryptographic signature / trust chain is *not* validated (treat like EXIF — accurate-as-recorded, not authenticated). `c2pa_signed_by` is the *claimed* signer, like an unverified email From header.
 
 ```sh
 # Images carrying Content Credentials
@@ -249,6 +249,12 @@ file-search-on 'is_image && c2pa_ai_generated' -d ~/Downloads
 
 # Assets made/edited by a particular tool
 file-search-on 'is_c2pa && c2pa_claim_generator.contains("Firefly")' -d ~/Assets
+
+# Who claims to have signed it (unverified certificate subject)
+file-search-on 'is_c2pa && c2pa_signed_by.contains("Adobe")' -d ~/Assets
+
+# Credentials signed since the start of 2024
+file-search-on 'is_c2pa && c2pa_signed_at > timestamp("2024-01-01T00:00:00Z")' -d ~/Assets
 ```
 
 Note: absence of `c2pa_ai_generated` does **not** mean "not AI" — most files carry no manifest at all.

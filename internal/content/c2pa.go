@@ -1,12 +1,17 @@
 package content
 
 import (
+	"crypto/x509"
+	"encoding/asn1"
 	"encoding/binary"
 	"io"
+	"math/big"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/fxamacker/cbor/v2"
+	cose "github.com/veraison/go-cose"
 )
 
 // c2paDecMode decodes CBOR maps (including nested ones) into map[string]any
@@ -43,6 +48,13 @@ type c2paInfo struct {
 	Title          string
 	Format         string
 	AIGenerated    bool
+	// SignedBy is the COSE_Sign1 signer's leaf x509 certificate common name
+	// (Subject CN, falling back to the first Organization). SignedAt is the
+	// signing time from the RFC 3161 timestamp embedded in the signature.
+	// Both are CLAIMED, not validated — we never check the certificate chain
+	// against the C2PA trust list (issue #375).
+	SignedBy string
+	SignedAt time.Time
 }
 
 // extractC2PA reads up to maxC2PAScan bytes from rs and, for the given
@@ -158,9 +170,166 @@ func parseC2PAManifest(jumbf []byte) c2paInfo {
 			if c2paDecMode.Unmarshal(content, &act) == nil && c2paActionsAreAI(act) {
 				info.AIGenerated = true
 			}
+		case strings.HasSuffix(label, "c2pa.signature"):
+			// The signature box content is a COSE_Sign1 (a raw CBOR array,
+			// not a text-keyed map), so it bypasses the claim/actions
+			// decode above and is parsed by c2paSignerIdentity.
+			info.Present = true
+			if by, at := c2paSignerIdentity(content); by != "" || !at.IsZero() {
+				info.SignedBy = by
+				info.SignedAt = at
+			}
 		}
 	})
 	return info
+}
+
+// c2paSignerIdentity decodes the COSE_Sign1 envelope of a c2pa.signature box
+// and returns the signer's leaf-certificate name and the signing time. It is
+// best-effort and never panics: any decode failure yields the zero values.
+// This reads the CLAIMED identity only — it performs NO trust-chain
+// validation (issue #375 non-goal).
+func c2paSignerIdentity(coseSign1 []byte) (signedBy string, signedAt time.Time) {
+	var msg cose.Sign1Message
+	if err := msg.UnmarshalCBOR(coseSign1); err != nil {
+		return "", time.Time{}
+	}
+	if leaf := c2paLeafCert(msg.Headers); leaf != nil {
+		signedBy = leaf.Subject.CommonName
+		if signedBy == "" && len(leaf.Subject.Organization) > 0 {
+			signedBy = leaf.Subject.Organization[0]
+		}
+	}
+	signedAt = c2paSigningTime(msg.Headers.Unprotected)
+	return signedBy, signedAt
+}
+
+// c2paLeafCert pulls the x5chain (header label 33) from the COSE headers
+// (protected first, then unprotected) and parses its first entry — the leaf
+// signer certificate.
+func c2paLeafCert(h cose.Headers) *x509.Certificate {
+	for _, store := range []map[any]any{h.Protected, h.Unprotected} {
+		// go-cose keys protected/unprotected headers with its int64 label
+		// constants, so look up the x5chain with cose.HeaderLabelX5Chain
+		// (== 33) rather than an untyped int literal — int(33) would miss.
+		der := firstX5ChainDER(store[cose.HeaderLabelX5Chain])
+		if der == nil {
+			continue
+		}
+		if c, err := x509.ParseCertificate(der); err == nil {
+			return c
+		}
+	}
+	return nil
+}
+
+// firstX5ChainDER extracts the first DER certificate from an x5chain header
+// value, which may be a single []byte (one cert) or an array of them.
+func firstX5ChainDER(v any) []byte {
+	switch x := v.(type) {
+	case []byte:
+		return x
+	case [][]byte:
+		if len(x) > 0 {
+			return x[0]
+		}
+	case []any:
+		for _, e := range x {
+			if b, ok := e.([]byte); ok {
+				return b
+			}
+		}
+	}
+	return nil
+}
+
+// c2paSigningTime extracts the signing time from the COSE unprotected
+// `sigTst` header — a C2PA timestamp container holding RFC 3161 timestamp
+// tokens. Returns the zero time if absent or unparseable.
+func c2paSigningTime(unprotected map[any]any) time.Time {
+	tst, ok := unprotected["sigTst"].(map[any]any)
+	if !ok {
+		return time.Time{}
+	}
+	tokens, ok := tst["tstTokens"].([]any)
+	if !ok {
+		return time.Time{}
+	}
+	for _, tk := range tokens {
+		m, ok := tk.(map[any]any)
+		if !ok {
+			continue
+		}
+		der, ok := m["val"].([]byte)
+		if !ok {
+			continue
+		}
+		if t := rfc3161GenTime(der); !t.IsZero() {
+			return t
+		}
+	}
+	return time.Time{}
+}
+
+// rfc3161GenTime walks an RFC 3161 timestamp (a TimeStampResp wrapping a CMS
+// SignedData, or a bare ContentInfo) down to TSTInfo.genTime. It is defensive
+// — any structural surprise returns the zero time rather than erroring.
+func rfc3161GenTime(der []byte) time.Time {
+	contentInfo := der
+	// TimeStampResp ::= SEQUENCE { status PKIStatusInfo, timeStampToken ContentInfo OPTIONAL }
+	// When the optional token is present, descend into it; otherwise `der`
+	// is already a bare ContentInfo.
+	var resp struct {
+		Status asn1.RawValue
+		Token  asn1.RawValue `asn1:"optional"`
+	}
+	if _, err := asn1.Unmarshal(der, &resp); err == nil && len(resp.Token.FullBytes) > 0 {
+		contentInfo = resp.Token.FullBytes
+	}
+
+	// ContentInfo ::= SEQUENCE { contentType OID, content [0] EXPLICIT ANY }
+	var ci struct {
+		OID     asn1.ObjectIdentifier
+		Content asn1.RawValue `asn1:"explicit,tag:0"`
+	}
+	if _, err := asn1.Unmarshal(contentInfo, &ci); err != nil {
+		return time.Time{}
+	}
+
+	// SignedData ::= SEQUENCE { version, digestAlgorithms SET,
+	//   encapContentInfo SEQUENCE { eContentType OID, eContent [0] EXPLICIT OCTET STRING }, ... }
+	var sd struct {
+		Version     int
+		DigestAlgos asn1.RawValue `asn1:"set"`
+		Encap       struct {
+			OID     asn1.ObjectIdentifier
+			Content asn1.RawValue `asn1:"explicit,optional,tag:0"`
+		}
+		Rest []asn1.RawValue `asn1:"optional"`
+	}
+	if _, err := asn1.Unmarshal(ci.Content.Bytes, &sd); err != nil {
+		return time.Time{}
+	}
+
+	// eContent is an OCTET STRING wrapping the DER-encoded TSTInfo.
+	var eContent []byte
+	if _, err := asn1.Unmarshal(sd.Encap.Content.Bytes, &eContent); err != nil {
+		return time.Time{}
+	}
+
+	// TSTInfo ::= SEQUENCE { version, policy OID, messageImprint, serialNumber INTEGER, genTime GeneralizedTime, ... }
+	var tst struct {
+		Version        int
+		Policy         asn1.ObjectIdentifier
+		MessageImprint asn1.RawValue
+		SerialNumber   *big.Int
+		GenTime        time.Time       `asn1:"generalized"`
+		Rest           []asn1.RawValue `asn1:"optional"`
+	}
+	if _, err := asn1.Unmarshal(eContent, &tst); err != nil {
+		return time.Time{}
+	}
+	return tst.GenTime
 }
 
 // walkJUMBFBoxes recursively walks JUMBF boxes, invoking fn(label, tbox,
