@@ -133,7 +133,7 @@ Headline attributes per family — call `list_attributes` for the full catalogue
 
 **Manifests** — `module`, `go_version` (gomod); other manifest types currently surface as detection-only
 
-**Images** — `img_width`, `img_height`, `camera_make`, `camera_model`, `lens`, `taken_at` (timestamp), `iso`, `focal_length`, `f_stop`, `exposure_time`, `gps_lat`, `gps_lon`, `orientation`. RAW adds `raw_kind`, `raw_vendor`.
+**Images** — `img_width`, `img_height`, `camera_make`, `camera_model`, `lens`, `taken_at` (timestamp), `iso`, `focal_length`, `f_stop`, `exposure_time`, `gps_lat`, `gps_lon`, `orientation`. RAW adds `raw_kind`, `raw_vendor`. **C2PA / Content Credentials** (JPEG + PNG, *unverified* — read like EXIF, the signature/trust chain is NOT validated): `is_c2pa` flags an embedded provenance manifest; `c2pa_claim_generator` (creating tool), `c2pa_title`, `c2pa_format`, `c2pa_ai_generated` (declares AI-generated content — `is_image && c2pa_ai_generated`), `c2pa_signed_by` (COSE signer cert common name), `c2pa_signed_at` (RFC 3161 signing time).
 
 **Audio** — `artist`, `album`, `album_artist`, `composer`, `year`, `track`, `genre`, `duration` (seconds), `bitrate`, `nominal_bitrate`, `sample_rate`, `channels`, `bit_depth`, `replaygain_track_gain`, `replaygain_album_gain`
 
@@ -172,6 +172,8 @@ Headline attributes per family — call `list_attributes` for the full catalogue
 **OCR / body** — `body` (when `include_body` or `ocr_images`), `ocr_confidence`, `ocr_language`, `ocr_provider`
 
 **Hashes / fingerprints** — `md5`, `sha1`, `sha256` (require `compute_hashes`), `phash` (require `with_phash`), `similarity` (semantic search)
+
+**Semantic match location** (`search_semantic` output, not CEL-filterable) — `match_start_line`, `match_end_line` (matched chunk's line range), `match_symbol` (matching function/method, source files chunked per function), `match_snippet` (the region's source, when `include_match_snippet` is set)
 
 **Project context** — `project_types` (list), `project_type` (first match), `is_static_site` — require `resolve_projects: true`
 

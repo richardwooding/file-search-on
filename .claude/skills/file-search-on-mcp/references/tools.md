@@ -78,14 +78,18 @@ Key inputs:
 - `limit` — top-K cap (default 50).
 - `expr` — CEL pre-filter (scope to `is_pdf || is_office` etc.).
 - `model`, `embedding_server` — per-call overrides for the server-startup defaults.
+- `hybrid` — fuse BM25 keyword relevance with embedding similarity via reciprocal-rank fusion; `keyword_query` overrides the BM25 query (defaults to `query`).
+- `include_match_snippet` — inline the matched region's source as `match_snippet` on each hit (opt-in; text/source files only). `snippet_lines` caps it (default 60).
 
-Output: `matches[]` ranked by `similarity` desc, `count`, `cancelled`, `cancellation_reason`, `elapsed_seconds`.
+Output: `matches[]` ranked by `similarity` desc, `count`, `cancelled`, `cancellation_reason`, `elapsed_seconds`, `ann_used`. Each match locates **where** it matched (issue #366): `match_start_line` / `match_end_line` (1-based inclusive line range of the best-matching embedding chunk) and, for **source files** — which are embedded **one chunk per function** — `match_symbol` (the matching function / method name). With `include_match_snippet`, `match_snippet` carries that region's source text.
 
 Gotchas:
 
 - Requires a running Ollama with at least one embedding model pulled (e.g. `ollama pull nomic-embed-text`). The server boots without Ollama; the first call fails clearly if Ollama is unreachable or the model isn't pulled.
-- The per-file embedding caches alongside (size, mtime); repeat searches against an unchanged tree are I/O-cheap.
+- The per-file embedding caches alongside (size, mtime); repeat searches against an unchanged tree are I/O-cheap. Source files are chunked by function span — the **first** search after upgrading to v0.91.0 re-embeds cached source files once (byte windows → function chunks); non-source stays a cache hit.
+- `match_symbol` is empty when the winning chunk isn't a function (e.g. a file's leading package/imports/doc header) or for non-source files — `match_start_line`/`match_end_line` still pinpoint the region. `match_snippet` is only populated for line-addressable text/source types (structured bodies like PDF/office extract text whose lines don't map to disk).
 - `similarity` is exposed as a CEL variable on each match so it composes with `rank` (e.g. `"rank": "similarity * 0.7 + (mod_time > timestamp(\"2025-01-01T00:00:00Z\") ? 0.3 : 0.0)"`).
+- To fetch a matched function's full code, call `read_lines` on `[match_start_line, match_end_line]` (or set `include_match_snippet` to get it inline).
 
 Example:
 
@@ -108,7 +112,7 @@ List the embedding models the local Ollama server has pulled. Lets an agent enum
 
 Key inputs: `embedding_server` (override the server-startup default — usually `http://localhost:11434`).
 
-Output: `models[]` — each `{name, size_bytes, modified_at, family, parameter_size, quantization_level}`. Plus `default_model` (the one `search_semantic` will pick if `model` is omitted).
+Output: `server` (the Ollama URL queried), `local[]` — models actually pulled, each `{name, size_bytes, modified_at, digest, catalogued}` (`catalogued` = also in the recommended catalogue) — and `catalog[]` — recommended embedding models, each `{name, description, size, dimensions, pulled}` (`pulled` = already installed locally).
 
 Gotchas:
 
@@ -124,7 +128,7 @@ Key inputs:
 - `name` (required) — Ollama model identifier, e.g. `nomic-embed-text`, `mxbai-embed-large`, `all-minilm`.
 - `embedding_server` — override the default Ollama URL.
 
-Output: `model` (echoed name), `final_status` (string), `total_bytes`, `elapsed_seconds`.
+Output: `name` (echoed model), `server` (Ollama URL), `already_pulled` (true when it was present before the call — then no download happened), `total_bytes` (downloaded), `duration_seconds`.
 
 Gotchas:
 
@@ -173,21 +177,21 @@ Return a contiguous line range of a single file (1-indexed, inclusive).
 Key inputs:
 
 - `path` (required).
-- `start` (1-indexed).
-- `end` (inclusive; omit / 0 means EOF).
-- `max_line_bytes` — per-line scanner cap; pathological long lines are truncated.
+- `start_line` (1-indexed, inclusive; defaults to 1).
+- `end_line` (1-indexed, inclusive; omit / 0 means EOF).
+- `max_lines` — cap on lines returned (default 1000). When the requested range exceeds it, `truncated=true` and only the first `max_lines` of the range come back.
 
-Output: `lines[]`, `total_lines`, `truncated` (true when any line exceeded the cap), `content_type`.
+Output: `path`, `start_line`, `end_line`, `total_lines`, `lines[]`, `truncated`.
 
 Gotchas:
 
-- Only text content types serve content (binary families return empty).
-- Pair with `search` (to find files) and `find_matches` (to find lines) for the read-around-match flow.
+- Reads any file's lines directly — no content-type gate (binary files yield raw byte-split lines). A per-line 64 KiB cap truncates pathologically long lines.
+- Pair with `search` (to find files) and `find_matches` (to find lines) for the read-around-match flow; on `search_semantic` hits, read `[match_start_line, match_end_line]` to fetch the matched function.
 
 Example:
 
 ```json
-{ "name": "read_lines", "arguments": { "path": "./main.go", "start": 100, "end": 150 } }
+{ "name": "read_lines", "arguments": { "path": "./main.go", "start_line": 100, "end_line": 150 } }
 ```
 
 ---
@@ -584,9 +588,8 @@ Compile-check a CEL expression without running a walk. Returns whether it parses
 Key inputs:
 
 - `expr` (required) — the CEL expression to validate.
-- `kind` — `"filter"` (default, the shape used by `expr` inputs) or `"rank"` (the shape used by `rank` inputs; the result type must be numeric / bool).
 
-Output: `valid` (bool), `error` (compile error message when invalid), `suggestions[]` (Levenshtein-ranked attribute names when the error names an undeclared reference — e.g. typo'd `is_markown` returns `["is_markdown"]`).
+Output: `ok` (bool), `error` (compile error message when invalid), `suggestion` (a single Levenshtein-nearest attribute name when the error names an undeclared reference — e.g. typo'd `is_markown` returns `is_markdown`), plus `referenced_variables` / `referenced_functions` (the names the expression touched, on success).
 
 Gotchas:
 
@@ -599,7 +602,7 @@ Example:
 { "name": "validate_expr", "arguments": { "expr": "is_markown && word_count > 500" } }
 ```
 
-Returns `{"valid": false, "error": "undeclared reference to 'is_markown'", "suggestions": ["is_markdown"]}`.
+Returns `{"ok": false, "error": "undeclared reference to 'is_markown'", "suggestion": "is_markdown"}`.
 
 ### `list_attributes`
 
@@ -628,7 +631,7 @@ Inspect a single directory and report which project type(s) match based on canon
 
 Key inputs: `dir` (defaults to `.`).
 
-Output: `matches[]` with `name` (project type), `description`, `indicator` (the file that matched), `path`.
+Output: `path` (the directory inspected), `project_types[]` (the matching type names, e.g. `go-module`, `node`), and `indicators[]` — each `{type, indicator}` pairing a matched type with the file/glob that triggered it. Empty `project_types` means no known type matched.
 
 Built-in project types: `go` (go.mod), `node` (package.json), `rust` (Cargo.toml), `python` (pyproject.toml / requirements.txt / Pipfile), `ruby` (Gemfile), `java-maven` (pom.xml), `java-gradle` (build.gradle), `dotnet` (*.csproj), `terraform` (*.tf), `docker-compose` (docker-compose.yml); plus static-site generators `hugo` / `jekyll` / `eleventy` / `astro` / `gatsby` / `mkdocs` / `docusaurus` / `pelican`. A directory can match multiple types simultaneously.
 
