@@ -155,29 +155,14 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 		var funcs, types, imports, refs, callEdges, complexityRows []string
 		switch s.language {
 		case "go":
+			// Go keeps the stdlib-AST extractor (rigorous, free).
 			funcs, types, imports, refs, callEdges, complexityRows = extractGoSymbols(bodyBuf.Bytes())
-		case "python":
-			funcs, types, imports = extractPythonSymbols(bodyBuf.Bytes())
-		case "java":
-			funcs, types, imports = extractJavaSymbols(bodyBuf.Bytes())
-		case "csharp":
-			funcs, types, imports = extractCSharpSymbols(bodyBuf.Bytes())
-		case "php":
-			funcs, types, imports = extractPHPSymbols(bodyBuf.Bytes())
-		case "perl":
-			funcs, types, imports = extractPerlSymbols(bodyBuf.Bytes())
-		case "r":
-			funcs, types, imports = extractRSymbols(bodyBuf.Bytes())
-		case "matlab":
-			funcs, types, imports = extractMATLABSymbols(bodyBuf.Bytes())
-		case "scala":
-			funcs, types, imports = extractScalaSymbols(bodyBuf.Bytes())
 		default:
-			// Tree-sitter-backed languages (Rust / TypeScript /
-			// JavaScript / Ruby / Swift / Kotlin / C / C++). Returns nil
-			// for any language not tree-sitter-backed — but
-			// symbolExtractorWired gates this block, so default only
-			// fires for wired tree-sitter languages.
+			// Every other wired language (Python / Java / C# / PHP / Perl /
+			// R / MATLAB / Scala + Rust / TS / JS / Ruby / Swift / Kotlin /
+			// C / C++) uses the tree-sitter extractor (#365 migrated the
+			// first eight off regex). Returns nil for unwired languages —
+			// but symbolExtractorWired gates this block.
 			funcs, types, imports, refs, callEdges, complexityRows = extractTreeSitterSymbols(s.language, bodyBuf.Bytes())
 		}
 		if len(funcs) > 0 {
@@ -211,10 +196,12 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 // buffer for languages that won't use it.
 func symbolExtractorWired(language string) bool {
 	switch language {
-	case "go", "python", "java", "csharp", "php", "perl", "r", "matlab", "scala":
-		return true
-	// Tree-sitter-backed (extractTreeSitterSymbols via the switch default).
-	case "rust", "typescript", "javascript", "ruby", "swift", "kotlin", "c", "cpp":
+	// Go uses the stdlib-AST extractor; the rest use tree-sitter
+	// (extractTreeSitterSymbols via the switch default). #365 migrated
+	// python/java/csharp/php/perl/r/matlab/scala off regex onto tree-sitter.
+	case "go",
+		"python", "java", "csharp", "php", "perl", "r", "matlab", "scala",
+		"rust", "typescript", "javascript", "ruby", "swift", "kotlin", "c", "cpp":
 		return true
 	}
 	return false
