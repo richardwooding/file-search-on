@@ -308,6 +308,62 @@ func (h *handlers) deadCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, 
 	return nil, out, nil
 }
 
+// --- impact -------------------------------------------------------------
+
+// ImpactInput is the JSON-schema input for the `impact` tool.
+type ImpactInput struct {
+	codeGraphWalkInput
+	Symbol   string `json:"symbol" jsonschema:"The exact function/method name to assess. Returns every function that transitively calls it — the blast radius of changing it. Required."`
+	MaxDepth int    `json:"max_depth,omitempty" jsonschema:"Cap the number of call hops in the closure. 0 (default) is unbounded. 1 = direct callers only (same set as who_calls, but symbol-level)."`
+}
+
+// ImpactOutput is the transitive caller closure of the queried symbol.
+type ImpactOutput struct {
+	CommonOutput
+	Symbol             string              `json:"symbol"`
+	Dependents         []search.ImpactNode `json:"dependents"`
+	Count              int                 `json:"count"`
+	MaxDepthReached    int                 `json:"max_depth_reached"`
+	TotalFiles         int64               `json:"total_files"`
+	Cancelled          bool                `json:"cancelled,omitempty"`
+	CancellationReason string              `json:"cancellation_reason,omitempty"`
+}
+
+func (h *handlers) impactHandler(ctx context.Context, _ *mcp.CallToolRequest, in ImpactInput) (*mcp.CallToolResult, ImpactOutput, error) {
+	if in.Symbol == "" {
+		return nil, ImpactOutput{}, fmt.Errorf("symbol is required")
+	}
+	opts, err := h.codeGraphOptions(in.codeGraphWalkInput)
+	if err != nil {
+		return nil, ImpactOutput{}, err
+	}
+	ctx, cancel := h.resolveTimeout(ctx, in.TimeoutSeconds)
+	defer cancel()
+
+	g, err := search.BuildCodeGraph(ctx, opts, content.DefaultRegistry())
+	if err != nil {
+		return nil, ImpactOutput{}, fmt.Errorf("impact: %w", err)
+	}
+	deps := g.Impact(in.Symbol, in.MaxDepth)
+	maxDepth := 0
+	for _, d := range deps {
+		if d.Depth > maxDepth {
+			maxDepth = d.Depth
+		}
+	}
+	out := ImpactOutput{
+		Symbol:             in.Symbol,
+		Dependents:         deps,
+		Count:              len(deps),
+		MaxDepthReached:    maxDepth,
+		TotalFiles:         g.TotalFiles,
+		Cancelled:          g.Cancelled,
+		CancellationReason: g.CancellationReason,
+	}
+	out.ServerVersion = h.version
+	return nil, out, nil
+}
+
 // --- test_gaps ----------------------------------------------------------
 
 // TestGapsInput is the JSON-schema input for the `test_gaps` tool.

@@ -283,6 +283,20 @@ file-search-on test-gaps -o json -d ./internal | jq '.gaps[] | select(.fully_unt
 
 It's a **direct-reference heuristic**, not a coverage report: a function exercised only transitively (a test calls `A`, which calls `B`, but no test names `B`) shows as untested, and same-name collisions can mislead — treat the output as review candidates. For precise line/branch coverage, drive a real coverage profile. Works across the reference-extraction languages (Go + Rust / TS / JS / Ruby / Swift / Kotlin / C / C++), including Rust's inline `#[cfg(test)]` tests, which a filename-sibling approach would miss.
 
+## Blast radius before a refactor (`impact`)
+
+`who-calls` answers one hop ("who calls `Foo` directly?"); `impact` returns the **transitive closure** — every function that reaches `Foo` through the call graph, with the depth each was found at. Run it before changing a signature or behaviour to see what you might break.
+
+```sh
+# Everything that (in)directly calls BuildCodeGraph, with depth.
+file-search-on impact BuildCodeGraph -d ./internal
+
+# Just the direct callers (same set as who-calls, but symbol-level).
+file-search-on impact ServeHTTP --max-depth 1 -d .
+```
+
+Output is a list of `{symbol, depth, defined-in}` ordered shallowest-first. Same name-based caveats as `who-calls` / `calls` — interface / reflection dispatch and same-name collisions can over- or under-count. The import-level equivalent ("what transitively imports this *file*") isn't available yet — it needs package resolution the graph doesn't carry.
+
 ## Filtering out generated code
 
 ```sh
