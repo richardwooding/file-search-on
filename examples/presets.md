@@ -34,6 +34,20 @@ file-search-on preset
 
 Each preset bakes a fresh timestamp at invocation time, so `recent_changes` always means "last 7 days from NOW".
 
+### Repo-aware presets
+
+These run inside a git repo and **auto-enable git metadata** (via `celexpr.NeedsGit`) — no `--with-git` needed.
+
+| Preset | What it finds | Defaults |
+|---|---|---|
+| `recent_commits` | Files committed in the last 7 days | sort=git_last_commit_time desc, limit=50 |
+| `hot_files` | Highest-churn tracked files (any type) | sort=git_commit_count desc, limit=20 |
+| `hotspots` | Source files ranked by **complexity × churn** (`max_complexity` × `git_commit_count`) — the "what to refactor first" list | rank desc, limit=20 |
+| `prod_code` | Human-written production source (tracked, not test, not generated) | sort=loc desc, limit=100 |
+| `untracked_code` | Source not in git and not gitignored — "did I forget to commit?" | sort=size desc, limit=50 |
+| `generated_code` | Machine-generated files (codegen markers) | sort=size desc, limit=50 |
+| `test_files` | Files matching the per-language test convention | sort=loc desc, limit=50 |
+
 ### EPUB / ebook-library presets
 
 EPUB metadata is Dublin Core only (`title` / `author` / `language`) with no page or word count, so these lean on `size` (the practical length proxy), `mod_time`, and the metadata fields.

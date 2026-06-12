@@ -510,7 +510,7 @@ Built by inverting the per-file `imports` / `functions` / `type_names` lists int
 | `find_projects` | Walk a tree, list every project subdirectory. |
 | `resolve_project_for_path` | Walk UP from a file/dir path to the nearest enclosing project root. Useful when an agent has a stray path and needs to know the project context. |
 | `list_attributes` | The full canonical schema (`common`, `type_specific`, `frontmatter`, `functions`) plus registered content types. |
-| `list_presets` | Discover the eight built-in named search recipes (`recent_changes`, `recent_photos`, `old_drafts`, `large_files`, `large_binaries`, `suspicious_files`, `failed_tests`, `system_metadata`). |
+| `list_presets` | Discover the built-in named search recipes — filesystem (`recent_changes`, `recent_photos`, `old_drafts`, `large_files`, `large_binaries`, `suspicious_files`, `failed_tests`, `system_metadata`) and repo-aware (`recent_commits`, `hot_files`, `hotspots`, `prod_code`, `untracked_code`, `generated_code`, `test_files`). See [examples/presets.md](./examples/presets.md) for the full catalog. |
 | `query_preset` | Run a named preset; per-call overrides for `dir`, `limit`, `excludes`, etc. |
 | `index_stats` | Cache counters for the running server (hits, misses, puts, stales, errors; same for body + embedding caches). When `--watch-index` is on, also reports `watch_refreshed` / `watch_evicted` / `watch_errors`. |
 | `monitor_info` | This server's monitoring-dashboard URL + the registry of sibling instances. Pass `enable: true` to start the dashboard on demand if it isn't already running. |
