@@ -311,6 +311,12 @@ type Options struct {
 	// Walk path.
 	SimilarityThreshold float64
 
+	// DupFuncMinLines is the minimum function length (in lines) a
+	// function must have to be considered by FindDuplicateFunctions.
+	// Filters trivial getters / one-liners whose SimHash collapses
+	// together as noise. 0 → a sensible default (5). Issue #392.
+	DupFuncMinLines int
+
 	// NearDupMembersLimit caps the per-group members slice returned
 	// by FindNearDuplicates. 0 (default) returns every member. When
 	// truncated, the group reports MembersTotal + MembersTruncated

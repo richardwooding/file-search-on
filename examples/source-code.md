@@ -252,6 +252,23 @@ file-search-on code-graph -o json -d . | jq '.import_hubs[:5]'
 
 `imported_by` is accurate for every language whose imports are extracted (Go via AST; Python / Java / C# / PHP / Perl / R / MATLAB / Scala via the import-shape extractors). `find_definition` is limited to the languages with symbol extraction — for the rest, fall back to `find-matches`. Genuine call-graph ("who *calls* Y?") is still out of scope (see below) — it needs call-site extraction.
 
+## Find copy-pasted functions (`duplicate-functions`)
+
+`near-duplicates` compares whole *files*; `duplicate-functions` compares individual **functions**, so it catches a 20-line helper that's been copy-pasted into otherwise-distinct files. It splits each source file into its functions (the same per-function spans `complexity` uses), SimHashes each body, and clusters the near-identical ones — your extract-this-helper worklist.
+
+```sh
+# Copy-pasted Go functions across the repo (default threshold 0.92, min 5 lines).
+file-search-on duplicate-functions 'is_source && language == "go"' -d .
+
+# Looser match (catch structurally-similar, not just near-identical); ignore short funcs.
+file-search-on duplicate-functions -d ./src --threshold 0.85 --min-lines 8
+
+# JSON for tooling — each member carries {path, symbol, start_line, end_line, lines}.
+file-search-on duplicate-functions -o json -d . | jq '.groups[0].members'
+```
+
+Each group's members list a `path` + `symbol` + line range — feed `[start_line, end_line]` to `lines` (or the `read_lines` MCP tool) to see the code. It's a heuristic (SimHash matches token/structure shape), so review a cluster before extracting — functions that share a skeleton but differ in intent can land together.
+
 ## Filtering out generated code
 
 ```sh
