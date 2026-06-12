@@ -297,6 +297,22 @@ file-search-on impact ServeHTTP --max-depth 1 -d .
 
 Output is a list of `{symbol, depth, defined-in}` ordered shallowest-first. Same name-based caveats as `who-calls` / `calls` — interface / reflection dispatch and same-name collisions can over- or under-count. The import-level equivalent ("what transitively imports this *file*") isn't available yet — it needs package resolution the graph doesn't carry.
 
+## Precise coverage gaps (`coverage-gaps`)
+
+`test-gaps` needs no instrumentation but only sees *direct* test references. When you can run the tests, `coverage-gaps` reads a real Go coverage profile and reports functions below a coverage threshold — catching partially-tested functions and counting transitive coverage correctly.
+
+```sh
+go test -coverprofile=cover.out ./...
+
+# Functions under 80% statement coverage, worst first.
+file-search-on coverage-gaps cover.out --threshold 0.8 -d .
+
+# Everything not fully covered (default threshold).
+file-search-on coverage-gaps cover.out -o json -d . | jq '.gaps[] | select(.fully_uncovered)'
+```
+
+Each gap carries `{function, covered_pct, covered/total statements, line range}`. It resolves the profile's import-path filenames to disk via the module path in `go.mod` (so run it from / point `-d` at the module root). Go coverage profiles only.
+
 ## Filtering out generated code
 
 ```sh
