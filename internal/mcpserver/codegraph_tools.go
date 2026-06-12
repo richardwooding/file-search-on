@@ -308,6 +308,47 @@ func (h *handlers) deadCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, 
 	return nil, out, nil
 }
 
+// --- test_gaps ----------------------------------------------------------
+
+// TestGapsInput is the JSON-schema input for the `test_gaps` tool.
+type TestGapsInput struct {
+	codeGraphWalkInput
+}
+
+// TestGapsOutput lists production files with functions no test references.
+type TestGapsOutput struct {
+	CommonOutput
+	Gaps               []search.TestGap `json:"gaps"`
+	Count              int              `json:"count"`
+	TotalFiles         int64            `json:"total_files"`
+	Cancelled          bool             `json:"cancelled,omitempty"`
+	CancellationReason string           `json:"cancellation_reason,omitempty"`
+}
+
+func (h *handlers) testGapsHandler(ctx context.Context, _ *mcp.CallToolRequest, in TestGapsInput) (*mcp.CallToolResult, TestGapsOutput, error) {
+	opts, err := h.codeGraphOptions(in.codeGraphWalkInput)
+	if err != nil {
+		return nil, TestGapsOutput{}, err
+	}
+	ctx, cancel := h.resolveTimeout(ctx, in.TimeoutSeconds)
+	defer cancel()
+
+	g, err := search.BuildCodeGraph(ctx, opts, content.DefaultRegistry())
+	if err != nil {
+		return nil, TestGapsOutput{}, fmt.Errorf("test_gaps: %w", err)
+	}
+	gaps := g.TestGaps()
+	out := TestGapsOutput{
+		Gaps:               gaps,
+		Count:              len(gaps),
+		TotalFiles:         g.TotalFiles,
+		Cancelled:          g.Cancelled,
+		CancellationReason: g.CancellationReason,
+	}
+	out.ServerVersion = h.version
+	return nil, out, nil
+}
+
 // --- calls --------------------------------------------------------------
 
 // CallsInput is the JSON-schema input for the `calls` tool.

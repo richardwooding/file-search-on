@@ -1,6 +1,6 @@
 # Tool reference
 
-Every MCP tool the `file-search-on` server exposes (31 tools). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same families as the SKILL.md table.
+Every MCP tool the `file-search-on` server exposes (32 tools). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same families as the SKILL.md table.
 
 ## Contents
 
@@ -9,7 +9,7 @@ Every MCP tool the `file-search-on` server exposes (31 tools). Each entry has a 
 - Dedup & diff — `find_duplicates`, `find_near_duplicates`, `find_duplicate_functions`, `diff_trees`
 - Archive — `list_archive_contents`, `read_file_in_archive`
 - Pattern + watch — `find_matches`, `watch_search`
-- Cross-file code graph — `imported_by`, `find_definition`, `code_graph`, `who_calls`, `calls`, `dead_code`, `complexity`
+- Cross-file code graph — `imported_by`, `find_definition`, `code_graph`, `who_calls`, `calls`, `dead_code`, `test_gaps`, `complexity`
 - CEL utilities — `validate_expr`, `list_attributes`
 - Project + presets + monitoring — `detect_project`, `find_projects`, `resolve_project_for_path`, `list_presets`, `query_preset`, `index_stats`, `monitor_info`
 
@@ -584,6 +584,20 @@ Output: `candidates[]` (`{path, language, kind, symbol}`, sorted by path), `coun
 
 ```json
 { "name": "dead_code", "arguments": { "expr": "is_source && language == \"go\" && !is_test_file", "dir": "." } }
+```
+
+### `test_gaps`
+
+Production source files whose functions are never referenced from a test — candidate untested code, no coverage instrumentation required. Same machinery as `dead_code`, filtered to "not referenced from a `*_test` file": a function is *tested* when its name appears as a reference in any file flagged `is_test_file`.
+
+Key inputs: `expr` (defaults to `is_source`), `dir` / `dirs` / `excludes` / `respect_gitignore`.
+
+Output: `gaps[]` (`{path, language, function_count, untested_count, untested_functions[], fully_untested}`, sorted fully-untested-first then by `untested_count` desc), `count`, `total_files`. `fully_untested=true` means not one function in the file is referenced from a test (the clearest gaps).
+
+**Gotcha — heuristic, direct-reference only.** Code exercised only transitively (a test calls `A`, which calls `B`, but no test names `B`) reads as untested; same-name collisions / reflection can mislead. Review candidates, not a coverage report — for precise line/branch coverage use a coverage profile. Restricted to reference-extraction languages (Go + tree-sitter); handles Rust inline `#[cfg(test)]` tests that a filename-sibling check would miss.
+
+```json
+{ "name": "test_gaps", "arguments": { "expr": "is_source && language == \"go\"", "dir": "./internal" } }
 ```
 
 ### `complexity`
