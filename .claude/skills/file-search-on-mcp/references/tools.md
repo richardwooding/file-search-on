@@ -1,12 +1,12 @@
 # Tool reference
 
-Every MCP tool the `file-search-on` server exposes (30 tools). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same families as the SKILL.md table.
+Every MCP tool the `file-search-on` server exposes (31 tools). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same families as the SKILL.md table.
 
 ## Contents
 
 - Search & inspect — `search`, `search_semantic`, `list_embedding_models`, `pull_embedding_model`, `read_attributes`, `read_lines`
 - Aggregate — `stats`
-- Dedup & diff — `find_duplicates`, `find_near_duplicates`, `diff_trees`
+- Dedup & diff — `find_duplicates`, `find_near_duplicates`, `find_duplicate_functions`, `diff_trees`
 - Archive — `list_archive_contents`, `read_file_in_archive`
 - Pattern + watch — `find_matches`, `watch_search`
 - Cross-file code graph — `imported_by`, `find_definition`, `code_graph`, `who_calls`, `calls`, `dead_code`, `complexity`
@@ -278,6 +278,31 @@ Example:
   "name": "find_near_duplicates",
   "arguments": { "dir": "~/Notes", "expr": "is_markdown", "threshold": 0.9 }
 }
+```
+
+### `find_duplicate_functions`
+
+Clusters of near-identical **functions** across the tree — copy-pasted logic the file-level `find_near_duplicates` misses (a duplicated helper inside two otherwise-distinct files never trips a whole-file fingerprint). Splits each source file into its functions (the per-function spans `complexity` / function-level semantic search use), SimHashes each body, and union-find groups within the threshold.
+
+Key inputs:
+
+- `expr` — CEL pre-filter; defaults to `is_source`. Non-source files have no function spans.
+- `threshold` — SimHash similarity floor (0..1). Omit / 0 uses **0.92** (code SimHash sits high even for unrelated functions, so this is tighter than the prose default).
+- `min_lines` — skip functions shorter than this; default 5 (trivial getters/wrappers fingerprint alike and would bury real duplication).
+- `dir` / `dirs` / `excludes` / `respect_gitignore`.
+
+Output: `groups[]` (member count desc, then total duplicated lines), each member `{path, symbol, start_line, end_line, lines, similarity}`; `functions_scanned`, `group_count`, `threshold`, `min_lines`. `read_lines` the `[start_line, end_line]` span to see the code.
+
+Gotchas:
+
+- Source languages only (Go + the tree-sitter set).
+- Heuristic — SimHash matches token/structure shape, so functions sharing a skeleton but differing in intent can cluster. Review before extracting.
+- Grouping is O(N²) over scanned functions; the `min_lines` filter keeps it tractable.
+
+Example:
+
+```json
+{ "name": "find_duplicate_functions", "arguments": { "dir": ".", "expr": "language == \"go\"", "min_lines": 8 } }
 ```
 
 ### `diff_trees`
