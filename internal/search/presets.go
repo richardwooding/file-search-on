@@ -195,6 +195,22 @@ var presets = []Preset{
 		},
 	},
 	{
+		Name:        "hotspots",
+		Description: "20 refactor hotspots — source files ranked by cyclomatic complexity × git churn (max_complexity × git_commit_count), descending. The classic 'what to refactor first': code that's both complicated and frequently changed. Repo-aware (auto-warms git); relies on the max_complexity (#364) + git_commit_count (#271) attributes.",
+		Build: func() PresetOptions {
+			return PresetOptions{
+				// git_commit_count in the filter forces git auto-warm and drops
+				// untracked files; max_complexity > 0 keeps source files that
+				// actually define functions. The rank is the product — high on
+				// both axes wins.
+				Expr:     `is_source && is_git_tracked && git_commit_count > 0 && max_complexity > 0`,
+				RankExpr: `double(max_complexity) * double(git_commit_count)`,
+				Order:    "desc",
+				Limit:    20,
+			}
+		},
+	},
+	{
 		Name:        "prod_code",
 		Description: "Production source code — tracked in git, not a test file, not machine-generated. The 'show me what humans wrote' filter. Composites #271 (is_git_tracked) + #276 (is_generated_code) + the per-language test convention.",
 		Build: func() PresetOptions {

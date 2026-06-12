@@ -83,7 +83,7 @@ Grouped into seven families. Full inputs / outputs / gotchas in [references/tool
 | **Pattern + watch** | `find_matches`, `watch_search` | Line-level RE2 regex with context windows + `match_in: any\|comments\|code` per-language filter (CEL pre-prune for speed), or a bounded "tell me when X appears" subscription |
 | **Cross-file code graph + metrics** | `imported_by`, `find_definition`, `code_graph`, `who_calls`, `calls`, `dead_code`, `test_gaps`, `complexity` | Reverse-dependency ("who imports X?"), symbol-definition lookup ("where is Y defined?"), project-wide overview (import hubs / high fan-out / duplicate defs), reverse call lookup ("who calls Y?"), forward call lookup ("what does Y call?"), a candidate dead-code finder, an untested-code finder (`test_gaps` — prod functions no test references), and per-function cyclomatic-complexity ranking — built from the per-file `imports` / `functions` / `type_names` / `references` / `max_complexity` data |
 | **CEL utilities** | `validate_expr`, `list_attributes` | Compile-only CEL validator with "did you mean" Levenshtein suggestions; schema discovery with summary / section / names modes |
-| **Project + presets + monitoring** | `detect_project`, `find_projects`, `resolve_project_for_path`, `list_presets`, `query_preset`, `list_embedding_models`, `pull_embedding_model`, `index_stats`, `monitor_info` | Project-root detection (18 built-in types), 14 named recipe presets, on-demand Ollama embedding model catalog + pull, cache stats, live dashboard URL + peer instances |
+| **Project + presets + monitoring** | `detect_project`, `find_projects`, `resolve_project_for_path`, `list_presets`, `query_preset`, `list_embedding_models`, `pull_embedding_model`, `index_stats`, `monitor_info` | Project-root detection (18 built-in types), 15 named recipe presets, on-demand Ollama embedding model catalog + pull, cache stats, live dashboard URL + peer instances |
 
 ## CEL essentials
 
@@ -153,6 +153,7 @@ Fourteen baked recipes ship with the server. Discover via `list_presets`, run vi
 | --- | --- |
 | `recent_commits` | Files most recently committed in the last 7 days, sorted by commit time (the git-aware sibling of `recent_changes`) |
 | `hot_files` | Top-20 highest-churn tracked files (any type — source, docs, config) by `git_commit_count` desc — refactor / review prioritisation |
+| `hotspots` | Top-20 source files by **complexity × churn** (`max_complexity` × `git_commit_count`) desc — the 'what to refactor first' ranking (complicated AND frequently changed). Repo-aware (auto-warms git) |
 | `prod_code` | `is_source && is_git_tracked && !is_test_file && !is_generated_code`, top 100 by LOC — human-written production code |
 | `untracked_code` | Source files not in git and not gitignored — the "did I forget to commit?" check |
 | `generated_code` | Source files matching codegen markers (`is_generated_code`) |

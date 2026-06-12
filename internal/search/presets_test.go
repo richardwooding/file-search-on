@@ -113,6 +113,7 @@ func TestPresets_NewSet(t *testing.T) {
 	}{
 		"recent_commits":  {wantSort: "git_last_commit_time", wantLimit: 50, mustHave: "git_last_commit_time"},
 		"hot_files":       {wantSort: "git_commit_count", wantLimit: 20, mustHave: "git_commit_count"},
+		"hotspots":        {wantSort: "", wantLimit: 20, mustHave: "max_complexity"},
 		"prod_code":       {wantSort: "loc", wantLimit: 100, mustHave: "!is_generated_code"},
 		"untracked_code":  {wantSort: "size", wantLimit: 50, mustHave: "!is_git_tracked"},
 		"generated_code":  {wantSort: "size", wantLimit: 50, mustHave: "is_generated_code"},
@@ -148,7 +149,7 @@ func TestPresets_NewSet(t *testing.T) {
 // expr/sort keys trigger celexpr.NeedsGit so callers don't have to
 // pass with_git explicitly.
 func TestPresets_NewSet_AutoEnableGit(t *testing.T) {
-	for _, name := range []string{"recent_commits", "hot_files", "prod_code", "untracked_code"} {
+	for _, name := range []string{"recent_commits", "hot_files", "hotspots", "prod_code", "untracked_code"} {
 		p := search.PresetByName(name)
 		if p == nil {
 			t.Fatalf("preset %q not registered", name)

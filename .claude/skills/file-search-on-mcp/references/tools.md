@@ -726,7 +726,7 @@ Output: `presets[]` with `name`, `description`.
 
 ### `query_preset`
 
-Run a named preset. Repo-aware presets (`recent_commits`, `hot_files`, `prod_code`, `untracked_code`) auto-enable `with_git` via `celexpr.NeedsGit` — no separate opt-in required.
+Run a named preset. Repo-aware presets (`recent_commits`, `hot_files`, `hotspots`, `prod_code`, `untracked_code`) auto-enable `with_git` via `celexpr.NeedsGit` — no separate opt-in required. `hotspots` ranks source files by complexity × churn (`max_complexity` × `git_commit_count`) — the 'what to refactor first' list.
 
 Key inputs:
 
