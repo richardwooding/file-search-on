@@ -1,6 +1,6 @@
 # Tool reference
 
-Every MCP tool the `file-search-on` server exposes (33 tools). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same families as the SKILL.md table.
+Every MCP tool the `file-search-on` server exposes (34 tools). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same families as the SKILL.md table.
 
 ## Contents
 
@@ -9,7 +9,7 @@ Every MCP tool the `file-search-on` server exposes (33 tools). Each entry has a 
 - Dedup & diff — `find_duplicates`, `find_near_duplicates`, `find_duplicate_functions`, `diff_trees`
 - Archive — `list_archive_contents`, `read_file_in_archive`
 - Pattern + watch — `find_matches`, `watch_search`
-- Cross-file code graph — `imported_by`, `find_definition`, `code_graph`, `who_calls`, `calls`, `impact`, `dead_code`, `test_gaps`, `complexity`
+- Cross-file code graph — `imported_by`, `find_definition`, `code_graph`, `who_calls`, `calls`, `impact`, `dead_code`, `test_gaps`, `coverage_gaps`, `complexity`
 - CEL utilities — `validate_expr`, `list_attributes`
 - Project + presets + monitoring — `detect_project`, `find_projects`, `resolve_project_for_path`, `list_presets`, `query_preset`, `index_stats`, `monitor_info`
 
@@ -615,6 +615,24 @@ Output: `gaps[]` (`{path, language, function_count, untested_count, untested_fun
 
 ```json
 { "name": "test_gaps", "arguments": { "expr": "is_source && language == \"go\"", "dir": "./internal" } }
+```
+
+### `coverage_gaps`
+
+Functions below a coverage threshold, from a **Go coverage profile** (`go test -coverprofile=cover.out ./...`) — the precise complement to `test_gaps`. Resolves each profiled file to disk (import path minus the module prefix from go.mod), splits it into functions, sums covered vs total statements per function.
+
+Key inputs:
+
+- `profile` — path to the coverage profile (required).
+- `dir` — module root holding go.mod (default '.'); used to resolve the profile's import-path filenames.
+- `threshold` — coverage fraction 0..1; report functions strictly below it. 0 / omit = 1.0 (every function not fully covered); 0.8 = under 80%.
+
+Output: `gaps[]` (`{path, function, start_line, end_line, covered_statements, total_statements, covered_pct, fully_uncovered}`, worst-coverage-first then biggest gap), `files_analysed`, `profile_mode`, `count`.
+
+Gotcha: Go coverage profiles only. Unlike `test_gaps` it catches partially-tested functions and counts transitive coverage correctly — but you must run the tests with `-coverprofile` first. Functions with no executable statements are never gaps.
+
+```json
+{ "name": "coverage_gaps", "arguments": { "profile": "cover.out", "dir": ".", "threshold": 0.8 } }
 ```
 
 ### `complexity`
