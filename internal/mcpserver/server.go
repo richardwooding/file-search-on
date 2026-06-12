@@ -467,6 +467,11 @@ func New(version string, idx index.Index, defaultTimeout time.Duration, embedDef
 	}, instrument(h.metrics, "test_gaps", h.testGapsHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name:        "impact",
+		Description: "Transitive reverse-dependency closure for a function — the blast radius of changing it. Where who_calls answers one hop ('who calls Y directly?'), impact returns EVERY function that reaches Y through the call graph, with the depth at which each was found (1 = direct caller). BFS over the per-function call graph; cycles handled. Input: symbol (required, exact function/method name), max_depth (0 = unbounded; 1 = direct callers only), plus the usual expr (defaults to is_source) / dir / dirs / excludes / timeout_seconds. Output: dependents[] {symbol, depth, paths[]} sorted by depth asc then name, plus count, max_depth_reached, total_files. Use before a refactor to gauge what a signature/behaviour change touches. HEURISTIC, name-based (same caveats as who_calls / calls): same-name collisions, interface / reflection dispatch, and table-driven indirection can over- or under-count. The import-level equivalent ('what transitively imports this file') is not yet available — it needs package resolution the graph doesn't carry.",
+	}, instrument(h.metrics, "impact", h.impactHandler))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "calls",
 		Description: "Forward call lookup: list the distinct functions that a given function calls — \"what does Y call?\". The forward complement to who_calls. Input: symbol (required, exact function/method name), plus expr (defaults to is_source) / dir / dirs / excludes / respect_gitignore / timeout_seconds. Built by attributing each call site to its enclosing function (span containment for tree-sitter; go/ast for Go). Coverage: Go + the tree-sitter languages whose grammar exposes function spans (Rust / TypeScript / JavaScript / Ruby / Swift / Kotlin / C / C++). Name-based and unioned across all functions sharing the name: a callee pkg.Foo() / x.Method() is keyed by 'Foo' / 'Method'; dynamic dispatch and function values aren't resolved; calls inside nested closures attribute to the enclosing named function. Output: callees[] (sorted distinct names) + count + total_files.",
 	}, instrument(h.metrics, "calls", h.callsHandler))

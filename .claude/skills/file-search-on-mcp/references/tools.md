@@ -1,6 +1,6 @@
 # Tool reference
 
-Every MCP tool the `file-search-on` server exposes (32 tools). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same families as the SKILL.md table.
+Every MCP tool the `file-search-on` server exposes (33 tools). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same families as the SKILL.md table.
 
 ## Contents
 
@@ -9,7 +9,7 @@ Every MCP tool the `file-search-on` server exposes (32 tools). Each entry has a 
 - Dedup & diff — `find_duplicates`, `find_near_duplicates`, `find_duplicate_functions`, `diff_trees`
 - Archive — `list_archive_contents`, `read_file_in_archive`
 - Pattern + watch — `find_matches`, `watch_search`
-- Cross-file code graph — `imported_by`, `find_definition`, `code_graph`, `who_calls`, `calls`, `dead_code`, `test_gaps`, `complexity`
+- Cross-file code graph — `imported_by`, `find_definition`, `code_graph`, `who_calls`, `calls`, `impact`, `dead_code`, `test_gaps`, `complexity`
 - CEL utilities — `validate_expr`, `list_attributes`
 - Project + presets + monitoring — `detect_project`, `find_projects`, `resolve_project_for_path`, `list_presets`, `query_preset`, `index_stats`, `monitor_info`
 
@@ -572,6 +572,23 @@ Gotcha: per-function attribution via span-containment (tree-sitter) / `go/ast` (
 
 ```json
 { "name": "calls", "arguments": { "symbol": "BuildCodeGraph", "dir": "." } }
+```
+
+### `impact`
+
+Transitive reverse-dependency closure — every function that (in)directly calls `symbol`, the **blast radius** of changing it. `who_calls` is one hop; `impact` is the full closure with depth.
+
+Key inputs:
+
+- `symbol` — exact function/method name (required).
+- `max_depth` — cap call hops; 0 (default) unbounded, 1 = direct callers only.
+
+Output: `dependents[]` (`{symbol, depth, paths[]}`, depth asc then name; depth 1 = direct caller), `count`, `max_depth_reached`, `total_files`.
+
+Gotcha: name-based BFS over the per-function call graph — same caveats as `who_calls` / `calls` (same-name collisions, interface / reflection dispatch). Cycles terminate via a visited set. The import-level equivalent ("what transitively imports this *file*") isn't available — it needs package resolution the graph doesn't carry.
+
+```json
+{ "name": "impact", "arguments": { "symbol": "BuildCodeGraph", "dir": "./internal", "max_depth": 3 } }
 ```
 
 ### `dead_code`

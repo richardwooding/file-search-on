@@ -345,6 +345,98 @@ func (g *CodeGraph) Calls(name string) []string {
 	return out
 }
 
+// ImpactNode is one symbol in a transitive-impact closure: the dependent
+// function's name, the BFS depth at which it was reached (1 = a direct
+// caller), and the file(s) that define it.
+type ImpactNode struct {
+	Symbol string   `json:"symbol"`
+	Depth  int      `json:"depth"`
+	Paths  []string `json:"paths,omitempty"`
+}
+
+// Impact returns the transitive closure of functions that (directly or
+// indirectly) call symbol — the blast radius of changing it (issue #396).
+// BFS over the reverse of the per-function call graph (callsByName), so a
+// caller appears once, at its shortest depth. maxDepth caps the hops
+// (<= 0 = unbounded); cycles are handled by the visited set.
+//
+// Name-based, same caveats as WhoCalls / Calls: same-name collisions,
+// interface / reflection dispatch, and table-driven indirection can over- or
+// under-count. The complementary IMPORT-level transitive closure ("what
+// transitively imports this file") needs file→package resolution the graph
+// doesn't carry yet (see issue #393) and is out of scope here.
+func (g *CodeGraph) Impact(symbol string, maxDepth int) []ImpactNode {
+	// Reverse the forward call edges: callee -> set of direct callers.
+	callers := map[string]map[string]bool{}
+	for caller, callees := range g.callsByName {
+		for callee := range callees {
+			if callers[callee] == nil {
+				callers[callee] = map[string]bool{}
+			}
+			callers[callee][caller] = true
+		}
+	}
+
+	visited := map[string]int{} // dependent symbol -> shortest depth
+	frontier := keysOf(callers[symbol])
+	for depth := 1; len(frontier) > 0 && (maxDepth <= 0 || depth <= maxDepth); depth++ {
+		var next []string
+		for _, name := range frontier {
+			if name == symbol {
+				continue // a self-recursive function isn't its own dependent
+			}
+			if _, seen := visited[name]; seen {
+				continue
+			}
+			visited[name] = depth
+			for c := range callers[name] {
+				if _, seen := visited[c]; !seen && c != symbol {
+					next = append(next, c)
+				}
+			}
+		}
+		frontier = next
+	}
+
+	out := make([]ImpactNode, 0, len(visited))
+	for name, depth := range visited {
+		out = append(out, ImpactNode{Symbol: name, Depth: depth, Paths: definingPaths(g.definedIn[name])})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Depth != out[j].Depth {
+			return out[i].Depth < out[j].Depth
+		}
+		return out[i].Symbol < out[j].Symbol
+	})
+	return out
+}
+
+// keysOf returns the keys of a string-set as a slice (unordered).
+func keysOf(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	return out
+}
+
+// definingPaths returns the sorted distinct file paths that define a symbol.
+func definingPaths(entries []symbolEntry) []string {
+	if len(entries) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, e := range entries {
+		if !seen[e.path] {
+			seen[e.path] = true
+			out = append(out, e.path)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // DeadCode returns defined functions / types whose name never appears as
 // a reference anywhere in the walked set — candidate dead code. Restricted
 // to definitions in languages with reference extraction (refExtractionLangs),

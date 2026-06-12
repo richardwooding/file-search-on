@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -312,6 +313,40 @@ type CallsCmd struct {
 	codeGraphWalkFlags
 	Expr   string `name:"expr" help:"CEL pre-filter. Defaults to is_source."`
 	Output string `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table | json."`
+}
+
+type ImpactCmd struct {
+	Symbol string `arg:"" help:"Exact function/method name whose transitive callers (blast radius) to list."`
+	codeGraphWalkFlags
+	Expr     string `name:"expr" help:"CEL pre-filter. Defaults to is_source."`
+	MaxDepth int    `name:"max-depth" default:"0" help:"Cap call hops in the closure. 0 = unbounded; 1 = direct callers only."`
+	Output   string `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table | json."`
+}
+
+func (c *ImpactCmd) Run(ctx context.Context) error {
+	g, parentCtx, effectiveCtx, cleanup, err := c.build(ctx, defaultSourceExpr(c.Expr))
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	if g == nil {
+		return nil
+	}
+	deps := g.Impact(c.Symbol, c.MaxDepth)
+	if c.Output == "json" {
+		_ = writeJSON(os.Stdout, map[string]any{
+			"symbol": c.Symbol, "dependents": deps, "count": len(deps), "total_files": g.TotalFiles,
+		})
+	} else {
+		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		_, _ = fmt.Fprintln(tw, "DEPTH\tSYMBOL\tDEFINED IN")
+		for _, d := range deps {
+			_, _ = fmt.Fprintf(tw, "%d\t%s\t%s\n", d.Depth, d.Symbol, strings.Join(d.Paths, ", "))
+		}
+		_ = tw.Flush()
+		_, _ = fmt.Fprintf(os.Stderr, "%d function(s) transitively call %q (of %d source files)\n", len(deps), c.Symbol, g.TotalFiles)
+	}
+	return codeGraphExit(c.Timeout, parentCtx, effectiveCtx, g, "impact")
 }
 
 func (c *CallsCmd) Run(ctx context.Context) error {
