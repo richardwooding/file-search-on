@@ -25,7 +25,7 @@ import (
 // text-type allowlist (internal/search/snippet.go).
 //
 // Structured-document types (office/* and epub) ALSO populate body
-// but via a format-specific extractor — see isStructuredBody +
+// but via a format-specific extractor — see content.SupportsBodyExtraction +
 // content.ExtractBody. The two checks are split because the read
 // path is fundamentally different (raw byte slice vs ZIP-walking
 // XML extractor) and only the plain-text path supports the streaming
@@ -38,35 +38,16 @@ func isTextForBody(name string) bool {
 	return strings.HasPrefix(name, "source/")
 }
 
-// isStructuredBody reports whether the given content type's body is
-// best surfaced via a format-specific extractor rather than a raw byte
-// read. Office documents (DOCX / XLSX / PPTX / ODT) and EPUB are ZIP
-// envelopes with body text buried in XML; .eml / .mbox are RFC 5322
-// messages with the body buried under MIME headers + transfer-encoding
-// + multipart boundaries; PDF carries body text inside content streams
-// behind font / encoding indirection. Agents searching these files
-// want the human-readable text, not the wire envelope. Routed through
-// content.ExtractBody at read time.
-func isStructuredBody(name string) bool {
-	switch name {
-	case "office/docx", "office/xlsx", "office/pptx", "office/odt",
-		"epub",
-		"email/rfc822", "email/mbox",
-		"pdf",
-		"database/sqlite",
-		"browser/bookmarks-chromium", "browser/bookmarks-safari",
-		"chat/slack-export", "chat/discord-export", "chat/signal-cli":
-		return true
-	}
-	return false
-}
-
 // canExtractBody reports whether the body CEL variable can be
 // populated for this content type — either as raw text (isTextForBody)
-// or via a format-specific extractor (isStructuredBody). The walker
-// uses this to gate the body read.
+// or via a format-specific extractor. The structured-document set
+// (office/* / epub / email / pdf / sqlite / bookmarks / chat) is owned
+// by content.SupportsBodyExtraction, the single source of truth shared
+// with content.ExtractBody and search.find_matches — so adding a new
+// structured body type is a one-place change. The walker uses this to
+// gate the body read.
 func canExtractBody(name string) bool {
-	return isTextForBody(name) || isStructuredBody(name)
+	return isTextForBody(name) || content.SupportsBodyExtraction(name)
 }
 
 // populateSimilarity fills FileAttributes.Similarity with the
@@ -770,7 +751,7 @@ func readBody(ctx context.Context, fsys fs.FS, fsPath, displayPath, contentTypeN
 	if maxBytes <= 0 {
 		maxBytes = defaultBodyMaxBytes
 	}
-	if isStructuredBody(contentTypeName) {
+	if content.SupportsBodyExtraction(contentTypeName) {
 		// SQLite extraction goes through the modernc.org/sqlite driver
 		// which only opens real OS paths. Archive-walk callers leave
 		// displayPath either empty or set to the in-archive virtual
