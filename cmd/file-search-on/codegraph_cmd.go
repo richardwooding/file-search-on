@@ -245,6 +245,42 @@ type DeadCodeCmd struct {
 	Output string `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table | json."`
 }
 
+type TestGapsCmd struct {
+	Expr string `arg:"" optional:"" help:"CEL pre-filter for which files enter the graph. Defaults to is_source."`
+	codeGraphWalkFlags
+	Output string `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table | json."`
+}
+
+func (c *TestGapsCmd) Run(ctx context.Context) error {
+	g, parentCtx, effectiveCtx, cleanup, err := c.build(ctx, defaultSourceExpr(c.Expr))
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	if g == nil {
+		return nil
+	}
+	gaps := g.TestGaps()
+	if c.Output == "json" {
+		_ = writeJSON(os.Stdout, map[string]any{
+			"gaps": gaps, "count": len(gaps), "total_files": g.TotalFiles,
+		})
+	} else {
+		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		_, _ = fmt.Fprintln(tw, "UNTESTED\tTOTAL\tFULLY\tFILE")
+		for _, gp := range gaps {
+			fully := ""
+			if gp.FullyUntested {
+				fully = "yes"
+			}
+			_, _ = fmt.Fprintf(tw, "%d\t%d\t%s\t%s\n", gp.UntestedCount, gp.FunctionCount, fully, gp.Path)
+		}
+		_ = tw.Flush()
+		_, _ = fmt.Fprintf(os.Stderr, "%d file(s) with untested functions — heuristic (direct test references only); transitively-exercised code may appear here\n", len(gaps))
+	}
+	return codeGraphExit(c.Timeout, parentCtx, effectiveCtx, g, "test-gaps")
+}
+
 func (c *DeadCodeCmd) Run(ctx context.Context) error {
 	g, parentCtx, effectiveCtx, cleanup, err := c.build(ctx, defaultSourceExpr(c.Expr))
 	if err != nil {

@@ -103,6 +103,10 @@ type CodeGraph struct {
 	fanOut map[string]fileFanOut
 	// languages: language -> file count.
 	languages map[string]int64
+	// testFiles: set of file paths the detector flagged is_test_file.
+	// Powers TestGaps (#394) — a function is "tested" when referenced
+	// from one of these.
+	testFiles map[string]bool
 }
 
 // refExtractionLangs is the set of languages for which references
@@ -145,6 +149,7 @@ func BuildCodeGraph(ctx context.Context, opts Options, registry *content.Registr
 		callsByName:  map[string]map[string]bool{},
 		fanOut:       map[string]fileFanOut{},
 		languages:    map[string]int64{},
+		testFiles:    map[string]bool{},
 	}
 	g.TotalFiles = int64(len(results))
 
@@ -155,6 +160,9 @@ func BuildCodeGraph(ctx context.Context, opts Options, registry *content.Registr
 		lang, _ := r.Attrs.Extra["language"].(string)
 		if lang != "" {
 			g.languages[lang]++
+		}
+		if t, _ := r.Attrs.Extra["is_test_file"].(bool); t {
+			g.testFiles[r.Path] = true
 		}
 
 		imports, _ := r.Attrs.Extra["imports"].([]string)
@@ -419,6 +427,94 @@ func isGoTestEntry(kind, name string) bool {
 			return true
 		}
 		if r := rest[0]; r < 'a' || r > 'z' {
+			return true
+		}
+	}
+	return false
+}
+
+// TestGap is one production source file with functions that no test
+// references (issue #394).
+type TestGap struct {
+	Path              string   `json:"path"`
+	Language          string   `json:"language"`
+	FunctionCount     int      `json:"function_count"`
+	UntestedCount     int      `json:"untested_count"`
+	UntestedFunctions []string `json:"untested_functions"`
+	FullyUntested     bool     `json:"fully_untested"`
+}
+
+// TestGaps returns production source files whose functions are never
+// referenced from a test file — candidate untested code (issue #394).
+// Restricted to languages with reference extraction (refExtractionLangs);
+// functions defined in test files are themselves excluded.
+//
+// HEURISTIC, name-based and DIRECT-reference only: a function exercised only
+// transitively (test → A → B, with B never named in a test) reads as
+// untested, and same-name collisions / reflection / table-driven dispatch
+// can mislead either way. Present as candidates — pair with a real coverage
+// profile for precision. Mirrors DeadCode's machinery (defined-but-not-
+// referenced), filtered to "not referenced *from a test*".
+func (g *CodeGraph) TestGaps() []TestGap {
+	type fileInfo struct {
+		lang  string
+		funcs []string
+	}
+	byFile := map[string]*fileInfo{}
+	for name, entries := range g.definedIn {
+		for _, e := range entries {
+			if e.kind != "function" || !refExtractionLangs[e.language] || g.testFiles[e.path] {
+				continue
+			}
+			fi := byFile[e.path]
+			if fi == nil {
+				fi = &fileInfo{lang: e.language}
+				byFile[e.path] = fi
+			}
+			fi.funcs = append(fi.funcs, name)
+		}
+	}
+
+	out := make([]TestGap, 0, len(byFile))
+	for path, fi := range byFile {
+		var untested []string
+		for _, name := range fi.funcs {
+			if !g.referencedFromTest(name) {
+				untested = append(untested, name)
+			}
+		}
+		if len(untested) == 0 {
+			continue
+		}
+		sort.Strings(untested)
+		out = append(out, TestGap{
+			Path:              path,
+			Language:          fi.lang,
+			FunctionCount:     len(fi.funcs),
+			UntestedCount:     len(untested),
+			UntestedFunctions: untested,
+			FullyUntested:     len(untested) == len(fi.funcs),
+		})
+	}
+
+	// Fully-untested files first (the scary gaps), then by untested count
+	// desc, then path for determinism.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].FullyUntested != out[j].FullyUntested {
+			return out[i].FullyUntested
+		}
+		if out[i].UntestedCount != out[j].UntestedCount {
+			return out[i].UntestedCount > out[j].UntestedCount
+		}
+		return out[i].Path < out[j].Path
+	})
+	return out
+}
+
+// referencedFromTest reports whether any file referencing name is a test file.
+func (g *CodeGraph) referencedFromTest(name string) bool {
+	for path := range g.referencedBy[name] {
+		if g.testFiles[path] {
 			return true
 		}
 	}

@@ -269,6 +269,20 @@ file-search-on duplicate-functions -o json -d . | jq '.groups[0].members'
 
 Each group's members list a `path` + `symbol` + line range — feed `[start_line, end_line]` to `lines` (or the `read_lines` MCP tool) to see the code. It's a heuristic (SimHash matches token/structure shape), so review a cluster before extracting — functions that share a skeleton but differ in intent can land together.
 
+## Find untested code (`test-gaps`)
+
+`test-gaps` reports production files whose functions are never referenced from a test — a coverage-hole finder that needs no `go test -cover` run or coverage profile. It reuses the cross-file reference graph: a function counts as *tested* when its name appears as a reference inside any `is_test_file`.
+
+```sh
+# Untested Go functions across the repo (fully-untested files ranked first).
+file-search-on test-gaps 'is_source && language == "go"' -d .
+
+# JSON — each gap carries {path, function_count, untested_count, untested_functions, fully_untested}.
+file-search-on test-gaps -o json -d ./internal | jq '.gaps[] | select(.fully_untested)'
+```
+
+It's a **direct-reference heuristic**, not a coverage report: a function exercised only transitively (a test calls `A`, which calls `B`, but no test names `B`) shows as untested, and same-name collisions can mislead — treat the output as review candidates. For precise line/branch coverage, drive a real coverage profile. Works across the reference-extraction languages (Go + Rust / TS / JS / Ruby / Swift / Kotlin / C / C++), including Rust's inline `#[cfg(test)]` tests, which a filename-sibling approach would miss.
+
 ## Filtering out generated code
 
 ```sh
