@@ -264,6 +264,8 @@ func TestCodeGraph_DeadCode_ExcludesReflectionEntryPoints(t *testing.T) {
 	mustWriteFile(t, filepath.Join(dir, "app.go"), "package app\n\n"+
 		"type RunCmd struct{}\n"+ // kong command type → excluded
 		"func orphan() {}\n"+ // genuinely unreferenced → flagged
+		"func init() {}\n"+ // package init → runtime-dispatched, excluded
+		"func main() {}\n"+ // program entry point → excluded
 		"func Tester() {}\n") // Test-prefixed but NOT a test entry → flagged
 	mustWriteFile(t, filepath.Join(dir, "app_test.go"), "package app\n\n"+
 		"import \"testing\"\n\n"+
@@ -285,6 +287,12 @@ func TestCodeGraph_DeadCode_ExcludesReflectionEntryPoints(t *testing.T) {
 	}
 	if dead["RunCmd"] {
 		t.Error("DeadCode wrongly flagged RunCmd (a kong-style command type)")
+	}
+	if dead["init"] {
+		t.Error("DeadCode wrongly flagged init (Go runtime-dispatched package init)")
+	}
+	if dead["main"] {
+		t.Error("DeadCode wrongly flagged main (program entry point)")
 	}
 }
 

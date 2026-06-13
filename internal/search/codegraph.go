@@ -547,10 +547,13 @@ func (g *CodeGraph) DeadCode() []SymbolDef {
 }
 
 // isReflectionDispatchedEntry reports whether a definition is an entry point
-// invoked by a framework via reflection rather than by a static call — so it
+// invoked by the runtime / a framework rather than by a static call — so it
 // never appears in the call-reference graph and would always be a dead-code
-// false positive (issue #385). Two well-known cases:
+// false positive (issue #385). Well-known cases:
 //
+//   - Go package-init / program entry points (`init`, `main`): run by the Go
+//     runtime, never statically called — reporting them is pure noise (they
+//     dominated dead_code output on real Go trees, e.g. 57 `init`s here).
 //   - Go test-runner entry points (TestXxx / BenchmarkXxx / FuzzXxx /
 //     ExampleXxx in a *_test.go file): run by `go test`, never called.
 //     Unused test *helpers* are still reported — only the runner entry
@@ -559,6 +562,9 @@ func (g *CodeGraph) DeadCode() []SymbolDef {
 //     struct-tag reflection, so they're referenced only as field types, which
 //     the call-reference graph doesn't track.
 func isReflectionDispatchedEntry(kind, name, path, language string) bool {
+	if language == "go" && kind == "function" && (name == "init" || name == "main") {
+		return true
+	}
 	if language == "go" && strings.HasSuffix(path, "_test.go") && isGoTestEntry(kind, name) {
 		return true
 	}
