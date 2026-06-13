@@ -752,16 +752,16 @@ Gotcha: **Go-only** — resolution keys on the go.mod module prefix to tell firs
 
 ### `unused_exports`
 
-Exported **Go** symbols (functions / types) referenced ONLY from within their own package — candidates to unexport. The subtler complement to `dead_code`: used *somewhere*, but never across a package boundary.
+Exported symbols (functions / types) referenced ONLY from within their own package — candidates to unexport. The subtler complement to `dead_code`: used *somewhere*, but never across a package boundary.
 
 Key inputs:
 
-- `dir` — the MODULE ROOT holding go.mod (default '.'); `dirs[]` uses the first root.
+- `dir` — root to analyse (default '.'); for Go this is the MODULE ROOT holding go.mod. `dirs[]` uses the first root.
 - `expr` — CEL pre-filter (default `is_source`).
 
-Output: `module`, `candidates[]` (`{symbol, kind: function|type, path, package}`, sorted by package then symbol), `count`.
+Output: `module` (the go.mod path, empty when none), `candidates[]` (`{symbol, kind: function|type, path, package}`, sorted by package then symbol), `count`.
 
-Gotcha: **Go-only** (package resolution via the go.mod prefix; `module:""` + empty when no go.mod at `dir`). HEURISTIC — reflection / framework dispatch (kong `…Cmd`, Go test entries) is excluded, but symbols kept exported for unit-testability, interface satisfaction, or consumers outside the walked tree still surface. Uses the #398 Go type-usage references so a type used as a field type in another package correctly disqualifies it. A review list, not an auto-unexport list.
+Gotcha: **Go** (capitalised name + go.mod import path) and **Python** (public/`_private` name convention + package directory) today; other wired languages are skipped until keyword-visibility / declared-package extraction lands. HEURISTIC — reflection / framework dispatch (kong `…Cmd`, Go test entries) is excluded, but symbols kept exported for unit-testability, interface satisfaction, or consumers outside the walked tree still surface. Uses the #398 type-usage references so a type used as a field type in another package correctly disqualifies it. A review list, not an auto-unexport list.
 
 ```json
 { "name": "unused_exports", "arguments": { "dir": "." } }

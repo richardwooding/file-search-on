@@ -11,6 +11,43 @@ import (
 	"github.com/richardwooding/file-search-on/internal/search"
 )
 
+// TestUnusedExports_Python pins the Phase-A cross-language extension: Python
+// uses the public/_private name convention + directory-as-package. A public
+// function used only within its own package directory is a candidate; one
+// used from another directory is not; a _private one is never reported.
+func TestUnusedExports_Python(t *testing.T) {
+	root := t.TempDir()
+	for _, d := range []string{"pkg", "other"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustWriteFile(t, filepath.Join(root, "pkg", "a.py"),
+		"def local_only():\n    pass\n\ndef cross_used():\n    pass\n\ndef _private():\n    pass\n")
+	mustWriteFile(t, filepath.Join(root, "pkg", "b.py"),
+		"def use_local():\n    local_only()\n") // references local_only intra-package
+	mustWriteFile(t, filepath.Join(root, "other", "c.py"),
+		"def use_cross():\n    cross_used()\n") // references cross_used from another package
+
+	res, err := search.UnusedExports(context.Background(), search.Options{Root: root, Expr: "is_source"}, contentpkg.DefaultRegistry())
+	if err != nil {
+		t.Fatalf("UnusedExports: %v", err)
+	}
+	got := map[string]bool{}
+	for _, c := range res.Candidates {
+		got[c.Symbol] = true
+	}
+	if !got["local_only"] {
+		t.Errorf("local_only should be a candidate (public, used only in pkg/): %+v", res.Candidates)
+	}
+	if got["cross_used"] {
+		t.Errorf("cross_used must NOT be a candidate (used from other/): %+v", res.Candidates)
+	}
+	if got["_private"] {
+		t.Errorf("_private is not exported in Python; must not be reported: %+v", res.Candidates)
+	}
+}
+
 func TestUnusedExports(t *testing.T) {
 	root := t.TempDir()
 	mustWriteFile(t, filepath.Join(root, "go.mod"), "module example.com/m\n\ngo 1.26\n")

@@ -381,7 +381,7 @@ file-search-on unused-exports -d .
 # …referenced only within their defining package.
 ```
 
-Built on the same go.mod package resolution as `coupling`, plus the Go type-usage tracking (a type used as a field type in *another* package correctly disqualifies it). **Go-only** and **heuristic** — reflection / framework dispatch (kong `…Cmd`, Go test entry points) is excluded, but symbols kept exported for unit-testability, interface satisfaction, or external consumers outside the tree still show up. A review list, not an auto-unexport list.
+Works for **Go** (capitalised name + go.mod import path) and **Python** (the public/`_private` convention + package directory) — more languages rolling out. Built on the cross-language type-usage tracking (a type used as a field type in *another* package correctly disqualifies it). **Heuristic** — reflection / framework dispatch (kong `…Cmd`, Go test entry points) is excluded, but symbols kept exported for unit-testability, interface satisfaction, or external consumers outside the tree still show up. A review list, not an auto-unexport list.
 
 ## Ownership / bus-factor per directory (`churn-owners`)
 
