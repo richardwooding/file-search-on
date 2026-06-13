@@ -1,11 +1,11 @@
 # Tool reference
 
-Every MCP tool the `file-search-on` server exposes (36 tools). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same families as the SKILL.md table.
+Every MCP tool the `file-search-on` server exposes (37 tools). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same families as the SKILL.md table.
 
 ## Contents
 
 - Search & inspect — `search`, `search_semantic`, `list_embedding_models`, `pull_embedding_model`, `read_attributes`, `read_lines`
-- Aggregate — `stats`
+- Aggregate — `stats`, `churn_owners`
 - Dedup & diff — `find_duplicates`, `find_near_duplicates`, `find_duplicate_functions`, `diff_trees`, `api_diff`
 - Archive — `list_archive_contents`, `read_file_in_archive`
 - Pattern + watch — `find_matches`, `watch_search`
@@ -220,6 +220,35 @@ Example — photos by camera:
 {
   "name": "stats",
   "arguments": { "dir": "~/Pictures", "expr": "is_image", "group_by": "camera_make" }
+}
+```
+
+---
+
+### `churn_owners`
+
+Git ownership / bus-factor per directory — which subtrees are effectively single-maintainer.
+
+Key inputs:
+
+- `expr` — CEL pre-filter (default `is_git_tracked`; narrow to `is_source` for code-only ownership).
+- `dir` / `dirs` — roots to analyse.
+- `min_files` — drop directories with fewer than this many files (default 1).
+
+Output: `dirs[]` `{dir, files, distinct_authors, top_author, top_author_share, total_commits}`, ranked fewest-authors-then-highest-churn (single-author high-traffic dirs first); plus `total_files` and partial-result fields.
+
+Gotchas:
+
+- Walks with git metadata forced on — needs the root to be inside a git working tree (empty result otherwise).
+- **Approximate ownership**: keys on `git_last_commit_author` (the LAST committer per file), not a full blame. Flags single-maintainer subtrees; not line-level ownership.
+- `top_author_share` is the fraction of the dir's files that author last touched, not a commit-weighted share.
+
+Example — every bus-factor-1 source directory:
+
+```json
+{
+  "name": "churn_owners",
+  "arguments": { "dir": ".", "expr": "is_source", "min_files": 3 }
 }
 ```
 
