@@ -81,6 +81,7 @@ func extractGoSymbols(src []byte) (functions, types, imports, references, callEd
 			}
 		}
 	}
+	references = append(references, goValueRefs(f)...)
 	ast.Inspect(f, func(n ast.Node) bool {
 		if call, ok := n.(*ast.CallExpr); ok {
 			if name := goCallee(call); name != "" {
@@ -172,6 +173,34 @@ func collectTypeIdents(expr ast.Expr, out *[]string) {
 			collectTypeIdents(idx, out)
 		}
 	}
+}
+
+// goValueRefs captures function/method names used as VALUES — passed as a
+// call argument (`AddTool(s, t, h.searchHandler)`) rather than called
+// (#421). These join `references` so a handler registered via a callback is
+// seen as used by dead_code / who_calls. Scoped to call-argument position
+// to bound over-capture (non-function args named like a function still get
+// captured, but that only adds harmless entries to the reference set).
+func goValueRefs(f *ast.File) []string {
+	var out []string
+	ast.Inspect(f, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		for _, arg := range call.Args {
+			switch a := arg.(type) {
+			case *ast.Ident:
+				out = append(out, a.Name)
+			case *ast.SelectorExpr:
+				if a.Sel != nil {
+					out = append(out, a.Sel.Name)
+				}
+			}
+		}
+		return true
+	})
+	return out
 }
 
 // goFunctionSpans returns the 1-based inclusive line span of every top-level

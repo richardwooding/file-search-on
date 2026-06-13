@@ -357,6 +357,30 @@ func TestCodeGraph_DeadCode_RustTypeUsedAsFieldType(t *testing.T) {
 	}
 }
 
+// TestCodeGraph_DeadCode_CallbackRegistered pins issue #421: a function
+// wired up by being passed as a value (the AddTool / HandleFunc pattern) is
+// referenced, not dead — while a genuinely-unpassed function still is.
+func TestCodeGraph_DeadCode_CallbackRegistered(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "app.go"), "package app\n\n"+
+		"func wire() { register(\"x\", handleX) }\n"+ // handleX passed as a value
+		"func register(name string, fn func()) {}\n"+
+		"func handleX() {}\n"+ // referenced only by being passed → NOT dead
+		"func orphanFn() {}\n") // never passed or called → dead
+
+	g := mustBuildGraph(t, dir)
+	dead := map[string]bool{}
+	for _, d := range g.DeadCode() {
+		dead[d.Symbol] = true
+	}
+	if dead["handleX"] {
+		t.Error("DeadCode wrongly flagged handleX (registered via a callback value)")
+	}
+	if !dead["orphanFn"] {
+		t.Errorf("DeadCode should still flag orphanFn (never passed or called): %v", dead)
+	}
+}
+
 func TestCodeGraph_Overview(t *testing.T) {
 	g := mustBuildGraph(t, buildGraphFixture(t))
 	ov := g.Overview(10)

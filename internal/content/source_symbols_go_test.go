@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -125,6 +126,33 @@ func TestExtractGoSymbols_PackageOnly(t *testing.T) {
 
 func contains(slice []string, want string) bool {
 	return slices.Contains(slice, want)
+}
+
+// TestExtractGoSymbols_ValueRefs pins issue #421: a function/method used as
+// a VALUE (passed as a call argument) must appear in references — so a
+// handler registered via a callback isn't a dead_code false positive — but
+// must NOT become a call edge (passing a function isn't calling it).
+func TestExtractGoSymbols_ValueRefs(t *testing.T) {
+	src := []byte(`package p
+
+func register() {
+	add("name", handleThing)   // bare func value
+	mux.Handle("/x", h.serveIt) // method value
+}
+func handleThing() {}
+`)
+	_, _, _, refs, edges, _ := extractGoSymbols(src)
+	for _, want := range []string{"handleThing", "serveIt"} {
+		if !contains(refs, want) {
+			t.Errorf("references missing value-passed %q: %v", want, refs)
+		}
+	}
+	// Passing a function is not calling it — no caller→callee edge to it.
+	for _, e := range edges {
+		if strings.HasSuffix(e, "\x00handleThing") || strings.HasSuffix(e, "\x00serveIt") {
+			t.Errorf("value-passed function leaked into call_edges: %q", e)
+		}
+	}
 }
 
 // TestExtractGoSymbols_TypeUsages pins issue #398: types used only in type

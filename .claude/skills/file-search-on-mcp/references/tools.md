@@ -611,7 +611,7 @@ Key inputs:
 
 Output: `callers[]` (`{path, language}`, sorted by path), `count`, `total_files`.
 
-Gotcha: references are extracted for Go + the tree-sitter languages only; callers in other languages won't appear. The references also include TYPE usages (a type named as a field / parameter / return / variable / generic-arg type; #398) for Go and the statically-typed tree-sitter languages (Rust / TypeScript / Python / Java / C# / C / C++ / Kotlin / Swift / Scala / PHP), so querying a type name finds its users; JavaScript / Ruby / Perl / R / MATLAB have no static types and capture call sites only.
+Gotcha: references are extracted for Go + the tree-sitter languages only; callers in other languages won't appear. The references also include TYPE usages (a type named as a field / parameter / return / variable / generic-arg type; #398) for Go and the statically-typed tree-sitter languages (Rust / TypeScript / Python / Java / C# / C / C++ / Kotlin / Swift / Scala / PHP), so querying a type name finds its users; JavaScript / Ruby / Perl / R / MATLAB have no static types and capture call sites only. For Go, function/method VALUES passed as call arguments are captured too (#421), so a callback-registered handler (AddTool / HandleFunc) shows its registration site as a user.
 
 ```json
 { "name": "who_calls", "arguments": { "symbol": "ServeHTTP", "dir": "." } }
@@ -674,7 +674,7 @@ Candidate definitions (functions/types) whose name is never referenced anywhere 
 
 Output: `candidates[]` (`{path, language, kind, symbol}`, sorted by path), `count`, `total_files`.
 
-**Gotcha — these are CANDIDATES, not authoritative.** Name-based heuristic; exported/public API used only externally, entry points (`main`), dynamic dispatch, reflection, and same-name collisions all produce false positives. Restricted to definitions in languages with reference extraction (Go + tree-sitter). The graph tracks TYPE usages too (#398) for Go and the statically-typed tree-sitter languages (Rust / TypeScript / Python / Java / C# / C / C++ / Kotlin / Swift / Scala / PHP), so a type used only as a field/parameter type is no longer a false positive; JavaScript / Ruby (no static types) still track calls only. Pair with `expr: "is_source && !is_test_file"` to drop test-runner-invoked functions. Use as a review starting point, never a delete list.
+**Gotcha — these are CANDIDATES, not authoritative.** Name-based heuristic; exported/public API used only externally, interface methods, dynamic dispatch, reflection, and same-name collisions all produce false positives. Restricted to definitions in languages with reference extraction (Go + tree-sitter). Excludes Go `init`/`main` + test/`…Cmd` entry points. The graph tracks TYPE usages (#398) and — for Go — function VALUES passed as callbacks (#421, the AddTool/HandleFunc pattern), so types-used-as-fields and callback-registered handlers are no longer false positives; JavaScript / Ruby (no static types) still track calls only. Pair with `expr: "is_source && !is_test_file"` to drop test-runner-invoked functions. Use as a review starting point, never a delete list.
 
 ```json
 { "name": "dead_code", "arguments": { "expr": "is_source && language == \"go\" && !is_test_file", "dir": "." } }
