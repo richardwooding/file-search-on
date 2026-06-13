@@ -10,18 +10,26 @@ import (
 	"github.com/richardwooding/file-search-on/internal/content"
 )
 
-// unusedExportsLangs is the set of languages unused_exports analyses —
-// those where both "exported" and "same package" are derivable today.
-// Go: capitalised name + go.mod import path. Python: non-underscore name +
-// package directory. Other languages need keyword-visibility / declared-
-// package extraction (the cross-language rollout, issue #409 follow-up) and
+// unusedExportsLangs is the set of languages unused_exports analyses. Each
+// needs a visibility signal and a package identity:
+//   - Go: capitalised name + go.mod import path.
+//   - Python: non-underscore name + package directory.
+//   - Rust: `pub` (the `exported_symbols` attribute) + module directory.
+//   - TypeScript / JavaScript: `export` (the `exported_symbols` attribute) +
+//     the file itself (ES module = file).
+//
+// Other wired languages need declared-package / keyword-visibility work and
 // are silently skipped until then.
-var unusedExportsLangs = map[string]bool{"go": true, "python": true}
+var unusedExportsLangs = map[string]bool{
+	"go": true, "python": true, "rust": true, "typescript": true, "javascript": true,
+}
 
-// exportedInLang reports whether name is exported/public in language lang.
-// Name-derivable: Go (upper-cased first rune) and Python (no leading
-// underscore — the public/_private convention; dunders start with _ too, so
-// they're excluded).
+// exportedInLang reports whether name is exported/public in a language whose
+// visibility is NAME-derivable: Go (upper-cased first rune) and Python (no
+// leading underscore — the public/_private convention; dunders start with _
+// too, so they're excluded). Keyword-visibility languages (Rust / TS / JS)
+// don't use this — their public set comes from the `exported_symbols`
+// attribute instead.
 func exportedInLang(name, lang string) bool {
 	switch lang {
 	case "go":
@@ -34,8 +42,10 @@ func exportedInLang(name, lang string) bool {
 
 // packageKeyFor returns a comparable package identity for a file (the unit
 // across which intra- vs cross-package use is judged) and false when the
-// file can't be attributed. Go uses the go.mod import path; Python uses the
-// file's directory relative to root (one Python package per directory).
+// file can't be attributed. Go uses the go.mod import path; Python and Rust
+// use the file's directory (one package / module per directory); TS/JS use
+// the file itself (an ES module is a file — an export used only within its
+// own file is the unexport candidate).
 func packageKeyFor(root, path, lang, module string) (string, bool) {
 	switch lang {
 	case "go":
@@ -44,14 +54,23 @@ func packageKeyFor(root, path, lang, module string) (string, bool) {
 		}
 		p := goPackageImportPath(root, path, module)
 		return p, p != ""
-	case "python":
-		rel, err := filepath.Rel(root, filepath.Dir(path))
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return "", false
-		}
-		return filepath.ToSlash(rel), true
+	case "python", "rust":
+		return dirKey(root, path)
+	case "typescript", "javascript":
+		return path, true
 	}
 	return "", false
+}
+
+// dirKey returns the file's directory relative to root (slash-normalised),
+// the package identity for directory-as-package languages. False when the
+// file sits outside root.
+func dirKey(root, path string) (string, bool) {
+	rel, err := filepath.Rel(root, filepath.Dir(path))
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return filepath.ToSlash(rel), true
 }
 
 // UnusedExport is an exported symbol whose only references come from its
@@ -147,16 +166,33 @@ func UnusedExports(ctx context.Context, opts Options, registry *content.Registry
 		if !ok {
 			continue
 		}
+		// Visibility: keyword-visibility languages carry the public subset
+		// in the `exported_symbols` attribute; name-convention languages
+		// (Go / Python) derive it from the name.
+		expAttr, hasExp := r.Attrs.Extra["exported_symbols"].([]string)
+		var expSet map[string]bool
+		if hasExp {
+			expSet = make(map[string]bool, len(expAttr))
+			for _, e := range expAttr {
+				expSet[e] = true
+			}
+		}
+		isExported := func(name string) bool {
+			if hasExp {
+				return expSet[name]
+			}
+			return exportedInLang(name, lang)
+		}
 		if funcs, ok := r.Attrs.Extra["functions"].([]string); ok {
 			for _, fn := range funcs {
-				if exportedInLang(fn, lang) {
+				if isExported(fn) {
 					note(fn, "function", pkg, r.Path, lang)
 				}
 			}
 		}
 		if types, ok := r.Attrs.Extra["type_names"].([]string); ok {
 			for _, t := range types {
-				if exportedInLang(t, lang) {
+				if isExported(t) {
 					note(t, "type", pkg, r.Path, lang)
 				}
 			}

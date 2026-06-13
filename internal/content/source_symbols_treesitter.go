@@ -198,6 +198,31 @@ var tsTypeRefQuery = map[string]string{
 	"php": `(named_type (name) @typeref)`,
 }
 
+// tsExportedQuery captures the names of PUBLIC function/type definitions as
+// @exported — the keyword-visibility complement to Go/Python's name-based
+// rule, feeding the builder-internal `exported_symbols` attribute that
+// `unused_exports` consumes (issue #409 cross-language rollout). Only
+// languages whose visibility is a keyword need an entry; name-convention
+// languages (Go capitalised, Python `_`-prefixed) derive it without a query.
+// Node shapes read off each grammar's parse tree (SExpr probe).
+var tsExportedQuery = map[string]string{
+	// Rust: a `pub` (any pub*) def carries a visibility_modifier child.
+	"rust": `(function_item (visibility_modifier) (identifier) @exported)
+(struct_item (visibility_modifier) (type_identifier) @exported)
+(enum_item (visibility_modifier) (type_identifier) @exported)
+(trait_item (visibility_modifier) (type_identifier) @exported)
+(type_item (visibility_modifier) (type_identifier) @exported)`,
+	// TypeScript: a public def is wrapped in an export_statement.
+	"typescript": `(export_statement (function_declaration (identifier) @exported))
+(export_statement (class_declaration (type_identifier) @exported))
+(export_statement (interface_declaration (type_identifier) @exported))
+(export_statement (type_alias_declaration (type_identifier) @exported))
+(export_statement (abstract_class_declaration (type_identifier) @exported))`,
+	// JavaScript: same wrapper; class name is a plain identifier (no types).
+	"javascript": `(export_statement (function_declaration (identifier) @exported))
+(export_statement (class_declaration (identifier) @exported))`,
+}
+
 // tsFuncSpanQuery captures a function definition's full node as @func.def
 // plus its name as @func.name, for languages whose bundled tags query
 // doesn't expose a function span (ruby/swift/kotlin — their tags emit
@@ -246,6 +271,7 @@ type tsLang struct {
 	importQuery *ts.Query // nil when none configured or compile failed
 	refQuery      *ts.Query // @reference call-site callees; nil when none
 	typeRefQuery  *ts.Query // @typeref type usages (#398); nil when none
+	exportedQuery *ts.Query // @exported public defs (#409); nil when none
 	spanQuery     *ts.Query // @func.def + @func.name spans; nil when none
 	decisionQuery *ts.Query // @decision complexity points; nil when none
 }
@@ -308,6 +334,11 @@ func buildTSLang(language string) *tsLang {
 	if q := tsTypeRefQuery[language]; q != "" {
 		if trQ, err := ts.NewQuery(q, lang); err == nil {
 			tl.typeRefQuery = trQ
+		}
+	}
+	if q := tsExportedQuery[language]; q != "" {
+		if exQ, err := ts.NewQuery(q, lang); err == nil {
+			tl.exportedQuery = exQ
 		}
 	}
 	if q := tsFuncSpanQuery[language]; q != "" {
@@ -519,6 +550,42 @@ func tsCollectTypeRefs(tl *tsLang, tree *ts.Tree, src []byte) (refs []string) {
 		}
 	}
 	return refs
+}
+
+// tsHasExportedQuery reports whether language has a keyword-visibility
+// export query — i.e. whether tsExportedSymbols can resolve its public
+// symbols. Lets callers skip the extra parse for languages without one.
+func tsHasExportedQuery(language string) bool {
+	return tsExportedQuery[language] != ""
+}
+
+// tsExportedSymbols parses src and returns the names of public (exported)
+// function/type definitions for keyword-visibility languages (Rust `pub`,
+// TS/JS `export`). The builder-internal `exported_symbols` attribute that
+// `unused_exports` consumes (#409). Returns nil for languages without an
+// export query or when nothing parses. Parses independently of
+// extractTreeSitterSymbols — call only for languages where tsHasExportedQuery
+// is true, so non-keyword languages pay no extra parse.
+func tsExportedSymbols(language string, src []byte) []string {
+	tl := tsLangFor(language)
+	if tl == nil || tl.exportedQuery == nil {
+		return nil
+	}
+	tree, err := tl.pool.Parse(src)
+	if err != nil || tree == nil {
+		return nil
+	}
+	var out []string
+	for _, m := range tl.exportedQuery.Execute(tree) {
+		for _, c := range m.Captures {
+			if c.Name == "exported" {
+				if name := c.Text(src); name != "" {
+					out = append(out, name)
+				}
+			}
+		}
+	}
+	return dedupeStrings(out)
 }
 
 // tsComplexityRows computes per-function cyclomatic complexity (1 +

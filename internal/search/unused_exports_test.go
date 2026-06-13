@@ -48,6 +48,40 @@ func TestUnusedExports_Python(t *testing.T) {
 	}
 }
 
+// TestUnusedExports_TypeScript pins Phase B keyword-visibility + file-as-
+// module: an `export`ed function used only within its own file is a
+// candidate; one imported and used from another file is not; a non-exported
+// function is never reported.
+func TestUnusedExports_TypeScript(t *testing.T) {
+	root := t.TempDir()
+	// a.ts exports localOnly (used only here), crossUsed (used in b.ts), and
+	// defines a private helper. b.ts imports + uses crossUsed.
+	mustWriteFile(t, filepath.Join(root, "a.ts"),
+		"export function localOnly() { return helper(); }\n"+
+			"export function crossUsed() {}\n"+
+			"function helper() { return localOnly(); }\n")
+	mustWriteFile(t, filepath.Join(root, "b.ts"),
+		"import { crossUsed } from './a';\nexport function run() { crossUsed(); }\n")
+
+	res, err := search.UnusedExports(context.Background(), search.Options{Root: root, Expr: "is_source"}, contentpkg.DefaultRegistry())
+	if err != nil {
+		t.Fatalf("UnusedExports: %v", err)
+	}
+	got := map[string]bool{}
+	for _, c := range res.Candidates {
+		got[c.Symbol] = true
+	}
+	if !got["localOnly"] {
+		t.Errorf("localOnly should be a candidate (exported, used only in a.ts): %+v", res.Candidates)
+	}
+	if got["crossUsed"] {
+		t.Errorf("crossUsed must NOT be a candidate (used from b.ts): %+v", res.Candidates)
+	}
+	if got["helper"] {
+		t.Errorf("helper is not exported; must not be reported: %+v", res.Candidates)
+	}
+}
+
 func TestUnusedExports(t *testing.T) {
 	root := t.TempDir()
 	mustWriteFile(t, filepath.Join(root, "go.mod"), "module example.com/m\n\ngo 1.26\n")

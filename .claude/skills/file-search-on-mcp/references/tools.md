@@ -761,7 +761,7 @@ Key inputs:
 
 Output: `module` (the go.mod path, empty when none), `candidates[]` (`{symbol, kind: function|type, path, package}`, sorted by package then symbol), `count`.
 
-Gotcha: **Go** (capitalised name + go.mod import path) and **Python** (public/`_private` name convention + package directory) today; other wired languages are skipped until keyword-visibility / declared-package extraction lands. HEURISTIC — reflection / framework dispatch (kong `…Cmd`, Go test entries) is excluded, but symbols kept exported for unit-testability, interface satisfaction, or consumers outside the walked tree still surface. Uses the #398 type-usage references so a type used as a field type in another package correctly disqualifies it. A review list, not an auto-unexport list.
+Gotcha: **Go** (capitalised name + go.mod import path), **Python** (public/`_private` convention + package directory), **Rust** (`pub` + module directory), and **TypeScript / JavaScript** (`export` + the file as ES module) today; other wired languages are skipped until declared-package extraction lands. HEURISTIC — reflection / framework dispatch (kong `…Cmd`, Go test entries) is excluded, but symbols kept exported for unit-testability, interface satisfaction, or consumers outside the walked tree still surface. Uses the #398 type-usage references so a type used as a field type in another package correctly disqualifies it. A review list, not an auto-unexport list.
 
 ```json
 { "name": "unused_exports", "arguments": { "dir": "." } }
