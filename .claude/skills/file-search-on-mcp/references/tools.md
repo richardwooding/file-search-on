@@ -603,15 +603,15 @@ Example — Go-only overview, top 10:
 
 ### `who_calls`
 
-Reverse call lookup — every file that calls/references a symbol name.
+Reverse usage lookup — every file that calls/references a function or type name.
 
 Key inputs:
 
-- `symbol` — exact function/method name (required). Name-based: `pkg.Foo()` / `x.Method()` key by `Foo` / `Method`.
+- `symbol` — exact function/method/type name (required). Name-based: `pkg.Foo()` / `x.Method()` key by `Foo` / `Method`.
 
 Output: `callers[]` (`{path, language}`, sorted by path), `count`, `total_files`.
 
-Gotcha: references are extracted for Go + the tree-sitter languages (Rust / TypeScript / JavaScript / Ruby / Swift / Kotlin / C / C++) only; callers in other languages won't appear.
+Gotcha: references are extracted for Go + the tree-sitter languages (Rust / TypeScript / JavaScript / Ruby / Swift / Kotlin / C / C++) only; callers in other languages won't appear. For **Go** the references also include TYPE usages (a type named as a field/parameter/composite-literal/embedding/generic-arg type; #398), so querying a type name finds its users — other languages capture call sites only.
 
 ```json
 { "name": "who_calls", "arguments": { "symbol": "ServeHTTP", "dir": "." } }
@@ -674,7 +674,7 @@ Candidate definitions (functions/types) whose name is never referenced anywhere 
 
 Output: `candidates[]` (`{path, language, kind, symbol}`, sorted by path), `count`, `total_files`.
 
-**Gotcha — these are CANDIDATES, not authoritative.** Name-based heuristic; exported/public API used only externally, entry points (`main`), dynamic dispatch, reflection, and same-name collisions all produce false positives. Restricted to definitions in languages with reference extraction (Go + tree-sitter). Pair with `expr: "is_source && !is_test_file"` to drop test-runner-invoked functions. Use as a review starting point, never a delete list.
+**Gotcha — these are CANDIDATES, not authoritative.** Name-based heuristic; exported/public API used only externally, entry points (`main`), dynamic dispatch, reflection, and same-name collisions all produce false positives. Restricted to definitions in languages with reference extraction (Go + tree-sitter). For **Go** the graph tracks TYPE usages too (#398), so a type used only as a field/parameter type is no longer a false positive — the other tree-sitter languages still track calls only. Pair with `expr: "is_source && !is_test_file"` to drop test-runner-invoked functions. Use as a review starting point, never a delete list.
 
 ```json
 { "name": "dead_code", "arguments": { "expr": "is_source && language == \"go\" && !is_test_file", "dir": "." } }

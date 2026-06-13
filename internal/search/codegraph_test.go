@@ -288,6 +288,36 @@ func TestCodeGraph_DeadCode_ExcludesReflectionEntryPoints(t *testing.T) {
 	}
 }
 
+// TestCodeGraph_DeadCode_TypeUsedAsFieldType pins issue #398: a type that
+// is never called but IS used as a field type / parameter is referenced,
+// so dead_code must not flag it. This is the type-level false-positive
+// class #385 left as a follow-up.
+func TestCodeGraph_DeadCode_TypeUsedAsFieldType(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "app.go"), "package app\n\n"+
+		"type Inner struct{}\n"+ // used only as a field type below
+		"type Param struct{}\n"+ // used only as a parameter type below
+		"type Truly struct{}\n"+ // genuinely unreferenced → still flagged
+		"type Outer struct{ X Inner }\n"+
+		"func use(p Param) { _ = Outer{} }\n"+
+		"func main() { use(Param{}) }\n")
+
+	g := mustBuildGraph(t, dir)
+	dead := map[string]bool{}
+	for _, d := range g.DeadCode() {
+		dead[d.Symbol] = true
+	}
+	if dead["Inner"] {
+		t.Error("DeadCode wrongly flagged Inner (used as a field type)")
+	}
+	if dead["Param"] {
+		t.Error("DeadCode wrongly flagged Param (used as a parameter type)")
+	}
+	if !dead["Truly"] {
+		t.Errorf("DeadCode should still flag the genuinely-unreferenced Truly: %v", dead)
+	}
+}
+
 func TestCodeGraph_Overview(t *testing.T) {
 	g := mustBuildGraph(t, buildGraphFixture(t))
 	ov := g.Overview(10)

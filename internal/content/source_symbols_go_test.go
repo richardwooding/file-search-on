@@ -127,6 +127,54 @@ func contains(slice []string, want string) bool {
 	return slices.Contains(slice, want)
 }
 
+// TestExtractGoSymbols_TypeUsages pins issue #398: types used only in type
+// positions (never called) must appear in references so dead_code stops
+// flagging them. Predeclared types must NOT leak in, and the call graph
+// must stay call-only.
+func TestExtractGoSymbols_TypeUsages(t *testing.T) {
+	src := []byte(`package p
+
+type Widget struct{}
+type Gadget struct{}
+type Sprocket struct{}
+type Cog struct{}
+type Embedded struct{}
+
+type Holder struct {
+	Embedded            // embedded type
+	W       Widget      // field type
+	G       []*Gadget   // slice-of-pointer field
+	M       map[string]Sprocket
+}
+
+func use(c Cog) Widget {           // param + result type
+	_ = Holder{}                   // composite-literal type
+	return Widget{}
+}
+`)
+	_, _, _, refs, edges, _ := extractGoSymbols(src)
+	for _, want := range []string{"Widget", "Gadget", "Sprocket", "Cog", "Embedded", "Holder"} {
+		if !contains(refs, want) {
+			t.Errorf("references missing type usage %q: %v", want, refs)
+		}
+	}
+	// Predeclared types must be filtered out.
+	for _, bad := range []string{"string", "error", "int"} {
+		if contains(refs, bad) {
+			t.Errorf("predeclared %q must not appear in references: %v", bad, refs)
+		}
+	}
+	// Type usages must never become call edges (the call graph is call-only).
+	for _, e := range edges {
+		for _, ty := range []string{"Widget", "Gadget", "Holder", "Cog"} {
+			if len(e) > len(ty) && e[len(e)-len(ty):] == ty && e[:len("use\x00")] == "use\x00" {
+				// only fail if it's actually an edge to a *type* — `use` calls nothing here
+				t.Errorf("type usage leaked into call_edges: %q", e)
+			}
+		}
+	}
+}
+
 func TestExtractGoSymbols_CallEdges(t *testing.T) {
 	src := []byte(`package p
 
