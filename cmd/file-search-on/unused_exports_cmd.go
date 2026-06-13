@@ -15,7 +15,7 @@ import (
 // UnusedExportsCmd is the unexport-candidate subcommand (issue #409):
 // exported Go symbols referenced only from within their own package.
 type UnusedExportsCmd struct {
-	Dir  string `short:"d" default:"." help:"Module root (the directory holding go.mod)."`
+	Dir  string `short:"d" default:"." help:"Root to analyse. For Go this is the module root (the directory holding go.mod)."`
 	Expr string `name:"expr" help:"CEL pre-filter for which files enter the graph. Defaults to is_source."`
 
 	Workers             int           `short:"w" help:"Parallel workers." default:"0"`
