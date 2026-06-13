@@ -1,12 +1,12 @@
 # Tool reference
 
-Every MCP tool the `file-search-on` server exposes (35 tools). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same families as the SKILL.md table.
+Every MCP tool the `file-search-on` server exposes (36 tools). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same families as the SKILL.md table.
 
 ## Contents
 
 - Search & inspect — `search`, `search_semantic`, `list_embedding_models`, `pull_embedding_model`, `read_attributes`, `read_lines`
 - Aggregate — `stats`
-- Dedup & diff — `find_duplicates`, `find_near_duplicates`, `find_duplicate_functions`, `diff_trees`
+- Dedup & diff — `find_duplicates`, `find_near_duplicates`, `find_duplicate_functions`, `diff_trees`, `api_diff`
 - Archive — `list_archive_contents`, `read_file_in_archive`
 - Pattern + watch — `find_matches`, `watch_search`
 - Cross-file code graph — `imported_by`, `find_definition`, `code_graph`, `who_calls`, `calls`, `impact`, `call_path`, `dead_code`, `test_gaps`, `coverage_gaps`, `complexity`
@@ -330,6 +330,36 @@ Example — what's on the external drive that the local copy is missing:
 {
   "name": "diff_trees",
   "arguments": { "tree_a": "/Volumes/Backup/Pictures", "tree_b": "~/Pictures", "op": "a-minus-b" }
+}
+```
+
+---
+
+### `api_diff`
+
+Breaking-change gate over the **exported** function/type surface of two trees. Builds a code graph over each and diffs the set of exported names.
+
+Key inputs:
+
+- `tree_a` (required) — baseline / released side.
+- `tree_b` (required) — candidate / proposed side.
+- `expr` — CEL pre-filter for which files enter each graph (default `is_source`). Narrow to one language for accuracy, e.g. `is_source && language == "go"`.
+- `prune_build_artefacts`, `excludes`, `respect_gitignore`, `workers`.
+
+Output: `removed[]` (in A, gone in B — the breaking set) and `added[]` (new in B), each `{symbol, kind: function|type}` sorted by name; `breaking` (bool, true iff anything removed); `removed_count`, `added_count`, `exported_a`, `exported_b`.
+
+Gotchas:
+
+- "Exported" = an upper-cased first rune — Go's export rule exactly; a heuristic for languages whose visibility isn't case-based (Python `_private`, etc.). Scope with `expr` to a single language to avoid cross-language noise.
+- **v1 is name + kind presence, not signatures.** A changed signature on a same-named function is NOT flagged. A kind change (func → type) shows as that name removed under one kind and added under the other.
+- Same name-based heuristics as the rest of the code graph; built on the per-file `functions` / `type_names` extraction (Go + the symbol-extraction languages).
+
+Example — did anything public disappear since the last release?
+
+```json
+{
+  "name": "api_diff",
+  "arguments": { "tree_a": "/tmp/released", "tree_b": ".", "expr": "is_source && language == \"go\"" }
 }
 ```
 
