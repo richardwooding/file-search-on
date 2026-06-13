@@ -260,6 +260,10 @@ func TestTSExportedSymbols(t *testing.T) {
 			[]string{"ef", "EC", "EI"}, []string{"pf", "PC"}},
 		{"javascript", "export function ef() {}\nfunction pf() {}\nexport class EC {}\nclass PC {}",
 			[]string{"ef", "EC"}, []string{"pf", "PC"}},
+		{"java", "public class PubC { public int pm(){return 1;} int pkg(){return 2;} }\nclass DefC {}\npublic interface PubI {}",
+			[]string{"PubC", "pm", "PubI"}, []string{"DefC", "pkg"}},
+		{"csharp", "public class PubC { public void PM(){} void Pr(){} }\nclass DefC {}\npublic struct PubS {}",
+			[]string{"PubC", "PM", "PubS"}, []string{"DefC", "Pr"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.language, func(t *testing.T) {
