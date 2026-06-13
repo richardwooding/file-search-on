@@ -119,6 +119,43 @@ func TestUnusedExports_Java(t *testing.T) {
 	}
 }
 
+// TestUnusedExports_Kotlin pins the default-public negation path end-to-end:
+// a public (default-visibility) top-level function called only within its
+// own directory is a candidate; one called from another directory is not; a
+// `private` function is never reported.
+func TestUnusedExports_Kotlin(t *testing.T) {
+	root := t.TempDir()
+	for _, d := range []string{"a", "b"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustWriteFile(t, filepath.Join(root, "a", "lib.kt"),
+		"fun localOnly() {}\nfun crossUsed() {}\nprivate fun privFn() {}\n")
+	mustWriteFile(t, filepath.Join(root, "a", "use.kt"),
+		"fun useLocal() { localOnly() }\n") // calls localOnly intra-directory
+	mustWriteFile(t, filepath.Join(root, "b", "other.kt"),
+		"fun useCross() { crossUsed() }\n") // calls crossUsed from another directory
+
+	res, err := search.UnusedExports(context.Background(), search.Options{Root: root, Expr: "is_source"}, contentpkg.DefaultRegistry())
+	if err != nil {
+		t.Fatalf("UnusedExports: %v", err)
+	}
+	got := map[string]bool{}
+	for _, c := range res.Candidates {
+		got[c.Symbol] = true
+	}
+	if !got["localOnly"] {
+		t.Errorf("localOnly should be a candidate (public, called only in a/): %+v", res.Candidates)
+	}
+	if got["crossUsed"] {
+		t.Errorf("crossUsed must NOT be a candidate (called from b/): %+v", res.Candidates)
+	}
+	if got["privFn"] {
+		t.Errorf("privFn is private; must not be reported: %+v", res.Candidates)
+	}
+}
+
 func TestUnusedExports(t *testing.T) {
 	root := t.TempDir()
 	mustWriteFile(t, filepath.Join(root, "go.mod"), "module example.com/m\n\ngo 1.26\n")

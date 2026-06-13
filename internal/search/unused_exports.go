@@ -20,12 +20,14 @@ import (
 //   - Java / C#: `public` (the `exported_symbols` attribute) + directory
 //     (one package per directory by convention — approximate for C#, whose
 //     namespace can decouple from the directory).
+//   - Kotlin / Scala: default-public, so `exported_symbols` is defs minus
+//     the private/internal/protected ones (computed in the extractor) +
+//     directory.
 //
-// Default-public languages (Kotlin / Scala / PHP, which need negation-style
-// visibility) and others are silently skipped until that lands.
+// PHP (top-level symbols have no visibility keyword) and others are skipped.
 var unusedExportsLangs = map[string]bool{
 	"go": true, "python": true, "rust": true, "typescript": true, "javascript": true,
-	"java": true, "csharp": true,
+	"java": true, "csharp": true, "kotlin": true, "scala": true,
 }
 
 // exportedInLang reports whether name is exported/public in a language whose
@@ -58,7 +60,7 @@ func packageKeyFor(root, path, lang, module string) (string, bool) {
 		}
 		p := goPackageImportPath(root, path, module)
 		return p, p != ""
-	case "python", "rust", "java", "csharp":
+	case "python", "rust", "java", "csharp", "kotlin", "scala":
 		return dirKey(root, path)
 	case "typescript", "javascript":
 		return path, true

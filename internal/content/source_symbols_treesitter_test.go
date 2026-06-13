@@ -282,6 +282,39 @@ func TestTSExportedSymbols(t *testing.T) {
 	}
 }
 
+// TestTSNonExportedSymbols pins the default-public negation path (#409
+// Phase C-2): Kotlin / Scala visibility is public unless private / internal /
+// protected, so the extractor captures the NON-public names (an explicit
+// Kotlin `public` is still exported and must NOT be captured).
+func TestTSNonExportedSymbols(t *testing.T) {
+	cases := []struct {
+		language       string
+		src            string
+		wantNonExp     []string
+		wantNotNonExp  []string // public — must not be captured
+	}{
+		{"kotlin", "fun pub() {}\nprivate fun priv() {}\ninternal fun intl() {}\npublic fun epub() {}\nclass PubC\nprivate class PrivC",
+			[]string{"priv", "intl", "PrivC"}, []string{"pub", "epub", "PubC"}},
+		{"scala", "def pub = 1\nprivate def priv = 2\nprotected def prot = 3\nclass PubC\nprivate class PrivC",
+			[]string{"priv", "prot", "PrivC"}, []string{"pub", "PubC"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.language, func(t *testing.T) {
+			got := tsNonExportedSymbols(tc.language, []byte(tc.src))
+			for _, w := range tc.wantNonExp {
+				if !slices.Contains(got, w) {
+					t.Errorf("non-exported missing %q: %v", w, got)
+				}
+			}
+			for _, n := range tc.wantNotNonExp {
+				if slices.Contains(got, n) {
+					t.Errorf("public %q must not be captured as non-exported: %v", n, got)
+				}
+			}
+		})
+	}
+}
+
 // TestExtractTreeSitterCallEdges checks per-function call attribution
 // (caller\x00callee pairs) via span-containment — the data behind calls().
 func TestExtractTreeSitterCallEdges(t *testing.T) {
