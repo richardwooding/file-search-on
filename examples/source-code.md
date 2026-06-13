@@ -297,6 +297,16 @@ file-search-on impact ServeHTTP --max-depth 1 -d .
 
 Output is a list of `{symbol, depth, defined-in}` ordered shallowest-first. Same name-based caveats as `who-calls` / `calls` — interface / reflection dispatch and same-name collisions can over- or under-count. The import-level equivalent ("what transitively imports this *file*") isn't available yet — it needs package resolution the graph doesn't carry.
 
+`impact` gives the *closure*; when you want the *route* — "how does A reach B?" — use `call-path`:
+
+```sh
+# The shortest call chain from the CLI entry point to the DB write.
+file-search-on call-path Run writeRow -d .
+# → Run → openIndex → ... → writeRow (with the file defining each step)
+```
+
+It BFSes the call graph and prints the shortest `from → … → to` chain (or reports unreachable). `--max-depth` caps the search. Same name-based heuristics apply.
+
 ## Precise coverage gaps (`coverage-gaps`)
 
 `test-gaps` needs no instrumentation but only sees *direct* test references. When you can run the tests, `coverage-gaps` reads a real Go coverage profile and reports functions below a coverage threshold — catching partially-tested functions and counting transitive coverage correctly.

@@ -364,6 +364,61 @@ func (h *handlers) impactHandler(ctx context.Context, _ *mcp.CallToolRequest, in
 	return nil, out, nil
 }
 
+// --- call_path ----------------------------------------------------------
+
+// CallPathInput is the JSON-schema input for the `call_path` tool.
+type CallPathInput struct {
+	codeGraphWalkInput
+	From     string `json:"from" jsonschema:"The exact name of the calling function to start from. Required."`
+	To       string `json:"to" jsonschema:"The exact name of the target function to reach. Required."`
+	MaxDepth int    `json:"max_depth,omitempty" jsonschema:"Cap the call hops searched. 0 (default) is unbounded."`
+}
+
+// CallPathOutput is the shortest call path from `from` to `to`.
+type CallPathOutput struct {
+	CommonOutput
+	From               string                `json:"from"`
+	To                 string                `json:"to"`
+	Reachable          bool                  `json:"reachable"`
+	Length             int                   `json:"length"`
+	Path               []search.CallPathStep `json:"path"`
+	TotalFiles         int64                 `json:"total_files"`
+	Cancelled          bool                  `json:"cancelled,omitempty"`
+	CancellationReason string                `json:"cancellation_reason,omitempty"`
+}
+
+func (h *handlers) callPathHandler(ctx context.Context, _ *mcp.CallToolRequest, in CallPathInput) (*mcp.CallToolResult, CallPathOutput, error) {
+	if in.From == "" || in.To == "" {
+		return nil, CallPathOutput{}, fmt.Errorf("both from and to are required")
+	}
+	opts, err := h.codeGraphOptions(in.codeGraphWalkInput)
+	if err != nil {
+		return nil, CallPathOutput{}, err
+	}
+	ctx, cancel := h.resolveTimeout(ctx, in.TimeoutSeconds)
+	defer cancel()
+
+	g, err := search.BuildCodeGraph(ctx, opts, content.DefaultRegistry())
+	if err != nil {
+		return nil, CallPathOutput{}, fmt.Errorf("call_path: %w", err)
+	}
+	path := g.CallPath(in.From, in.To, in.MaxDepth)
+	out := CallPathOutput{
+		From:               in.From,
+		To:                 in.To,
+		Reachable:          len(path) > 0,
+		Path:               path,
+		TotalFiles:         g.TotalFiles,
+		Cancelled:          g.Cancelled,
+		CancellationReason: g.CancellationReason,
+	}
+	if len(path) > 0 {
+		out.Length = len(path) - 1 // hops, not nodes
+	}
+	out.ServerVersion = h.version
+	return nil, out, nil
+}
+
 // --- test_gaps ----------------------------------------------------------
 
 // TestGapsInput is the JSON-schema input for the `test_gaps` tool.

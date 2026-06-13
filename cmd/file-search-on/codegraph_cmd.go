@@ -315,6 +315,46 @@ type CallsCmd struct {
 	Output string `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table | json."`
 }
 
+type CallPathCmd struct {
+	From string `arg:"" help:"Exact name of the calling function to start from."`
+	To   string `arg:"" help:"Exact name of the target function to reach."`
+	codeGraphWalkFlags
+	Expr     string `name:"expr" help:"CEL pre-filter. Defaults to is_source."`
+	MaxDepth int    `name:"max-depth" default:"0" help:"Cap call hops searched. 0 = unbounded."`
+	Output   string `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table | json."`
+}
+
+func (c *CallPathCmd) Run(ctx context.Context) error {
+	g, parentCtx, effectiveCtx, cleanup, err := c.build(ctx, defaultSourceExpr(c.Expr))
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	if g == nil {
+		return nil
+	}
+	path := g.CallPath(c.From, c.To, c.MaxDepth)
+	if c.Output == "json" {
+		_ = writeJSON(os.Stdout, map[string]any{
+			"from": c.From, "to": c.To, "reachable": len(path) > 0, "path": path, "total_files": g.TotalFiles,
+		})
+	} else if len(path) == 0 {
+		_, _ = fmt.Fprintf(os.Stderr, "%q does not reach %q within the call graph (of %d source files)\n", c.From, c.To, g.TotalFiles)
+	} else {
+		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		for i, step := range path {
+			arrow := "  "
+			if i > 0 {
+				arrow = "→ "
+			}
+			_, _ = fmt.Fprintf(tw, "%s%s\t%s\n", arrow, step.Symbol, strings.Join(step.Paths, ", "))
+		}
+		_ = tw.Flush()
+		_, _ = fmt.Fprintf(os.Stderr, "%d-hop path from %q to %q\n", len(path)-1, c.From, c.To)
+	}
+	return codeGraphExit(c.Timeout, parentCtx, effectiveCtx, g, "call-path")
+}
+
 type ImpactCmd struct {
 	Symbol string `arg:"" help:"Exact function/method name whose transitive callers (blast radius) to list."`
 	codeGraphWalkFlags

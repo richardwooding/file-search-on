@@ -411,6 +411,72 @@ func (g *CodeGraph) Impact(symbol string, maxDepth int) []ImpactNode {
 	return out
 }
 
+// CallPathStep is one node on a call path: the function name and the file(s)
+// that define it.
+type CallPathStep struct {
+	Symbol string   `json:"symbol"`
+	Paths  []string `json:"paths,omitempty"`
+}
+
+// CallPath returns the shortest call path from `from` to `to` — the route by
+// which `from` (in)directly calls `to` — as an ordered list of steps
+// (from … to). Returns nil when `to` is unreachable from `from`. BFS over the
+// forward per-function call graph (callsByName); among equal-length paths the
+// callee-sorted traversal makes the choice deterministic. maxDepth caps the
+// hops (<= 0 = unbounded). Answers "how does A reach B?" — the route, where
+// Impact gives the whole closure.
+//
+// Name-based, same caveats as Impact / Calls (same-name collisions, interface
+// / reflection dispatch).
+func (g *CodeGraph) CallPath(from, to string, maxDepth int) []CallPathStep {
+	if from == to {
+		return []CallPathStep{{Symbol: from, Paths: definingPaths(g.definedIn[from])}}
+	}
+
+	parent := map[string]string{from: ""}
+	depth := map[string]int{from: 0}
+	queue := []string{from}
+	found := false
+	for len(queue) > 0 && !found {
+		cur := queue[0]
+		queue = queue[1:]
+		if maxDepth > 0 && depth[cur] >= maxDepth {
+			continue
+		}
+		callees := keysOf(g.callsByName[cur])
+		sort.Strings(callees) // deterministic among equal-length paths
+		for _, c := range callees {
+			if _, seen := parent[c]; seen {
+				continue
+			}
+			parent[c] = cur
+			depth[c] = depth[cur] + 1
+			if c == to {
+				found = true
+				break
+			}
+			queue = append(queue, c)
+		}
+	}
+	if !found {
+		return nil
+	}
+
+	// Reconstruct from -> to via parent pointers, then reverse.
+	var rev []string
+	for n := to; n != ""; n = parent[n] {
+		rev = append(rev, n)
+		if n == from {
+			break
+		}
+	}
+	steps := make([]CallPathStep, 0, len(rev))
+	for i := len(rev) - 1; i >= 0; i-- {
+		steps = append(steps, CallPathStep{Symbol: rev[i], Paths: definingPaths(g.definedIn[rev[i]])})
+	}
+	return steps
+}
+
 // keysOf returns the keys of a string-set as a slice (unordered).
 func keysOf(set map[string]bool) []string {
 	out := make([]string, 0, len(set))

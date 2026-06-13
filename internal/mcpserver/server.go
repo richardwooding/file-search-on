@@ -472,6 +472,11 @@ func New(version string, idx index.Index, defaultTimeout time.Duration, embedDef
 	}, instrument(h.metrics, "impact", h.impactHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name:        "call_path",
+		Description: "Show HOW one function reaches another — the shortest call path from `from` to `to` through the call graph. Where impact gives the whole closure of callers and who_calls/calls give one hop, call_path gives the actual route (e.g. 'how does the HTTP handler reach the DB write?'). BFS over the per-function call graph. Input: from (required, the calling function), to (required, the target), max_depth (0 = unbounded), plus the usual expr (defaults to is_source) / dir / dirs / excludes / timeout_seconds. Output: path[] {symbol, paths[]} ordered from→to (with the file(s) defining each step), reachable (bool), length (hops), total_files. Empty path + reachable=false when `to` isn't reachable from `from`. HEURISTIC, name-based (same caveats as impact / calls): same-name collisions and interface / reflection dispatch can produce a spurious or missing route.",
+	}, instrument(h.metrics, "call_path", h.callPathHandler))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "coverage_gaps",
 		Description: "Report functions whose statement coverage is below a threshold, from a Go coverage profile — the precise complement to test_gaps (which needs no profile but only sees direct test references). Reads a profile produced by 'go test -coverprofile=cover.out ./...', resolves each profiled file to disk (its import path minus the module prefix from go.mod), splits it into functions, and sums each function's covered vs total statements. Input: profile (required, path to the profile), dir (module root holding go.mod; default '.'), threshold (coverage fraction 0..1 — report functions strictly below it; 0/omit = 1.0 = every function not fully covered; 0.8 = under 80%). Output: gaps[] {path, function, start_line, end_line, covered_statements, total_statements, covered_pct, fully_uncovered} sorted worst-coverage-first then biggest gap, plus files_analysed, profile_mode, count. Go coverage profiles only. Unlike test_gaps this catches partially-tested functions and counts transitive coverage correctly — but requires actually running the tests with -coverprofile first.",
 	}, instrument(h.metrics, "coverage_gaps", h.coverageGapsHandler))
