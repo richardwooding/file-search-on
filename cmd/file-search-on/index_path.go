@@ -163,7 +163,23 @@ func resolveIndexBackend(cwd, path string, noIndex bool, bodyCap index.BodyCache
 		return index.NewMemory(), IndexBackend{Mode: BackendInMemory, Reason: ReasonLockContention}, nil
 	}
 	if errors.Is(err, index.ErrSchemaMismatch) {
-		return nil, IndexBackend{}, fmt.Errorf("index file at %s has an incompatible schema; delete it or pass a new --index-path", path)
+		// The file is a stale cache from a different schema / binary
+		// version (issue #418). It's pure cache — discard and rebuild
+		// rather than erroring out, so an upgrade Just Works instead of
+		// forcing the user to hunt down and delete the file.
+		fmt.Fprintf(os.Stderr, "file-search-on: index cache at %s is from a different version; rebuilding it\n", path)
+		if rmErr := os.Remove(path); rmErr != nil && !os.IsNotExist(rmErr) {
+			return nil, IndexBackend{}, fmt.Errorf("rebuild stale index at %s: %w", path, rmErr)
+		}
+		idx, err = index.OpenWith(path, bodyCap)
+		if err == nil {
+			return idx, IndexBackend{Mode: BackendPersistent, Path: path}, nil
+		}
+		if isBoltLockTimeout(err) {
+			fmt.Fprintf(os.Stderr, "file-search-on: index file %s is held by another instance; this session will use in-memory cache (use --no-index to silence this warning)\n", path)
+			return index.NewMemory(), IndexBackend{Mode: BackendInMemory, Reason: ReasonLockContention}, nil
+		}
+		return nil, IndexBackend{}, fmt.Errorf("rebuild stale index at %s: %w", path, err)
 	}
 	return nil, IndexBackend{}, fmt.Errorf("open index: %w", err)
 }

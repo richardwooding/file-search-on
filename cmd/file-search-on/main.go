@@ -117,6 +117,12 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Stamp this binary's version as the on-disk index cache identity so a
+	// cache written by a different version is discarded rather than served
+	// stale — guards the #418 class of bug (attributes added between
+	// releases silently missing for unchanged files).
+	index.SetSchemaID(version)
+
 	kctx := kong.Parse(&CLI,
 		kong.Name("file-search-on"),
 		kong.Description("Content-type aware file search with CEL attribute filtering."),

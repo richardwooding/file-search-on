@@ -17,7 +17,17 @@ import (
 )
 
 const (
-	schemaVersion     = 1
+	// schemaVersion gates the on-disk gob/bucket layout. Bump it on any
+	// CHANGE to that layout. Note: you do NOT need to bump it merely
+	// because the *attribute set* grew — entries also carry the writing
+	// binary's version (metaPayload.AttrSchemaID), so a newer binary
+	// automatically invalidates a cache an older binary wrote. (This guard
+	// was added after issue #418: the counter sat at 1 through #363 / #364 /
+	// #368 / #398, so caches written before those silently served entries
+	// missing references / call_edges / complexity / type-usage refs, which
+	// broke every code-graph tool on a warm index.) Bumped to 2 to discard
+	// all pre-#418 v1 caches that lack the version stamp.
+	schemaVersion     = 2
 	bucketAttrs       = "attrs_v1"
 	bucketBodies      = "bodies_v1"
 	bucketBodyAccess  = "body_access_v1"
@@ -51,6 +61,13 @@ const (
 type metaPayload struct {
 	SchemaVersion int    `json:"schema_version"`
 	Encoding      string `json:"encoding"`
+	// AttrSchemaID is the version string of the binary that created the
+	// cache. A newer binary (different version) invalidates the cache, so
+	// attributes added between releases are never served stale — the
+	// automatic guard against the #418 class of bug. Empty on pre-#418
+	// caches (json-additive); current binaries write a non-empty id, so an
+	// empty stored value never matches and those caches are discarded.
+	AttrSchemaID string `json:"attr_schema_id,omitempty"`
 }
 
 type boltIndex struct {
@@ -81,7 +98,7 @@ type bodyPutReq struct {
 	ts  int64  // AccessedUnixNano
 }
 
-func openBoltIndex(path string, cap BodyCacheCap) (*boltIndex, error) {
+func openBoltIndex(path string, cap BodyCacheCap, schemaID string) (*boltIndex, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("resolve index path: %w", err)
@@ -91,7 +108,7 @@ func openBoltIndex(path string, cap BodyCacheCap) (*boltIndex, error) {
 		return nil, fmt.Errorf("open index file: %w", err)
 	}
 
-	if err := initOrValidateSchema(db); err != nil {
+	if err := initOrValidateSchema(db, schemaID); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -130,7 +147,7 @@ func openBoltIndex(path string, cap BodyCacheCap) (*boltIndex, error) {
 	return idx, nil
 }
 
-func initOrValidateSchema(db *bbolt.DB) error {
+func initOrValidateSchema(db *bbolt.DB, schemaID string) error {
 	return db.Update(func(tx *bbolt.Tx) error {
 		meta := tx.Bucket([]byte(bucketMeta))
 		if meta == nil {
@@ -143,6 +160,7 @@ func initOrValidateSchema(db *bbolt.DB) error {
 			payload, err := json.Marshal(metaPayload{
 				SchemaVersion: schemaVersion,
 				Encoding:      "gob",
+				AttrSchemaID:  schemaID,
 			})
 			if err != nil {
 				return err
@@ -170,6 +188,12 @@ func initOrValidateSchema(db *bbolt.DB) error {
 			return ErrSchemaMismatch
 		}
 		if got.SchemaVersion != schemaVersion || got.Encoding != "gob" {
+			return ErrSchemaMismatch
+		}
+		// Attributes added between binary versions would otherwise be
+		// served stale (issue #418): a cache written by a different binary
+		// version is discarded so the current extractor re-runs.
+		if got.AttrSchemaID != schemaID {
 			return ErrSchemaMismatch
 		}
 		if tx.Bucket([]byte(bucketAttrs)) == nil {

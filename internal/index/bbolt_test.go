@@ -121,6 +121,45 @@ func errIsSchemaMismatch(err error) bool {
 	return err == ErrSchemaMismatch
 }
 
+// TestBoltAttrSchemaIDInvalidatesAcrossVersions pins the #418 fix: a cache
+// written by one binary version is rejected when opened by another, so a
+// newer binary never serves attributes the cache predates. (Before the
+// fix, validity was (size, mtime) only and a stale entry survived forever.)
+func TestBoltAttrSchemaIDInvalidatesAcrossVersions(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "idx.db")
+
+	// Binary "v1" writes an entry.
+	idx, err := openBoltIndex(path, BodyCacheCap{}, "v1")
+	if err != nil {
+		t.Fatalf("open v1: %v", err)
+	}
+	mtime := time.Unix(1700000000, 0)
+	if err := idx.Put("/x/a.go", &Entry{ContentType: "source/go", Size: 10, ModTimeUnixNano: mtime.UnixNano(),
+		Extra: map[string]any{"functions": []string{"A"}}}); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	if err := idx.Close(); err != nil {
+		t.Fatalf("close v1: %v", err)
+	}
+
+	// A different binary version must reject the cache rather than serve
+	// its (now potentially incomplete) entries.
+	if _, err := openBoltIndex(path, BodyCacheCap{}, "v2"); !errIsSchemaMismatch(err) {
+		t.Fatalf("v2 opening a v1 cache: got %v, want ErrSchemaMismatch", err)
+	}
+
+	// Re-opening with the SAME id round-trips normally.
+	idx2, err := openBoltIndex(path, BodyCacheCap{}, "v1")
+	if err != nil {
+		t.Fatalf("reopen v1: %v", err)
+	}
+	defer func() { _ = idx2.Close() }()
+	if _, ok := idx2.Lookup("/x/a.go", 10, mtime); !ok {
+		t.Error("same-id reopen should find the entry")
+	}
+}
+
 func TestBoltPutThenLookupSameSession(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "idx.db")

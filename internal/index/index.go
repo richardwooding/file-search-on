@@ -390,10 +390,24 @@ type BodyCacheCap struct {
 }
 
 // ErrSchemaMismatch is returned by Open when the on-disk index file
-// belongs to a different (older or newer) schema version than this
-// binary understands. The CLI surfaces a "delete or pass a new
-// --index-path" message; we never auto-delete user data.
-var ErrSchemaMismatch = errors.New("index: schema version mismatch (delete the file or pass a new --index-path)")
+// belongs to a different schema version OR was written by a different
+// binary version than this one (issue #418 — a newer binary may extract
+// attributes the cache predates). The index is a cache, so callers should
+// treat this as "rebuild from scratch" (delete + reopen), not a fatal
+// error; the CLI / MCP openIndex wrapper does exactly that.
+var ErrSchemaMismatch = errors.New("index: schema/version mismatch (stale cache — delete the file to rebuild)")
+
+// schemaID is the current binary's cache identity, stamped into new
+// on-disk indexes and compared on open. Set once at startup via
+// SetSchemaID(version); an empty default keeps tests / library callers on
+// a single stable identity (no spurious invalidation within one binary).
+var schemaID string
+
+// SetSchemaID records the running binary's version as the on-disk cache
+// identity. A cache written under a different id is discarded on open so a
+// newer binary never serves attributes the cache predates (issue #418).
+// Call once from main() before opening any index.
+func SetSchemaID(id string) { schemaID = id }
 
 // NewMemory returns an in-memory Index. It is concurrent-safe and has
 // no persistence; suitable for the MCP server's auto-on cache.
@@ -414,5 +428,5 @@ func OpenWith(path string, cap BodyCacheCap) (Index, error) {
 	if path == "" {
 		return NewMemory(), nil
 	}
-	return openBoltIndex(path, cap)
+	return openBoltIndex(path, cap, schemaID)
 }
