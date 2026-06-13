@@ -1,6 +1,6 @@
 # Tool reference
 
-Every MCP tool the `file-search-on` server exposes (37 tools). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same families as the SKILL.md table.
+Every MCP tool the `file-search-on` server exposes (38 tools). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same families as the SKILL.md table.
 
 ## Contents
 
@@ -9,7 +9,7 @@ Every MCP tool the `file-search-on` server exposes (37 tools). Each entry has a 
 - Dedup & diff — `find_duplicates`, `find_near_duplicates`, `find_duplicate_functions`, `diff_trees`, `api_diff`
 - Archive — `list_archive_contents`, `read_file_in_archive`
 - Pattern + watch — `find_matches`, `watch_search`
-- Cross-file code graph — `imported_by`, `find_definition`, `code_graph`, `who_calls`, `calls`, `impact`, `call_path`, `dead_code`, `test_gaps`, `coverage_gaps`, `complexity`
+- Cross-file code graph — `imported_by`, `find_definition`, `code_graph`, `who_calls`, `calls`, `impact`, `call_path`, `dead_code`, `test_gaps`, `coverage_gaps`, `complexity`, `coupling`
 - CEL utilities — `validate_expr`, `list_attributes`
 - Project + presets + monitoring — `detect_project`, `find_projects`, `resolve_project_for_path`, `list_presets`, `query_preset`, `index_stats`, `monitor_info`
 
@@ -710,6 +710,24 @@ Gotcha: Go coverage profiles only. Unlike `test_gaps` it catches partially-teste
 
 ```json
 { "name": "coverage_gaps", "arguments": { "profile": "cover.out", "dir": ".", "threshold": 0.8 } }
+```
+
+### `coupling`
+
+Per-package afferent/efferent coupling + instability (Robert C. Martin's metrics) over first-party **Go** packages — the architecture-health report the import fan-out guard only gestures at.
+
+Key inputs:
+
+- `dir` — the MODULE ROOT holding go.mod (default '.'); `dirs[]` uses the first root.
+- `expr` — CEL pre-filter (default `is_source`).
+- `top` — cap the packages returned; 0 (default) = all.
+
+Output: `module` (the go.mod path), `packages[]` (`{package, afferent (Ca), efferent (Ce), instability}`, ranked most-depended-upon then most unstable), `count`. `instability = Ce/(Ca+Ce)` — 0 = maximally stable (depended-upon, depends on nothing), 1 = maximally unstable.
+
+Gotcha: **Go-only** — resolution keys on the go.mod module prefix to tell first-party packages from third-party imports; returns `module:""` + empty `packages` when no go.mod is at `dir`. High Ca + high I = a fragile hub (heavily relied upon yet volatile — the riskiest seam to change); a stable core has high Ca + low I.
+
+```json
+{ "name": "coupling", "arguments": { "dir": ".", "top": 20 } }
 ```
 
 ### `complexity`
