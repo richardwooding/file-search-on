@@ -361,6 +361,20 @@ file-search-on coupling -d . --top 20
 
 A package with **high Ca and high I** is a fragile hub — heavily relied upon yet itself volatile, the most dangerous place to change. A stable core (high Ca, low I) is healthy; an unstable leaf (low Ca, high I) is fine. Run it at the **module root** — resolution keys on the `go.mod` module prefix to tell first-party packages from third-party imports. **Go-only**; non-Go files are ignored.
 
+## Over-exported symbols (`unused-exports`)
+
+`dead-code` finds symbols used *nowhere*; `unused-exports` finds the subtler case — exported symbols used *somewhere*, but never across a package boundary. They could be unexported to shrink the package's public API surface:
+
+```sh
+file-search-on unused-exports -d .
+# KIND      SYMBOL          PATH
+# function  ParseInternal   internal/engine/parse.go
+# type      cacheEntry      internal/engine/cache.go
+# …referenced only within their defining package.
+```
+
+Built on the same go.mod package resolution as `coupling`, plus the Go type-usage tracking (a type used as a field type in *another* package correctly disqualifies it). **Go-only** and **heuristic** — reflection / framework dispatch (kong `…Cmd`, Go test entry points) is excluded, but symbols kept exported for unit-testability, interface satisfaction, or external consumers outside the tree still show up. A review list, not an auto-unexport list.
+
 ## Ownership / bus-factor per directory (`churn-owners`)
 
 Who owns what, and which subtrees are a single-maintainer risk? `churn-owners` aggregates git authorship per directory and ranks single-author high-churn subtrees first:
