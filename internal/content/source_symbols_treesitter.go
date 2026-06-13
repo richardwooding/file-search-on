@@ -239,6 +239,24 @@ var tsExportedQuery = map[string]string{
 (method_declaration (modifier) @_m name: (identifier) @exported (#eq? @_m "public"))`,
 }
 
+// tsNonExportedQuery is the inverse of tsExportedQuery for DEFAULT-PUBLIC
+// languages (Kotlin / Scala): visibility is public unless a private /
+// internal / protected modifier says otherwise, which tree-sitter can't
+// express as a positive match. So these capture the NON-public defs (name +
+// modifier text @vis); the exported set is then `functions + type_names`
+// minus the captured names (see tsNonExportedSymbols + sourcetype). Kotlin
+// allows an explicit `public` modifier, so @vis is text-filtered to exclude
+// it; Scala has no public keyword (any access_modifier is non-public).
+var tsNonExportedQuery = map[string]string{
+	"kotlin": `(function_declaration (modifiers (visibility_modifier) @vis) (simple_identifier) @name)
+(class_declaration (modifiers (visibility_modifier) @vis) (type_identifier) @name)
+(object_declaration (modifiers (visibility_modifier) @vis) (type_identifier) @name)`,
+	"scala": `(function_definition (modifiers (access_modifier) @vis) (identifier) @name)
+(class_definition (modifiers (access_modifier) @vis) (identifier) @name)
+(object_definition (modifiers (access_modifier) @vis) (identifier) @name)
+(trait_definition (modifiers (access_modifier) @vis) (identifier) @name)`,
+}
+
 // tsFuncSpanQuery captures a function definition's full node as @func.def
 // plus its name as @func.name, for languages whose bundled tags query
 // doesn't expose a function span (ruby/swift/kotlin — their tags emit
@@ -288,6 +306,7 @@ type tsLang struct {
 	refQuery      *ts.Query // @reference call-site callees; nil when none
 	typeRefQuery  *ts.Query // @typeref type usages (#398); nil when none
 	exportedQuery *ts.Query // @exported public defs (#409); nil when none
+	nonExpQuery   *ts.Query // @name+@vis non-public defs (#409 negation); nil when none
 	spanQuery     *ts.Query // @func.def + @func.name spans; nil when none
 	decisionQuery *ts.Query // @decision complexity points; nil when none
 }
@@ -355,6 +374,11 @@ func buildTSLang(language string) *tsLang {
 	if q := tsExportedQuery[language]; q != "" {
 		if exQ, err := ts.NewQuery(q, lang); err == nil {
 			tl.exportedQuery = exQ
+		}
+	}
+	if q := tsNonExportedQuery[language]; q != "" {
+		if neQ, err := ts.NewQuery(q, lang); err == nil {
+			tl.nonExpQuery = neQ
 		}
 	}
 	if q := tsFuncSpanQuery[language]; q != "" {
@@ -602,6 +626,67 @@ func tsExportedSymbols(language string, src []byte) []string {
 		}
 	}
 	return dedupeStrings(out)
+}
+
+// tsHasNonExportedQuery reports whether language uses negation-style
+// visibility (default-public; Kotlin / Scala) — i.e. its exported set is
+// computed as defs minus the non-public names tsNonExportedSymbols returns.
+func tsHasNonExportedQuery(language string) bool {
+	return tsNonExportedQuery[language] != ""
+}
+
+// tsNonExportedSymbols parses src and returns the names of NON-public
+// function/type definitions for default-public languages — those marked
+// private / internal / protected. The caller subtracts these from the full
+// def set to get the exported set (#409). Returns nil for languages without
+// a non-export query or when nothing parses.
+func tsNonExportedSymbols(language string, src []byte) []string {
+	tl := tsLangFor(language)
+	if tl == nil || tl.nonExpQuery == nil {
+		return nil
+	}
+	tree, err := tl.pool.Parse(src)
+	if err != nil || tree == nil {
+		return nil
+	}
+	var out []string
+	for _, m := range tl.nonExpQuery.Execute(tree) {
+		var name, vis string
+		for _, c := range m.Captures {
+			switch c.Name {
+			case "name":
+				name = c.Text(src)
+			case "vis":
+				vis = c.Text(src)
+			}
+		}
+		// An explicit `public` (Kotlin) is still exported — only
+		// private / internal / protected count as non-public.
+		if name != "" && !strings.HasPrefix(strings.TrimSpace(vis), "public") {
+			out = append(out, name)
+		}
+	}
+	return dedupeStrings(out)
+}
+
+// subtractStrings returns the members of all that are not in remove,
+// preserving order. Used to derive the exported set (defs minus non-public)
+// for default-public languages.
+func subtractStrings(all, remove []string) []string {
+	if len(remove) == 0 {
+		return all
+	}
+	rm := make(map[string]struct{}, len(remove))
+	for _, r := range remove {
+		rm[r] = struct{}{}
+	}
+	out := make([]string, 0, len(all))
+	for _, a := range all {
+		if _, ok := rm[a]; !ok {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // tsComplexityRows computes per-function cyclomatic complexity (1 +

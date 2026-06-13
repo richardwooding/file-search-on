@@ -188,11 +188,22 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 			attrs["max_complexity"] = maxComplexityOf(complexityRows)
 		}
 		// exported_symbols (builder-internal, #409): the public subset of
-		// defs for keyword-visibility languages (Rust pub, TS/JS export),
-		// consumed by unused_exports. Go/Python derive visibility by name in
-		// the consumer, so they need no query and no extra parse here.
-		if symbolExtractorWired(s.language) && tsHasExportedQuery(s.language) {
+		// defs for keyword-visibility languages, consumed by unused_exports.
+		// Positive-keyword languages (Rust pub, TS/JS export, Java/C# public)
+		// capture the public defs directly; default-public languages
+		// (Kotlin / Scala) capture the NON-public defs and subtract them
+		// from funcs+types. Go/Python derive visibility by name in the
+		// consumer, so they need no query and no extra parse here.
+		switch {
+		case tsHasExportedQuery(s.language):
 			if exp := tsExportedSymbols(s.language, bodyBuf.Bytes()); len(exp) > 0 {
+				attrs["exported_symbols"] = exp
+			}
+		case tsHasNonExportedQuery(s.language):
+			all := make([]string, 0, len(funcs)+len(types))
+			all = append(all, funcs...)
+			all = append(all, types...)
+			if exp := subtractStrings(all, tsNonExportedSymbols(s.language, bodyBuf.Bytes())); len(exp) > 0 {
 				attrs["exported_symbols"] = exp
 			}
 		}
