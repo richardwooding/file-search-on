@@ -48,18 +48,3 @@ func skipPrefixesForProfile(profile string) []string {
 	}
 	return nil
 }
-
-// matchesSkipPrefix reports whether contentTypeName starts with any
-// of the prefixes — the per-file gate inside BuildAttributesWith.
-// Empty prefixes / empty content type → false (no skip).
-func matchesSkipPrefix(contentTypeName string, prefixes []string) bool {
-	if contentTypeName == "" || len(prefixes) == 0 {
-		return false
-	}
-	for _, p := range prefixes {
-		if len(contentTypeName) >= len(p) && contentTypeName[:len(p)] == p {
-			return true
-		}
-	}
-	return false
-}
