@@ -221,6 +221,22 @@ var tsExportedQuery = map[string]string{
 	// JavaScript: same wrapper; class name is a plain identifier (no types).
 	"javascript": `(export_statement (function_declaration (identifier) @exported))
 (export_statement (class_declaration (identifier) @exported))`,
+	// Java: a `public` keyword inside the def's modifiers node (anonymous
+	// token match is order-independent). Default (no modifier) is
+	// package-private and correctly excluded.
+	"java": `(class_declaration (modifiers "public") name: (identifier) @exported)
+(interface_declaration (modifiers "public") name: (identifier) @exported)
+(enum_declaration (modifiers "public") name: (identifier) @exported)
+(record_declaration (modifiers "public") name: (identifier) @exported)
+(method_declaration (modifiers "public") name: (identifier) @exported)`,
+	// C#: a named (modifier) node equal to "public" (via #eq?). Top-level
+	// default is internal, correctly excluded.
+	"csharp": `(class_declaration (modifier) @_m name: (identifier) @exported (#eq? @_m "public"))
+(interface_declaration (modifier) @_m name: (identifier) @exported (#eq? @_m "public"))
+(struct_declaration (modifier) @_m name: (identifier) @exported (#eq? @_m "public"))
+(enum_declaration (modifier) @_m name: (identifier) @exported (#eq? @_m "public"))
+(record_declaration (modifier) @_m name: (identifier) @exported (#eq? @_m "public"))
+(method_declaration (modifier) @_m name: (identifier) @exported (#eq? @_m "public"))`,
 }
 
 // tsFuncSpanQuery captures a function definition's full node as @func.def

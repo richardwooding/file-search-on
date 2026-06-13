@@ -17,11 +17,15 @@ import (
 //   - Rust: `pub` (the `exported_symbols` attribute) + module directory.
 //   - TypeScript / JavaScript: `export` (the `exported_symbols` attribute) +
 //     the file itself (ES module = file).
+//   - Java / C#: `public` (the `exported_symbols` attribute) + directory
+//     (one package per directory by convention — approximate for C#, whose
+//     namespace can decouple from the directory).
 //
-// Other wired languages need declared-package / keyword-visibility work and
-// are silently skipped until then.
+// Default-public languages (Kotlin / Scala / PHP, which need negation-style
+// visibility) and others are silently skipped until that lands.
 var unusedExportsLangs = map[string]bool{
 	"go": true, "python": true, "rust": true, "typescript": true, "javascript": true,
+	"java": true, "csharp": true,
 }
 
 // exportedInLang reports whether name is exported/public in a language whose
@@ -54,7 +58,7 @@ func packageKeyFor(root, path, lang, module string) (string, bool) {
 		}
 		p := goPackageImportPath(root, path, module)
 		return p, p != ""
-	case "python", "rust":
+	case "python", "rust", "java", "csharp":
 		return dirKey(root, path)
 	case "typescript", "javascript":
 		return path, true

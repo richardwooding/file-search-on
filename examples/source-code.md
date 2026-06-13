@@ -381,7 +381,7 @@ file-search-on unused-exports -d .
 # …referenced only within their defining package.
 ```
 
-Works for **Go** (capitalised name + go.mod import path), **Python** (public/`_private` convention + package directory), **Rust** (`pub` + module directory), and **TypeScript / JavaScript** (`export` + the file as ES module) — more languages rolling out. Built on the cross-language type-usage tracking (a type used as a field type in *another* package correctly disqualifies it). **Heuristic** — reflection / framework dispatch (kong `…Cmd`, Go test entry points) is excluded, but symbols kept exported for unit-testability, interface satisfaction, or external consumers outside the tree still show up. A review list, not an auto-unexport list.
+Works for **Go** (capitalised name + go.mod import path), **Python** (public/`_private` convention + package directory), **Rust** (`pub` + module directory), **TypeScript / JavaScript** (`export` + the file as ES module), and **Java / C#** (`public` keyword + directory) — more languages rolling out. Built on the cross-language type-usage tracking (a type used as a field type in *another* package correctly disqualifies it). **Heuristic** — reflection / framework dispatch (kong `…Cmd`, Go test entry points) is excluded, but symbols kept exported for unit-testability, interface satisfaction, or external consumers outside the tree still show up. A review list, not an auto-unexport list.
 
 ## Ownership / bus-factor per directory (`churn-owners`)
 

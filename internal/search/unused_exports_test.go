@@ -82,6 +82,43 @@ func TestUnusedExports_TypeScript(t *testing.T) {
 	}
 }
 
+// TestUnusedExports_Java pins Phase C: `public` visibility + directory-as-
+// package. A public method called only from within its own directory is a
+// candidate; one called from another directory is not; a package-private
+// method is never reported.
+func TestUnusedExports_Java(t *testing.T) {
+	root := t.TempDir()
+	for _, d := range []string{"a", "b"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustWriteFile(t, filepath.Join(root, "a", "Lib.java"),
+		"public class Lib {\n  public static void localUtil() {}\n  public static void crossUtil() {}\n  static void pkgUtil() {}\n}\n")
+	mustWriteFile(t, filepath.Join(root, "a", "UseLocal.java"),
+		"public class UseLocal {\n  void r() { Lib.localUtil(); }\n}\n") // calls localUtil intra-directory
+	mustWriteFile(t, filepath.Join(root, "b", "UseCross.java"),
+		"public class UseCross {\n  void r() { Lib.crossUtil(); }\n}\n") // calls crossUtil from another directory
+
+	res, err := search.UnusedExports(context.Background(), search.Options{Root: root, Expr: "is_source"}, contentpkg.DefaultRegistry())
+	if err != nil {
+		t.Fatalf("UnusedExports: %v", err)
+	}
+	got := map[string]bool{}
+	for _, c := range res.Candidates {
+		got[c.Symbol] = true
+	}
+	if !got["localUtil"] {
+		t.Errorf("localUtil should be a candidate (public, called only in a/): %+v", res.Candidates)
+	}
+	if got["crossUtil"] {
+		t.Errorf("crossUtil must NOT be a candidate (called from b/): %+v", res.Candidates)
+	}
+	if got["pkgUtil"] {
+		t.Errorf("pkgUtil is package-private (not public); must not be reported: %+v", res.Candidates)
+	}
+}
+
 func TestUnusedExports(t *testing.T) {
 	root := t.TempDir()
 	mustWriteFile(t, filepath.Join(root, "go.mod"), "module example.com/m\n\ngo 1.26\n")
