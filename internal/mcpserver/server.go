@@ -387,6 +387,11 @@ func New(version string, idx index.Index, defaultTimeout time.Duration, embedDef
 	}, instrument(h.metrics, "stats", h.statsHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name:        "churn_owners",
+		Description: "Surface ownership concentration and bus-factor risk per directory — which subtrees are effectively single-maintainer. Walks with git metadata on, groups tracked files by their parent directory, and reports for each: distinct_authors, top_author + top_author_share (fraction of the dir's files that author last touched), files, total_commits. Ranked by bus-factor risk — fewest authors first, then highest churn — so single-author high-traffic directories sit at the top. Input: dir / dirs (default '.'), expr (default 'is_git_tracked'; narrow to 'is_source' for code-only), min_files (drop small dirs; default 1), plus the usual workers / excludes / prune_build_artefacts / timeout_seconds. Output: dirs[] {dir, files, distinct_authors, top_author, top_author_share, total_commits}, total_files. APPROXIMATE — keys on git_last_commit_author (the LAST committer per file), not a full blame, so it flags single-maintainer subtrees rather than computing true line-level ownership. Requires the walk root to be inside a git working tree.",
+	}, instrument(h.metrics, "churn_owners", h.churnOwnersHandler))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "read_lines",
 		Description: "Print a specific line range from a single file. Completes the search-then-inspect loop without a separate read tool — agent flow: search for matches, then call read_lines for context around each match. Inputs: path (required), start_line (1-indexed inclusive; default 1), end_line (1-indexed inclusive; 0 = end of file), max_lines (cap; default 1000). Returns lines[] (no trailing newlines), total_lines, and truncated:true when the requested range exceeds max_lines. Errors only on missing/unreadable files or invalid ranges (start_line > end_line); pathological lines (huge / non-UTF-8) are truncated at 64 KiB per line and the scan continues.",
 	}, instrument(h.metrics, "read_lines", h.readLinesHandler))

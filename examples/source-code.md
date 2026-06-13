@@ -342,6 +342,24 @@ file-search-on coverage-gaps cover.out -o json -d . | jq '.gaps[] | select(.full
 
 Each gap carries `{function, covered_pct, covered/total statements, line range}`. It resolves the profile's import-path filenames to disk via the module path in `go.mod` (so run it from / point `-d` at the module root). Go coverage profiles only.
 
+## Ownership / bus-factor per directory (`churn-owners`)
+
+Who owns what, and which subtrees are a single-maintainer risk? `churn-owners` aggregates git authorship per directory and ranks single-author high-churn subtrees first:
+
+```sh
+# Code-only ownership map, dirs with at least 3 files.
+file-search-on churn-owners --expr is_source --min-files 3 -d .
+# AUTHORS  FILES  COMMITS  TOP AUTHOR    SHARE  DIR
+# 1        90     236      Ada Lovelace  100%   internal/engine
+# 3        42     180      Alan Turing   55%    internal/api
+# ...
+
+# JSON — surface every bus-factor-1 directory for a team-health review.
+file-search-on churn-owners --expr is_source -o json | jq '.dirs[] | select(.distinct_authors == 1)'
+```
+
+It walks with git metadata on (no `--with-git` needed — it's implied), defaulting to `is_git_tracked` (every tracked file, not just code; narrow with `--expr is_source`). Each row is `{dir, files, distinct_authors, top_author, top_author_share, total_commits}`. **Approximate**: it keys on `git_last_commit_author` — the *last* committer per file, not a full blame — so it flags single-maintainer subtrees rather than computing true line-level ownership. Needs a git working tree.
+
 ## Filtering out generated code
 
 ```sh
