@@ -244,6 +244,40 @@ func TestExtractTreeSitterTypeRefs_NoSelfCapture(t *testing.T) {
 	}
 }
 
+// TestTSExportedSymbols pins keyword-visibility extraction (#409 Phase B):
+// only PUBLIC defs (Rust `pub`, TS/JS `export`) are returned, private ones
+// excluded — the `exported_symbols` signal unused_exports consumes.
+func TestTSExportedSymbols(t *testing.T) {
+	cases := []struct {
+		language    string
+		src         string
+		wantExp     []string
+		wantNotExp  []string
+	}{
+		{"rust", "pub fn pf() {}\nfn priv_fn() {}\npub struct PS {}\nstruct Priv {}\npub trait PT {}",
+			[]string{"pf", "PS", "PT"}, []string{"priv_fn", "Priv"}},
+		{"typescript", "export function ef() {}\nfunction pf() {}\nexport class EC {}\nclass PC {}\nexport interface EI {}",
+			[]string{"ef", "EC", "EI"}, []string{"pf", "PC"}},
+		{"javascript", "export function ef() {}\nfunction pf() {}\nexport class EC {}\nclass PC {}",
+			[]string{"ef", "EC"}, []string{"pf", "PC"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.language, func(t *testing.T) {
+			got := tsExportedSymbols(tc.language, []byte(tc.src))
+			for _, w := range tc.wantExp {
+				if !slices.Contains(got, w) {
+					t.Errorf("exported_symbols missing public %q: %v", w, got)
+				}
+			}
+			for _, n := range tc.wantNotExp {
+				if slices.Contains(got, n) {
+					t.Errorf("private %q must not be exported: %v", n, got)
+				}
+			}
+		})
+	}
+}
+
 // TestExtractTreeSitterCallEdges checks per-function call attribution
 // (caller\x00callee pairs) via span-containment — the data behind calls().
 func TestExtractTreeSitterCallEdges(t *testing.T) {
