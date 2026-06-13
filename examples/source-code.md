@@ -307,6 +307,25 @@ file-search-on call-path Run writeRow -d .
 
 It BFSes the call graph and prints the shortest `from → … → to` chain (or reports unreachable). `--max-depth` caps the search. Same name-based heuristics apply.
 
+## Catch a breaking API change before you tag (`api-diff`)
+
+Before cutting a release, diff the exported surface of the released tree against your working tree. `api-diff` reports which exported functions/types **vanished** (the breaking set) and which were **added**:
+
+```sh
+# Did anything public disappear between the last tag and HEAD?
+git worktree add /tmp/released v0.93.0
+file-search-on api-diff /tmp/released . --expr 'is_source && language=="go"'
+# → "BREAKING — exported symbols removed: 1 removed, 4 added (exported: 312 → 315)"
+#   - removed  function  OldHelper
+#   + added    function  NewHelper
+#   ...
+
+# JSON for a CI gate — fail the build when breaking is true.
+file-search-on api-diff /tmp/released . -o json | jq -e '.breaking | not'
+```
+
+"Exported" means an upper-cased first rune — exactly Go's export rule, and a reasonable heuristic for other languages (narrow with `--expr` to one language for accuracy). v1 compares **name + kind presence**, not signatures: a changed signature on a same-named function isn't flagged, and a kind change (func → type) shows up as that name removed under one kind and added under the other.
+
 ## Precise coverage gaps (`coverage-gaps`)
 
 `test-gaps` needs no instrumentation but only sees *direct* test references. When you can run the tests, `coverage-gaps` reads a real Go coverage profile and reports functions below a coverage threshold — catching partially-tested functions and counting transitive coverage correctly.
