@@ -143,6 +143,61 @@ var tsRefQuery = map[string]string{
 	"matlab":  `(function_call (identifier) @reference)`,
 }
 
+// tsTypeRefQuery captures type USAGES — a type named as a field type,
+// parameter / return type, variable type, or generic argument — as
+// @typeref (issue #398). These join the @reference set (call sites) so a
+// type used only as a field type counts as referenced, fixing the
+// type-level dead_code false-positive class and making who_calls on a type
+// name find its users. Each query is scoped to usage-position parent nodes
+// so it never captures the definition's own name (which would make every
+// type self-referenced). Type usages never become call edges.
+//
+// Only languages with static type annotations appear here: JavaScript /
+// Ruby / Perl / R / MATLAB have none, so they keep call-only references.
+// Node names were read off each grammar's parse tree (see the s-expression
+// probe in the test suite); a clause naming an unknown node type fails the
+// whole query compile, so each clause is verified against the real grammar.
+var tsTypeRefQuery = map[string]string{
+	"rust": `(field_declaration (type_identifier) @typeref)
+(parameter (type_identifier) @typeref)
+(generic_type (type_identifier) @typeref)
+(type_arguments (type_identifier) @typeref)
+(function_item (type_identifier) @typeref)
+(let_declaration (type_identifier) @typeref)
+(reference_type (type_identifier) @typeref)`,
+	"typescript": `(type_annotation (type_identifier) @typeref)
+(type_arguments (type_identifier) @typeref)`,
+	"python": `(type (identifier) @typeref)`,
+	"java": `(field_declaration (type_identifier) @typeref)
+(formal_parameter (type_identifier) @typeref)
+(local_variable_declaration (type_identifier) @typeref)
+(method_declaration (type_identifier) @typeref)
+(type_arguments (type_identifier) @typeref)
+(object_creation_expression (type_identifier) @typeref)`,
+	// C# is identifier-based (no distinct type node), so only the
+	// variable_declaration type position is unambiguous — params / returns
+	// share the (identifier) shape with names and aren't safely separable.
+	"csharp": `(variable_declaration (identifier) @typeref)`,
+	"c": `(field_declaration (struct_specifier (type_identifier) @typeref))
+(parameter_declaration (struct_specifier (type_identifier) @typeref))
+(declaration (struct_specifier (type_identifier) @typeref))
+(field_declaration (type_identifier) @typeref)
+(parameter_declaration (type_identifier) @typeref)
+(declaration (type_identifier) @typeref)`,
+	"cpp": `(field_declaration (type_identifier) @typeref)
+(parameter_declaration (type_identifier) @typeref)
+(declaration (type_identifier) @typeref)
+(function_definition (type_identifier) @typeref)
+(template_argument_list (type_descriptor (type_identifier) @typeref))`,
+	"kotlin": `(user_type (type_identifier) @typeref)`,
+	"swift":  `(user_type (type_identifier) @typeref)`,
+	"scala": `(class_parameter (type_identifier) @typeref)
+(parameter (type_identifier) @typeref)
+(function_definition (type_identifier) @typeref)
+(val_definition (type_identifier) @typeref)`,
+	"php": `(named_type (name) @typeref)`,
+}
+
 // tsFuncSpanQuery captures a function definition's full node as @func.def
 // plus its name as @func.name, for languages whose bundled tags query
 // doesn't expose a function span (ruby/swift/kotlin — their tags emit
@@ -190,6 +245,7 @@ type tsLang struct {
 	defQuery    *ts.Query // supplemental @function/@type; nil when none
 	importQuery *ts.Query // nil when none configured or compile failed
 	refQuery      *ts.Query // @reference call-site callees; nil when none
+	typeRefQuery  *ts.Query // @typeref type usages (#398); nil when none
 	spanQuery     *ts.Query // @func.def + @func.name spans; nil when none
 	decisionQuery *ts.Query // @decision complexity points; nil when none
 }
@@ -249,6 +305,11 @@ func buildTSLang(language string) *tsLang {
 			tl.refQuery = refQ
 		}
 	}
+	if q := tsTypeRefQuery[language]; q != "" {
+		if trQ, err := ts.NewQuery(q, lang); err == nil {
+			tl.typeRefQuery = trQ
+		}
+	}
 	if q := tsFuncSpanQuery[language]; q != "" {
 		if spanQ, err := ts.NewQuery(q, lang); err == nil {
 			tl.spanQuery = spanQ
@@ -281,6 +342,10 @@ func extractTreeSitterSymbols(language string, src []byte) (functions, types, im
 	functions, types, funcSpans := tsCollectDefs(tl, tree, src)
 	imports = tsCollectImports(tl, tree, src)
 	references, callEdges = tsCollectReferences(tl, tree, src, funcSpans)
+	// Type usages (#398) join `references` — they make a type used only as a
+	// field/param/return/generic type count as referenced — but never become
+	// call edges (the call graph stays call-only).
+	references = append(references, tsCollectTypeRefs(tl, tree, src)...)
 	complexityRows = tsComplexityRows(tl, tree, funcSpans)
 
 	return dedupeStrings(functions), dedupeStrings(types), dedupeStrings(imports),
@@ -434,6 +499,26 @@ func tsCollectReferences(tl *tsLang, tree *ts.Tree, src []byte, funcSpans []tsFu
 		}
 	}
 	return references, callEdges
+}
+
+// tsCollectTypeRefs gathers type-usage names (#398) via the per-language
+// type-reference query. These join the flat references list but, unlike
+// call sites, are not attributed to a caller (no call edges).
+func tsCollectTypeRefs(tl *tsLang, tree *ts.Tree, src []byte) (refs []string) {
+	if tl.typeRefQuery == nil {
+		return nil
+	}
+	for _, m := range tl.typeRefQuery.Execute(tree) {
+		for _, c := range m.Captures {
+			if c.Name != "typeref" {
+				continue
+			}
+			if r := c.Text(src); r != "" {
+				refs = append(refs, r)
+			}
+		}
+	}
+	return refs
 }
 
 // tsComplexityRows computes per-function cyclomatic complexity (1 +

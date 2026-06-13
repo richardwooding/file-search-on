@@ -193,10 +193,11 @@ file-search-on 'is_source && language == "scala" && "OrderService" in type_names
 # (def operator methods like "+" are captured in functions too)
 file-search-on 'is_source && language == "scala" && type_names.size() > 0' -d ./domain
 
-# Who uses a symbol? (references = call sites + Go type usages; Go + tree-sitter)
+# Who uses a symbol? (references = call sites + type usages; Go + tree-sitter)
 file-search-on who-calls ProcessOrder -d .
-# For Go this also finds TYPE usages, so a type used only as a field/param
-# type counts — query a type name to find its users, not just constructor calls:
+# This also finds TYPE usages (Go + the statically-typed tree-sitter languages),
+# so a type used only as a field/param type counts — query a type name to find
+# its users, not just constructor calls:
 file-search-on who-calls Widget -d .
 # …or as a CEL filter via the `references` attribute:
 file-search-on 'is_source && "ProcessOrder" in references'
@@ -211,8 +212,9 @@ file-search-on complexity 'is_source && language == "go"' --top 20
 
 # Candidate dead code — defined but never called or used. HEURISTIC: pair with
 # !is_test_file to drop test-runner-invoked funcs; review, don't auto-delete.
-# For Go, types used only as a field/param type are tracked (#398) — no longer
-# false positives; tree-sitter languages still track calls only.
+# Type usages are tracked (#398) for Go and the statically-typed tree-sitter
+# languages (Rust/TS/Python/Java/C#/C/C++/Kotlin/Swift/Scala/PHP), so a type
+# used only as a field/param type is no longer a false positive.
 file-search-on dead-code 'is_source && language == "go" && !is_test_file' -d .
 
 # Rust: every file importing a crate (tree-sitter-extracted)

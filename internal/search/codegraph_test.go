@@ -318,6 +318,37 @@ func TestCodeGraph_DeadCode_TypeUsedAsFieldType(t *testing.T) {
 	}
 }
 
+// TestCodeGraph_DeadCode_RustTypeUsedAsFieldType pins the tree-sitter half
+// of #398: a Rust type used only as a field type (never called) is now
+// referenced via type-usage extraction, so dead_code must not flag it —
+// while a genuinely-unused type still is.
+func TestCodeGraph_DeadCode_RustTypeUsedAsFieldType(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "lib.rs"), ""+
+		"struct Inner { x: i32 }\n"+ // used only as a field type below
+		"struct Lonely { x: i32 }\n"+ // genuinely unreferenced → still flagged
+		"struct Outer { inner: Inner }\n"+
+		"fn use_it(o: Outer) {}\n") // Outer used as a parameter type
+
+	g, err := search.BuildCodeGraph(t.Context(), search.Options{
+		Root: dir,
+		Expr: `is_source && language == "rust"`,
+	}, content.DefaultRegistry())
+	if err != nil {
+		t.Fatalf("BuildCodeGraph: %v", err)
+	}
+	dead := map[string]bool{}
+	for _, d := range g.DeadCode() {
+		dead[d.Symbol] = true
+	}
+	if dead["Inner"] {
+		t.Error("DeadCode wrongly flagged Inner (used as a field type in Rust)")
+	}
+	if !dead["Lonely"] {
+		t.Errorf("DeadCode should still flag the unreferenced Lonely: %v", dead)
+	}
+}
+
 func TestCodeGraph_Overview(t *testing.T) {
 	g := mustBuildGraph(t, buildGraphFixture(t))
 	ov := g.Overview(10)

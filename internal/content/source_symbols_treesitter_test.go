@@ -181,6 +181,69 @@ func TestExtractTreeSitterReferences(t *testing.T) {
 	}
 }
 
+// TestExtractTreeSitterTypeRefs checks type-usage capture per language
+// (#398): a type named only in a type position (field / parameter / return
+// / variable / generic) must appear in references so dead_code stops
+// flagging it and who_calls finds its users. Crucially the type's own
+// definition name must NOT self-capture (which would defeat type dead_code),
+// so each fixture names a type that is ONLY used, never defined here.
+func TestExtractTreeSitterTypeRefs(t *testing.T) {
+	cases := []struct {
+		language string
+		src      string
+		wantRefs []string // type names that must surface as references
+	}{
+		{"rust", `struct Holder { w: Widget, items: Vec<Gadget> }
+fn build(c: Cog) -> Sprocket { let b: Bolt = make(); b }`,
+			[]string{"Widget", "Gadget", "Cog", "Sprocket", "Bolt"}},
+		{"typescript", `class Holder { w: Widget; }
+function build(c: Cog): Sprocket { let b: Bolt; return b; }`,
+			[]string{"Widget", "Cog", "Sprocket", "Bolt"}},
+		{"python", "def build(c: Cog) -> Sprocket:\n    b: Bolt = make()\n    return b\n",
+			[]string{"Cog", "Sprocket", "Bolt"}},
+		{"java", `class Holder { Widget w; Sprocket build(Cog c) { Bolt b; return b; } }`,
+			[]string{"Widget", "Sprocket", "Cog", "Bolt"}},
+		{"csharp", `class Holder { Widget w; void build() { Bolt b; } }`,
+			[]string{"Widget", "Bolt"}}, // C# captures field + local types only
+		{"c", `struct Holder { struct Widget *w; };
+int build(struct Cog c) { struct Bolt b; return 0; }`,
+			[]string{"Widget", "Cog", "Bolt"}},
+		{"cpp", `class Holder { Widget w; };
+Sprocket build(Cog c) { Bolt b; return b; }`,
+			[]string{"Widget", "Sprocket", "Cog", "Bolt"}},
+		{"kotlin", `class Holder(val w: Widget)
+fun build(c: Cog): Sprocket { val b: Bolt = make() }`,
+			[]string{"Widget", "Cog", "Sprocket", "Bolt"}},
+		{"swift", `class Holder { var w: Widget }
+func build(c: Cog) -> Sprocket { let b: Bolt = make() }`,
+			[]string{"Widget", "Cog", "Sprocket", "Bolt"}},
+		{"scala", `class Holder(w: Widget) { def build(c: Cog): Sprocket = { val b: Bolt = q } }`,
+			[]string{"Widget", "Cog", "Sprocket", "Bolt"}},
+		{"php", `<?php class Holder { public Widget $w; function build(Cog $c): Sprocket {} }`,
+			[]string{"Widget", "Cog", "Sprocket"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.language, func(t *testing.T) {
+			_, _, _, refs, _, _ := extractTreeSitterSymbols(tc.language, []byte(tc.src))
+			checkContains(t, "references (type usages)", refs, tc.wantRefs)
+		})
+	}
+}
+
+// TestExtractTreeSitterTypeRefs_NoSelfCapture pins the critical invariant:
+// a type's own definition name must NOT be emitted as a reference (else it
+// would self-reference and never be flagged as dead). Rust struct defined
+// and never used → must not appear in references.
+func TestExtractTreeSitterTypeRefs_NoSelfCapture(t *testing.T) {
+	_, types, _, refs, _, _ := extractTreeSitterSymbols("rust", []byte(`struct Lonely { x: i32 }`))
+	if !slices.Contains(types, "Lonely") {
+		t.Fatalf("Lonely should be a defined type; got %v", types)
+	}
+	if slices.Contains(refs, "Lonely") {
+		t.Errorf("a type's own definition must not self-capture as a reference: %v", refs)
+	}
+}
+
 // TestExtractTreeSitterCallEdges checks per-function call attribution
 // (caller\x00callee pairs) via span-containment — the data behind calls().
 func TestExtractTreeSitterCallEdges(t *testing.T) {
