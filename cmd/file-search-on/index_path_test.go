@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	bolt "go.etcd.io/bbolt"
+
 	"github.com/richardwooding/file-search-on/internal/index"
 )
 
@@ -134,6 +136,45 @@ func TestResolveIndexBackend_ExplicitPath_HappyPath(t *testing.T) {
 	}
 	if backend.Reason != "" {
 		t.Errorf("backend.Reason = %q, want empty for happy-path persistent open", backend.Reason)
+	}
+}
+
+// TestResolveIndexBackend_StaleSchemaRebuilds pins the #418 fix: a cache
+// file from an incompatible schema/version is transparently rebuilt rather
+// than erroring out the process (the old behaviour forced the user to find
+// and delete the file). Seeds a bbolt file with a stale meta payload, then
+// asserts resolveIndexBackend returns a working persistent index.
+func TestResolveIndexBackend_StaleSchemaRebuilds(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "stale.db")
+
+	// Seed a file whose meta claims an old schema version — the same
+	// shape an older binary would have left behind.
+	db, err := bolt.Open(path, 0o600, nil)
+	if err != nil {
+		t.Fatalf("seed open: %v", err)
+	}
+	if err := db.Update(func(tx *bolt.Tx) error {
+		bk, err := tx.CreateBucket([]byte("meta"))
+		if err != nil {
+			return err
+		}
+		return bk.Put([]byte("schema"), []byte(`{"schema_version":1,"encoding":"gob"}`))
+	}); err != nil {
+		t.Fatalf("seed write: %v", err)
+	}
+	_ = db.Close()
+
+	idx, backend, err := resolveIndexBackend("", path, false, index.BodyCacheCap{})
+	if err != nil {
+		t.Fatalf("resolveIndexBackend should rebuild a stale cache, got error: %v", err)
+	}
+	defer func() { _ = idx.Close() }()
+	if backend.Mode != BackendPersistent {
+		t.Errorf("backend.Mode = %q, want %q (rebuilt persistent index)", backend.Mode, BackendPersistent)
+	}
+	// The rebuilt index must be usable.
+	if err := idx.Put("/x/a.go", &index.Entry{ContentType: "source/go", Size: 1, ModTimeUnixNano: 1}); err != nil {
+		t.Errorf("rebuilt index Put failed: %v", err)
 	}
 }
 
