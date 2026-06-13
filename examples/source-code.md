@@ -205,6 +205,12 @@ file-search-on 'is_source && "ProcessOrder" in references'
 # What does a function call? (forward direction; per-function attribution)
 file-search-on calls ProcessOrder -d .
 
+# Find every USAGE of a symbol with file:line — the IDE "find references"
+# primitive. Each site is tagged call / type / value:
+file-search-on references ProcessOrder -d .
+# …filter to just type usages of a type (fields, params, returns, generics):
+file-search-on references Widget --kind type -d .
+
 # Maintenance hotspots: files whose worst function is gnarly (file-level filter)
 file-search-on 'is_source && language == "go" && max_complexity > 15'
 # …drill into the worst individual functions (per-function ranking):

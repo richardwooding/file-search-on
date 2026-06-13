@@ -1,6 +1,6 @@
 # Tool reference
 
-Every MCP tool the `file-search-on` server exposes (39 tools). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same families as the SKILL.md table.
+Every MCP tool the `file-search-on` server exposes (40 tools). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same families as the SKILL.md table.
 
 ## Contents
 
@@ -9,7 +9,7 @@ Every MCP tool the `file-search-on` server exposes (39 tools). Each entry has a 
 - Dedup & diff — `find_duplicates`, `find_near_duplicates`, `find_duplicate_functions`, `diff_trees`, `api_diff`
 - Archive — `list_archive_contents`, `read_file_in_archive`
 - Pattern + watch — `find_matches`, `watch_search`
-- Cross-file code graph — `imported_by`, `find_definition`, `code_graph`, `who_calls`, `calls`, `impact`, `call_path`, `dead_code`, `test_gaps`, `coverage_gaps`, `complexity`, `coupling`, `unused_exports`
+- Cross-file code graph — `imported_by`, `find_definition`, `references`, `code_graph`, `who_calls`, `calls`, `impact`, `call_path`, `dead_code`, `test_gaps`, `coverage_gaps`, `complexity`, `coupling`, `unused_exports`
 - CEL utilities — `validate_expr`, `list_attributes`
 - Project + presets + monitoring — `detect_project`, `find_projects`, `resolve_project_for_path`, `list_presets`, `query_preset`, `index_stats`, `monitor_info`
 
@@ -579,6 +579,26 @@ Example:
 {
   "name": "find_definition",
   "arguments": { "symbol": "ServeHTTP", "kind": "function", "dir": "." }
+}
+```
+
+### `references`
+
+Every USAGE of a symbol with file + line — the IDE "find references" primitive, the complement to `find_definition`. Where `who_calls` lists referencing files, this pinpoints exact lines and tags each.
+
+Key inputs:
+
+- `symbol` — exact function or type name. Required.
+- `kind` — `call` (call site) / `type` (used as a field / parameter / return / variable / generic-arg type) / `value` (Go function value passed as an argument, e.g. an AddTool / HandleFunc handler) / empty for all.
+
+Output: `references[]` (`{path, line, kind, language}`, sorted by path then line), `count`, `total_files`.
+
+Gotcha: uses the code-graph reference index to pre-filter to the files that reference the symbol (cheap on a warm index), then parses only those for the lines — cost scales with usages, not tree size. Coverage follows the reference graph: Go + tree-sitter for calls and type usages, **Go-only for `value`**; JavaScript / Ruby / Perl / R / MATLAB capture call sites only. Heuristic and name-based (same caveats as `who_calls`): same-name symbols across packages/types collapse together. Definitions are not references (use `find_definition` for those).
+
+```json
+{
+  "name": "references",
+  "arguments": { "symbol": "BuildCodeGraph", "kind": "type", "dir": "." }
 }
 ```
 
