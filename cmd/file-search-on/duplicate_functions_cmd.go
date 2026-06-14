@@ -99,4 +99,7 @@ func printDuplicateFunctionsTable(d *search.DuplicateFunctions) {
 	}
 	fmt.Printf("%d duplicate-function group(s); %d functions scanned across %d files (threshold %.2f, min %d lines).\n",
 		d.GroupCount, d.FunctionsScanned, d.TotalFiles, d.Threshold, d.MinLines)
+	if d.Hint != "" {
+		_, _ = fmt.Fprintln(os.Stderr, d.Hint)
+	}
 }

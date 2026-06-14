@@ -262,9 +262,14 @@ func (c *TestGapsCmd) Run(ctx context.Context) error {
 		return nil
 	}
 	gaps := g.TestGaps()
+	tgPaths := make([]string, len(gaps))
+	for i, gp := range gaps {
+		tgPaths[i] = gp.Path
+	}
+	hint := g.GeneratedHint(tgPaths)
 	if c.Output == "json" {
 		_ = writeJSON(os.Stdout, map[string]any{
-			"gaps": gaps, "count": len(gaps), "total_files": g.TotalFiles,
+			"gaps": gaps, "count": len(gaps), "total_files": g.TotalFiles, "hint": hint,
 		})
 	} else {
 		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
@@ -278,6 +283,9 @@ func (c *TestGapsCmd) Run(ctx context.Context) error {
 		}
 		_ = tw.Flush()
 		_, _ = fmt.Fprintf(os.Stderr, "%d file(s) with untested functions — heuristic (direct test references only); transitively-exercised code may appear here\n", len(gaps))
+		if hint != "" {
+			_, _ = fmt.Fprintln(os.Stderr, hint)
+		}
 	}
 	return codeGraphExit(c.Timeout, parentCtx, effectiveCtx, g, "test-gaps")
 }
@@ -292,9 +300,14 @@ func (c *DeadCodeCmd) Run(ctx context.Context) error {
 		return nil
 	}
 	candidates := g.DeadCode()
+	dcPaths := make([]string, len(candidates))
+	for i, d := range candidates {
+		dcPaths[i] = d.Path
+	}
+	hint := g.GeneratedHint(dcPaths)
 	if c.Output == "json" {
 		_ = writeJSON(os.Stdout, map[string]any{
-			"candidates": candidates, "count": len(candidates), "total_files": g.TotalFiles,
+			"candidates": candidates, "count": len(candidates), "total_files": g.TotalFiles, "hint": hint,
 		})
 	} else {
 		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
@@ -303,6 +316,9 @@ func (c *DeadCodeCmd) Run(ctx context.Context) error {
 		}
 		_ = tw.Flush()
 		_, _ = fmt.Fprintf(os.Stderr, "%d candidate(s) — heuristic; exported API / entry points / dynamic dispatch may be false positives\n", len(candidates))
+		if hint != "" {
+			_, _ = fmt.Fprintln(os.Stderr, hint)
+		}
 	}
 	return codeGraphExit(c.Timeout, parentCtx, effectiveCtx, g, "dead-code")
 }
@@ -457,6 +473,9 @@ func (c *ComplexityCmd) Run(ctx context.Context) error {
 			}
 			_ = tw.Flush()
 			_, _ = fmt.Fprintf(os.Stderr, "%d function(s) total; showing worst %d\n", rep.TotalFunctions, len(rep.Functions))
+			if rep.Hint != "" {
+				_, _ = fmt.Fprintln(os.Stderr, rep.Hint)
+			}
 		}
 	}
 	if rep != nil && rep.Cancelled {

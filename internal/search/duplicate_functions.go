@@ -47,6 +47,7 @@ type DuplicateFunctions struct {
 	Threshold          float64                  `json:"threshold"`
 	MinLines           int                      `json:"min_lines"`
 	Groups             []DuplicateFunctionGroup `json:"groups"`
+	Hint               string                   `json:"hint,omitempty"`
 	Cancelled          bool                     `json:"cancelled,omitempty"`
 	CancellationReason string                   `json:"cancellation_reason,omitempty"`
 }
@@ -100,12 +101,16 @@ func FindDuplicateFunctions(ctx context.Context, opts Options, registry *content
 	out.TotalFiles = int64(len(results))
 
 	var candidates []dupFuncCandidate
+	generated := map[string]bool{}
 	for _, r := range results {
 		if ctx.Err() != nil {
 			break
 		}
 		if r.Attrs == nil {
 			continue
+		}
+		if gen, _ := r.Attrs.Extra["is_generated_code"].(bool); gen {
+			generated[r.Path] = true
 		}
 		body, _ := r.Attrs.Extra["body"].(string)
 		if body == "" {
@@ -140,6 +145,15 @@ func FindDuplicateFunctions(ctx context.Context, opts Options, registry *content
 		out.Groups = groupDuplicateFunctions(ctx, candidates, threshold)
 		out.GroupCount = int64(len(out.Groups))
 	}
+	// Hint over the clustered members — generated files produce many
+	// look-alike functions that swamp real copy-paste (#430).
+	var memberPaths []string
+	for _, g := range out.Groups {
+		for _, m := range g.Members {
+			memberPaths = append(memberPaths, m.Path)
+		}
+	}
+	out.Hint = generatedHintFor(memberPaths, generated)
 
 	out.Cancelled, out.CancellationReason = classifyCancellation(walkErr, ctx)
 	if walkErr != nil && !out.Cancelled {

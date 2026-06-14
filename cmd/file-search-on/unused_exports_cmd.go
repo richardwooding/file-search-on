@@ -86,4 +86,7 @@ func printUnusedExportsTable(w *os.File, res *search.UnusedExportsResult) {
 	}
 	_, _ = fmt.Fprintf(w, "\n%d unexport candidate(s) %s — referenced only intra-package. HEURISTIC; review before unexporting.\n",
 		len(res.Candidates), scope)
+	if res.Hint != "" {
+		_, _ = fmt.Fprintln(os.Stderr, res.Hint)
+	}
 }

@@ -22,6 +22,7 @@ type UnusedExportsOutput struct {
 	Module             string                `json:"module"`
 	Candidates         []search.UnusedExport `json:"candidates"`
 	Count              int                   `json:"count"`
+	Hint               string                `json:"hint,omitempty"`
 	Cancelled          bool                  `json:"cancelled,omitempty"`
 	CancellationReason string                `json:"cancellation_reason,omitempty"`
 }
@@ -42,6 +43,7 @@ func (h *handlers) unusedExportsHandler(ctx context.Context, _ *mcp.CallToolRequ
 	out := UnusedExportsOutput{Candidates: []search.UnusedExport{}}
 	if res != nil {
 		out.Module = res.Module
+		out.Hint = res.Hint
 		out.Cancelled = res.Cancelled
 		out.CancellationReason = res.CancellationReason
 		if res.Candidates != nil {

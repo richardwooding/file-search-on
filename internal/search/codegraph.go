@@ -107,6 +107,15 @@ type CodeGraph struct {
 	// Powers TestGaps (#394) — a function is "tested" when referenced
 	// from one of these.
 	testFiles map[string]bool
+	// generated: set of file paths the detector flagged is_generated_code.
+	// Drives the generated-dominance hint (#430).
+	generated map[string]bool
+}
+
+// GeneratedHint returns a nudge toward the !is_generated_code filter when
+// generated files dominate the given result paths, or "" otherwise (#430).
+func (g *CodeGraph) GeneratedHint(paths []string) string {
+	return generatedHintFor(paths, g.generated)
 }
 
 // refExtractionLangs is the set of languages for which references
@@ -150,6 +159,7 @@ func BuildCodeGraph(ctx context.Context, opts Options, registry *content.Registr
 		fanOut:       map[string]fileFanOut{},
 		languages:    map[string]int64{},
 		testFiles:    map[string]bool{},
+		generated:    map[string]bool{},
 	}
 	g.TotalFiles = int64(len(results))
 
@@ -163,6 +173,9 @@ func BuildCodeGraph(ctx context.Context, opts Options, registry *content.Registr
 		}
 		if t, _ := r.Attrs.Extra["is_test_file"].(bool); t {
 			g.testFiles[r.Path] = true
+		}
+		if gen, _ := r.Attrs.Extra["is_generated_code"].(bool); gen {
+			g.generated[r.Path] = true
 		}
 
 		imports, _ := r.Attrs.Extra["imports"].([]string)
