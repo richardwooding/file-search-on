@@ -92,6 +92,7 @@ type UnusedExport struct {
 type UnusedExportsResult struct {
 	Module             string         `json:"module"`
 	Candidates         []UnusedExport `json:"candidates"`
+	Hint               string         `json:"hint,omitempty"`
 	Cancelled          bool           `json:"cancelled,omitempty"`
 	CancellationReason string         `json:"cancellation_reason,omitempty"`
 }
@@ -148,6 +149,7 @@ func UnusedExports(ctx context.Context, opts Options, registry *content.Registry
 	}
 	defs := map[string]*defInfo{}
 	refPkgs := map[string]map[string]bool{} // symbol -> set of referencing packages
+	generated := map[string]bool{}
 
 	note := func(name, kind, pkg, path, lang string) {
 		d := defs[name]
@@ -171,6 +173,9 @@ func UnusedExports(ctx context.Context, opts Options, registry *content.Registry
 		pkg, ok := packageKeyFor(root, r.Path, lang, module)
 		if !ok {
 			continue
+		}
+		if gen, _ := r.Attrs.Extra["is_generated_code"].(bool); gen {
+			generated[r.Path] = true
 		}
 		// Visibility: keyword-visibility languages carry the public subset
 		// in the `exported_symbols` attribute; name-convention languages
@@ -251,6 +256,12 @@ func UnusedExports(ctx context.Context, opts Options, registry *content.Registry
 		}
 		return a.Kind < b.Kind
 	})
+
+	candPaths := make([]string, len(res.Candidates))
+	for i, c := range res.Candidates {
+		candPaths[i] = c.Path
+	}
+	res.Hint = generatedHintFor(candPaths, generated)
 
 	if walkErr != nil {
 		switch {

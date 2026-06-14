@@ -21,6 +21,7 @@ type ComplexityOutput struct {
 	CommonOutput
 	Functions          []search.FunctionComplexity `json:"functions"`
 	TotalFunctions     int64                        `json:"total_functions"`
+	Hint               string                       `json:"hint,omitempty"`
 	Cancelled          bool                         `json:"cancelled,omitempty"`
 	CancellationReason string                       `json:"cancellation_reason,omitempty"`
 }
@@ -40,6 +41,7 @@ func (h *handlers) complexityHandler(ctx context.Context, _ *mcp.CallToolRequest
 	out := ComplexityOutput{
 		Functions:          rep.Functions,
 		TotalFunctions:     rep.TotalFunctions,
+		Hint:               rep.Hint,
 		Cancelled:          rep.Cancelled,
 		CancellationReason: rep.CancellationReason,
 	}

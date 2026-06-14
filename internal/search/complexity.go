@@ -27,6 +27,7 @@ type FunctionComplexity struct {
 type ComplexityReport struct {
 	TotalFunctions     int64                `json:"total_functions"`
 	Functions          []FunctionComplexity `json:"functions"`
+	Hint               string               `json:"hint,omitempty"`
 	Cancelled          bool                 `json:"cancelled,omitempty"`
 	CancellationReason string               `json:"cancellation_reason,omitempty"`
 }
@@ -50,9 +51,13 @@ func Complexity(ctx context.Context, opts Options, registry *content.Registry, t
 	results, walkErr := Walk(ctx, opts, registry)
 
 	out := &ComplexityReport{}
+	generated := map[string]bool{}
 	for _, r := range results {
 		if r.Attrs == nil {
 			continue
+		}
+		if gen, _ := r.Attrs.Extra["is_generated_code"].(bool); gen {
+			generated[r.Path] = true
 		}
 		rows, _ := r.Attrs.Extra["complexity_rows"].([]string)
 		for _, row := range rows {
@@ -93,6 +98,13 @@ func Complexity(ctx context.Context, opts Options, registry *content.Registry, t
 	if len(out.Functions) > top {
 		out.Functions = out.Functions[:top]
 	}
+	// Hint computed on the shown top-N — that's what the generated code
+	// crowds out (#430).
+	paths := make([]string, len(out.Functions))
+	for i, f := range out.Functions {
+		paths[i] = f.Path
+	}
+	out.Hint = generatedHintFor(paths, generated)
 
 	if walkErr != nil {
 		switch {

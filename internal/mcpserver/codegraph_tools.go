@@ -279,6 +279,7 @@ type DeadCodeOutput struct {
 	CommonOutput
 	Candidates         []search.SymbolDef `json:"candidates"`
 	Count              int                `json:"count"`
+	Hint               string             `json:"hint,omitempty"`
 	TotalFiles         int64              `json:"total_files"`
 	Cancelled          bool               `json:"cancelled,omitempty"`
 	CancellationReason string             `json:"cancellation_reason,omitempty"`
@@ -297,9 +298,14 @@ func (h *handlers) deadCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, 
 		return nil, DeadCodeOutput{}, fmt.Errorf("dead_code: %w", err)
 	}
 	candidates := g.DeadCode()
+	dcPaths := make([]string, len(candidates))
+	for i, c := range candidates {
+		dcPaths[i] = c.Path
+	}
 	out := DeadCodeOutput{
 		Candidates:         candidates,
 		Count:              len(candidates),
+		Hint:               g.GeneratedHint(dcPaths),
 		TotalFiles:         g.TotalFiles,
 		Cancelled:          g.Cancelled,
 		CancellationReason: g.CancellationReason,
@@ -431,6 +437,7 @@ type TestGapsOutput struct {
 	CommonOutput
 	Gaps               []search.TestGap `json:"gaps"`
 	Count              int              `json:"count"`
+	Hint               string           `json:"hint,omitempty"`
 	TotalFiles         int64            `json:"total_files"`
 	Cancelled          bool             `json:"cancelled,omitempty"`
 	CancellationReason string           `json:"cancellation_reason,omitempty"`
@@ -449,9 +456,14 @@ func (h *handlers) testGapsHandler(ctx context.Context, _ *mcp.CallToolRequest, 
 		return nil, TestGapsOutput{}, fmt.Errorf("test_gaps: %w", err)
 	}
 	gaps := g.TestGaps()
+	tgPaths := make([]string, len(gaps))
+	for i, gp := range gaps {
+		tgPaths[i] = gp.Path
+	}
 	out := TestGapsOutput{
 		Gaps:               gaps,
 		Count:              len(gaps),
+		Hint:               g.GeneratedHint(tgPaths),
 		TotalFiles:         g.TotalFiles,
 		Cancelled:          g.Cancelled,
 		CancellationReason: g.CancellationReason,

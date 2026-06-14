@@ -37,6 +37,7 @@ type FindDuplicateFunctionsOutput struct {
 	Threshold          float64                         `json:"threshold"`
 	MinLines           int                             `json:"min_lines"`
 	Groups             []search.DuplicateFunctionGroup `json:"groups"`
+	Hint               string                          `json:"hint,omitempty"`
 	Cancelled          bool                            `json:"cancelled,omitempty"`
 	CancellationReason string                          `json:"cancellation_reason,omitempty"`
 	ElapsedSeconds     float64                         `json:"elapsed_seconds,omitempty"`
@@ -96,6 +97,7 @@ func (h *handlers) findDuplicateFunctionsHandler(ctx context.Context, _ *mcp.Cal
 		out.Threshold = dups.Threshold
 		out.MinLines = dups.MinLines
 		out.Groups = dups.Groups
+		out.Hint = dups.Hint
 		out.Cancelled = dups.Cancelled
 		out.CancellationReason = dups.CancellationReason
 	}
