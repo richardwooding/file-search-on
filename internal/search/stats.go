@@ -94,17 +94,6 @@ var validGroupBys = map[string]struct{}{
 	"date_day":                 {},
 }
 
-// ValidGroupBys returns the curated set of group_by keys ComputeStats
-// supports. Useful for CLI help text and the MCP tool description.
-func ValidGroupBys() []string {
-	out := make([]string, 0, len(validGroupBys))
-	for k := range validGroupBys {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
 // detectorOnlyGroupBys are the group_by keys whose bucket value can be
 // read straight off the search.Result without parsing per-format
 // attributes. content_type / ext / dir come from Result fields; mtime_*

@@ -332,7 +332,7 @@ type Options struct {
 	NearDupGroupLimit int
 
 	// GroupBy controls the bucketing key used by ComputeStats. See
-	// stats.go ValidGroupBys for the recognised set. Ignored by
+	// the validGroupBys set in stats.go for the recognised keys. Ignored by
 	// Walk/WalkStream — it only affects ComputeStats's aggregation.
 	GroupBy string
 
