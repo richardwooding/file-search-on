@@ -20,6 +20,13 @@ import (
 // `grammar_subset_<lang>` build tags (see CLAUDE.md / .goreleaser.yaml);
 // a build without those tags embeds all ~206 grammars (~+22 MB).
 
+// tsParseTimeoutMicros caps a single tree-sitter parse (issue #432). A
+// pathological grammar parse (notably Swift) can run for minutes on a small
+// file and isn't cancellable; this bounds it so the offending file is
+// skipped (no symbols) rather than hanging the walk. 5 s is far above any
+// healthy parse (milliseconds) yet well under a per-call timeout.
+const tsParseTimeoutMicros = 5_000_000
+
 // tsDetectFile maps our canonical `language` string to a representative
 // filename so grammars.DetectLanguage resolves the right LangEntry.
 var tsDetectFile = map[string]string{
@@ -343,7 +350,16 @@ func buildTSLang(language string) *tsLang {
 	if lang == nil {
 		return nil
 	}
-	tl := &tsLang{pool: ts.NewParserPool(lang)}
+	// Bound every parse with a hard time budget (issue #432). The
+	// tree-sitter Swift grammar — and potentially any grammar — can parse
+	// catastrophically slowly on certain real constructs (e.g. Alamofire's
+	// AFError.swift: 3+ minutes for 37 KB, not size-related), and the parse
+	// loop isn't cancellable, so one bad file would otherwise hang the whole
+	// walk past any --timeout. On expiry Parse returns early; every consumer
+	// already treats a nil/short tree as "no symbols", so the file degrades
+	// gracefully (the #337 invariant) instead of stalling. Normal files
+	// parse in milliseconds, so the cap only ever trips on pathological ones.
+	tl := &tsLang{pool: ts.NewParserPool(lang, ts.WithParserPoolTimeoutMicros(tsParseTimeoutMicros))}
 	// Bundled tags query is optional — some grammars (PHP, Perl) ship an
 	// empty one, in which case definitions come entirely from tsDefQuery.
 	if tagsSrc := grammars.ResolveTagsQuery(*entry); tagsSrc != "" {

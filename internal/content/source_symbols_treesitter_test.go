@@ -315,6 +315,28 @@ func TestTSNonExportedSymbols(t *testing.T) {
 	}
 }
 
+// TestParseTimeoutBudget guards the #432 fix: the tree-sitter parse budget
+// must stay a positive, sane value. Zero would mean "no timeout" in
+// gotreesitter, re-opening the door to a pathological grammar parse (Swift)
+// hanging the whole walk. (The behavioural proof — AFError.swift going from
+// 3+ min to ~7s — is verified manually against real Swift; it can't be
+// reproduced deterministically with a synthetic input.)
+func TestParseTimeoutBudget(t *testing.T) {
+	if tsParseTimeoutMicros <= 0 {
+		t.Fatalf("tsParseTimeoutMicros = %d; must be > 0 to bound pathological parses (#432)", tsParseTimeoutMicros)
+	}
+	// Healthy files parse in milliseconds, so the budget must be far above
+	// that (sanity: at least 1s) yet finite.
+	if tsParseTimeoutMicros < 1_000_000 {
+		t.Errorf("tsParseTimeoutMicros = %d (<1s) risks skipping healthy files", tsParseTimeoutMicros)
+	}
+	// A normal file still extracts fine under the cap.
+	funcs, _, _, _, _, _ := extractTreeSitterSymbols("swift", []byte("func greet() -> String { return \"hi\" }\n"))
+	if !slices.Contains(funcs, "greet") {
+		t.Errorf("normal swift file should still extract under the parse cap; got %v", funcs)
+	}
+}
+
 // TestExtractTreeSitterCallEdges checks per-function call attribution
 // (caller\x00callee pairs) via span-containment — the data behind calls().
 func TestExtractTreeSitterCallEdges(t *testing.T) {
