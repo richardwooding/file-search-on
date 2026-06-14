@@ -74,16 +74,16 @@ func (c *UnusedExportsCmd) Run(ctx context.Context) error {
 }
 
 func printUnusedExportsTable(w *os.File, res *search.UnusedExportsResult) {
-	if res.Module == "" {
-		_, _ = fmt.Fprintln(w, "no go.mod found at the root — unused-exports resolves first-party Go packages only")
-		return
-	}
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "KIND\tSYMBOL\tPATH")
+	_, _ = fmt.Fprintln(tw, "KIND\tSYMBOL\tPACKAGE\tPATH")
 	for _, c := range res.Candidates {
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", c.Kind, c.Symbol, c.Path)
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", c.Kind, c.Symbol, c.Package, c.Path)
 	}
 	_ = tw.Flush()
-	_, _ = fmt.Fprintf(w, "\n%d unexport candidate(s) in %s — referenced only intra-package. HEURISTIC; review before unexporting.\n",
-		len(res.Candidates), res.Module)
+	scope := "across the tree"
+	if res.Module != "" {
+		scope = "in " + res.Module
+	}
+	_, _ = fmt.Fprintf(w, "\n%d unexport candidate(s) %s — referenced only intra-package. HEURISTIC; review before unexporting.\n",
+		len(res.Candidates), scope)
 }
