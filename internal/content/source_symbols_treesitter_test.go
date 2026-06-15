@@ -396,6 +396,21 @@ func TestExtractTreeSitterSymbols_UnknownLanguage(t *testing.T) {
 	}
 }
 
+// TestExtractTreeSitterRequireImports pins CommonJS require() import
+// extraction for JS/TS — previously only ESM `import` was captured, so
+// the large require()-based half of the ecosystem reported zero imports.
+func TestExtractTreeSitterRequireImports(t *testing.T) {
+	for _, lang := range []string{"javascript", "typescript"} {
+		t.Run(lang, func(t *testing.T) {
+			src := `const foo = require("./foo");
+const bar = require("bar");
+import { Baz } from "./baz";`
+			_, _, imports, _, _, _ := extractTreeSitterSymbols(lang, []byte(src))
+			checkContains(t, "imports", imports, []string{"./foo", "bar", "./baz"})
+		})
+	}
+}
+
 // TestExtractTreeSitterComplexity checks cyclomatic complexity per
 // function: a function with nested if/for/if should score 1+3 = 4.
 func TestExtractTreeSitterComplexity(t *testing.T) {
@@ -411,6 +426,16 @@ func TestExtractTreeSitterComplexity(t *testing.T) {
 		{"kotlin", `fun a() { if (x) { for (i in y) { if (z) {} } } }`},
 		{"c", `int a(int x) { if (x) { for (;;) { if (x) {} } } return 0; }`},
 		{"cpp", `int a(int x) { if (x) { for (;;) { if (x) {} } } return 0; }`},
+		// #365-migrated languages whose complexity was silently 0: C#
+		// regressed on a typo'd decision node ("for_each_statement"
+		// instead of "foreach_statement"), which made the whole decision
+		// query fail to compile; PHP/Perl/R carried no function spans.
+		// if/for/if (or 3× if for Perl, whose decision query has no loop
+		// node) all score 1+3 = 4.
+		{"csharp", `class C { void a(int x) { if (x>0) { for (int i=0;i<x;i++) { if (i>1) {} } } } }`},
+		{"php", "<?php function a($x) { if ($x) { for ($i=0;$i<$x;$i++) { if ($i>1) {} } } }"},
+		{"perl", "sub a { if ($x) { if ($y) { if ($z) { } } } }"},
+		{"r", "a <- function(x) { if (x>0) { for (i in 1:x) { if (i>1) {} } } }"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.language, func(t *testing.T) {
