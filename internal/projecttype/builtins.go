@@ -63,12 +63,25 @@ func init() {
 
 	Register(&ProjectType{
 		Name:        "dotnet",
-		Description: ".NET project (*.csproj / *.fsproj / *.vbproj)",
+		Description: ".NET project (*.csproj / *.fsproj / *.vbproj / *.sln / *.slnx, MSBuild + SDK markers)",
 		Indicators: []Indicator{
 			{HasGlob: "*.csproj"},
 			{HasGlob: "*.fsproj"},
 			{HasGlob: "*.vbproj"},
 			{HasGlob: "*.sln"},
+			// *.sln is the legacy text solution; *.slnx is the newer XML
+			// solution format (VS 17.10+, `dotnet sln migrate`). filepath.Match
+			// treats them as distinct suffixes, so *.slnx needs its own glob.
+			{HasGlob: "*.slnx"},
+			{HasGlob: "*.slnf"}, // solution filter (JSON view of a .sln)
+			// Root markers that make a solution-less / .slnx-only SDK-style
+			// repo root detect as dotnet even when every *.csproj lives in a
+			// subdirectory. Each is .NET-exclusive. HasFile is case-insensitive
+			// (equalFold), so "nuget.config" also matches NuGet.Config / NuGet.config.
+			{HasFile: "global.json"},
+			{HasFile: "Directory.Build.props"},
+			{HasFile: "Directory.Packages.props"},
+			{HasFile: "nuget.config"},
 		},
 		BuildExcludes: []string{"bin", "obj"},
 	})

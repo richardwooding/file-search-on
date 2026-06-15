@@ -66,6 +66,16 @@ func TestDetect_GlobIndicators(t *testing.T) {
 		{"terraform-variants", "providers.tf", "terraform"},
 		{"dotnet-csproj", "MyApp.csproj", "dotnet"},
 		{"dotnet-fsproj", "MyApp.fsproj", "dotnet"},
+		{"dotnet-sln", "MyApp.sln", "dotnet"},
+		{"dotnet-slnx", "MyApp.slnx", "dotnet"},
+		{"dotnet-slnf", "MyApp.slnf", "dotnet"},
+		{"dotnet-global-json", "global.json", "dotnet"},
+		{"dotnet-directory-build-props", "Directory.Build.props", "dotnet"},
+		{"dotnet-directory-packages-props", "Directory.Packages.props", "dotnet"},
+		{"dotnet-nuget-config", "nuget.config", "dotnet"},
+		// HasFile matching is case-insensitive (equalFold) — the
+		// conventional NuGet capitalisation must still detect.
+		{"dotnet-nuget-config-mixed-case", "NuGet.Config", "dotnet"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -99,6 +109,24 @@ func TestDetect_MultipleTypes(t *testing.T) {
 	want := []string{"docker-compose", "go"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Detect: got %v, want %v", got, want)
+	}
+}
+
+// TestDetect_DotnetSlnxRoot mirrors a real modern .NET layout (e.g.
+// ~/Code/SPAN/Cel2Sql.NET): the repo ROOT carries only an XML .slnx
+// solution plus Directory.*.props, while every *.csproj lives in a
+// subdirectory. Before .slnx / MSBuild-marker support the root matched
+// nothing (no .sln, no root .csproj). It must now detect as dotnet.
+func TestDetect_DotnetSlnxRoot(t *testing.T) {
+	dir := t.TempDir()
+	for _, f := range []string{"Cel2Sql.slnx", "Directory.Build.props", "Directory.Packages.props"} {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	matches := projecttype.Detect(nil, dir)
+	if len(matches) != 1 || matches[0].Type != "dotnet" {
+		t.Fatalf("Detect: got %+v, want single dotnet match for a .slnx-only root", matches)
 	}
 }
 

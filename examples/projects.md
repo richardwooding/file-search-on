@@ -19,7 +19,7 @@ Three surfaces:
 | `ruby` | `Gemfile` |
 | `java-maven` | `pom.xml` |
 | `java-gradle` | `build.gradle`, `build.gradle.kts`, `settings.gradle`, `settings.gradle.kts` (any) |
-| `dotnet` | `*.csproj`, `*.fsproj`, `*.vbproj`, `*.sln` (any) |
+| `dotnet` | `*.csproj`, `*.fsproj`, `*.vbproj`, `*.sln` (any), `*.slnx` (XML solution), `*.slnf` (solution filter), `global.json`, `Directory.Build.props`, `Directory.Packages.props`, `nuget.config` |
 | `terraform` | `*.tf` |
 | `docker-compose` | `docker-compose.yml`, `docker-compose.yaml`, `compose.yml`, `compose.yaml` (any) |
 | `hugo` | `hugo.toml`, `hugo.yaml`, `hugo.yml` (any) |
