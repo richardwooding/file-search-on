@@ -165,7 +165,7 @@ Use these boolean type predicates directly in your CEL expression — no need to
   is_deb        .deb (Debian binary package, ar archive)
   is_rpm        .rpm (Red Hat Package Manager — surfaces package_name/version/release/arch from the legacy Lead)
   is_appimage   .appimage (Linux portable ELF + appended SquashFS)
-  is_test_file  source/* file whose basename matches its language's test convention (*_test.go for Go, test_*.py / *_test.py for Python, *.test.{js,ts,tsx} / *.spec.{...} for JS/TS, *Test.java / *Tests.java / *IT.java for Java, *_spec.rb / *_test.rb for Ruby, *Tests.swift / *Test.kt / *Spec.scala for Swift/Kotlin/Scala, tests/*.rs for Rust integration tests)
+  is_test_file  source/* file whose basename matches its language's test convention (*_test.go for Go, test_*.py / *_test.py for Python, *.test.{js,ts,tsx} / *.spec.{...} for JS/TS, *Test.java / *Tests.java / *IT.java for Java, *_spec.rb / *_test.rb for Ruby, *Tests.swift / *Test.kt / *Spec.scala for Swift/Kotlin/Scala, *Test.cs / *Tests.cs for C#, tests/*.rs for Rust integration tests)
   is_bytecode   .class (Java), .pyc / .pyo (Python), .wasm (WebAssembly) — umbrella across all VM bytecode formats
   is_class      Java .class file (CAFEBABE magic) — surfaces class_name, super_class, interfaces, method_count, field_count, access_flags
   is_pyc        Python compiled bytecode (.pyc / .pyo) — surfaces python_version, source_mtime
