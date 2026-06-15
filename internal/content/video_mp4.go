@@ -355,6 +355,13 @@ func readVisualSampleEntryChildren(ctx context.Context, r io.ReadSeeker, end int
 			return
 		}
 		next := pos + size
+		// Guard forward progress: size==0 ("extends to EOF") or a 64-bit
+		// large-size with the high bit set (negative once cast to int64)
+		// would otherwise pin next<=pos and spin forever. Clamp to end so
+		// the pos>=end exit fires next iteration.
+		if size == 0 || next > end || next <= pos {
+			next = end
+		}
 		switch name {
 		case "btrt":
 			var body [12]byte
@@ -547,6 +554,13 @@ func readVideoSTSD(ctx context.Context, r io.ReadSeeker, end int64, trackType st
 			return err
 		}
 		next := pos + size
+		// Same forward-progress guard as the other box loops: a size==0
+		// or negative-large-size entry must not pin next<=pos. The vide /
+		// soun cases below return on the first entry, but other track
+		// types fall through to the seek and would otherwise spin.
+		if size == 0 || next > end || next <= pos {
+			next = end
+		}
 		switch trackType {
 		case "vide":
 			// VisualSampleEntry: 6 reserved + 2 ref_index + 16 reserved
