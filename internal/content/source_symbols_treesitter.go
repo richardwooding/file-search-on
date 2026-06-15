@@ -95,8 +95,12 @@ var tsDefQuery = map[string]string{
 // import path as @import. Empty/missing → imports left unpopulated.
 var tsImportQuery = map[string]string{
 	"rust":       `(use_declaration argument: (_) @import)`,
-	"typescript": `(import_statement source: (string) @import)`,
-	"javascript": `(import_statement source: (string) @import)`,
+	// ESM import + CommonJS require("x") — the latter covers the large
+	// half of the JS/TS ecosystem that never adopted ES modules.
+	"typescript": `(import_statement source: (string) @import)
+((call_expression function: (identifier) @_f arguments: (arguments (string) @import)) (#eq? @_f "require"))`,
+	"javascript": `(import_statement source: (string) @import)
+((call_expression function: (identifier) @_f arguments: (arguments (string) @import)) (#eq? @_f "require"))`,
 	"ruby":       `((call method: (identifier) @_m arguments: (argument_list (string) @import)) (#match? @_m "^require"))`,
 	"swift":      `(import_declaration (identifier) @import)`,
 	"kotlin":     `(import_header (identifier) @import)`,
@@ -275,6 +279,16 @@ var tsFuncSpanQuery = map[string]string{
 (singleton_method name: (identifier) @func.name) @func.def`,
 	"swift":  `(function_declaration (simple_identifier) @func.name) @func.def`,
 	"kotlin": `(function_declaration (simple_identifier) @func.name) @func.def`,
+	// #365-migrated languages whose function names come from tsDefQuery
+	// (name-only) and so carried no span — leaving cyclomatic complexity
+	// uncomputed. Mirror each language's def node types as spans so
+	// tsComplexityRows can attribute decision points to a function.
+	// (C# is absent on purpose: its bundled tags query already emits
+	// @definition.method/constructor spans, so adding it here double-counts.)
+	"php": `(function_definition (name) @func.name) @func.def
+(method_declaration (name) @func.name) @func.def`,
+	"perl": `(subroutine_declaration_statement (bareword) @func.name) @func.def`,
+	"r":    `(binary_operator (identifier) @func.name (function_definition)) @func.def`,
 }
 
 // tsDecisionQuery captures cyclomatic-complexity decision points as
@@ -293,7 +307,7 @@ var tsDecisionQuery = map[string]string{
 	// #365 migrations.
 	"python": `[(if_statement) (elif_clause) (for_statement) (while_statement) (except_clause) (conditional_expression) (boolean_operator)] @decision`,
 	"java":   `[(if_statement) (for_statement) (enhanced_for_statement) (while_statement) (do_statement) (switch_label) (catch_clause) (ternary_expression) (binary_expression "&&") (binary_expression "||")] @decision`,
-	"csharp": `[(if_statement) (for_statement) (for_each_statement) (while_statement) (do_statement) (switch_section) (catch_clause) (conditional_expression) (binary_expression "&&") (binary_expression "||")] @decision`,
+	"csharp": `[(if_statement) (for_statement) (foreach_statement) (while_statement) (do_statement) (switch_section) (catch_clause) (conditional_expression) (binary_expression "&&") (binary_expression "||")] @decision`,
 	"php":    `[(if_statement) (else_if_clause) (for_statement) (foreach_statement) (while_statement) (do_statement) (case_statement) (catch_clause) (conditional_expression) (binary_expression "&&") (binary_expression "||")] @decision`,
 	"perl":   `[(conditional_statement) (postfix_conditional_expression)] @decision`,
 	"r":      `[(if_statement) (for_statement) (while_statement)] @decision`,
