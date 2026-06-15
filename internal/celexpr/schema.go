@@ -54,7 +54,7 @@ func Schema() SchemaDoc {
 			{"is_archive", "bool", "true if archive file (ZIP, TAR, TAR.GZ, GZIP — content_type starts with 'archive/')"},
 			{"is_binary", "bool", "true if compiled binary (ELF, Mach-O, PE — content_type starts with 'binary/')"},
 			{"is_email", "bool", "true if email message or mbox archive (.eml, .mbox — content_type starts with 'email/')"},
-			{"is_source", "bool", "true if source code (Go, Python, JS/TS, Rust, C/C++, Java, Ruby, Swift, Kotlin, Scala, Shell, Lua, Elixir, Clojure, Haskell, OCaml, Zig — content_type starts with 'source/')"},
+			{"is_source", "bool", "true if source code (Go, Python, JS/TS, Rust, C/C++, Java, Ruby, Swift, Kotlin, Scala, C#, PHP, Perl, R, MATLAB, Shell, Lua, Elixir, Clojure, Haskell, OCaml, Zig, Ada, SQL, Visual Basic, Fortran, Assembly, Pascal — content_type starts with 'source/')"},
 			{"is_notebook", "bool", "true if computational notebook (Jupyter .ipynb or Zeppelin .zpln — content_type starts with 'notebook/')"},
 			{"is_yaml", "bool", "true if YAML file (.yaml, .yml — covers CI configs, K8s manifests, GoReleaser, Docker Compose)"},
 			{"is_toml", "bool", "true if TOML file (.toml — covers pyproject.toml, Cargo.toml, etc.). Also fires for Cargo.toml/Cargo.lock alongside is_cargo_manifest"},
