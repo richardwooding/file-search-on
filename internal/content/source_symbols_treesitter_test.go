@@ -221,6 +221,13 @@ func build(c: Cog) -> Sprocket { let b: Bolt = make() }`,
 			[]string{"Widget", "Cog", "Sprocket", "Bolt"}},
 		{"php", `<?php class Holder { public Widget $w; function build(Cog $c): Sprocket {} }`,
 			[]string{"Widget", "Cog", "Sprocket"}},
+		// JavaScript: no annotations, but a class used only via `new Foo()`
+		// must surface as a reference (#444) or it reads as dead.
+		{"javascript", "class Holder {}\nfunction build(){ return new Widget(); }\n",
+			[]string{"Widget"}},
+		// Ruby: superclass + constant receiver are the "type usages".
+		{"ruby", "class Widget < Base\n  def m; Helper.go; end\nend\n",
+			[]string{"Base", "Helper"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.language, func(t *testing.T) {
