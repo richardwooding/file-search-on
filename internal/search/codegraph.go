@@ -31,6 +31,13 @@ type SymbolDef struct {
 	// (*Buffer).String. Empty for plain functions and types. Lets callers
 	// tell apart same-named methods on different types. Go plus the class-based tree-sitter languages (#445).
 	Owner string `json:"owner,omitempty"`
+	// Exported is true when the symbol is exported/public — known for the
+	// name-convention (Go / Python) and keyword-visibility (Rust / TS / JS /
+	// Java / C# / Kotlin / Scala via exported_symbols) languages; false for
+	// languages where visibility isn't determined. Drives dead_code's
+	// --ignore-exported / ignore_exported filter (public API used only by
+	// external callers is the dominant dead-code false positive).
+	Exported bool `json:"exported,omitempty"`
 }
 
 // ModuleFanIn is a module ranked by how many files import it.
@@ -77,6 +84,7 @@ type symbolEntry struct {
 	language string
 	kind     string
 	owner    string // owning type for a method (#445); empty for funcs/types
+	exported bool   // exported/public visibility, when determinable for the language
 }
 
 // CodeGraph is the in-memory cross-file index built from the per-file
@@ -201,6 +209,24 @@ func BuildCodeGraph(ctx context.Context, opts Options, registry *content.Registr
 			set[r.Path] = lang
 		}
 
+		// Exportedness (#447 dead_code --ignore-exported): keyword-visibility
+		// languages carry their public set in exported_symbols (#409); Go /
+		// Python derive it by name. Languages with neither leave isExported
+		// false (treated as not exported, so never filtered).
+		var expSet map[string]bool
+		if exp, ok := r.Attrs.Extra["exported_symbols"].([]string); ok {
+			expSet = make(map[string]bool, len(exp))
+			for _, e := range exp {
+				expSet[e] = true
+			}
+		}
+		isExported := func(name string) bool {
+			if expSet != nil {
+				return expSet[name]
+			}
+			return exportedInLang(name, lang)
+		}
+
 		if funcs, ok := r.Attrs.Extra["functions"].([]string); ok {
 			// method_owners (#445): "method\x00owner" pairs for this file,
 			// so a method's defining entry carries its owning type and
@@ -214,12 +240,12 @@ func BuildCodeGraph(ctx context.Context, opts Options, registry *content.Registr
 				}
 			}
 			for _, fn := range funcs {
-				g.definedIn[fn] = append(g.definedIn[fn], symbolEntry{path: r.Path, language: lang, kind: "function", owner: owners[fn]})
+				g.definedIn[fn] = append(g.definedIn[fn], symbolEntry{path: r.Path, language: lang, kind: "function", owner: owners[fn], exported: isExported(fn)})
 			}
 		}
 		if types, ok := r.Attrs.Extra["type_names"].([]string); ok {
 			for _, t := range types {
-				g.definedIn[t] = append(g.definedIn[t], symbolEntry{path: r.Path, language: lang, kind: "type"})
+				g.definedIn[t] = append(g.definedIn[t], symbolEntry{path: r.Path, language: lang, kind: "type", exported: isExported(t)})
 			}
 		}
 		if refs, ok := r.Attrs.Extra["references"].([]string); ok {
@@ -591,7 +617,7 @@ func (g *CodeGraph) DeadCode() []SymbolDef {
 				continue
 			}
 			seen[key] = true
-			out = append(out, SymbolDef{Path: e.path, Language: e.language, Kind: e.kind, Symbol: name, Owner: e.owner})
+			out = append(out, SymbolDef{Path: e.path, Language: e.language, Kind: e.kind, Symbol: name, Owner: e.owner, Exported: e.exported})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {

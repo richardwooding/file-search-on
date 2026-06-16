@@ -59,6 +59,31 @@ func TestResolve_CrossPackageUsageCounted(t *testing.T) {
 	}
 }
 
+// TestResolve_ExportedFlag: DeadFuncs carry Go export visibility so the
+// --ignore-exported filter can drop public API (#447).
+func TestResolve_ExportedFlag(t *testing.T) {
+	dir := writeModule(t, map[string]string{
+		"a/a.go": "package a\n\nfunc Exported() {}\nfunc unexported() {}\n",
+	})
+	res, ok, err := Resolve(t.Context(), dir)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if !ok {
+		t.Skip("type resolution unavailable")
+	}
+	got := map[string]bool{}
+	for _, d := range res.DeadFuncs() {
+		got[d.Name] = d.Exported
+	}
+	if !got["Exported"] {
+		t.Errorf("Exported should be flagged exported; got %v", got)
+	}
+	if v, ok := got["unexported"]; !ok || v {
+		t.Errorf("unexported should be dead and not exported; got %v", got)
+	}
+}
+
 // TestResolve_SameNameMethodsDisambiguated: two methods named Foo on
 // different types — only the called one is alive. Name-based matching keeps
 // both alive (a call to bare "Foo" covers both); type resolution doesn't.

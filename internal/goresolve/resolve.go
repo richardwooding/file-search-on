@@ -26,11 +26,12 @@ import (
 
 // Symbol is a resolved Go function or method definition.
 type Symbol struct {
-	Pkg   string // package import path
-	Owner string // receiver type name for methods; "" for plain funcs
-	Name  string
-	Path  string // file containing the definition
-	Line  int
+	Pkg      string // package import path
+	Owner    string // receiver type name for methods; "" for plain funcs
+	Name     string
+	Path     string // file containing the definition
+	Line     int
+	Exported bool // Go export convention (capitalised); for --ignore-exported
 }
 
 // Qualified renders the disambiguated name: "Owner.Name" for methods,
@@ -208,7 +209,7 @@ func Resolve(ctx context.Context, dir string) (*Result, bool, error) {
 			seenDef[id] = true
 			sym := Symbol{
 				Pkg: fn.Pkg().Path(), Owner: owner, Name: fn.Name(),
-				Path: pos.Filename, Line: pos.Line,
+				Path: pos.Filename, Line: pos.Line, Exported: fn.Exported(),
 			}
 			res.Defs = append(res.Defs, sym)
 			res.defByID[id] = sym

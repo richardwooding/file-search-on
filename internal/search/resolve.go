@@ -77,9 +77,24 @@ func ResolveGoDead(ctx context.Context, root string) ([]SymbolDef, bool, error) 
 			Kind:     "function",
 			Symbol:   s.Name,
 			Owner:    s.Owner,
+			Exported: s.Exported,
 		})
 	}
 	return dead, true, nil
+}
+
+// FilterExported drops exported/public symbols from a dead-code candidate
+// list — the dead_code --ignore-exported / ignore_exported filter. Symbols
+// in languages without a visibility signal have Exported=false and are kept.
+func FilterExported(defs []SymbolDef) []SymbolDef {
+	out := make([]SymbolDef, 0, len(defs))
+	for _, d := range defs {
+		if d.Exported {
+			continue
+		}
+		out = append(out, d)
+	}
+	return out
 }
 
 // MergeResolvedGoDead replaces the Go entries of a name-based dead-code
