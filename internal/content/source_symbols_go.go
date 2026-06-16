@@ -228,6 +228,51 @@ func goFunctionSpans(src []byte) []FunctionSpan {
 	return spans
 }
 
+// goMethodOwners returns "method\x00owner" pairs for every receiver-bound
+// method in the file (#445): `func (b *Buffer) String() string` →
+// "String\x00Buffer". The owner is the receiver's base type name (pointer
+// and generic type-parameter wrappers stripped). Lets the code graph
+// disambiguate same-named methods on different types (the classic two
+// `String()` methods that otherwise collapse to one bare name). Top-level
+// funcs (no receiver) contribute nothing. Reuses the same go/ast parse;
+// nil AST yields nil.
+func goMethodOwners(src []byte) []string {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "", src, parser.AllErrors)
+	if f == nil {
+		_ = err
+		return nil
+	}
+	var out []string
+	for _, decl := range f.Decls {
+		d, ok := decl.(*ast.FuncDecl)
+		if !ok || d.Name == nil || d.Recv == nil || len(d.Recv.List) == 0 {
+			continue
+		}
+		if owner := goReceiverType(d.Recv.List[0].Type); owner != "" {
+			out = append(out, d.Name.Name+"\x00"+owner)
+		}
+	}
+	return out
+}
+
+// goReceiverType returns the base type name of a method receiver,
+// unwrapping a pointer (`*T` → "T") and a generic instantiation
+// (`T[K]` / `*T[K, V]` → "T").
+func goReceiverType(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.StarExpr:
+		return goReceiverType(t.X)
+	case *ast.IndexExpr: // generic receiver T[K]
+		return goReceiverType(t.X)
+	case *ast.IndexListExpr: // generic receiver T[K, V]
+		return goReceiverType(t.X)
+	}
+	return ""
+}
+
 // goComplexity returns the cyclomatic complexity of a function body —
 // gocyclo's definition: 1 + one per branch point (if / for / range /
 // case / comm-clause / && / ||).

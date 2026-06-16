@@ -135,6 +135,10 @@ type FindDefinitionInput struct {
 	Kind   string `json:"kind,omitempty" jsonschema:"Filter to a symbol class: 'function' or 'type'. Empty returns both. (Functions covers methods; types covers class / interface / struct / trait / enum, per language.)"`
 }
 
+// Each definition carries an optional 'owner' (the type a method belongs
+// to, e.g. 'Buffer' for (*Buffer).String) so same-named methods on
+// different types are distinguishable — Go only for now (#445).
+
 // FindDefinitionOutput lists every file that defines the queried symbol.
 type FindDefinitionOutput struct {
 	CommonOutput

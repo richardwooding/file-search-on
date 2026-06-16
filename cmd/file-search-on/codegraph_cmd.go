@@ -129,7 +129,13 @@ func (c *FindDefinitionCmd) Run(ctx context.Context) error {
 	} else {
 		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 		for _, d := range defs {
-			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", d.Kind, d.Language, d.Path)
+			// Qualify a method with its owning type (#445) so two
+			// same-named methods on different types are distinguishable.
+			name := c.Symbol
+			if d.Owner != "" {
+				name = d.Owner + "." + c.Symbol
+			}
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", d.Kind, name, d.Language, d.Path)
 		}
 		_ = tw.Flush()
 		_, _ = fmt.Fprintf(os.Stderr, "%d definition(s) of %q (of %d source files)\n", len(defs), c.Symbol, g.TotalFiles)
