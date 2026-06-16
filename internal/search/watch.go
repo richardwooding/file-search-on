@@ -256,6 +256,7 @@ func (opts Options) watchBuildOptions() celexpr.BuildOptions {
 		Denylist:               opts.Denylist,
 		OCRImages:              opts.OCRImages,
 		OCRTimeout:             opts.OCRTimeout,
+		VerifyC2PA:             opts.VerifyC2PA,
 		WithPHash:              opts.WithPHash,
 	}
 }

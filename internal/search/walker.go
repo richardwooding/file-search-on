@@ -133,6 +133,15 @@ type Options struct {
 	// (Linux / Windows today), the flag is a no-op.
 	OCRImages bool
 
+	// VerifyC2PA, when true, runs full C2PA / Content Credentials
+	// verification over image/* files and surfaces the verified
+	// c2pa_valid / c2pa_verified_signer / c2pa_verified_signed_at /
+	// c2pa_validation_status attributes (the authenticated counterpart
+	// to the always-on, unverified c2pa_* attributes). Off by default —
+	// validation does real cryptographic work and its result is never
+	// cached. Issue #441.
+	VerifyC2PA bool
+
 	// OCRTimeout caps each per-file OCR call. Defaults to 10s when
 	// zero; the helper subprocess gets SIGKILL on ctx cancellation
 	// so a misbehaving image can't stall the walk.
@@ -631,6 +640,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 						KeywordQuery:           keywordTerms,
 						OCRImages:              opts.OCRImages,
 						OCRTimeout:             opts.OCRTimeout,
+						VerifyC2PA:             opts.VerifyC2PA,
 						WithPHash:              opts.WithPHash,
 						GitCache:               j.gitCache,
 					})
