@@ -47,12 +47,16 @@ func TestMigratedLanguages(t *testing.T) {
 			wantRefs:    []string{"helper"},
 		},
 		{
-			language:    "perl",
-			src:         "use strict;\nuse List::Util;\npackage Widget;\n\nsub greet { helper(); }\nsub other { }\n",
+			language: "perl",
+			// `$self->process()` is a method_call_expression — captured as a
+			// reference since the refExtractionLangs expansion (#444). Without
+			// it, Perl method calls were invisible and dead_code over-reported
+			// (mojo dead ratio 84% -> 23% once method calls counted).
+			src:         "use strict;\nuse List::Util;\npackage Widget;\n\nsub greet { my $self = shift; helper(); $self->process(); }\nsub other { }\n",
 			wantFuncs:   []string{"greet", "other"},
 			wantTypes:   []string{"Widget"},
 			wantImports: []string{"strict", "List::Util"},
-			wantRefs:    []string{"helper"},
+			wantRefs:    []string{"helper", "process"},
 		},
 		{
 			language:    "r",

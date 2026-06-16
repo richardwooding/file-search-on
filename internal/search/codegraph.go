@@ -125,6 +125,13 @@ func (g *CodeGraph) GeneratedHint(paths []string) string {
 var refExtractionLangs = map[string]bool{
 	"go": true, "rust": true, "typescript": true, "javascript": true,
 	"ruby": true, "swift": true, "kotlin": true, "c": true, "cpp": true,
+	// #365-migrated tree-sitter languages — all carry a tsRefQuery, so
+	// their call sites ARE extracted; they were simply never enabled for
+	// the dead_code / test_gaps definition set, which made every symbol in
+	// these languages invisible to those tools. Validated against the OSS
+	// corpus (dead-code ratios comparable to Go/Rust). Part of #444 / #443.
+	"python": true, "java": true, "csharp": true, "php": true,
+	"perl": true, "r": true, "matlab": true, "scala": true,
 }
 
 type fileFanOut struct {
