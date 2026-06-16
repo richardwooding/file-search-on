@@ -166,6 +166,37 @@ func TestCodeGraph_FindDefinition_DedupesSameFile(t *testing.T) {
 	}
 }
 
+// TestCodeGraph_FindDefinition_Owner pins method-owner qualification
+// (#445): two methods named String on different types in different files
+// are distinct definitions, each reporting its owning type.
+func TestCodeGraph_FindDefinition_Owner(t *testing.T) {
+	dir := t.TempDir()
+	mk := func(rel, body string) {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("a/a.go", "package a\n\ntype Buffer struct{}\n\nfunc (b *Buffer) String() string { return \"a\" }\n")
+	mk("b/b.go", "package b\n\ntype Stack struct{}\n\nfunc (s Stack) String() string { return \"b\" }\n")
+	g := mustBuildGraph(t, dir)
+
+	defs := g.FindDefinition("String", "function")
+	if len(defs) != 2 {
+		t.Fatalf("FindDefinition(String)=%d, want 2 (one per type): %+v", len(defs), defs)
+	}
+	owners := map[string]bool{}
+	for _, d := range defs {
+		owners[d.Owner] = true
+	}
+	if !owners["Buffer"] || !owners["Stack"] {
+		t.Errorf("owners=%v, want both Buffer and Stack", owners)
+	}
+}
+
 // buildCallFixture has clear intra-repo call edges:
 //
 //	a.go    — func Helper(); func Used() { Helper() }   (Helper is called)

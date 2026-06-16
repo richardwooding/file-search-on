@@ -187,6 +187,15 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 			attrs["complexity_rows"] = complexityRows
 			attrs["max_complexity"] = maxComplexityOf(complexityRows)
 		}
+		// method_owners (builder-internal, #445): "method\x00owner" pairs so
+		// the code graph can disambiguate same-named methods on different
+		// types (find_definition reports the owning type). Go-only for now;
+		// the tree-sitter languages are a follow-up.
+		if s.language == "go" {
+			if owners := goMethodOwners(bodyBuf.Bytes()); len(owners) > 0 {
+				attrs["method_owners"] = owners
+			}
+		}
 		// exported_symbols (builder-internal, #409): the public subset of
 		// defs for keyword-visibility languages, consumed by unused_exports.
 		// Positive-keyword languages (Rust pub, TS/JS export, Java/C# public)

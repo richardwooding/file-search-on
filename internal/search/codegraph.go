@@ -27,6 +27,10 @@ type SymbolDef struct {
 	// Symbol is the symbol name. Set by DeadCode (where the caller doesn't
 	// supply the name); empty for FindDefinition (caller already knows it).
 	Symbol string `json:"symbol,omitempty"`
+	// Owner is the type a method belongs to (#445), e.g. "Buffer" for
+	// (*Buffer).String. Empty for plain functions and types. Lets callers
+	// tell apart same-named methods on different types. Go only for now.
+	Owner string `json:"owner,omitempty"`
 }
 
 // ModuleFanIn is a module ranked by how many files import it.
@@ -72,6 +76,7 @@ type symbolEntry struct {
 	path     string
 	language string
 	kind     string
+	owner    string // owning type for a method (#445); empty for funcs/types
 }
 
 // CodeGraph is the in-memory cross-file index built from the per-file
@@ -197,8 +202,19 @@ func BuildCodeGraph(ctx context.Context, opts Options, registry *content.Registr
 		}
 
 		if funcs, ok := r.Attrs.Extra["functions"].([]string); ok {
+			// method_owners (#445): "method\x00owner" pairs for this file,
+			// so a method's defining entry carries its owning type and
+			// find_definition can disambiguate same-named methods.
+			owners := map[string]string{}
+			if mo, ok := r.Attrs.Extra["method_owners"].([]string); ok {
+				for _, pair := range mo {
+					if m, owner, found := strings.Cut(pair, "\x00"); found {
+						owners[m] = owner
+					}
+				}
+			}
 			for _, fn := range funcs {
-				g.definedIn[fn] = append(g.definedIn[fn], symbolEntry{path: r.Path, language: lang, kind: "function"})
+				g.definedIn[fn] = append(g.definedIn[fn], symbolEntry{path: r.Path, language: lang, kind: "function", owner: owners[fn]})
 			}
 		}
 		if types, ok := r.Attrs.Extra["type_names"].([]string); ok {
@@ -321,18 +337,24 @@ func (g *CodeGraph) FindDefinition(symbol, kind string) []SymbolDef {
 		if kind != "" && e.kind != kind {
 			continue
 		}
-		key := e.kind + "\x00" + e.path
+		// Owner is part of the identity (#445): two methods named String on
+		// different types in the same file are distinct definitions, not a
+		// duplicate to collapse.
+		key := e.kind + "\x00" + e.path + "\x00" + e.owner
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
-		out = append(out, SymbolDef{Path: e.path, Language: e.language, Kind: e.kind})
+		out = append(out, SymbolDef{Path: e.path, Language: e.language, Kind: e.kind, Owner: e.owner})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Path != out[j].Path {
 			return out[i].Path < out[j].Path
 		}
-		return out[i].Kind < out[j].Kind
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		return out[i].Owner < out[j].Owner
 	})
 	return out
 }
