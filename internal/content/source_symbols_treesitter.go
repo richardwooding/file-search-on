@@ -338,6 +338,7 @@ var tsDecisionQuery = map[string]string{
 // language on first use.
 type tsLang struct {
 	pool        *ts.ParserPool
+	lang        *ts.Language // the grammar; needed for Node.Type / ChildByFieldName
 	tagsQuery   *ts.Query
 	defQuery    *ts.Query // supplemental @function/@type; nil when none
 	importQuery *ts.Query // nil when none configured or compile failed
@@ -390,7 +391,7 @@ func buildTSLang(language string) *tsLang {
 	// already treats a nil/short tree as "no symbols", so the file degrades
 	// gracefully (the #337 invariant) instead of stalling. Normal files
 	// parse in milliseconds, so the cap only ever trips on pathological ones.
-	tl := &tsLang{pool: ts.NewParserPool(lang, ts.WithParserPoolTimeoutMicros(tsParseTimeoutMicros))}
+	tl := &tsLang{lang: lang, pool: ts.NewParserPool(lang, ts.WithParserPoolTimeoutMicros(tsParseTimeoutMicros))}
 	// Bundled tags query is optional — some grammars (PHP, Perl) ship an
 	// empty one, in which case definitions come entirely from tsDefQuery.
 	if tagsSrc := grammars.ResolveTagsQuery(*entry); tagsSrc != "" {
