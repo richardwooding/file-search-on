@@ -148,7 +148,8 @@ var tsRefQuery = map[string]string{
 	"php":    `(function_call_expression (name) @reference)
 (member_call_expression name: (name) @reference)
 (scoped_call_expression name: (name) @reference)`,
-	"perl":   `(ambiguous_function_call_expression (function) @reference)`,
+	"perl": `(ambiguous_function_call_expression (function) @reference)
+(method_call_expression (method) @reference)`,
 	"r":      `(call function: (identifier) @reference)`,
 	"scala":  `(call_expression (identifier) @reference)`,
 	"matlab":  `(function_call (identifier) @reference)`,
