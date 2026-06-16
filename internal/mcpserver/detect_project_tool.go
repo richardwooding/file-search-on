@@ -7,7 +7,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/richardwooding/file-search-on/internal/projecttype"
+	"github.com/richardwooding/projectdetect"
 )
 
 // DetectProjectInput is the JSON-schema input for `detect_project`.
@@ -22,7 +22,7 @@ type DetectProjectOutput struct {
 	CommonOutput
 	Path         string              `json:"path"`
 	ProjectTypes []string            `json:"project_types"`
-	Indicators   []projecttype.Match `json:"indicators"`
+	Indicators   []projectdetect.Match `json:"indicators"`
 }
 
 func (h *handlers) detectProjectHandler(ctx context.Context, _ *mcp.CallToolRequest, in DetectProjectInput) (*mcp.CallToolResult, DetectProjectOutput, error) {
@@ -48,7 +48,7 @@ func (h *handlers) detectProjectHandler(ctx context.Context, _ *mcp.CallToolRequ
 	defer cancel()
 	_ = ctx
 
-	matches := projecttype.Detect(nil, abs)
+	matches := projectdetect.Detect(nil, abs)
 	types := make([]string, len(matches))
 	for i, m := range matches {
 		types[i] = m.Type

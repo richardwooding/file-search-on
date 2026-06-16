@@ -8,7 +8,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/richardwooding/file-search-on/internal/projecttype"
+	"github.com/richardwooding/projectdetect"
 	"github.com/richardwooding/file-search-on/internal/search"
 )
 
@@ -555,7 +555,7 @@ func printFindMatchesJSON(w io.Writer, r *search.FindMatchesResult) error {
 // a human-readable table. Each entry shows existence (`*` for
 // present, ` ` for missing) so users can see whether their config
 // is in the right place at a glance.
-func printConfigPaths(w io.Writer, entries []projecttype.DiscoveryEntry) {
+func printConfigPaths(w io.Writer, entries []projectdetect.DiscoveryEntry) {
 	for _, e := range entries {
 		marker := " "
 		if _, err := os.Stat(e.Path); err == nil {
@@ -568,7 +568,7 @@ func printConfigPaths(w io.Writer, entries []projecttype.DiscoveryEntry) {
 	}
 }
 
-func printConfigPathsJSON(w io.Writer, entries []projecttype.DiscoveryEntry) error {
+func printConfigPathsJSON(w io.Writer, entries []projectdetect.DiscoveryEntry) error {
 	type entryJSON struct {
 		Scope  string `json:"scope"`
 		Path   string `json:"path"`
@@ -587,7 +587,7 @@ func printConfigPathsJSON(w io.Writer, entries []projecttype.DiscoveryEntry) err
 // printDetectProject renders one directory's project-type matches as
 // a human-readable summary. Empty matches print a "no project type
 // detected" line so the user knows the call ran.
-func printDetectProject(w io.Writer, path string, matches []projecttype.Match) {
+func printDetectProject(w io.Writer, path string, matches []projectdetect.Match) {
 	fp(w, "%s\n", path)
 	if len(matches) == 0 {
 		fp(w, "  (no project type detected)\n")
@@ -598,7 +598,7 @@ func printDetectProject(w io.Writer, path string, matches []projecttype.Match) {
 	}
 }
 
-func printDetectProjectJSON(w io.Writer, path string, matches []projecttype.Match) error {
+func printDetectProjectJSON(w io.Writer, path string, matches []projectdetect.Match) error {
 	types := make([]string, len(matches))
 	for i, m := range matches {
 		types[i] = m.Type
@@ -606,7 +606,7 @@ func printDetectProjectJSON(w io.Writer, path string, matches []projecttype.Matc
 	out := struct {
 		Path         string              `json:"path"`
 		ProjectTypes []string            `json:"project_types"`
-		Indicators   []projecttype.Match `json:"indicators"`
+		Indicators   []projectdetect.Match `json:"indicators"`
 	}{
 		Path:         path,
 		ProjectTypes: types,
@@ -620,7 +620,7 @@ func printDetectProjectJSON(w io.Writer, path string, matches []projecttype.Matc
 // printWhichProject renders a ResolveForPath result. Prints the
 // queried path, the matched project root (or "(none)" when empty),
 // and the matched types with their indicators.
-func printWhichProject(w io.Writer, path, root string, matches []projecttype.Match) {
+func printWhichProject(w io.Writer, path, root string, matches []projectdetect.Match) {
 	fp(w, "%s\n", path)
 	if len(matches) == 0 {
 		fp(w, "  project_root: (none)\n")
@@ -635,7 +635,7 @@ func printWhichProject(w io.Writer, path, root string, matches []projecttype.Mat
 // printWhichProjectJSON writes the same wire shape as the MCP
 // resolve_project_for_path tool. project_root is the empty string
 // when no ancestor matches.
-func printWhichProjectJSON(w io.Writer, path, root string, matches []projecttype.Match) error {
+func printWhichProjectJSON(w io.Writer, path, root string, matches []projectdetect.Match) error {
 	types := make([]string, len(matches))
 	for i, m := range matches {
 		types[i] = m.Type
@@ -644,7 +644,7 @@ func printWhichProjectJSON(w io.Writer, path, root string, matches []projecttype
 		Path         string              `json:"path"`
 		ProjectRoot  string              `json:"project_root"`
 		ProjectTypes []string            `json:"project_types"`
-		Indicators   []projecttype.Match `json:"indicators,omitempty"`
+		Indicators   []projectdetect.Match `json:"indicators,omitempty"`
 	}{
 		Path:         path,
 		ProjectRoot:  root,
@@ -658,7 +658,7 @@ func printWhichProjectJSON(w io.Writer, path, root string, matches []projecttype
 
 // printFindProjects renders the find-projects walk as a table —
 // path on the left, comma-separated types on the right.
-func printFindProjects(w io.Writer, r *projecttype.FindResult) {
+func printFindProjects(w io.Writer, r *projectdetect.FindResult) {
 	for _, p := range r.Projects {
 		types := make([]string, len(p.Types))
 		for i, t := range p.Types {
@@ -670,7 +670,7 @@ func printFindProjects(w io.Writer, r *projecttype.FindResult) {
 	fp(w, "%d project(s) found in %.3fs\n", r.Count, r.ElapsedSeconds)
 }
 
-func printFindProjectsJSON(w io.Writer, r *projecttype.FindResult) error {
+func printFindProjectsJSON(w io.Writer, r *projectdetect.FindResult) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(r)

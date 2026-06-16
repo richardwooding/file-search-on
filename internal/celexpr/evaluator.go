@@ -16,7 +16,7 @@ import (
 	"github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/hashset"
 	"github.com/richardwooding/file-search-on/internal/index"
-	"github.com/richardwooding/file-search-on/internal/projecttype"
+	"github.com/richardwooding/projectdetect"
 	"github.com/richardwooding/gitmeta"
 	"github.com/richardwooding/ollamaembed"
 )
@@ -132,7 +132,7 @@ func applySymlinkInfo(attrs *FileAttributes, sym symlinkInfo) {
 // content_type. Opt-in via search.Options.ResolveProjects — without
 // it, project_types is empty and the predicate stays false.
 //
-// Adding a new SSG project type in internal/projecttype/builtins.go
+// Adding a new SSG project type in the projectdetect module/builtins.go
 // requires adding its name here too. The four-place invariant
 // (cel.Variable + activation default + Extra population + schema doc)
 // applies — see .claude/skills/extend-cel-schema for the audit.
@@ -209,7 +209,7 @@ type BuildOptions struct {
 	// nil disables project-context resolution. Constructed by the
 	// walker when search.Options.ResolveProjects is true (one per
 	// walk root for multi-root walks).
-	ProjectResolver *projecttype.ProjectResolver
+	ProjectResolver *projectdetect.ProjectResolver
 	// SkipAttributesParse, when true, makes BuildAttributesWith
 	// detect the file's content type and run setTypeFlags (so per-
 	// type and family bools fire) BUT skip the expensive

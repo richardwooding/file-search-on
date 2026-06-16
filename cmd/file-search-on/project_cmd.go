@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/richardwooding/file-search-on/internal/projecttype"
+	"github.com/richardwooding/projectdetect"
 )
 
 // ConfigPathsCmd prints the project-type config search paths for
@@ -21,7 +21,7 @@ type ConfigPathsCmd struct {
 }
 
 func (c *ConfigPathsCmd) Run(_ context.Context) error {
-	entries := projecttype.DiscoveryEntries()
+	entries := projectdetect.DiscoveryEntries()
 	switch c.Output {
 	case "bare":
 		for _, e := range entries {
@@ -48,7 +48,7 @@ func (d *DetectProjectCmd) Run(_ context.Context) error {
 	if err != nil {
 		return fmt.Errorf("resolve dir: %w", err)
 	}
-	matches := projecttype.Detect(nil, abs)
+	matches := projectdetect.Detect(nil, abs)
 	if d.Output == "json" {
 		return printDetectProjectJSON(os.Stdout, abs, matches)
 	}
@@ -77,7 +77,7 @@ func (w *WhichProjectCmd) Run(_ context.Context) error {
 	if info, statErr := os.Stat(abs); statErr == nil && info.IsDir() {
 		probe = filepath.Join(abs, ".")
 	}
-	root, matches := projecttype.ResolveForPath(probe, nil)
+	root, matches := projectdetect.ResolveForPath(probe, nil)
 	if w.Output == "json" {
 		if err := printWhichProjectJSON(os.Stdout, abs, root, matches); err != nil {
 			return err
@@ -110,7 +110,7 @@ func (f *FindProjectsCmd) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("resolve dir: %w", err)
 	}
-	result, err := projecttype.Find(ctx, abs, projecttype.FindOptions{
+	result, err := projectdetect.Find(ctx, abs, projectdetect.FindOptions{
 		Types:            f.Type,
 		Excludes:         f.Exclude,
 		RespectGitignore: f.RespectGitignore,

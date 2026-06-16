@@ -12,7 +12,7 @@ import (
 	"github.com/richardwooding/file-search-on/internal/celexpr"
 	"github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/index"
-	"github.com/richardwooding/file-search-on/internal/projecttype"
+	"github.com/richardwooding/projectdetect"
 )
 
 // IndexWatchStats counts the work a background WatchIndex maintainer
@@ -85,7 +85,7 @@ func WatchIndex(ctx context.Context, opts Options, registry *content.Registry, i
 	excludes := opts.Excludes
 	if opts.PruneBuildArtefacts {
 		for _, root := range opts.Roots {
-			if extra, err := projecttype.CollectBuildExcludes(ctx, root); err == nil {
+			if extra, err := projectdetect.CollectBuildExcludes(ctx, root); err == nil {
 				excludes = append(excludes, extra...)
 			}
 		}

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/richardwooding/file-search-on/internal/projecttype"
+	"github.com/richardwooding/projectdetect"
 )
 
 // TestPrintConfigPaths_ExistenceMarker verifies the leading marker
@@ -26,7 +26,7 @@ func TestPrintConfigPaths_ExistenceMarker(t *testing.T) {
 	}
 	missingPath := filepath.Join(tmp, "missing", "project-types.yaml")
 
-	entries := []projecttype.DiscoveryEntry{
+	entries := []projectdetect.DiscoveryEntry{
 		{Scope: "user-wide", Path: presentPath},
 		{Scope: "per-project", Path: missingPath},
 	}
@@ -56,7 +56,7 @@ func TestPrintConfigPathsJSON_ShapeAndExists(t *testing.T) {
 	}
 	missing := filepath.Join(tmp, "absent.yaml")
 
-	entries := []projecttype.DiscoveryEntry{
+	entries := []projectdetect.DiscoveryEntry{
 		{Scope: "user-wide", Path: present},
 		{Scope: "per-project", Path: missing},
 	}

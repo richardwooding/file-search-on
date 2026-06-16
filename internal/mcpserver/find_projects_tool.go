@@ -8,7 +8,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/richardwooding/file-search-on/internal/projecttype"
+	"github.com/richardwooding/projectdetect"
 )
 
 // FindProjectsInput is the JSON-schema input for `find_projects`.
@@ -27,7 +27,7 @@ type FindProjectsInput struct {
 // rather than an error.
 type FindProjectsOutput struct {
 	CommonOutput
-	Projects           []projecttype.FoundProject `json:"projects"`
+	Projects           []projectdetect.FoundProject `json:"projects"`
 	Count              int                        `json:"count"`
 	Cancelled          bool                       `json:"cancelled,omitempty"`
 	CancellationReason string                     `json:"cancellation_reason,omitempty"`
@@ -58,7 +58,7 @@ func (h *handlers) findProjectsHandler(ctx context.Context, _ *mcp.CallToolReque
 	ctx, cancel = h.resolveTimeout(ctx, in.TimeoutSeconds)
 	defer cancel()
 
-	opts := projecttype.FindOptions{
+	opts := projectdetect.FindOptions{
 		Types:            in.Types,
 		Excludes:         in.Excludes,
 		Nested:           in.Nested,
@@ -68,7 +68,7 @@ func (h *handlers) findProjectsHandler(ctx context.Context, _ *mcp.CallToolReque
 		opts.Timeout = time.Duration(*in.TimeoutSeconds * float64(time.Second))
 	}
 
-	res, err := projecttype.Find(ctx, abs, opts)
+	res, err := projectdetect.Find(ctx, abs, opts)
 	if err != nil {
 		return nil, FindProjectsOutput{}, fmt.Errorf("find_projects: %w", err)
 	}

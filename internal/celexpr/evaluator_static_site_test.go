@@ -7,7 +7,7 @@ import (
 
 	"github.com/richardwooding/file-search-on/internal/celexpr"
 	"github.com/richardwooding/file-search-on/internal/content"
-	"github.com/richardwooding/file-search-on/internal/projecttype"
+	"github.com/richardwooding/projectdetect"
 )
 
 // TestBuildAttributesWith_StaticSitePredicateHugo verifies that a file
@@ -34,7 +34,7 @@ func TestBuildAttributesWith_StaticSitePredicateHugo(t *testing.T) {
 	parent := filepath.Dir(abs)
 
 	opts := celexpr.BuildOptions{
-		ProjectResolver: projecttype.NewResolver(root, nil),
+		ProjectResolver: projectdetect.NewResolver(root, nil),
 	}
 	attrs, err := celexpr.BuildAttributesWith(ctx, os.DirFS(parent), base, abs, content.DefaultRegistry(), opts)
 	if err != nil {
@@ -101,7 +101,7 @@ func TestBuildAttributesWith_StaticSitePredicateNonSSG(t *testing.T) {
 	parent := filepath.Dir(abs)
 
 	opts := celexpr.BuildOptions{
-		ProjectResolver: projecttype.NewResolver(root, nil),
+		ProjectResolver: projectdetect.NewResolver(root, nil),
 	}
 	attrs, err := celexpr.BuildAttributesWith(ctx, os.DirFS(parent), base, abs, content.DefaultRegistry(), opts)
 	if err != nil {
