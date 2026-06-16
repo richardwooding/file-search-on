@@ -230,7 +230,8 @@ func (h *handlers) codeGraphHandler(ctx context.Context, _ *mcp.CallToolRequest,
 // WhoCallsInput is the JSON-schema input for the `who_calls` tool.
 type WhoCallsInput struct {
 	codeGraphWalkInput
-	Symbol string `json:"symbol" jsonschema:"The exact function / method name to find callers of (e.g. 'ServeHTTP', 'process'). Required. Name-based: a call pkg.Foo() or x.Method() is keyed by 'Foo' / 'Method'."`
+	Symbol  string `json:"symbol" jsonschema:"The function / method name to find callers of (e.g. 'ServeHTTP', 'process'). Required. Name-based by default: a call pkg.Foo() or x.Method() is keyed by 'Foo' / 'Method'. With resolve:true, qualify a method as 'Owner.Method' (e.g. 'Buffer.String') to find callers of exactly that type's method; a bare name matches any owner."`
+	Resolve bool   `json:"resolve,omitempty" jsonschema:"When true, type-resolve Go via go/packages so only callers of the EXACT symbol are returned (same-named methods on different types are NOT conflated), instead of name-based matching. Requires the 'go' toolchain and a buildable Go module; degrades to name-based otherwise (see 'resolved'). Dev-environment only. Issue #447."`
 }
 
 // WhoCallsOutput lists every file that calls/references the symbol.
@@ -241,6 +242,7 @@ type WhoCallsOutput struct {
 	// when any — a hint that these name-based caller results may mix calls
 	// to same-named methods on different types. Go plus the class-based tree-sitter languages (#445).
 	DefinedOn          []string          `json:"defined_on,omitempty"`
+	Resolved           bool              `json:"resolved"`
 	Callers            []search.Importer `json:"callers"`
 	Count              int               `json:"count"`
 	TotalFiles         int64             `json:"total_files"`
@@ -264,9 +266,24 @@ func (h *handlers) whoCallsHandler(ctx context.Context, _ *mcp.CallToolRequest, 
 		return nil, WhoCallsOutput{}, fmt.Errorf("who_calls: %w", err)
 	}
 	callers := g.WhoCalls(in.Symbol)
+	resolved := false
+	if in.Resolve {
+		root := in.Dir
+		if len(in.Dirs) > 0 {
+			root = in.Dirs[0]
+		}
+		if root == "" {
+			root = "."
+		}
+		if rc, ok, _ := search.ResolveGoWhoCalls(ctx, root, in.Symbol); ok {
+			callers = rc
+			resolved = true
+		}
+	}
 	out := WhoCallsOutput{
 		Symbol:             in.Symbol,
 		DefinedOn:          g.OwnersOf(in.Symbol),
+		Resolved:           resolved,
 		Callers:            callers,
 		Count:              len(callers),
 		TotalFiles:         g.TotalFiles,
@@ -351,14 +368,16 @@ func (h *handlers) deadCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, 
 // ImpactInput is the JSON-schema input for the `impact` tool.
 type ImpactInput struct {
 	codeGraphWalkInput
-	Symbol   string `json:"symbol" jsonschema:"The exact function/method name to assess. Returns every function that transitively calls it — the blast radius of changing it. Required."`
-	MaxDepth int    `json:"max_depth,omitempty" jsonschema:"Cap the number of call hops in the closure. 0 (default) is unbounded. 1 = direct callers only (same set as who_calls, but symbol-level)."`
+	Symbol   string `json:"symbol" jsonschema:"The function/method to assess. Returns every function that transitively calls it — the blast radius of changing it. Required. With resolve:true, qualify a method as 'Owner.Method'."`
+	MaxDepth int    `json:"max_depth,omitempty" jsonschema:"Cap the number of call hops in the closure. 0 (default) is unbounded. 1 = direct callers only (same set as who_calls, but symbol-level). Ignored when resolve:true."`
+	Resolve  bool   `json:"resolve,omitempty" jsonschema:"When true, type-resolve Go via go/packages for a precise blast radius (exact symbol, no same-name conflation) instead of name-based. Requires the 'go' toolchain and a buildable module; degrades to name-based otherwise (see 'resolved'). Dev-environment only. Issue #447."`
 }
 
 // ImpactOutput is the transitive caller closure of the queried symbol.
 type ImpactOutput struct {
 	CommonOutput
 	Symbol             string              `json:"symbol"`
+	Resolved           bool                `json:"resolved"`
 	Dependents         []search.ImpactNode `json:"dependents"`
 	Count              int                 `json:"count"`
 	MaxDepthReached    int                 `json:"max_depth_reached"`
@@ -383,6 +402,20 @@ func (h *handlers) impactHandler(ctx context.Context, _ *mcp.CallToolRequest, in
 		return nil, ImpactOutput{}, fmt.Errorf("impact: %w", err)
 	}
 	deps := g.Impact(in.Symbol, in.MaxDepth)
+	resolved := false
+	if in.Resolve {
+		root := in.Dir
+		if len(in.Dirs) > 0 {
+			root = in.Dirs[0]
+		}
+		if root == "" {
+			root = "."
+		}
+		if rd, ok, _ := search.ResolveGoImpact(ctx, root, in.Symbol); ok {
+			deps = rd
+			resolved = true
+		}
+	}
 	maxDepth := 0
 	for _, d := range deps {
 		if d.Depth > maxDepth {
@@ -391,6 +424,7 @@ func (h *handlers) impactHandler(ctx context.Context, _ *mcp.CallToolRequest, in
 	}
 	out := ImpactOutput{
 		Symbol:             in.Symbol,
+		Resolved:           resolved,
 		Dependents:         deps,
 		Count:              len(deps),
 		MaxDepthReached:    maxDepth,

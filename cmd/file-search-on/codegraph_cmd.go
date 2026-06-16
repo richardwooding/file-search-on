@@ -214,10 +214,11 @@ func writeJSON(w *os.File, v any) error {
 
 // WhoCallsCmd — reverse call lookup.
 type WhoCallsCmd struct {
-	Symbol string `arg:"" help:"Exact function/method name to find callers of."`
+	Symbol string `arg:"" help:"Function/method to find callers of. With --resolve, qualify a method as 'Owner.Method' (e.g. Buffer.String) to find callers of exactly that; a bare name matches any owner."`
 	codeGraphWalkFlags
-	Expr   string `name:"expr" help:"CEL pre-filter. Defaults to is_source."`
-	Output string `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table | json."`
+	Expr    string `name:"expr" help:"CEL pre-filter. Defaults to is_source."`
+	Output  string `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table | json."`
+	Resolve bool   `name:"resolve" help:"Type-resolve Go via go/packages so only callers of the EXACT symbol are returned (distinguishes same-named methods on different types) instead of name-based matching. Requires the 'go' toolchain + a buildable module; falls back to name-based otherwise. First -d root. Issue #447."`
 }
 
 func (c *WhoCallsCmd) Run(ctx context.Context) error {
@@ -231,9 +232,16 @@ func (c *WhoCallsCmd) Run(ctx context.Context) error {
 	}
 	callers := g.WhoCalls(c.Symbol)
 	definedOn := g.OwnersOf(c.Symbol)
+	resolved := false
+	if c.Resolve && len(c.Dir) > 0 {
+		if rc, ok, _ := search.ResolveGoWhoCalls(effectiveCtx, c.Dir[0], c.Symbol); ok {
+			callers = rc
+			resolved = true
+		}
+	}
 	if c.Output == "json" {
 		_ = writeJSON(os.Stdout, map[string]any{
-			"symbol": c.Symbol, "defined_on": definedOn, "callers": callers, "count": len(callers), "total_files": g.TotalFiles,
+			"symbol": c.Symbol, "defined_on": definedOn, "callers": callers, "count": len(callers), "total_files": g.TotalFiles, "resolved": resolved,
 		})
 	} else {
 		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
@@ -241,10 +249,17 @@ func (c *WhoCallsCmd) Run(ctx context.Context) error {
 			_, _ = fmt.Fprintf(tw, "%s\t%s\n", im.Language, im.Path)
 		}
 		_ = tw.Flush()
-		if len(definedOn) > 0 {
-			_, _ = fmt.Fprintf(os.Stderr, "%q is a method on: %s\n", c.Symbol, strings.Join(definedOn, ", "))
+		if c.Resolve && !resolved {
+			_, _ = fmt.Fprintln(os.Stderr, "note: --resolve requested but type resolution unavailable (no go toolchain / not a buildable module); used name-based matching")
 		}
-		_, _ = fmt.Fprintf(os.Stderr, "%d file(s) call %q (of %d source files)\n", len(callers), c.Symbol, g.TotalFiles)
+		if !resolved && len(definedOn) > 0 {
+			_, _ = fmt.Fprintf(os.Stderr, "%q is a method on: %s (name-based — pass --resolve to disambiguate)\n", c.Symbol, strings.Join(definedOn, ", "))
+		}
+		mode := ""
+		if resolved {
+			mode = " (Go type-resolved — exact symbol)"
+		}
+		_, _ = fmt.Fprintf(os.Stderr, "%d file(s) call %q%s (of %d source files)\n", len(callers), c.Symbol, mode, g.TotalFiles)
 	}
 	return codeGraphExit(c.Timeout, parentCtx, effectiveCtx, g, "who-calls")
 }
@@ -403,11 +418,12 @@ func (c *CallPathCmd) Run(ctx context.Context) error {
 }
 
 type ImpactCmd struct {
-	Symbol string `arg:"" help:"Exact function/method name whose transitive callers (blast radius) to list."`
+	Symbol string `arg:"" help:"Function/method whose transitive callers (blast radius) to list. With --resolve, qualify a method as 'Owner.Method'."`
 	codeGraphWalkFlags
 	Expr     string `name:"expr" help:"CEL pre-filter. Defaults to is_source."`
-	MaxDepth int    `name:"max-depth" default:"0" help:"Cap call hops in the closure. 0 = unbounded; 1 = direct callers only."`
+	MaxDepth int    `name:"max-depth" default:"0" help:"Cap call hops in the closure. 0 = unbounded; 1 = direct callers only. (Ignored under --resolve.)"`
 	Output   string `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table | json."`
+	Resolve  bool   `name:"resolve" help:"Type-resolve Go via go/packages for a precise blast radius (exact symbol, no same-name conflation) instead of name-based. Requires the 'go' toolchain + a buildable module; falls back to name-based otherwise. First -d root. Issue #447."`
 }
 
 func (c *ImpactCmd) Run(ctx context.Context) error {
@@ -420,9 +436,16 @@ func (c *ImpactCmd) Run(ctx context.Context) error {
 		return nil
 	}
 	deps := g.Impact(c.Symbol, c.MaxDepth)
+	resolved := false
+	if c.Resolve && len(c.Dir) > 0 {
+		if rd, ok, _ := search.ResolveGoImpact(effectiveCtx, c.Dir[0], c.Symbol); ok {
+			deps = rd
+			resolved = true
+		}
+	}
 	if c.Output == "json" {
 		_ = writeJSON(os.Stdout, map[string]any{
-			"symbol": c.Symbol, "dependents": deps, "count": len(deps), "total_files": g.TotalFiles,
+			"symbol": c.Symbol, "dependents": deps, "count": len(deps), "total_files": g.TotalFiles, "resolved": resolved,
 		})
 	} else {
 		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
@@ -431,7 +454,14 @@ func (c *ImpactCmd) Run(ctx context.Context) error {
 			_, _ = fmt.Fprintf(tw, "%d\t%s\t%s\n", d.Depth, d.Symbol, strings.Join(d.Paths, ", "))
 		}
 		_ = tw.Flush()
-		_, _ = fmt.Fprintf(os.Stderr, "%d function(s) transitively call %q (of %d source files)\n", len(deps), c.Symbol, g.TotalFiles)
+		if c.Resolve && !resolved {
+			_, _ = fmt.Fprintln(os.Stderr, "note: --resolve requested but type resolution unavailable; used name-based matching")
+		}
+		mode := "name-based"
+		if resolved {
+			mode = "Go type-resolved"
+		}
+		_, _ = fmt.Fprintf(os.Stderr, "%d function(s) transitively call %q (%s; of %d source files)\n", len(deps), c.Symbol, mode, g.TotalFiles)
 	}
 	return codeGraphExit(c.Timeout, parentCtx, effectiveCtx, g, "impact")
 }
