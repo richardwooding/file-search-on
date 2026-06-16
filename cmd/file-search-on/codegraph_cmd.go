@@ -268,8 +268,9 @@ func (c *WhoCallsCmd) Run(ctx context.Context) error {
 type DeadCodeCmd struct {
 	Expr string `arg:"" optional:"" help:"CEL pre-filter for which files enter the graph. Defaults to is_source."`
 	codeGraphWalkFlags
-	Output  string `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table | json."`
-	Resolve bool   `name:"resolve" help:"Type-resolve Go via go/packages for precise dead-code (distinguishes same-named methods, counts cross-package usage) instead of name-based matching. Requires the 'go' toolchain and a buildable module — falls back to name-based otherwise. Dev-environment only; the first -d root is resolved. Issue #447."`
+	Output         string `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table | json."`
+	Resolve        bool   `name:"resolve" help:"Type-resolve Go via go/packages for precise dead-code (distinguishes same-named methods, counts cross-package usage) instead of name-based matching. Requires the 'go' toolchain and a buildable module — falls back to name-based otherwise. Dev-environment only; the first -d root is resolved. Issue #447."`
+	IgnoreExported bool   `name:"ignore-exported" help:"Drop exported/public symbols (funcs, methods, types) from the candidates — exported API used only by external callers is the dominant dead-code false positive. Visibility is known for name-convention (Go / Python) and keyword (Rust / TS / JS / Java / C# / Kotlin / Scala) languages; symbols in languages without a visibility signal are kept."`
 }
 
 type TestGapsCmd struct {
@@ -335,6 +336,9 @@ func (c *DeadCodeCmd) Run(ctx context.Context) error {
 			resolved = true
 		}
 	}
+	if c.IgnoreExported {
+		candidates = search.FilterExported(candidates)
+	}
 	dcPaths := make([]string, len(candidates))
 	for i, d := range candidates {
 		dcPaths[i] = d.Path
@@ -361,7 +365,11 @@ func (c *DeadCodeCmd) Run(ctx context.Context) error {
 		if resolved {
 			mode = "Go type-resolved + name-based for other languages"
 		}
-		_, _ = fmt.Fprintf(os.Stderr, "%d candidate(s) — %s; exported API / entry points / dynamic dispatch may be false positives\n", len(candidates), mode)
+		fp := "exported API / entry points / dynamic dispatch may be false positives"
+		if c.IgnoreExported {
+			fp = "exported symbols hidden (--ignore-exported); entry points / dynamic dispatch may still be false positives"
+		}
+		_, _ = fmt.Fprintf(os.Stderr, "%d candidate(s) — %s; %s\n", len(candidates), mode, fp)
 		if hint != "" {
 			_, _ = fmt.Fprintln(os.Stderr, hint)
 		}

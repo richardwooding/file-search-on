@@ -233,6 +233,57 @@ func TestCodeGraph_OwnersOf_AndDeadCodeOwner(t *testing.T) {
 	}
 }
 
+// TestDeadCode_Exported pins the exportedness bit + FilterExported (#447):
+// an exported and an unexported func, both unreferenced, are both dead
+// candidates; FilterExported drops only the exported one. Covers Go
+// (name-convention) and Rust (pub via exported_symbols).
+func TestDeadCode_Exported(t *testing.T) {
+	dir := t.TempDir()
+	mk := func(rel, body string) {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("g/g.go", "package g\n\nfunc Orphan() {}\nfunc orphan() {}\n")
+	mk("r/lib.rs", "pub fn pub_orphan() {}\nfn priv_orphan() {}\n")
+	g, err := search.BuildCodeGraph(t.Context(), search.Options{Root: dir, Expr: "is_source"}, content.DefaultRegistry())
+	if err != nil {
+		t.Fatalf("BuildCodeGraph: %v", err)
+	}
+
+	all := map[string]bool{}   // symbol -> exported?
+	for _, d := range g.DeadCode() {
+		all[d.Symbol] = d.Exported
+	}
+	for sym, wantExp := range map[string]bool{
+		"Orphan": true, "orphan": false, "pub_orphan": true, "priv_orphan": false,
+	} {
+		got, ok := all[sym]
+		if !ok {
+			t.Errorf("%q should be a dead candidate; got %v", sym, all)
+			continue
+		}
+		if got != wantExp {
+			t.Errorf("%q Exported=%v, want %v", sym, got, wantExp)
+		}
+	}
+
+	kept := map[string]bool{}
+	for _, d := range search.FilterExported(g.DeadCode()) {
+		kept[d.Symbol] = true
+	}
+	if kept["Orphan"] || kept["pub_orphan"] {
+		t.Errorf("FilterExported should drop exported symbols; kept %v", kept)
+	}
+	if !kept["orphan"] || !kept["priv_orphan"] {
+		t.Errorf("FilterExported should keep unexported symbols; kept %v", kept)
+	}
+}
+
 // buildCallFixture has clear intra-repo call edges:
 //
 //	a.go    — func Helper(); func Used() { Helper() }   (Helper is called)

@@ -299,7 +299,8 @@ func (h *handlers) whoCallsHandler(ctx context.Context, _ *mcp.CallToolRequest, 
 // DeadCodeInput is the JSON-schema input for the `dead_code` tool.
 type DeadCodeInput struct {
 	codeGraphWalkInput
-	Resolve bool `json:"resolve,omitempty" jsonschema:"When true, type-resolve Go via go/packages for precise dead-code — distinguishes same-named methods on different types and counts cross-package usage, instead of the default name-based matching (which over-matches same names). Requires the 'go' toolchain and a buildable Go module; degrades to name-based otherwise (see 'resolved' in the output). Dev-environment only — unavailable in toolchain-less hosts. Heavier (~seconds). Issue #447."`
+	Resolve        bool `json:"resolve,omitempty" jsonschema:"When true, type-resolve Go via go/packages for precise dead-code — distinguishes same-named methods on different types and counts cross-package usage, instead of the default name-based matching (which over-matches same names). Requires the 'go' toolchain and a buildable Go module; degrades to name-based otherwise (see 'resolved' in the output). Dev-environment only — unavailable in toolchain-less hosts. Heavier (~seconds). Issue #447."`
+	IgnoreExported bool `json:"ignore_exported,omitempty" jsonschema:"When true, drop exported/public symbols (functions, methods, types) from the candidates. Exported API used only by EXTERNAL callers is the dominant dead-code false positive, so this focuses results on genuinely-internal dead code. Visibility is determined for the name-convention (Go / Python) and keyword (Rust / TypeScript / JavaScript / Java / C# / Kotlin / Scala) languages; symbols in languages with no visibility signal are kept."`
 }
 
 // DeadCodeOutput lists candidate unreferenced definitions.
@@ -345,6 +346,9 @@ func (h *handlers) deadCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, 
 			candidates = search.MergeResolvedGoDead(candidates, rdead)
 			resolved = true
 		}
+	}
+	if in.IgnoreExported {
+		candidates = search.FilterExported(candidates)
 	}
 	dcPaths := make([]string, len(candidates))
 	for i, c := range candidates {

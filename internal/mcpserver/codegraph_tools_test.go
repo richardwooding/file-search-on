@@ -244,6 +244,26 @@ func TestDeadCodeTool(t *testing.T) {
 	}
 }
 
+func TestDeadCodeTool_IgnoreExported(t *testing.T) {
+	dir := seedCodeGraphTree(t)
+	ctx, cs := newSession(t)
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "dead_code",
+		Arguments: DeadCodeInput{codeGraphWalkInput: codeGraphWalkInput{Dir: dir}, IgnoreExported: true},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	var out DeadCodeOutput
+	mustDecodeStructured(t, res, &out)
+	// Gamma is exported (capitalised Go name) — must be filtered out.
+	for _, d := range out.Candidates {
+		if d.Symbol == "Gamma" {
+			t.Errorf("ignore_exported should drop exported Gamma: %+v", out.Candidates)
+		}
+	}
+}
+
 func TestCallsTool(t *testing.T) {
 	dir := seedCodeGraphTree(t)
 	ctx, cs := newSession(t)
