@@ -282,17 +282,22 @@ func (h *handlers) whoCallsHandler(ctx context.Context, _ *mcp.CallToolRequest, 
 // DeadCodeInput is the JSON-schema input for the `dead_code` tool.
 type DeadCodeInput struct {
 	codeGraphWalkInput
+	Resolve bool `json:"resolve,omitempty" jsonschema:"When true, type-resolve Go via go/packages for precise dead-code — distinguishes same-named methods on different types and counts cross-package usage, instead of the default name-based matching (which over-matches same names). Requires the 'go' toolchain and a buildable Go module; degrades to name-based otherwise (see 'resolved' in the output). Dev-environment only — unavailable in toolchain-less hosts. Heavier (~seconds). Issue #447."`
 }
 
 // DeadCodeOutput lists candidate unreferenced definitions.
 type DeadCodeOutput struct {
 	CommonOutput
-	Candidates         []search.SymbolDef `json:"candidates"`
-	Count              int                `json:"count"`
-	Hint               string             `json:"hint,omitempty"`
-	TotalFiles         int64              `json:"total_files"`
-	Cancelled          bool               `json:"cancelled,omitempty"`
-	CancellationReason string             `json:"cancellation_reason,omitempty"`
+	Candidates []search.SymbolDef `json:"candidates"`
+	Count      int                `json:"count"`
+	// Resolved is true when the Go entries came from go/packages type
+	// resolution (resolve:true and the toolchain/module were available);
+	// false means the result is the name-based heuristic.
+	Resolved           bool   `json:"resolved"`
+	Hint               string `json:"hint,omitempty"`
+	TotalFiles         int64  `json:"total_files"`
+	Cancelled          bool   `json:"cancelled,omitempty"`
+	CancellationReason string `json:"cancellation_reason,omitempty"`
 }
 
 func (h *handlers) deadCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, in DeadCodeInput) (*mcp.CallToolResult, DeadCodeOutput, error) {
@@ -308,6 +313,22 @@ func (h *handlers) deadCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, 
 		return nil, DeadCodeOutput{}, fmt.Errorf("dead_code: %w", err)
 	}
 	candidates := g.DeadCode()
+	// --resolve / resolve:true (#447): swap the name-based Go entries for
+	// the precise type-resolved set when the toolchain + module allow.
+	resolved := false
+	if in.Resolve {
+		root := in.Dir
+		if len(in.Dirs) > 0 {
+			root = in.Dirs[0]
+		}
+		if root == "" {
+			root = "."
+		}
+		if rdead, ok, _ := search.ResolveGoDead(ctx, root); ok {
+			candidates = search.MergeResolvedGoDead(candidates, rdead)
+			resolved = true
+		}
+	}
 	dcPaths := make([]string, len(candidates))
 	for i, c := range candidates {
 		dcPaths[i] = c.Path
@@ -315,6 +336,7 @@ func (h *handlers) deadCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, 
 	out := DeadCodeOutput{
 		Candidates:         candidates,
 		Count:              len(candidates),
+		Resolved:           resolved,
 		Hint:               g.GeneratedHint(dcPaths),
 		TotalFiles:         g.TotalFiles,
 		Cancelled:          g.Cancelled,
