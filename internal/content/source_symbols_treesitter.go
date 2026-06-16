@@ -178,7 +178,18 @@ var tsTypeRefQuery = map[string]string{
 (let_declaration (type_identifier) @typeref)
 (reference_type (type_identifier) @typeref)`,
 	"typescript": `(type_annotation (type_identifier) @typeref)
-(type_arguments (type_identifier) @typeref)`,
+(type_arguments (type_identifier) @typeref)
+(new_expression constructor: (identifier) @typeref)`,
+	// JavaScript has no type annotations, but a class used only via
+	// `new Foo()` would otherwise never appear as a reference and read as
+	// dead. Capture the constructor identifier as a type usage (#444).
+	"javascript": `(new_expression constructor: (identifier) @typeref)`,
+	// Ruby is dynamically typed; "type usage" is a superclass in a class
+	// definition (`class Widget < Base`) or a constant receiver
+	// (`Helper.go`) — neither captured by the call/ref query, so a
+	// referenced-only-as-a-base class read as dead before this (#444).
+	"ruby": `(superclass (constant) @typeref)
+(call receiver: (constant) @typeref)`,
 	"python": `(type (identifier) @typeref)`,
 	"java": `(field_declaration (type_identifier) @typeref)
 (formal_parameter (type_identifier) @typeref)
@@ -208,6 +219,11 @@ var tsTypeRefQuery = map[string]string{
 (function_definition (type_identifier) @typeref)
 (val_definition (type_identifier) @typeref)`,
 	"php": `(named_type (name) @typeref)`,
+	// Perl / R / MATLAB intentionally have no typeref query: they have no
+	// static type-annotation syntax, and their "types" (packages / S4
+	// classes / classdefs) are referenced through the ordinary call path
+	// already captured by tsRefQuery — so there's no type-only-usage gap
+	// to close for dead-code accuracy.
 }
 
 // tsExportedQuery captures the names of PUBLIC function/type definitions as
