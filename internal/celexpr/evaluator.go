@@ -14,11 +14,11 @@ import (
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/richardwooding/file-search-on/internal/content"
-	"github.com/richardwooding/ollamaembed"
-	"github.com/richardwooding/gitmeta"
 	"github.com/richardwooding/file-search-on/internal/hashset"
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/projecttype"
+	"github.com/richardwooding/gitmeta"
+	"github.com/richardwooding/ollamaembed"
 )
 
 // symlinkInfo captures the result of an os.Lstat + os.Readlink probe
@@ -383,6 +383,18 @@ type BuildOptions struct {
 	// when zero; the helper process gets SIGKILL when the ctx times
 	// out so a misbehaving image can't stall the walk.
 	OCRTimeout time.Duration
+
+	// VerifyC2PA, when true, runs full C2PA / Content Credentials
+	// verification (content.ValidateImageC2PA → c2pa.Validate) over
+	// image/* files and surfaces the VERIFIED attributes c2pa_valid /
+	// c2pa_verified_signer / c2pa_verified_signed_at /
+	// c2pa_validation_status — the authenticated counterpart to the fast,
+	// unverified c2pa_* attributes that always populate via c2pa.Read.
+	// Off by default: validation does real cryptographic work, unlike the
+	// header read. The result is never cached (it is clock-dependent — a
+	// signer cert can expire while the file is unchanged), so it is
+	// recomputed on every walk, like project context. Issue #441.
+	VerifyC2PA bool
 }
 
 // defaultBodyMaxBytes caps the body string supplied to CEL when
@@ -522,6 +534,17 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 					attrs.Extra = content.Attributes{}
 				}
 				runImageOCR(ctx, displayPath, cacheKey, info, attrs.Extra, opts)
+			}
+			// Verified C2PA (#441). Recomputed on every walk — never
+			// cached (validity is clock-dependent), so the cache hit on
+			// the unverified attrs above doesn't carry these.
+			if opts.VerifyC2PA && strings.HasPrefix(cached.ContentType, "image/") {
+				if v, ok := content.ValidateImageC2PA(ctx, fsys, fsPath, cached.ContentType); ok {
+					if attrs.Extra == nil {
+						attrs.Extra = content.Attributes{}
+					}
+					maps.Copy(attrs.Extra, v)
+				}
 			}
 			// Same project-context wiring as the cache-miss path —
 			// the index doesn't (and shouldn't) cache project context.
@@ -824,6 +847,18 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 			extra = content.Attributes{}
 		}
 		runImageOCR(ctx, displayPath, cacheKey, info, extra, opts)
+	}
+
+	// Verified C2PA (#441). Added AFTER the cache Put above, so the
+	// clock-dependent verified result never enters the (size, mtime)
+	// attribute cache — recomputed each walk when the flag is set.
+	if opts.VerifyC2PA && strings.HasPrefix(contentTypeName, "image/") {
+		if v, ok := content.ValidateImageC2PA(ctx, fsys, fsPath, contentTypeName); ok {
+			if extra == nil {
+				extra = content.Attributes{}
+			}
+			maps.Copy(extra, v)
+		}
 	}
 
 	// Project-context resolution. NOT cached in the index — the

@@ -258,3 +258,18 @@ file-search-on 'is_c2pa && c2pa_signed_at > timestamp("2024-01-01T00:00:00Z")' -
 ```
 
 Note: absence of `c2pa_ai_generated` does **not** mean "not AI" — most files carry no manifest at all.
+
+### Verified Content Credentials (`--verify-c2pa`)
+
+The attributes above are **unverified**. Opt into full pure-Go cryptographic validation with `--verify-c2pa` (CLI) / `verify_c2pa: true` (MCP) — COSE signature, certificate chain against the embedded C2PA trust list, hash bindings, and RFC 3161 timestamp — which adds `c2pa_valid`, `c2pa_verified_signer` (the *trust-anchored* signer), `c2pa_verified_signed_at` (verified timestamp), and `c2pa_validation_status` (the first C2PA failure code when invalid). It is off by default: real cryptography per image, and the result is never cached (validity is clock-dependent — a signer cert can expire while the file is unchanged).
+
+```sh
+# Authentic Content Credentials (manifest present AND cryptographically valid)
+file-search-on 'is_c2pa && c2pa_valid' --verify-c2pa -d ~/Assets
+
+# Verified Adobe signature (trust-anchored, not just claimed)
+file-search-on 'c2pa_valid && c2pa_verified_signer.contains("Adobe")' --verify-c2pa -d ~/Assets
+
+# Triage: has a manifest but failed validation — inspect why via c2pa_validation_status
+file-search-on 'is_c2pa && !c2pa_valid' --verify-c2pa -d ~/Assets -o verbose
+```
