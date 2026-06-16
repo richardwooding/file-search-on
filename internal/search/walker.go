@@ -17,7 +17,7 @@ import (
 	"github.com/richardwooding/gitmeta"
 	"github.com/richardwooding/file-search-on/internal/hashset"
 	"github.com/richardwooding/file-search-on/internal/index"
-	"github.com/richardwooding/file-search-on/internal/projecttype"
+	"github.com/richardwooding/projectdetect"
 )
 
 // Result represents a matching file
@@ -507,15 +507,15 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 		root     string
 		fsys     fs.FS
 		exc      *excluder
-		resolver *projecttype.ProjectResolver
+		resolver *projectdetect.ProjectResolver
 		gitCache *gitmeta.Cache
 	}
 	var specs []rootSpec
-	makeResolver := func(r string) *projecttype.ProjectResolver {
+	makeResolver := func(r string) *projectdetect.ProjectResolver {
 		if !opts.ResolveProjects {
 			return nil
 		}
-		return projecttype.NewResolver(r, nil)
+		return projectdetect.NewResolver(r, nil)
 	}
 	// makeGitCache resolves a *gitmeta.Cache for root when WithGit
 	// is set. When opts.GitCachePool is also set (the MCP server
@@ -552,7 +552,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 		if !opts.PruneBuildArtefacts {
 			return opts.Excludes
 		}
-		extra, err := projecttype.CollectBuildExcludes(ctx, r)
+		extra, err := projectdetect.CollectBuildExcludes(ctx, r)
 		if err != nil || len(extra) == 0 {
 			return opts.Excludes
 		}
@@ -601,7 +601,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 		fsys        fs.FS
 		fsPath      string
 		displayPath string
-		resolver    *projecttype.ProjectResolver
+		resolver    *projectdetect.ProjectResolver
 		gitCache    *gitmeta.Cache
 	}
 	jobs := make(chan job, opts.Workers*2)

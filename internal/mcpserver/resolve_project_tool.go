@@ -7,7 +7,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/richardwooding/file-search-on/internal/projecttype"
+	"github.com/richardwooding/projectdetect"
 )
 
 // ResolveProjectForPathInput is the JSON-schema input for the
@@ -26,7 +26,7 @@ type ResolveProjectForPathOutput struct {
 	Path         string              `json:"path"`
 	ProjectRoot  string              `json:"project_root"`
 	ProjectTypes []string            `json:"project_types"`
-	Indicators   []projecttype.Match `json:"indicators,omitempty"`
+	Indicators   []projectdetect.Match `json:"indicators,omitempty"`
 }
 
 func (h *handlers) resolveProjectForPathHandler(ctx context.Context, _ *mcp.CallToolRequest, in ResolveProjectForPathInput) (*mcp.CallToolResult, ResolveProjectForPathOutput, error) {
@@ -54,7 +54,7 @@ func (h *handlers) resolveProjectForPathHandler(ctx context.Context, _ *mcp.Call
 	defer cancel()
 	_ = ctx
 
-	root, matches := projecttype.ResolveForPath(abs, nil)
+	root, matches := projectdetect.ResolveForPath(abs, nil)
 	out := ResolveProjectForPathOutput{
 		CommonOutput: CommonOutput{ServerVersion: h.version},
 		Path:         abs,

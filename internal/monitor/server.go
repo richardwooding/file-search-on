@@ -22,7 +22,7 @@ import (
 	"github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/content/ocr"
 	"github.com/richardwooding/file-search-on/internal/index"
-	"github.com/richardwooding/file-search-on/internal/projecttype"
+	"github.com/richardwooding/projectdetect"
 )
 
 //go:embed static/*
@@ -417,7 +417,7 @@ func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 
 	// Project types.
 	projects := make([]map[string]string, 0)
-	for _, pt := range projecttype.DefaultRegistry().Types() {
+	for _, pt := range projectdetect.DefaultRegistry().Types() {
 		projects = append(projects, map[string]string{"name": pt.Name, "description": pt.Description})
 	}
 

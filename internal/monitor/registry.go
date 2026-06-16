@@ -11,7 +11,7 @@ import (
 
 // registrySubdir is the per-user cache location for monitor-instance
 // registration files, mirroring the os.UserConfigDir()/file-search-on/…
-// convention used by internal/projecttype for config discovery.
+// convention used by the projectdetect module for config discovery.
 const registrySubdir = "file-search-on/monitors"
 
 // Entry is one running dashboard instance's registration record, written

@@ -10,7 +10,11 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/richardwooding/file-search-on/internal/index"
-	"github.com/richardwooding/file-search-on/internal/projecttype"
+	"github.com/richardwooding/projectdetect"
+	// Enables `cel:` indicators in custom project-type YAML (registers the
+	// CEL compiler via init). The projectdetect base package has no cel-go
+	// dependency; this blank import opts the binary into it.
+	_ "github.com/richardwooding/projectdetect/celindicators"
 )
 
 // exitCodeError lets a subcommand request a specific process exit code.
@@ -140,13 +144,13 @@ func main() {
 	//      --no-config-search; default on).
 	//   2. Explicit --project-type-config path.
 	if !CLI.NoConfigSearch {
-		if _, err := projecttype.LoadDiscovered(); err != nil {
+		if _, err := projectdetect.LoadDiscovered(); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			os.Exit(1)
 		}
 	}
 	if CLI.ProjectTypeConfig != "" {
-		if _, err := projecttype.LoadFromFile(CLI.ProjectTypeConfig); err != nil {
+		if _, err := projectdetect.LoadFromFile(CLI.ProjectTypeConfig); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			os.Exit(1)
 		}
