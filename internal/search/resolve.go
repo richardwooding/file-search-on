@@ -2,9 +2,57 @@ package search
 
 import (
 	"context"
+	"strings"
 
 	"github.com/richardwooding/file-search-on/internal/goresolve"
 )
+
+// splitQualified parses a who_calls/impact query symbol: "Owner.Method"
+// scopes to that type's method; a bare "Name" matches any owner (a function
+// and all same-named methods, each still resolved per call site).
+func splitQualified(symbol string) (owner, name string) {
+	if i := strings.LastIndexByte(symbol, '.'); i > 0 {
+		return symbol[:i], symbol[i+1:]
+	}
+	return "", symbol
+}
+
+// ResolveGoWhoCalls returns the precise caller files of a Go symbol via type
+// resolution — only callers of the EXACT symbol (e.g. Buffer.String, not
+// every "String"). ok is false when resolution can't run (degrade to
+// name-based). Issue #447.
+func ResolveGoWhoCalls(ctx context.Context, root, symbol string) ([]Importer, bool, error) {
+	res, ok, err := goresolve.Resolve(ctx, root)
+	if err != nil || !ok {
+		return nil, false, err
+	}
+	owner, name := splitQualified(symbol)
+	seen := map[string]bool{}
+	var out []Importer
+	for _, s := range res.Callers(owner, name) {
+		if seen[s.Path] {
+			continue
+		}
+		seen[s.Path] = true
+		out = append(out, Importer{Path: s.Path, Language: "go"})
+	}
+	return out, true, nil
+}
+
+// ResolveGoImpact returns the precise transitive caller closure of a Go
+// symbol as ImpactNodes. ok is false when resolution can't run.
+func ResolveGoImpact(ctx context.Context, root, symbol string) ([]ImpactNode, bool, error) {
+	res, ok, err := goresolve.Resolve(ctx, root)
+	if err != nil || !ok {
+		return nil, false, err
+	}
+	owner, name := splitQualified(symbol)
+	var out []ImpactNode
+	for _, s := range res.Impact(owner, name) {
+		out = append(out, ImpactNode{Symbol: s.Qualified(), Depth: s.Depth, Paths: []string{s.Path}})
+	}
+	return out, true, nil
+}
 
 // ResolveGoDead computes precise dead Go functions/methods via type
 // resolution (goresolve → go/packages), returned as SymbolDefs. ok is false

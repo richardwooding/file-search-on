@@ -56,6 +56,21 @@ func Available() bool {
 type Result struct {
 	Defs       []Symbol
 	referenced map[string]bool // id() of every used *types.Func
+	// Call graph (#447 who_calls/impact): per-callee call sites and the
+	// reverse edge set (callee id -> set of caller ids). callerID is "" for
+	// calls outside any function (package var initialisers). Callees are
+	// resolved precisely, so a call through an interface is attributed to
+	// the interface method, not the concrete impl.
+	callers map[string]map[string]bool // calleeID -> set of callerID
+	sites   map[string][]CallSite      // calleeID -> call-site locations
+	defByID map[string]Symbol          // id -> definition (for Impact output)
+}
+
+// CallSite is one resolved call to a queried symbol.
+type CallSite struct {
+	Path   string `json:"path"`
+	Line   int    `json:"line"`
+	Caller string `json:"caller,omitempty"` // qualified enclosing func; "" if file-level
 }
 
 // DeadFuncs returns the definitions whose resolved symbol is never
@@ -138,7 +153,12 @@ func Resolve(ctx context.Context, dir string) (*Result, bool, error) {
 		return nil, false, nil
 	}
 
-	res := &Result{referenced: map[string]bool{}}
+	res := &Result{
+		referenced: map[string]bool{},
+		callers:    map[string]map[string]bool{},
+		sites:      map[string][]CallSite{},
+		defByID:    map[string]Symbol{},
+	}
 	seenDef := map[string]bool{} // dedup defs across normal/test package variants
 	var loadedTypes bool
 	// ifaceMethodRefs collects interface methods that are used: a call
@@ -186,10 +206,12 @@ func Resolve(ctx context.Context, dir string) (*Result, bool, error) {
 				continue
 			}
 			seenDef[id] = true
-			res.Defs = append(res.Defs, Symbol{
+			sym := Symbol{
 				Pkg: fn.Pkg().Path(), Owner: owner, Name: fn.Name(),
 				Path: pos.Filename, Line: pos.Line,
-			})
+			}
+			res.Defs = append(res.Defs, sym)
+			res.defByID[id] = sym
 		}
 		// Concrete named types declared in this package (for interface
 		// satisfaction below).
@@ -225,6 +247,9 @@ func Resolve(ctx context.Context, dir string) (*Result, bool, error) {
 				}
 			}
 		}
+		// Call-graph edges: attribute each call site to its enclosing func
+		// and resolved callee (powers who_calls / impact).
+		res.collectEdges(p)
 	}
 	if !loadedTypes {
 		return nil, false, nil
