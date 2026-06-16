@@ -230,9 +230,10 @@ func (c *WhoCallsCmd) Run(ctx context.Context) error {
 		return nil
 	}
 	callers := g.WhoCalls(c.Symbol)
+	definedOn := g.OwnersOf(c.Symbol)
 	if c.Output == "json" {
 		_ = writeJSON(os.Stdout, map[string]any{
-			"symbol": c.Symbol, "callers": callers, "count": len(callers), "total_files": g.TotalFiles,
+			"symbol": c.Symbol, "defined_on": definedOn, "callers": callers, "count": len(callers), "total_files": g.TotalFiles,
 		})
 	} else {
 		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
@@ -240,6 +241,9 @@ func (c *WhoCallsCmd) Run(ctx context.Context) error {
 			_, _ = fmt.Fprintf(tw, "%s\t%s\n", im.Language, im.Path)
 		}
 		_ = tw.Flush()
+		if len(definedOn) > 0 {
+			_, _ = fmt.Fprintf(os.Stderr, "%q is a method on: %s\n", c.Symbol, strings.Join(definedOn, ", "))
+		}
 		_, _ = fmt.Fprintf(os.Stderr, "%d file(s) call %q (of %d source files)\n", len(callers), c.Symbol, g.TotalFiles)
 	}
 	return codeGraphExit(c.Timeout, parentCtx, effectiveCtx, g, "who-calls")

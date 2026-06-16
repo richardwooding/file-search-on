@@ -235,7 +235,11 @@ type WhoCallsInput struct {
 // WhoCallsOutput lists every file that calls/references the symbol.
 type WhoCallsOutput struct {
 	CommonOutput
-	Symbol             string            `json:"symbol"`
+	Symbol string `json:"symbol"`
+	// DefinedOn lists the types the queried symbol is a method on (#445),
+	// when any — a hint that these name-based caller results may mix calls
+	// to same-named methods on different types. Go only for now.
+	DefinedOn          []string          `json:"defined_on,omitempty"`
 	Callers            []search.Importer `json:"callers"`
 	Count              int               `json:"count"`
 	TotalFiles         int64             `json:"total_files"`
@@ -261,6 +265,7 @@ func (h *handlers) whoCallsHandler(ctx context.Context, _ *mcp.CallToolRequest, 
 	callers := g.WhoCalls(in.Symbol)
 	out := WhoCallsOutput{
 		Symbol:             in.Symbol,
+		DefinedOn:          g.OwnersOf(in.Symbol),
 		Callers:            callers,
 		Count:              len(callers),
 		TotalFiles:         g.TotalFiles,

@@ -373,6 +373,24 @@ func (g *CodeGraph) WhoCalls(name string) []Importer {
 	return out
 }
 
+// OwnersOf returns the distinct owning types of every method definition
+// named `name` (#445), sorted. Empty when `name` names only plain
+// functions/types or isn't defined. Lets the name-based lookups
+// (who_calls / references) report "this name is a method on these types",
+// surfacing the ambiguity behind a same-name query. Go only for now.
+func (g *CodeGraph) OwnersOf(name string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, e := range g.definedIn[name] {
+		if e.owner != "" && !seen[e.owner] {
+			seen[e.owner] = true
+			out = append(out, e.owner)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // Calls returns the distinct callee names that any function named `name`
 // invokes, sorted. Name-based and unioned across every file that defines
 // a function with that name. Covers Go + the tree-sitter languages whose
@@ -568,12 +586,12 @@ func (g *CodeGraph) DeadCode() []SymbolDef {
 			if isReflectionDispatchedEntry(e.kind, name, e.path, e.language) {
 				continue
 			}
-			key := e.kind + "\x00" + name + "\x00" + e.path
+			key := e.kind + "\x00" + name + "\x00" + e.path + "\x00" + e.owner
 			if seen[key] {
 				continue
 			}
 			seen[key] = true
-			out = append(out, SymbolDef{Path: e.path, Language: e.language, Kind: e.kind, Symbol: name})
+			out = append(out, SymbolDef{Path: e.path, Language: e.language, Kind: e.kind, Symbol: name, Owner: e.owner})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
