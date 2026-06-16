@@ -253,7 +253,8 @@ func (c *WhoCallsCmd) Run(ctx context.Context) error {
 type DeadCodeCmd struct {
 	Expr string `arg:"" optional:"" help:"CEL pre-filter for which files enter the graph. Defaults to is_source."`
 	codeGraphWalkFlags
-	Output string `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table | json."`
+	Output  string `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table | json."`
+	Resolve bool   `name:"resolve" help:"Type-resolve Go via go/packages for precise dead-code (distinguishes same-named methods, counts cross-package usage) instead of name-based matching. Requires the 'go' toolchain and a buildable module — falls back to name-based otherwise. Dev-environment only; the first -d root is resolved. Issue #447."`
 }
 
 type TestGapsCmd struct {
@@ -310,6 +311,15 @@ func (c *DeadCodeCmd) Run(ctx context.Context) error {
 		return nil
 	}
 	candidates := g.DeadCode()
+	// --resolve (#447): replace the name-based Go entries with the precise
+	// type-resolved set when the toolchain + a buildable module are present.
+	resolved := false
+	if c.Resolve && len(c.Dir) > 0 {
+		if rdead, ok, _ := search.ResolveGoDead(effectiveCtx, c.Dir[0]); ok {
+			candidates = search.MergeResolvedGoDead(candidates, rdead)
+			resolved = true
+		}
+	}
 	dcPaths := make([]string, len(candidates))
 	for i, d := range candidates {
 		dcPaths[i] = d.Path
@@ -317,15 +327,26 @@ func (c *DeadCodeCmd) Run(ctx context.Context) error {
 	hint := g.GeneratedHint(dcPaths)
 	if c.Output == "json" {
 		_ = writeJSON(os.Stdout, map[string]any{
-			"candidates": candidates, "count": len(candidates), "total_files": g.TotalFiles, "hint": hint,
+			"candidates": candidates, "count": len(candidates), "total_files": g.TotalFiles, "hint": hint, "resolved": resolved,
 		})
 	} else {
 		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 		for _, d := range candidates {
-			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", d.Kind, d.Symbol, d.Path)
+			name := d.Symbol
+			if d.Owner != "" {
+				name = d.Owner + "." + d.Symbol
+			}
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", d.Kind, name, d.Path)
 		}
 		_ = tw.Flush()
-		_, _ = fmt.Fprintf(os.Stderr, "%d candidate(s) — heuristic; exported API / entry points / dynamic dispatch may be false positives\n", len(candidates))
+		if c.Resolve && !resolved {
+			_, _ = fmt.Fprintln(os.Stderr, "note: --resolve requested but type resolution unavailable (no go toolchain / not a buildable module); used name-based matching")
+		}
+		mode := "name-based heuristic"
+		if resolved {
+			mode = "Go type-resolved + name-based for other languages"
+		}
+		_, _ = fmt.Fprintf(os.Stderr, "%d candidate(s) — %s; exported API / entry points / dynamic dispatch may be false positives\n", len(candidates), mode)
 		if hint != "" {
 			_, _ = fmt.Fprintln(os.Stderr, hint)
 		}
