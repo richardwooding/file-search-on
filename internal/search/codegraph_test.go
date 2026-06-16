@@ -197,6 +197,42 @@ func TestCodeGraph_FindDefinition_Owner(t *testing.T) {
 	}
 }
 
+// TestCodeGraph_OwnersOf_AndDeadCodeOwner pins owner surfacing on the
+// name-based lookups (#445): OwnersOf reports the types a method name is
+// defined on, and DeadCode carries the owning type on a dead method.
+func TestCodeGraph_OwnersOf_AndDeadCodeOwner(t *testing.T) {
+	dir := t.TempDir()
+	mk := func(rel, body string) {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Lonely.Unused is defined but never referenced anywhere -> dead.
+	mk("a/a.go", "package a\n\ntype Lonely struct{}\n\nfunc (l *Lonely) Unused() {}\n")
+	g := mustBuildGraph(t, dir)
+
+	if got := g.OwnersOf("Unused"); len(got) != 1 || got[0] != "Lonely" {
+		t.Errorf("OwnersOf(Unused)=%v, want [Lonely]", got)
+	}
+	dead := g.DeadCode()
+	var found bool
+	for _, d := range dead {
+		if d.Symbol == "Unused" {
+			found = true
+			if d.Owner != "Lonely" {
+				t.Errorf("dead Unused owner=%q, want Lonely", d.Owner)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("DeadCode did not report Unused; got %+v", dead)
+	}
+}
+
 // buildCallFixture has clear intra-repo call edges:
 //
 //	a.go    — func Helper(); func Used() { Helper() }   (Helper is called)

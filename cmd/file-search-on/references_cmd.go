@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -81,5 +82,8 @@ func printReferencesTable(w *os.File, res *search.ReferencesResult) {
 		_, _ = fmt.Fprintf(tw, "%s:%d\t%s\n", r.Path, r.Line, r.Kind)
 	}
 	_ = tw.Flush()
+	if len(res.DefinedOn) > 0 {
+		_, _ = fmt.Fprintf(os.Stderr, "%q is a method on: %s\n", res.Symbol, strings.Join(res.DefinedOn, ", "))
+	}
 	_, _ = fmt.Fprintf(os.Stderr, "%d usage(s) of %q (of %d source files)\n", res.Count, res.Symbol, res.TotalFiles)
 }

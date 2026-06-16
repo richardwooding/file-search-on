@@ -22,6 +22,7 @@ type ReferencesOutput struct {
 	CommonOutput
 	Symbol             string                 `json:"symbol"`
 	Kind               string                 `json:"kind,omitempty"`
+	DefinedOn          []string               `json:"defined_on,omitempty"` // method owner types of the queried symbol (#445)
 	References         []search.ReferenceSite `json:"references"`
 	Count              int                    `json:"count"`
 	TotalFiles         int64                  `json:"total_files"`
@@ -50,6 +51,7 @@ func (h *handlers) referencesHandler(ctx context.Context, _ *mcp.CallToolRequest
 	out := ReferencesOutput{
 		Symbol:             res.Symbol,
 		Kind:               in.Kind,
+		DefinedOn:          res.DefinedOn,
 		References:         res.References,
 		Count:              res.Count,
 		TotalFiles:         res.TotalFiles,

@@ -19,7 +19,11 @@ type ReferenceSite struct {
 
 // ReferencesResult is the find-all-usages report for a symbol.
 type ReferencesResult struct {
-	Symbol             string          `json:"symbol"`
+	Symbol string `json:"symbol"`
+	// DefinedOn lists the types the queried symbol is a method on (#445),
+	// when any — a disambiguation hint that these name-based results may
+	// mix usages of same-named methods on different types. Go only for now.
+	DefinedOn          []string        `json:"defined_on,omitempty"`
 	References         []ReferenceSite `json:"references"`
 	Count              int             `json:"count"`
 	TotalFiles         int64           `json:"total_files"`
@@ -53,6 +57,7 @@ func References(ctx context.Context, opts Options, symbol, kind string, registry
 	if symbol == "" {
 		return res, nil
 	}
+	res.DefinedOn = g.OwnersOf(symbol)
 	for _, c := range g.WhoCalls(symbol) {
 		if err := ctx.Err(); err != nil {
 			res.Cancelled = true
