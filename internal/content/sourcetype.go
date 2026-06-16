@@ -189,12 +189,17 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 		}
 		// method_owners (builder-internal, #445): "method\x00owner" pairs so
 		// the code graph can disambiguate same-named methods on different
-		// types (find_definition reports the owning type). Go-only for now;
-		// the tree-sitter languages are a follow-up.
+		// types (find_definition / who_calls / dead_code report the owning
+		// type). Go via stdlib AST; the class-based tree-sitter languages
+		// via tsMethodOwners (parent-walk to the enclosing type).
+		var owners []string
 		if s.language == "go" {
-			if owners := goMethodOwners(bodyBuf.Bytes()); len(owners) > 0 {
-				attrs["method_owners"] = owners
-			}
+			owners = goMethodOwners(bodyBuf.Bytes())
+		} else {
+			owners = tsMethodOwners(s.language, bodyBuf.Bytes())
+		}
+		if len(owners) > 0 {
+			attrs["method_owners"] = owners
 		}
 		// exported_symbols (builder-internal, #409): the public subset of
 		// defs for keyword-visibility languages, consumed by unused_exports.

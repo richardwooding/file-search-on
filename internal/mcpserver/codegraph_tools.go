@@ -137,7 +137,8 @@ type FindDefinitionInput struct {
 
 // Each definition carries an optional 'owner' (the type a method belongs
 // to, e.g. 'Buffer' for (*Buffer).String) so same-named methods on
-// different types are distinguishable — Go only for now (#445).
+// different types are distinguishable — Go plus the class-based
+// tree-sitter languages (#445).
 
 // FindDefinitionOutput lists every file that defines the queried symbol.
 type FindDefinitionOutput struct {
@@ -238,7 +239,7 @@ type WhoCallsOutput struct {
 	Symbol string `json:"symbol"`
 	// DefinedOn lists the types the queried symbol is a method on (#445),
 	// when any — a hint that these name-based caller results may mix calls
-	// to same-named methods on different types. Go only for now.
+	// to same-named methods on different types. Go plus the class-based tree-sitter languages (#445).
 	DefinedOn          []string          `json:"defined_on,omitempty"`
 	Callers            []search.Importer `json:"callers"`
 	Count              int               `json:"count"`

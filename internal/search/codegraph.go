@@ -29,7 +29,7 @@ type SymbolDef struct {
 	Symbol string `json:"symbol,omitempty"`
 	// Owner is the type a method belongs to (#445), e.g. "Buffer" for
 	// (*Buffer).String. Empty for plain functions and types. Lets callers
-	// tell apart same-named methods on different types. Go only for now.
+	// tell apart same-named methods on different types. Go plus the class-based tree-sitter languages (#445).
 	Owner string `json:"owner,omitempty"`
 }
 
@@ -377,7 +377,7 @@ func (g *CodeGraph) WhoCalls(name string) []Importer {
 // named `name` (#445), sorted. Empty when `name` names only plain
 // functions/types or isn't defined. Lets the name-based lookups
 // (who_calls / references) report "this name is a method on these types",
-// surfacing the ambiguity behind a same-name query. Go only for now.
+// surfacing the ambiguity behind a same-name query. Go plus the class-based tree-sitter languages (#445).
 func (g *CodeGraph) OwnersOf(name string) []string {
 	seen := map[string]bool{}
 	var out []string
