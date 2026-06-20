@@ -89,6 +89,7 @@ var CLI struct {
 	Monitors           MonitorsCmd           `cmd:"" name:"monitors" help:"List the monitoring-dashboard URLs of every currently-running file-search-on instance (mcp / watch started with --monitor). Reads the shared peer registry and prunes dead entries. Pipe -o bare into a browser opener, e.g. file-search-on monitors -o bare | head -1 | xargs open."`
 	HashSet            HashSetCmd            `cmd:"" name:"hash-set" help:"Manage hash allowlist / denylist files used by --hash-allowlist / --hash-denylist. Subcommands: build (compile text or NSRL CSV into bbolt format), info (print per-algorithm counts)."`
 	Embed              EmbedCmd              `cmd:"" name:"embed" help:"Manage Ollama embedding models for the search_semantic tool. Subcommands: list (what's installed + what's recommended), pull (download a model from Ollama)."`
+	Playground         PlaygroundCmd         `cmd:"" name:"playground" help:"Interactive CEL-filtering TUI — type a CEL expression and watch a snapshot of a directory's files filter live as you type, over the same attribute vocabulary as search. Prints the final expression on exit so it's reusable. e.g. playground -d ./internal 'is_source'."`
 	MCP                MCPCmd                `cmd:"" name:"mcp" help:"Run as a Model Context Protocol server (stdio, http, or sse)."`
 	Version            kong.VersionFlag      `short:"V" help:"Print version and exit."`
 }
