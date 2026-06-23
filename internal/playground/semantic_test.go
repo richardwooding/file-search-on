@@ -178,6 +178,26 @@ func TestReproCommand(t *testing.T) {
 			},
 			want: `file-search-on search --semantic-query 'rate limiting' --embedding-model 'all-minilm' --embedding-server 'http://gpu:11434' --similarity-threshold 0.7 -d './src'`,
 		},
+		{
+			name: "carries walk-scope flags",
+			opts: RunOptions{
+				Embedder:            fakeEmbedder{},
+				EmbeddingModel:      "all-minilm",
+				EmbeddingServer:     defaultServer,
+				SimilarityThreshold: 0.5,
+				EmbedMaxBytes:       16384,
+				SemanticQuery:       "logging",
+				Opts: search.Options{
+					Roots:               []string{"./internal"},
+					Excludes:            []string{"*.bak", "testdata"},
+					RespectGitignore:    true,
+					PruneBuildArtefacts: true,
+					IncludeBody:         true,
+					BodyMaxBytes:        2048,
+				},
+			},
+			want: `file-search-on search --semantic-query 'logging' --embedding-model 'all-minilm' --similarity-threshold 0.5 --embed-max-bytes 16384 -d './internal' --exclude '*.bak' --exclude 'testdata' --respect-gitignore --prune-build-artefacts --body --body-max-bytes 2048`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

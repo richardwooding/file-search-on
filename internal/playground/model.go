@@ -457,10 +457,30 @@ func (m model) reproCommand() string {
 		b.WriteString(" --embedding-server " + shellQuote(m.opts.EmbeddingServer))
 	}
 	fmt.Fprintf(&b, " --similarity-threshold %v", m.opts.SimilarityThreshold)
+	if m.opts.EmbedMaxBytes > 0 {
+		fmt.Fprintf(&b, " --embed-max-bytes %d", m.opts.EmbedMaxBytes)
+	}
 	for _, d := range m.opts.Opts.Roots {
 		if d != "" && d != "." {
 			b.WriteString(" -d " + shellQuote(d))
 		}
+	}
+	// Carry the walk-scope flags so the printed command reproduces the same
+	// candidate set and body availability as the interactive session.
+	for _, ex := range m.opts.Opts.Excludes {
+		b.WriteString(" --exclude " + shellQuote(ex))
+	}
+	if m.opts.Opts.RespectGitignore {
+		b.WriteString(" --respect-gitignore")
+	}
+	if m.opts.Opts.PruneBuildArtefacts {
+		b.WriteString(" --prune-build-artefacts")
+	}
+	if m.opts.Opts.IncludeBody {
+		b.WriteString(" --body")
+	}
+	if m.opts.Opts.BodyMaxBytes > 0 {
+		fmt.Fprintf(&b, " --body-max-bytes %d", m.opts.Opts.BodyMaxBytes)
 	}
 	if cel != "" {
 		b.WriteString(" " + shellQuote(cel))

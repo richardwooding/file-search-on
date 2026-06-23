@@ -2,10 +2,12 @@ package playground
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/richardwooding/file-search-on/internal/search"
 )
@@ -122,6 +124,33 @@ func TestModel_EnterRecordsFinalExpr(t *testing.T) {
 		t.Errorf("enter should record the typed expression, got %q", m.finalExpr)
 	}
 }
+
+func TestRenderList_RowsNeverExceedWidth(t *testing.T) {
+	// Long paths + a dim-styled size column previously got byte-truncated as a
+	// whole styled string, corrupting ANSI escapes. Each rendered row's visible
+	// width must stay within the list budget so it never wraps.
+	m := newModel(context.Background(), RunOptions{})
+	m = drive(m, tea.WindowSizeMsg{Width: 50, Height: 20})
+	long := "internal/search/very/deeply/nested/directory/structure/walker_orchestrator.go"
+	m = drive(m, loadedMsg{results: []search.Result{
+		res(long, "source/go", 123456, false),
+		res(long+"/again.go", "source/go", 42, false),
+	}})
+
+	for _, line := range strings.Split(m.renderList(), "\n") {
+		if w := lipgloss.Width(line); w > m.listWidth() {
+			t.Errorf("row width %d exceeds listWidth %d: %q", w, m.listWidth(), line)
+		}
+		// Stripping complete SGR sequences must leave no stray ESC behind; a
+		// dangling ESC means an escape was sliced mid-sequence.
+		if stripped := sgrRE.ReplaceAllString(line, ""); strings.ContainsRune(stripped, '\x1b') {
+			t.Errorf("row has a corrupted ANSI escape: %q", line)
+		}
+	}
+}
+
+// sgrRE matches a complete ANSI SGR (colour/style) escape sequence.
+var sgrRE = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
 func TestView_AttrsPanelRendersContent(t *testing.T) {
 	m := newModel(context.Background(), RunOptions{})

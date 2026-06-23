@@ -148,22 +148,49 @@ func (m model) renderList() string {
 	case len(m.matched) == 0 && m.loaded:
 		lines = append(lines, dimStyle.Render("(no matches)"))
 	case len(m.matched) > 0:
-		pathW := w / 2
 		for i := m.top; i < len(m.matched) && i < m.top+h; i++ {
 			r := m.results[m.matched[i]]
-			meta := r.Attrs.ContentType
-			if r.Attrs.Size > 0 {
-				meta += dimStyle.Render(fmt.Sprintf("  %s", humanSize(r.Attrs.Size)))
-			}
-			var prefix string
+			avail := w - 1 // leave a 1-cell safety margin
+
+			// Similarity score: fixed-width, never truncated.
+			scorePlain := ""
 			if m.hasSimilarity {
-				prefix = okStyle.Render(fmt.Sprintf("%.3f", r.Attrs.Similarity)) + " "
+				scorePlain = fmt.Sprintf("%.3f ", r.Attrs.Similarity)
 			}
-			line := prefix + fmt.Sprintf("%-*s %s", max(20, pathW), truncate(r.Path, pathW), meta)
+
+			// Meta column: content type + human size.
+			ctype := r.Attrs.ContentType
+			sizePlain := ""
+			if r.Attrs.Size > 0 {
+				sizePlain = "  " + humanSize(r.Attrs.Size)
+			}
+
+			// Budget the path column from what's left; drop the size, then
+			// clamp, if the row is too narrow to fit everything.
+			pathW := avail - lipgloss.Width(scorePlain) - 1 - lipgloss.Width(ctype) - lipgloss.Width(sizePlain)
+			if pathW < 8 {
+				sizePlain = ""
+				pathW = avail - lipgloss.Width(scorePlain) - 1 - lipgloss.Width(ctype)
+			}
+			pathW = max(pathW, 4)
+			pathPlain := truncate(r.Path, pathW)
+
 			if i == m.selected {
-				line = selStyle.Render(truncate(line, w-1))
-			} else {
-				line = truncate(line, w-1)
+				// Reverse-highlight a single plain string so no inner reset
+				// code cuts the highlight short.
+				plain := fmt.Sprintf("%s%-*s %s%s", scorePlain, pathW, pathPlain, ctype, sizePlain)
+				lines = append(lines, selStyle.Render(truncate(plain, avail)))
+				continue
+			}
+			// Style each span independently — no truncation of styled text, so
+			// ANSI escapes can never be sliced mid-sequence.
+			var line string
+			if scorePlain != "" {
+				line += okStyle.Render(scorePlain)
+			}
+			line += fmt.Sprintf("%-*s ", pathW, pathPlain) + ctype
+			if sizePlain != "" {
+				line += dimStyle.Render(sizePlain)
 			}
 			lines = append(lines, line)
 		}
