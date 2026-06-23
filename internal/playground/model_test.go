@@ -137,7 +137,7 @@ func TestRenderList_RowsNeverExceedWidth(t *testing.T) {
 		res(long+"/again.go", "source/go", 42, false),
 	}})
 
-	for _, line := range strings.Split(m.renderList(), "\n") {
+	for line := range strings.SplitSeq(m.renderList(), "\n") {
 		if w := lipgloss.Width(line); w > m.listWidth() {
 			t.Errorf("row width %d exceeds listWidth %d: %q", w, m.listWidth(), line)
 		}
