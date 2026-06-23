@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -199,6 +200,69 @@ func TestWatchIndexRespectsExcludes(t *testing.T) {
 		t.Errorf("expected no refresh for excluded path, got Refreshed=%d", got)
 	}
 	_ = key
+}
+
+// TestWatchSkipsGitDir verifies the recursive watcher never registers the
+// .git metadata directory: a cached file under .git must not be refreshed
+// when it changes, because .git is never watched. (.git is huge and churny
+// on real repos — watching it can cost thousands of descriptors and freeze
+// a long-lived server. Issue #464.)
+func TestWatchSkipsGitDir(t *testing.T) {
+	dir := t.TempDir()
+	gitDir := filepath.Join(dir, ".git")
+	if err := os.Mkdir(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(gitDir, "HEAD")
+	if err := os.WriteFile(path, []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	idx := index.NewMemory()
+	// Even if somehow cached, a path under .git must not be refreshed.
+	key := seedIndex(t, idx, path)
+
+	stats, cancel := startWatchIndex(t, Options{Roots: []string{dir}, Index: idx}, idx)
+	defer cancel()
+
+	time.Sleep(1100 * time.Millisecond)
+	if err := os.WriteFile(path, []byte("ref: refs/heads/feature\nmore\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(900 * time.Millisecond)
+	if got := stats.Refreshed.Load(); got != 0 {
+		t.Errorf("expected no refresh for path under .git, got Refreshed=%d", got)
+	}
+	_ = key
+}
+
+// TestAddDirsRecursiveRespectsBudget verifies that registration stops once
+// the descriptor budget is exhausted, so a large tree can't drive a
+// long-lived watcher into EMFILE (issue #464). With a budget of 10 and a
+// root holding 50 subdirectories, exactly 10 directories (root + 9) get
+// watched and the budget is flagged truncated.
+func TestAddDirsRecursiveRespectsBudget(t *testing.T) {
+	dir := t.TempDir()
+	for i := range 50 {
+		if err := os.Mkdir(filepath.Join(dir, fmt.Sprintf("d%02d", i)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = w.Close() }()
+
+	budget := &watchBudget{remaining: 10}
+	if err := addDirsRecursive(w, dir, nil, false, budget); err != nil {
+		t.Fatalf("addDirsRecursive: %v", err)
+	}
+	if !budget.truncated {
+		t.Errorf("expected budget.truncated=true after exceeding watch budget")
+	}
+	if got := len(w.WatchList()); got != 10 {
+		t.Errorf("expected exactly 10 watched dirs under a budget of 10, got %d", got)
+	}
 }
 
 // TestWatchLoopDebounceCoalesces verifies the shared event loop collapses
