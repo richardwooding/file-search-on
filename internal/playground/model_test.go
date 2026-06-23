@@ -2,6 +2,7 @@ package playground
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -29,6 +30,10 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyEnter}
 	case "tab":
 		return tea.KeyMsg{Type: tea.KeyTab}
+	case "ctrl+a":
+		return tea.KeyMsg{Type: tea.KeyCtrlA}
+	case "pgdown":
+		return tea.KeyMsg{Type: tea.KeyPgDown}
 	}
 	return tea.KeyMsg{}
 }
@@ -118,18 +123,71 @@ func TestModel_EnterRecordsFinalExpr(t *testing.T) {
 	}
 }
 
-func TestModel_TabTogglesSchema(t *testing.T) {
+func TestView_AttrsPanelRendersContent(t *testing.T) {
 	m := newModel(context.Background(), RunOptions{})
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = drive(m, loaded())
+	m = drive(m, key("ctrl+a")) // open the panel
+
+	out := m.View()
+	if !strings.Contains(out, "attributes") {
+		t.Error("attributes panel heading should render")
+	}
+	if !strings.Contains(out, "content_type") {
+		t.Error("a known attribute name should appear in the scrollable panel")
+	}
+}
+
+func TestModel_AttrsPanelScrollsWhenFocused(t *testing.T) {
+	m := newModel(context.Background(), RunOptions{})
+	m = drive(m, tea.WindowSizeMsg{Width: 100, Height: 24})
+	m = drive(m, loaded())
+	m = drive(m, key("ctrl+a")) // open + focus the panel
+	before := m.attrs.YOffset
+	m = drive(m, key("pgdown"))
+	if m.attrs.YOffset <= before {
+		t.Errorf("focused attributes panel should scroll on pgdown, offset %d → %d", before, m.attrs.YOffset)
+	}
+	// With focus on the panel, navigation keys must NOT move the list selection.
+	if m.selected != 0 {
+		t.Errorf("list selection should stay put while the panel is focused, got %d", m.selected)
+	}
+}
+
+func TestModel_CtrlATogglesAttrsPanel(t *testing.T) {
+	m := newModel(context.Background(), RunOptions{})
+	m = drive(m, tea.WindowSizeMsg{Width: 100, Height: 40})
 	m = drive(m, loaded())
 	if m.showSchema {
-		t.Fatal("schema panel should start hidden")
+		t.Fatal("attributes panel should start hidden")
 	}
-	m = drive(m, key("tab"))
+	m = drive(m, key("ctrl+a"))
 	if !m.showSchema {
-		t.Error("tab should reveal the schema panel")
+		t.Error("ctrl+a should reveal the attributes panel")
 	}
-	m = drive(m, key("tab"))
+	if m.focus != focusAttrs {
+		t.Error("opening the panel should focus it so ↑/↓ scroll immediately")
+	}
+	m = drive(m, key("ctrl+a"))
 	if m.showSchema {
-		t.Error("tab again should hide the schema panel")
+		t.Error("ctrl+a again should hide the attributes panel")
+	}
+	if m.focus != focusCEL {
+		t.Error("closing the panel should return focus to the CEL box")
+	}
+}
+
+func TestModel_TabFocusesAttrsPanelWhenOpen(t *testing.T) {
+	m := newModel(context.Background(), RunOptions{})
+	m = drive(m, tea.WindowSizeMsg{Width: 100, Height: 40})
+	m = drive(m, loaded())
+	m = drive(m, key("ctrl+a")) // open + focus panel
+	m = drive(m, key("tab"))    // cycle: panel → CEL
+	if m.focus != focusCEL {
+		t.Errorf("tab from the panel should return to the CEL box, got %v", m.focus)
+	}
+	m = drive(m, key("tab")) // CEL → panel
+	if m.focus != focusAttrs {
+		t.Errorf("tab should cycle back to the attributes panel, got %v", m.focus)
 	}
 }

@@ -161,7 +161,7 @@ file-search-on -d .                                   # empty expression matches
 | `archive-contents <path> [--expr]` | List or filter entries inside ZIP / TAR / TAR.GZ / GZIP — full CEL vocabulary on per-entry attributes | [examples/archive-search.md](./examples/archive-search.md) |
 | `archive-read <path> <entry>` | Read a single entry's bytes out of an archive without extracting | [examples/archive-search.md](./examples/archive-search.md) |
 | `find-matches <re> --expr <cel> -C N` | Line-level regex hits with context | [examples/find-matches.md](./examples/find-matches.md) |
-| `playground [expr] -d <dir>` | Interactive TUI — type a CEL expression and watch a directory's files filter live as you type; prints the final expression on exit | [examples/playground.md](./examples/playground.md) |
+| `playground [expr] -d <dir>` | Interactive TUI — type a CEL expression and watch a directory's files filter live as you type; prints the final expression on exit. Pass `--embedding-model` for **semantic mode**: a natural-language query box ranks files by `similarity` and the CEL box filters live | [examples/playground.md](./examples/playground.md) |
 | `watch [expr] -d <dir>` | Continuously watch directories; emit each new / changed file that matches — the inverse of `search` | [examples/watch.md](./examples/watch.md) |
 | `diff <tree-a> <tree-b> --op <set-op>` | Cross-tree set operations by sha256 — what's in A but not B, the intersection, content drift between same-named files | [examples/diff.md](./examples/diff.md) |
 | `organize <expr> --link-into <template>` | Build a templated symlink / copy tree from results — `{raw_vendor}/{taken_at_year}/{basename}` etc. | [examples/organize.md](./examples/organize.md) |
@@ -305,7 +305,7 @@ Focused recipe collections live under [`examples/`](./examples/):
 | [`examples/duplicates.md`](./examples/duplicates.md) | Find byte-identical files by sha256 — `file-search-on duplicates [--min-size N]` |
 | [`examples/near-duplicates.md`](./examples/near-duplicates.md) | Find SIMILAR files by SimHash fingerprint — `file-search-on near-duplicates --threshold 0.85` |
 | [`examples/organize.md`](./examples/organize.md) | Organize by query — templated symlink / copy trees from search results (`organize … --link-into '{raw_vendor}/{taken_at_year}/{basename}'`) |
-| [`examples/playground.md`](./examples/playground.md) | Interactive CEL playground TUI — author queries by watching a directory filter live as you type (`playground -d ./internal 'is_source'`) |
+| [`examples/playground.md`](./examples/playground.md) | Interactive CEL playground TUI — author queries by watching a directory filter live as you type (`playground -d ./internal 'is_source'`); `--embedding-model all-minilm` adds a semantic-search query box |
 
 A handful of representative one-liners:
 
