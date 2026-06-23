@@ -456,7 +456,7 @@ func (m model) reproCommand() string {
 	if m.opts.EmbeddingServer != "" && m.opts.EmbeddingServer != defaultServer {
 		b.WriteString(" --embedding-server " + shellQuote(m.opts.EmbeddingServer))
 	}
-	b.WriteString(fmt.Sprintf(" --similarity-threshold %v", m.opts.SimilarityThreshold))
+	fmt.Fprintf(&b, " --similarity-threshold %v", m.opts.SimilarityThreshold)
 	for _, d := range m.opts.Opts.Roots {
 		if d != "" && d != "." {
 			b.WriteString(" -d " + shellQuote(d))
