@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
@@ -21,6 +22,44 @@ import (
 // match (and emit) multiple times. 300ms is below human-perceptible
 // latency yet long enough to swallow a multi-write save.
 const watchDebounce = 300 * time.Millisecond
+
+// MaxWatchFDs bounds the number of file descriptors the recursive
+// watcher will consume registering a tree. It is a var, not a const, so
+// tests can lower it; operationally it should not need tuning.
+//
+// The cap exists because fsnotify's macOS / *BSD kqueue backend opens
+// one descriptor per watched directory AND one per file inside it (it
+// has to, to report which entry changed). A modest tree — a few
+// thousand files — can therefore exhaust the per-process descriptor
+// limit (kern.maxfilesperproc, commonly 10240) and freeze a long-lived
+// server with EMFILE on every subsequent open. Once the estimated
+// descriptor cost of the watched set reaches this budget, registration
+// stops; the un-watched remainder falls back to lazy (size, mtime)
+// revalidation on the next query — correctness is unaffected, only
+// cache-warmth latency under churn. Issue #464.
+var MaxWatchFDs = 4096
+
+// fileWatchCostsFD reports whether the platform's fsnotify backend holds
+// a descriptor per watched FILE (kqueue: macOS + the BSDs), as opposed
+// to inotify (Linux) where only directories cost a watch. Drives whether
+// files count against MaxWatchFDs.
+func fileWatchCostsFD() bool {
+	switch runtime.GOOS {
+	case "darwin", "freebsd", "netbsd", "openbsd", "dragonfly":
+		return true
+	default:
+		return false
+	}
+}
+
+// watchBudget tracks the descriptor budget shared across a watcher's
+// initial registration and any directories registered later (when a
+// CREATE event arrives). truncated latches once the budget is hit so the
+// caller can warn exactly once.
+type watchBudget struct {
+	remaining int
+	truncated bool
+}
 
 // Watch sets up recursive filesystem watching across opts.Roots and
 // calls onMatch once per newly-created / modified file that matches
@@ -114,11 +153,25 @@ func watchLoop(ctx context.Context, roots, globs []string, respectGitignore bool
 	}
 	defer func() { _ = watcher.Close() }()
 
+	// One descriptor budget shared by the initial registration and any
+	// directories registered later (on CREATE). Warn at most once when it
+	// truncates so a huge tree doesn't silently watch only a prefix.
+	budget := &watchBudget{remaining: MaxWatchFDs}
 	for _, root := range roots {
-		if err := addDirsRecursive(watcher, root, globs, respectGitignore); err != nil {
+		if err := addDirsRecursive(watcher, root, globs, respectGitignore, budget); err != nil {
 			return err
 		}
 	}
+	warnedTruncated := false
+	warnTruncated := func() {
+		if budget.truncated && !warnedTruncated {
+			warnedTruncated = true
+			fmt.Fprintf(os.Stderr, "watch: tree exceeds the %d-descriptor watch budget; "+
+				"watching a subset and relying on lazy revalidation for the rest "+
+				"(results stay correct; narrow the root or exclude large dirs to silence this)\n", MaxWatchFDs)
+		}
+	}
+	warnTruncated()
 
 	// Per-path debounce state. Each entry holds the latest op and its
 	// timer. A WaitGroup tracks scheduled-but-not-yet-finished timer
@@ -189,7 +242,8 @@ func watchLoop(ctx context.Context, roots, globs []string, respectGitignore bool
 			// isn't recursive). Register it and don't forward the event.
 			if event.Has(fsnotify.Create) {
 				if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
-					_ = addDirsRecursive(watcher, event.Name, globs, respectGitignore)
+					_ = addDirsRecursive(watcher, event.Name, globs, respectGitignore, budget)
+					warnTruncated()
 					continue
 				}
 			}
@@ -209,10 +263,18 @@ func watchLoop(ctx context.Context, roots, globs []string, respectGitignore bool
 }
 
 // addDirsRecursive registers root and every subdirectory under it with
-// the watcher, skipping basenames matched by the excluder. Missing /
-// unreadable directories are skipped, not fatal — the tree can change
-// under us.
-func addDirsRecursive(watcher *fsnotify.Watcher, root string, globs []string, respectGitignore bool) error {
+// the watcher, skipping basenames matched by the excluder and the VCS
+// metadata directory (.git — large, churny, and never something a search
+// cares to watch; watching it alone can cost thousands of descriptors).
+// Missing / unreadable directories are skipped, not fatal — the tree can
+// change under us.
+//
+// Registration is bounded by budget: each watched directory and (on
+// kqueue platforms) each file inside it draws down budget.remaining. When
+// it reaches zero the walk stops and budget.truncated is set, so a
+// long-lived watcher can't exhaust the process descriptor limit on a
+// large tree (see MaxWatchFDs).
+func addDirsRecursive(watcher *fsnotify.Watcher, root string, globs []string, respectGitignore bool, budget *watchBudget) error {
 	info, err := os.Stat(root)
 	if err != nil {
 		return fmt.Errorf("watch root %s: %w", root, err)
@@ -222,20 +284,41 @@ func addDirsRecursive(watcher *fsnotify.Watcher, root string, globs []string, re
 		// surface (fsnotify watches directories, not files, reliably).
 		return watcher.Add(filepath.Dir(root))
 	}
+	fileCosts := fileWatchCostsFD()
 	excl := newExcluder(os.DirFS(root), globs, respectGitignore)
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // unreadable entry; skip
 		}
 		if !d.IsDir() {
+			// A file inside an already-Added directory still costs a
+			// descriptor on kqueue platforms. Account for it so the budget
+			// reflects real FD pressure, not just directory count.
+			if fileCosts {
+				budget.remaining--
+				if budget.remaining <= 0 {
+					budget.truncated = true
+					return filepath.SkipAll
+				}
+			}
 			return nil
 		}
 		if path != root {
+			// Never watch the VCS metadata dir, and honour caller excludes
+			// (build artefacts, node_modules, gitignored trees).
+			if filepath.Base(path) == ".git" {
+				return filepath.SkipDir
+			}
 			if rel, rerr := filepath.Rel(root, path); rerr == nil && excl.Match(filepath.ToSlash(rel), true) {
 				return filepath.SkipDir
 			}
 		}
+		if budget.remaining <= 0 {
+			budget.truncated = true
+			return filepath.SkipAll
+		}
 		_ = watcher.Add(path) // best-effort; a vanished dir is fine
+		budget.remaining--
 		return nil
 	})
 }

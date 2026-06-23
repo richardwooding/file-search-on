@@ -77,9 +77,9 @@ func WatchIndex(ctx context.Context, opts Options, registry *content.Registry, i
 		registry = content.DefaultRegistry()
 	}
 
-	// addDirsRecursive honours globs + .gitignore but NOT
-	// PruneBuildArtefacts — unlike WalkStream, which unions the build-
-	// excludes in. Resolve them once up front and merge so both the
+	// addDirsRecursive honours globs + .gitignore (and always skips .git)
+	// but NOT PruneBuildArtefacts — unlike WalkStream, which unions the
+	// build-excludes in. Resolve them once up front and merge so both the
 	// directory registration and the per-event excluder skip build
 	// artefacts. Mirrors walker.go's PruneBuildArtefacts handling.
 	excludes := opts.Excludes
