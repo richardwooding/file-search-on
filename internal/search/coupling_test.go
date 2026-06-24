@@ -69,6 +69,107 @@ func TestCoupling(t *testing.T) {
 	}
 }
 
+func TestCoupling_RustWorkspace(t *testing.T) {
+	root := t.TempDir()
+	// Virtual workspace root (no [package]) + three member crates.
+	mustWriteFile(t, filepath.Join(root, "Cargo.toml"),
+		"[workspace]\nmembers = [\"a\", \"b\", \"c\"]\n")
+	for _, c := range []string{"a", "b", "c"} {
+		if err := os.MkdirAll(filepath.Join(root, c, "src"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mustWriteFile(t, filepath.Join(root, c, "Cargo.toml"),
+			"[package]\nname = \""+c+"\"\nversion = \"0.1.0\"\n")
+	}
+	// a → b, a → c (and std, which must NOT count); b → c; c → nothing.
+	mustWriteFile(t, filepath.Join(root, "a", "src", "lib.rs"),
+		"use b::hello;\nuse c::world;\nuse std::fmt;\n\npub fn run() { hello(); world(); }\n")
+	mustWriteFile(t, filepath.Join(root, "b", "src", "lib.rs"),
+		"use c::world;\n\npub fn hello() { world(); }\n")
+	mustWriteFile(t, filepath.Join(root, "c", "src", "lib.rs"),
+		"pub fn world() {}\n")
+
+	res, err := search.Coupling(context.Background(), search.Options{Root: root, Workers: 1}, 0, contentpkg.DefaultRegistry())
+	if err != nil {
+		t.Fatalf("Coupling: %v", err)
+	}
+	if res.Module == "" {
+		t.Fatalf("expected non-empty workspace identity")
+	}
+
+	got := map[string]search.PackageCoupling{}
+	for _, p := range res.Packages {
+		got[p.Package] = p
+	}
+	want := map[string]struct {
+		ca, ce int
+		i      float64
+	}{
+		"a": {0, 2, 1.0}, // imports b + c
+		"b": {1, 1, 0.5}, // imports c, imported by a
+		"c": {2, 0, 0.0}, // imported by a + b
+	}
+	for crate, w := range want {
+		p, ok := got[crate]
+		if !ok {
+			t.Errorf("missing crate %s in %+v", crate, res.Packages)
+			continue
+		}
+		if p.Afferent != w.ca || p.Efferent != w.ce || p.Instability != w.i {
+			t.Errorf("%s = {Ca:%d Ce:%d I:%.2f}, want {Ca:%d Ce:%d I:%.2f}",
+				crate, p.Afferent, p.Efferent, p.Instability, w.ca, w.ce, w.i)
+		}
+	}
+	// The std import must NOT leak in as a crate node.
+	if _, ok := got["std"]; ok {
+		t.Error("external crate std leaked into the crate set")
+	}
+	// Ranking: most-depended-upon (highest Ca) first.
+	if len(res.Packages) > 0 && res.Packages[0].Package != "c" {
+		t.Errorf("ranked first = %s, want c (Ca=2)", res.Packages[0].Package)
+	}
+}
+
+// TestCoupling_RustHyphenName checks a hyphenated Cargo package name
+// (`data-store`) is matched against its underscore import form (`data_store`).
+func TestCoupling_RustHyphenName(t *testing.T) {
+	root := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "Cargo.toml"),
+		"[workspace]\nmembers = [\"app\", \"data-store\"]\n")
+	for _, c := range []string{"app", "data-store"} {
+		if err := os.MkdirAll(filepath.Join(root, c, "src"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mustWriteFile(t, filepath.Join(root, c, "Cargo.toml"),
+			"[package]\nname = \""+c+"\"\nversion = \"0.1.0\"\n")
+	}
+	mustWriteFile(t, filepath.Join(root, "app", "src", "lib.rs"),
+		"use data_store::open;\n\npub fn run() { open(); }\n")
+	mustWriteFile(t, filepath.Join(root, "data-store", "src", "lib.rs"),
+		"pub fn open() {}\n")
+
+	res, err := search.Coupling(context.Background(), search.Options{Root: root, Workers: 1}, 0, contentpkg.DefaultRegistry())
+	if err != nil {
+		t.Fatalf("Coupling: %v", err)
+	}
+	got := map[string]search.PackageCoupling{}
+	for _, p := range res.Packages {
+		got[p.Package] = p
+	}
+	// The edge app → data_store must register despite the hyphen/underscore
+	// spelling difference (node ids normalised to the import form).
+	ds, ok := got["data_store"]
+	if !ok {
+		t.Fatalf("missing crate data_store in %+v", res.Packages)
+	}
+	if ds.Afferent != 1 {
+		t.Errorf("data_store Ca = %d, want 1 (imported by app)", ds.Afferent)
+	}
+	if app, ok := got["app"]; ok && app.Efferent != 1 {
+		t.Errorf("app Ce = %d, want 1 (imports data_store)", app.Efferent)
+	}
+}
+
 func TestCoupling_NoGoMod(t *testing.T) {
 	root := t.TempDir()
 	mustWriteFile(t, filepath.Join(root, "x.go"), "package p\n\nfunc F() {}\n")

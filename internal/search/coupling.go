@@ -3,6 +3,7 @@ package search
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -27,18 +28,65 @@ type CouplingResult struct {
 	CancellationReason string            `json:"cancellation_reason,omitempty"`
 }
 
+// couplingAdapter encapsulates the per-language pieces the coupling metric
+// needs; the graph math (Ca/Ce/I + ranking, in Coupling) is entirely
+// language-agnostic. Adapters are stateful — prepare resolves and caches
+// the first-party scope, then node/firstPartyImport consult it. Each
+// ecosystem differs in two ways Go happens to make trivial (issue #467):
+//
+//  1. the first-party boundary (Go: the go.mod module path; Rust: the set
+//     of workspace member crate names), and
+//  2. mapping a file + an import string to a "node" (Go: package = import
+//     path = module + directory; Rust: crate, by nearest-ancestor manifest).
+type couplingAdapter interface {
+	// language is the source `language` attribute value this adapter
+	// analyses (matched against FileAttributes.Extra["language"]).
+	language() string
+	// prepare resolves the first-party scope rooted at root, caches any
+	// per-language state on the adapter, and returns the report identity
+	// (CouplingResult.Module) plus whether anything is analysable. ok=false
+	// ⇒ Coupling returns an empty report without walking.
+	prepare(root string) (module string, ok bool)
+	// node maps a source file to its node id, or "" to skip the file.
+	node(path string) string
+	// firstPartyImport reports whether import string imp (extracted from a
+	// file whose node is fromNode) targets a first-party node, and if so
+	// returns that node id. Returns ok=false for external dependencies.
+	firstPartyImport(imp, fromNode string) (node string, ok bool)
+}
+
+// couplingAdapterFor selects the adapter for a tree by its build manifest:
+// go.mod ⇒ Go (package granularity), Cargo.toml ⇒ Rust (crate granularity,
+// #467). Falls back to the Go adapter, whose prepare reports ok=false when
+// there is no go.mod — yielding an empty report, the historical behaviour.
+func couplingAdapterFor(root string) couplingAdapter {
+	if fileExists(filepath.Join(root, "go.mod")) {
+		return &goCouplingAdapter{}
+	}
+	if fileExists(filepath.Join(root, "Cargo.toml")) {
+		return &rustCouplingAdapter{}
+	}
+	return &goCouplingAdapter{}
+}
+
+// fileExists reports whether path exists and is a regular file.
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
+}
+
 // Coupling computes per-package afferent (Ca) / efferent (Ce) coupling and
-// instability (I = Ce/(Ca+Ce)) over the first-party Go packages under the
-// module root (issue #410). It resolves each Go file to its package import
-// path (module path from go.mod + the file's directory) and counts
-// distinct package→package import edges where the imported path is
-// first-party (carries the module prefix). Packages are ranked
+// instability (I = Ce/(Ca+Ce)) over the first-party packages under the
+// project root (issue #410). It counts distinct package→package import
+// edges where the imported path is first-party. Packages are ranked
 // most-depended-upon first (high Ca), then most unstable (high I) — the
 // "fragile hub" seams a refactor is riskiest near.
 //
-// Go-only: package resolution keys on the go.mod module path, so opts.Root
-// must be the module root. Returns an empty report (Module == "") when no
-// go.mod is found there.
+// The graph math here is language-agnostic; the first-party boundary and
+// the file/import → node mappings come from a couplingAdapter selected by
+// the build manifest at opts.Root: go.mod ⇒ Go packages, Cargo.toml ⇒ Rust
+// crates (#467). An empty report (Module == "") is returned when the root
+// carries no recognised manifest.
 func Coupling(ctx context.Context, opts Options, top int, registry *content.Registry) (*CouplingResult, error) {
 	root := opts.Root
 	if root == "" && len(opts.Roots) > 0 {
@@ -47,10 +95,12 @@ func Coupling(ctx context.Context, opts Options, top int, registry *content.Regi
 	if root == "" {
 		root = "."
 	}
-	module := moduledPath(root)
-	res := &CouplingResult{Module: module, Packages: []PackageCoupling{}}
-	if module == "" {
-		return res, nil // no go.mod at the root — nothing first-party to resolve
+
+	adapter := couplingAdapterFor(root)
+	unit, ok := adapter.prepare(root)
+	res := &CouplingResult{Module: unit, Packages: []PackageCoupling{}}
+	if !ok {
+		return res, nil // nothing first-party to resolve at root
 	}
 
 	opts.IncludeAttributes = true
@@ -63,9 +113,9 @@ func Coupling(ctx context.Context, opts Options, top int, registry *content.Regi
 
 	results, walkErr := Walk(ctx, opts, registry)
 
-	// efferent[P] = set of first-party packages P imports; afferent[P] =
-	// set of first-party packages importing P. Every package seen as a
-	// source dir OR an import target gets a node.
+	// efferent[P] = set of first-party nodes P imports; afferent[P] = set
+	// of first-party nodes importing P. Every node seen as a source file
+	// OR an import target gets an entry.
 	efferent := map[string]map[string]bool{}
 	afferent := map[string]map[string]bool{}
 	ensure := func(m map[string]map[string]bool, k string) map[string]bool {
@@ -74,42 +124,43 @@ func Coupling(ctx context.Context, opts Options, top int, registry *content.Regi
 		}
 		return m[k]
 	}
-	touch := func(pkg string) {
-		ensure(efferent, pkg)
-		ensure(afferent, pkg)
+	touch := func(node string) {
+		ensure(efferent, node)
+		ensure(afferent, node)
 	}
 
 	for _, r := range results {
 		if r.Attrs == nil {
 			continue
 		}
-		if lang, _ := r.Attrs.Extra["language"].(string); lang != "go" {
+		if lang, _ := r.Attrs.Extra["language"].(string); lang != adapter.language() {
 			continue
 		}
-		pkg := goPackageImportPath(root, r.Path, module)
-		if pkg == "" {
+		node := adapter.node(r.Path)
+		if node == "" {
 			continue
 		}
-		touch(pkg)
+		touch(node)
 		imports, _ := r.Attrs.Extra["imports"].([]string)
 		for _, imp := range imports {
-			if !isFirstParty(imp, module) || imp == pkg {
+			target, ok := adapter.firstPartyImport(imp, node)
+			if !ok || target == node {
 				continue
 			}
-			touch(imp)
-			efferent[pkg][imp] = true
-			afferent[imp][pkg] = true
+			touch(target)
+			efferent[node][target] = true
+			afferent[target][node] = true
 		}
 	}
 
-	for pkg := range efferent {
-		ca, ce := len(afferent[pkg]), len(efferent[pkg])
+	for node := range efferent {
+		ca, ce := len(afferent[node]), len(efferent[node])
 		inst := 0.0
 		if ca+ce > 0 {
 			inst = float64(ce) / float64(ca+ce)
 		}
 		res.Packages = append(res.Packages, PackageCoupling{
-			Package:     pkg,
+			Package:     node,
 			Afferent:    ca,
 			Efferent:    ce,
 			Instability: inst,
@@ -144,6 +195,32 @@ func Coupling(ctx context.Context, opts Options, top int, registry *content.Regi
 		return res, walkErr
 	}
 	return res, nil
+}
+
+// goCouplingAdapter resolves Go packages: the first-party boundary is the
+// go.mod module path and a package node is module + the file's directory.
+type goCouplingAdapter struct {
+	root   string
+	module string
+}
+
+func (a *goCouplingAdapter) language() string { return "go" }
+
+func (a *goCouplingAdapter) prepare(root string) (string, bool) {
+	a.root = root
+	a.module = moduledPath(root)
+	return a.module, a.module != ""
+}
+
+func (a *goCouplingAdapter) node(path string) string {
+	return goPackageImportPath(a.root, path, a.module)
+}
+
+func (a *goCouplingAdapter) firstPartyImport(imp, _ string) (string, bool) {
+	if isFirstParty(imp, a.module) {
+		return imp, true // a Go import string IS the package path
+	}
+	return "", false
 }
 
 // goPackageImportPath maps a Go file's disk path to its package import path
