@@ -112,5 +112,8 @@ func printIndexStatsText(w *os.File, backend IndexBackend, st index.Stats) {
 		_, _ = fmt.Fprintf(tw, "errors (attr/body)\t%d / %d\n", st.Errors, st.BodyErrors)
 		_, _ = fmt.Fprintf(tw, "oversize (attr/body)\t%d / %d\n", st.EntryOversize, st.BodyOversize)
 	}
+	if st.EmbedErrors > 0 || st.EmbedModelMismatches > 0 {
+		_, _ = fmt.Fprintf(tw, "embed errors/mismatches\t%d / %d\n", st.EmbedErrors, st.EmbedModelMismatches)
+	}
 	_ = tw.Flush()
 }

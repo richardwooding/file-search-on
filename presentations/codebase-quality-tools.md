@@ -184,7 +184,7 @@ file-search-on complexity 'is_source && language=="go"' --top 10
 file-search-on coupling -d . --top 20
 ```
 
-> Pair with `churn_owners` (slide 5): *complex* **and** *frequently changed* = your top refactor candidate.
+> Pair with `churn-owners` (§5 · Manage risk): *complex* **and** *frequently changed* = your top refactor candidate.
 
 ---
 
