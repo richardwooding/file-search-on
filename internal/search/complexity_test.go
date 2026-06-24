@@ -36,6 +36,40 @@ func TestComplexity(t *testing.T) {
 	if rep.Functions[1].Function != "Simple" || rep.Functions[1].Complexity != 1 {
 		t.Errorf("second=%+v want Simple/1", rep.Functions[1])
 	}
+	// Cognitive complexity (#485) is plumbed through for Go: Hairy nests
+	// if > for > if = 1 + 2 + 3 = 6; Simple is 0.
+	if c := rep.Functions[0].CognitiveComplexity; c == nil || *c != 6 {
+		t.Errorf("Hairy cognitive=%v want 6", c)
+	}
+	if c := rep.Functions[1].CognitiveComplexity; c == nil || *c != 0 {
+		t.Errorf("Simple cognitive=%v want 0", c)
+	}
+}
+
+// TestComplexity_CognitiveUnavailableForNonGo: tree-sitter languages don't
+// compute cognitive complexity yet (#485 follow-up), so the field is nil —
+// distinct from a genuine 0 — and never a misleading number.
+func TestComplexity_CognitiveUnavailableForNonGo(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "s.py"),
+		[]byte("def branchy(x):\n    if x > 0:\n        for i in range(x):\n            if i % 2 == 0:\n                return i\n    return 0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := search.Complexity(t.Context(), search.Options{Root: dir, Expr: `is_source && language == "python"`}, content.DefaultRegistry(), 50)
+	if err != nil {
+		t.Fatalf("Complexity: %v", err)
+	}
+	if len(rep.Functions) == 0 {
+		t.Fatal("no functions found for python fixture")
+	}
+	for _, f := range rep.Functions {
+		if f.CognitiveComplexity != nil {
+			t.Errorf("%s: cognitive=%v, want nil (unavailable for python)", f.Function, *f.CognitiveComplexity)
+		}
+		if f.Complexity <= 0 {
+			t.Errorf("%s: cyclomatic=%d, want > 0", f.Function, f.Complexity)
+		}
+	}
 }
 
 func TestComplexity_TopCap(t *testing.T) {

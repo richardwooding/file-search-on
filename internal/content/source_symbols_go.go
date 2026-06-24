@@ -40,9 +40,11 @@ import (
 // internal — not a CEL variable.
 //
 // complexityRows holds per-function metrics as
-// "func\x00complexity\x00startLine\x00endLine" (issue #364): gocyclo-style
-// cyclomatic complexity (1 + branch points) + the line span. Builder-
-// internal, like callEdges.
+// "func\x00complexity\x00startLine\x00endLine\x00cognitive" (issue #364, #485):
+// gocyclo-style cyclomatic complexity (1 + branch points), the line span, and
+// SonarSource cognitive complexity. Builder-internal, like callEdges. The
+// trailing cognitive field is Go-only today; the tree-sitter extractor emits
+// the 4-field form, so consumers treat a missing 5th field as "unavailable".
 func extractGoSymbols(src []byte) (functions, types, imports, references, callEdges, complexityRows []string) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "", src, parser.AllErrors)
@@ -60,10 +62,11 @@ func extractGoSymbols(src []byte) (functions, types, imports, references, callEd
 						callEdges = append(callEdges, d.Name.Name+"\x00"+callee)
 					}
 					cx := goComplexity(d.Body)
+					cog := goCognitiveComplexity(d)
 					start := fset.Position(d.Pos()).Line
 					end := fset.Position(d.End()).Line
 					complexityRows = append(complexityRows,
-						fmt.Sprintf("%s\x00%d\x00%d\x00%d", d.Name.Name, cx, start, end))
+						fmt.Sprintf("%s\x00%d\x00%d\x00%d\x00%d", d.Name.Name, cx, start, end, cog))
 				}
 			}
 		case *ast.GenDecl:

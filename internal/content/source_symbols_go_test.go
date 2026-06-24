@@ -240,17 +240,29 @@ func Branchy(x int) {
 }
 `)
 	_, _, _, _, _, rows := extractGoSymbols(src)
-	got := map[string]string{}
+	cyclomatic := map[string]string{}
+	cognitive := map[string]string{}
 	for _, r := range rows {
 		p := splitNUL(r)
-		got[p[0]] = p[1] // name -> complexity
+		cyclomatic[p[0]] = p[1] // name -> cyclomatic
+		if len(p) >= 5 {
+			cognitive[p[0]] = p[4] // name -> cognitive (#485)
+		}
 	}
-	if got["Simple"] != "1" {
-		t.Errorf("Simple complexity=%q want 1", got["Simple"])
+	if cyclomatic["Simple"] != "1" {
+		t.Errorf("Simple complexity=%q want 1", cyclomatic["Simple"])
 	}
 	// Branchy: base 1 + if + for + if + && = 5.
-	if got["Branchy"] != "5" {
-		t.Errorf("Branchy complexity=%q want 5; rows=%v", got["Branchy"], rows)
+	if cyclomatic["Branchy"] != "5" {
+		t.Errorf("Branchy complexity=%q want 5; rows=%v", cyclomatic["Branchy"], rows)
+	}
+	// Cognitive: Simple is flat (0); Branchy nests if(+1) > for(+2) > if(+3)
+	// plus one && run (+1) = 7 — higher than its cyclomatic, reflecting depth.
+	if cognitive["Simple"] != "0" {
+		t.Errorf("Simple cognitive=%q want 0", cognitive["Simple"])
+	}
+	if cognitive["Branchy"] != "7" {
+		t.Errorf("Branchy cognitive=%q want 7; rows=%v", cognitive["Branchy"], rows)
 	}
 }
 
