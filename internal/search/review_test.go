@@ -2,6 +2,7 @@ package search_test
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -146,6 +147,40 @@ func TestReview_EmptyDiffPasses(t *testing.T) {
 	}
 	if res.Verdict != "pass" || len(res.ChangedFiles) != 0 {
 		t.Errorf("verdict=%q changed=%v, want pass with no changed files", res.Verdict, res.ChangedFiles)
+	}
+}
+
+// TestReview_ScopesToSubdir: reviewing a subdirectory only reports changes
+// under it, not changes elsewhere in the repo (the git pathspec scoping).
+func TestReview_ScopesToSubdir(t *testing.T) {
+	root := initRepo(t)
+	commitAs(t, root, "go.mod", "module example.com/m\n\ngo 1.26\n", "Dev", "dev@example.com")
+	// One commit touching two subtrees.
+	commitAs(t, root, "sub1/a.go", "package sub1\n\nfunc A() int { return 1 }\n", "Dev", "dev@example.com")
+	commitAs(t, root, "sub2/b.go", "package sub2\n\nfunc B() int { return 1 }\n", "Dev", "dev@example.com")
+
+	res, err := search.Review(context.Background(),
+		search.Options{Root: filepath.Join(root, "sub1"), Workers: 1},
+		contentpkg.DefaultRegistry(), search.ReviewConfig{Base: "HEAD~2", CheckDeadCode: false})
+	if err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+	for _, c := range res.ChangedFiles {
+		if strings.Contains(c, "sub2") {
+			t.Errorf("sub2 leaked into a sub1-scoped review: %v", res.ChangedFiles)
+		}
+	}
+	var sawSub1 bool
+	for _, c := range res.ChangedFiles {
+		if strings.Contains(c, "sub1") {
+			sawSub1 = true
+		}
+	}
+	if !sawSub1 {
+		t.Errorf("expected sub1 changes in %v", res.ChangedFiles)
+	}
+	if res.FilesAnalysed != len(res.ChangedFiles) {
+		t.Errorf("FilesAnalysed = %d, want %d (len changed files)", res.FilesAnalysed, len(res.ChangedFiles))
 	}
 }
 

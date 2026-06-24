@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"text/tabwriter"
 	"time"
@@ -112,7 +113,7 @@ func (c *ReviewCmd) Run(ctx context.Context) error {
 	return nil
 }
 
-func printReviewTable(w *os.File, res *search.ReviewResult) {
+func printReviewTable(w io.Writer, res *search.ReviewResult) {
 	if len(res.ChangedFiles) == 0 {
 		_, _ = fmt.Fprintln(w, "PASS — no changed files in the diff.")
 		return

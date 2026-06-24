@@ -73,9 +73,15 @@ func Review(ctx context.Context, opts Options, registry *content.Registry, cfg R
 
 	changedAbs, changedRel, err := changedFiles(ctx, root, cfg.Base)
 	if err != nil {
+		// Can't resolve the changed set: treat a cancellation/timeout as a
+		// (clean) partial result so the caller's gate maps it to the usual
+		// exit code, but surface a genuine failure (e.g. not a git repo).
+		if reason := cancelReason(ctx); reason != "" {
+			return &ReviewResult{Base: cfg.Base, Verdict: "pass", Cancelled: true, CancellationReason: reason}, nil
+		}
 		return nil, err
 	}
-	out := &ReviewResult{Base: cfg.Base, ChangedFiles: changedRel}
+	out := &ReviewResult{Base: cfg.Base, ChangedFiles: changedRel, FilesAnalysed: len(changedRel)}
 	if len(changedAbs) == 0 {
 		out.Verdict = "pass"
 		return out, nil
@@ -84,6 +90,19 @@ func Review(ctx context.Context, opts Options, registry *content.Registry, cfg R
 	if opts.Expr == "" {
 		opts.Expr = "is_source"
 	}
+	// Memoise the symlink-resolving path match: complexity iterates every
+	// function in the tree and dead-code every candidate, but each file's
+	// path repeats across its symbols, so caching collapses EvalSymlinks
+	// (physical disk I/O) to one call per distinct path.
+	resolved := map[string]string{}
+	inChanged := func(p string) bool {
+		c, ok := resolved[p]
+		if !ok {
+			c = absClean(p)
+			resolved[p] = c
+		}
+		return changedAbs[c]
+	}
 
 	// Complexity: every function, then filter to changed files over the gate.
 	rep, cErr := Complexity(ctx, opts, registry, 1<<30)
@@ -91,12 +110,8 @@ func Review(ctx context.Context, opts Options, registry *content.Registry, cfg R
 		return nil, fmt.Errorf("complexity analysis: %w", cErr)
 	}
 	if rep != nil {
-		if rep.Cancelled {
-			out.Cancelled = true
-			out.CancellationReason = rep.CancellationReason
-		}
 		for _, fn := range rep.Functions {
-			if !changedAbs[absClean(fn.Path)] || fn.Complexity <= cfg.MaxComplexity {
+			if !inChanged(fn.Path) || fn.Complexity <= cfg.MaxComplexity {
 				continue
 			}
 			out.Findings = append(out.Findings, ReviewFinding{
@@ -111,15 +126,16 @@ func Review(ctx context.Context, opts Options, registry *content.Registry, cfg R
 		}
 	}
 
-	// Dead code: candidates in changed files, as warn-level findings.
-	if cfg.CheckDeadCode && !out.Cancelled {
+	// Dead code: candidates in changed files, as warn-level findings. Skipped
+	// once cancellation is in flight — a partial graph yields false positives.
+	if cfg.CheckDeadCode && cancelReason(ctx) == "" {
 		g, gErr := BuildCodeGraph(ctx, opts, registry)
 		if gErr != nil && !isReviewCancel(gErr) {
 			return nil, fmt.Errorf("dead-code analysis: %w", gErr)
 		}
 		if g != nil {
 			for _, d := range g.DeadCode() {
-				if !changedAbs[absClean(d.Path)] {
+				if !inChanged(d.Path) {
 					continue
 				}
 				name := d.Symbol
@@ -137,13 +153,36 @@ func Review(ctx context.Context, opts Options, registry *content.Registry, cfg R
 		}
 	}
 
+	// Surface a cancellation that landed during either analysis phase, so the
+	// caller knows the verdict is over a partial set.
+	if reason := cancelReason(ctx); reason != "" {
+		out.Cancelled = true
+		out.CancellationReason = reason
+	} else if rep != nil && rep.Cancelled {
+		out.Cancelled = true
+		out.CancellationReason = rep.CancellationReason
+	}
+
 	finalizeReview(out)
 	return out, nil
 }
 
+// cancelReason maps a cancelled context to the reason vocabulary the CLI gate
+// expects ("timeout" → exit 124, otherwise "interrupted" → 130), or "" when
+// the context is still live.
+func cancelReason(ctx context.Context) string {
+	switch ctx.Err() {
+	case context.DeadlineExceeded:
+		return "timeout"
+	case context.Canceled:
+		return "interrupted"
+	default:
+		return ""
+	}
+}
+
 // finalizeReview sorts findings deterministically and computes the verdict.
 func finalizeReview(out *ReviewResult) {
-	out.FilesAnalysed = countFindingFiles(out.Findings)
 	for _, f := range out.Findings {
 		switch f.Level {
 		case "fail":
@@ -174,14 +213,6 @@ func finalizeReview(out *ReviewResult) {
 	default:
 		out.Verdict = "pass"
 	}
-}
-
-func countFindingFiles(findings []ReviewFinding) int {
-	seen := map[string]bool{}
-	for _, f := range findings {
-		seen[f.Path] = true
-	}
-	return len(seen)
 }
 
 // reviewRoot returns the directory Review treats as the git working dir and
@@ -232,6 +263,10 @@ func changedFiles(ctx context.Context, dir, base string) (map[string]bool, []str
 	} else {
 		args = append(args, base+"...HEAD")
 	}
+	// Pathspec "-- ." (with cmd.Dir == dir) scopes the diff to the reviewed
+	// subtree; without it git reports changes across the whole repo even when
+	// only a subdirectory is being reviewed, inflating the changed set.
+	args = append(args, "--", ".")
 	rawList, err := gitOutput(ctx, dir, args...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("git diff failed: %w", err)
