@@ -215,19 +215,29 @@ func fileExists(path string) bool {
 	return err == nil && info.Mode().IsRegular()
 }
 
-// Coupling computes per-package afferent (Ca) / efferent (Ce) coupling and
-// instability (I = Ce/(Ca+Ce)) over the first-party packages under the
-// project root (issue #410). It counts distinct package→package import
-// edges where the imported path is first-party. Packages are ranked
-// most-depended-upon first (high Ca), then most unstable (high I) — the
-// "fragile hub" seams a refactor is riskiest near.
-//
-// The graph math here is language-agnostic; the first-party boundary and
-// the file/import → node mappings come from a couplingAdapter selected by
-// the build manifest at opts.Root: go.mod ⇒ Go packages, Cargo.toml ⇒ Rust
-// crates (#467). An empty report (Module == "") is returned when the root
-// carries no recognised manifest.
-func Coupling(ctx context.Context, opts Options, top int, registry *content.Registry) (*CouplingResult, error) {
+// importGraph is the directed first-party import graph shared by Coupling and
+// Cycles. efferent[P] is the set of first-party nodes P imports; afferent is
+// its reverse. Every node (a source file's node OR an import target) is a key
+// in both maps. module is the project identity; analysable is false when the
+// root carries no recognised build manifest (an empty graph). cancelled /
+// reason carry the partial-result contract on ctx cancellation.
+type importGraph struct {
+	module     string
+	efferent   map[string]map[string]bool
+	afferent   map[string]map[string]bool
+	analysable bool
+	cancelled  bool
+	reason     string
+}
+
+// buildImportGraph selects the language adapter by the build manifest at
+// opts.Root, walks the tree, and constructs the directed first-party import
+// graph. The first-party boundary and file/import → node mappings come from
+// the couplingAdapter (go.mod ⇒ Go packages, Cargo.toml ⇒ Rust crates, plus
+// JVM / C# / Python / JS-TS / PHP, #467). On ctx cancellation it returns the
+// partial graph with cancelled set and a nil error; other walk errors are
+// returned alongside the partial graph.
+func buildImportGraph(ctx context.Context, opts Options, registry *content.Registry) (*importGraph, error) {
 	root := opts.Root
 	if root == "" && len(opts.Roots) > 0 {
 		root = opts.Roots[0]
@@ -236,12 +246,17 @@ func Coupling(ctx context.Context, opts Options, top int, registry *content.Regi
 		root = "."
 	}
 
+	g := &importGraph{
+		efferent: map[string]map[string]bool{},
+		afferent: map[string]map[string]bool{},
+	}
 	adapter := couplingAdapterFor(root)
 	unit, ok := adapter.prepare(root)
-	res := &CouplingResult{Module: unit, Packages: []PackageCoupling{}}
+	g.module = unit
 	if !ok {
-		return res, nil // nothing first-party to resolve at root
+		return g, nil // nothing first-party to resolve at root
 	}
+	g.analysable = true
 
 	opts.IncludeAttributes = true
 	opts.Sort = ""
@@ -253,11 +268,6 @@ func Coupling(ctx context.Context, opts Options, top int, registry *content.Regi
 
 	results, walkErr := Walk(ctx, opts, registry)
 
-	// efferent[P] = set of first-party nodes P imports; afferent[P] = set
-	// of first-party nodes importing P. Every node seen as a source file
-	// OR an import target gets an entry.
-	efferent := map[string]map[string]bool{}
-	afferent := map[string]map[string]bool{}
 	ensure := func(m map[string]map[string]bool, k string) map[string]bool {
 		if m[k] == nil {
 			m[k] = map[string]bool{}
@@ -265,8 +275,8 @@ func Coupling(ctx context.Context, opts Options, top int, registry *content.Regi
 		return m[k]
 	}
 	touch := func(node string) {
-		ensure(efferent, node)
-		ensure(afferent, node)
+		ensure(g.efferent, node)
+		ensure(g.afferent, node)
 	}
 
 	// fileNode caches each result's node so pass 2 doesn't recompute it; nodes
@@ -285,8 +295,8 @@ func Coupling(ctx context.Context, opts Options, top int, registry *content.Regi
 				continue
 			}
 			touch(target)
-			efferent[node][target] = true
-			afferent[target][node] = true
+			g.efferent[node][target] = true
+			g.afferent[target][node] = true
 		}
 	}
 
@@ -324,8 +334,42 @@ func Coupling(ctx context.Context, opts Options, top int, registry *content.Regi
 		addImportEdges(node, relImports)
 	}
 
-	for node := range efferent {
-		ca, ce := len(afferent[node]), len(efferent[node])
+	if walkErr != nil {
+		switch {
+		case errors.Is(walkErr, context.Canceled):
+			g.cancelled, g.reason = true, "client_cancel"
+			return g, nil
+		case errors.Is(walkErr, context.DeadlineExceeded):
+			g.cancelled, g.reason = true, "timeout"
+			return g, nil
+		}
+		return g, walkErr
+	}
+	return g, nil
+}
+
+// Coupling computes per-package afferent (Ca) / efferent (Ce) coupling and
+// instability (I = Ce/(Ca+Ce)) over the first-party packages under the
+// project root (issue #410). It counts distinct package→package import edges
+// where the imported path is first-party. Packages are ranked most-depended-
+// upon first (high Ca), then most unstable (high I) — the "fragile hub" seams
+// a refactor is riskiest near.
+//
+// The graph math here is language-agnostic; the first-party boundary and the
+// file/import → node mappings come from a couplingAdapter selected by the
+// build manifest at opts.Root (#467). An empty report (Module == "") is
+// returned when the root carries no recognised manifest.
+func Coupling(ctx context.Context, opts Options, top int, registry *content.Registry) (*CouplingResult, error) {
+	g, err := buildImportGraph(ctx, opts, registry)
+	res := &CouplingResult{
+		Module:             g.module,
+		Packages:           []PackageCoupling{},
+		Cancelled:          g.cancelled,
+		CancellationReason: g.reason,
+	}
+
+	for node := range g.efferent {
+		ca, ce := len(g.afferent[node]), len(g.efferent[node])
 		inst := 0.0
 		if ca+ce > 0 {
 			inst = float64(ce) / float64(ca+ce)
@@ -351,21 +395,7 @@ func Coupling(ctx context.Context, opts Options, top int, registry *content.Regi
 	if top > 0 && len(res.Packages) > top {
 		res.Packages = res.Packages[:top]
 	}
-
-	if walkErr != nil {
-		switch {
-		case errors.Is(walkErr, context.Canceled):
-			res.Cancelled = true
-			res.CancellationReason = "client_cancel"
-			return res, nil
-		case errors.Is(walkErr, context.DeadlineExceeded):
-			res.Cancelled = true
-			res.CancellationReason = "timeout"
-			return res, nil
-		}
-		return res, walkErr
-	}
-	return res, nil
+	return res, err
 }
 
 // goCouplingAdapter resolves Go packages: the first-party boundary is the
