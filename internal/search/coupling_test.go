@@ -289,6 +289,38 @@ func TestCoupling_CSharpNamespaces(t *testing.T) {
 	}
 }
 
+// TestCoupling_CSharpRootGlobMetachars guards the C# root detection against
+// glob metacharacters in the project path itself — a "proj[1]" component
+// would break a naive filepath.Glob(join(dir, "*.sln")) (the brackets are
+// glob-interpreted), leaving the adapter unselected and the report empty.
+func TestCoupling_CSharpRootGlobMetachars(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "proj[1]")
+	if err := os.MkdirAll(filepath.Join(root, "A"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "B"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWriteFile(t, filepath.Join(root, "App.sln"), "Microsoft Visual Studio Solution File\n")
+	mustWriteFile(t, filepath.Join(root, "A", "A.cs"), "using MyApp.B;\nnamespace MyApp.A;\npublic class A {}\n")
+	mustWriteFile(t, filepath.Join(root, "B", "B.cs"), "namespace MyApp.B;\npublic class B {}\n")
+
+	res, err := search.Coupling(context.Background(), search.Options{Root: root, Workers: 1}, 0, contentpkg.DefaultRegistry())
+	if err != nil {
+		t.Fatalf("Coupling: %v", err)
+	}
+	if len(res.Packages) == 0 {
+		t.Fatal("C# adapter not selected for a path with glob metacharacters; report is empty")
+	}
+	got := map[string]search.PackageCoupling{}
+	for _, p := range res.Packages {
+		got[p.Package] = p
+	}
+	if b, ok := got["MyApp.B"]; !ok || b.Afferent != 1 {
+		t.Errorf("MyApp.B Ca = %d (present=%v), want 1", b.Afferent, ok)
+	}
+}
+
 func TestCoupling_NoGoMod(t *testing.T) {
 	root := t.TempDir()
 	mustWriteFile(t, filepath.Join(root, "x.go"), "package p\n\nfunc F() {}\n")

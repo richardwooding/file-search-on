@@ -101,13 +101,28 @@ func isCSharpRoot(dir string) bool {
 	if hasAnyFile(dir, "Directory.Build.props", "Directory.Packages.props", "global.json") {
 		return true
 	}
-	return hasGlobMatch(dir, "*.sln") || hasGlobMatch(dir, "*.csproj")
+	// .slnx is the modern XML solution format (VS 17.10+).
+	return hasGlobMatch(dir, "*.sln") || hasGlobMatch(dir, "*.slnx") || hasGlobMatch(dir, "*.csproj")
 }
 
-// hasGlobMatch reports whether any entry in dir matches the shell pattern.
+// hasGlobMatch reports whether any regular file directly in dir has a
+// basename matching pattern. It matches against entry names (not the joined
+// path) so glob metacharacters in dir itself — e.g. a "weird[1]" path
+// component — can't corrupt the match.
 func hasGlobMatch(dir, pattern string) bool {
-	m, err := filepath.Glob(filepath.Join(dir, pattern))
-	return err == nil && len(m) > 0
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if ok, _ := filepath.Match(pattern, e.Name()); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // fileExists reports whether path exists and is a regular file.
