@@ -210,12 +210,15 @@ file-search-on '...' -o json        # NDJSON, one match per line
 file-search-on '...' --format '{{.Path}} ({{.WordCount}} words)'
 ```
 
-The code-analysis commands **`complexity`**, **`dead-code`**, and **`find-matches`** also accept **`-o sarif`** — a [SARIF 2.1.0](https://sarifweb.azurewebsites.net/) document that [GitHub Code Scanning](https://docs.github.com/en/code-security/code-scanning) (and other CI) ingest, so findings show up as inline PR/code alerts:
+The code-analysis commands **`complexity`**, **`dead-code`**, **`find-matches`**, **`coverage-gaps`**, **`unused-exports`**, and **`duplicate-functions`** also accept **`-o sarif`** — a [SARIF 2.1.0](https://sarifweb.azurewebsites.net/) document that [GitHub Code Scanning](https://docs.github.com/en/code-security/code-scanning) (and other CI) ingest, so findings show up as inline PR/code alerts:
 
 ```sh
 file-search-on complexity 'is_source && language=="go"' -d . -o sarif > complexity.sarif
 file-search-on dead-code -d . -o sarif > dead-code.sarif
 file-search-on find-matches 'TODO|FIXME|HACK' -d . -o sarif > todos.sarif
+file-search-on coverage-gaps cover.out -d . -o sarif > coverage-gaps.sarif
+file-search-on unused-exports -d . -o sarif > unused-exports.sarif
+file-search-on duplicate-functions -d . -o sarif > duplicate-functions.sarif
 ```
 
 ### Content search

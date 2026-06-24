@@ -10,6 +10,7 @@ import (
 
 	contentpkg "github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/index"
+	"github.com/richardwooding/file-search-on/internal/sarif"
 	"github.com/richardwooding/file-search-on/internal/search"
 )
 
@@ -26,7 +27,7 @@ type DuplicateFunctionsCmd struct {
 	Exclude          []string      `name:"exclude" help:"Glob pattern matched against file/dir basenames; matches are skipped. Repeatable."`
 	RespectGitignore bool          `name:"respect-gitignore" help:"Parse a .gitignore at each walk root and skip matching paths."`
 	FollowSymlinks   bool          `name:"follow-symlinks" help:"Descend through symbolic links to directories. Off by default."`
-	Output           string        `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table (default) | json."`
+	Output           string        `short:"o" name:"output" enum:"table,json,sarif" default:"table" help:"Output format: table (default) | json | sarif (SARIF 2.1.0 for GitHub Code Scanning)."`
 }
 
 func (d *DuplicateFunctionsCmd) Run(ctx context.Context) error {
@@ -57,13 +58,31 @@ func (d *DuplicateFunctionsCmd) Run(ctx context.Context) error {
 	}, contentpkg.DefaultRegistry())
 
 	if dups != nil {
-		if d.Output == "json" {
+		switch d.Output {
+		case "json":
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
 			if err := enc.Encode(dups); err != nil {
 				return err
 			}
-		} else {
+		case "sarif":
+			var results []sarif.Result
+			for i, g := range dups.Groups {
+				for _, m := range g.Members {
+					results = append(results, sarif.Result{
+						RuleID:    "duplicate-function",
+						Level:     "note",
+						Message:   fmt.Sprintf("%s is a near-duplicate (group %d, %d members, ≈%s)", m.Symbol, i+1, g.Count, g.Fingerprint),
+						URI:       m.Path,
+						StartLine: m.StartLine,
+						EndLine:   m.EndLine,
+					})
+				}
+			}
+			if werr := writeSARIF(sarif.Rule{ID: "duplicate-function", Name: "DuplicateFunction", Description: "Functions clustered as near-duplicates by SimHash"}, results); werr != nil {
+				return werr
+			}
+		default:
 			printDuplicateFunctionsTable(dups)
 		}
 	}
