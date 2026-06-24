@@ -535,6 +535,45 @@ func TestCoupling_JSDirectoryImport(t *testing.T) {
 	}
 }
 
+// TestCoupling_CSharpNestedSolution verifies C# detection when the solution /
+// project markers live one level down (e.g. under Src/) and the repo root has
+// none — the real-world Newtonsoft.Json layout that #467 found unhandled.
+func TestCoupling_CSharpNestedSolution(t *testing.T) {
+	root := t.TempDir() // repo root: no C# marker here
+	srcDir := filepath.Join(root, "Src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mk := func(ns, src string) {
+		d := filepath.Join(srcDir, ns)
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mustWriteFile(t, filepath.Join(d, "C.cs"), src)
+	}
+	// Markers live under Src/, not the repo root.
+	mustWriteFile(t, filepath.Join(srcDir, "global.json"), "{}\n")
+	mustWriteFile(t, filepath.Join(srcDir, "App.slnx"), "<Solution />\n")
+	mk("App", "using MyApp.Util;\nnamespace MyApp.App;\npublic class App {}\n")
+	mk("Util", "namespace MyApp.Util;\npublic class Helper {}\n")
+
+	// Pointed at the REPO ROOT (not Src/) — detection must still find C#.
+	res, err := search.Coupling(context.Background(), search.Options{Root: root, Workers: 1}, 0, contentpkg.DefaultRegistry())
+	if err != nil {
+		t.Fatalf("Coupling: %v", err)
+	}
+	if len(res.Packages) == 0 {
+		t.Fatal("C# adapter not selected for a Src/-nested solution; report is empty")
+	}
+	got := map[string]search.PackageCoupling{}
+	for _, p := range res.Packages {
+		got[p.Package] = p
+	}
+	if u, ok := got["MyApp.Util"]; !ok || u.Afferent != 1 {
+		t.Errorf("MyApp.Util Ca = %d (present=%v), want 1 (imported by MyApp.App)", u.Afferent, ok)
+	}
+}
+
 func TestCoupling_NoGoMod(t *testing.T) {
 	root := t.TempDir()
 	mustWriteFile(t, filepath.Join(root, "x.go"), "package p\n\nfunc F() {}\n")

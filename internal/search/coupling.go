@@ -130,10 +130,33 @@ func hasAnyFile(dir string, names ...string) bool {
 // single canonical root manifest (unlike go.mod / Cargo.toml / pom.xml), so
 // the .sln / .csproj globs are the strongest signal.
 func isCSharpRoot(dir string) bool {
+	if csharpMarkersIn(dir) {
+		return true
+	}
+	// C# solutions commonly live one level down (e.g. a Src/ directory holds
+	// the .sln/.csproj while the repo root has none). Check the immediate
+	// subdirectories — bounded by a single os.ReadDir, no deep walk. Node
+	// resolution is namespace-based (root-independent), so detecting here and
+	// walking from `dir` still produces the right graph.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.IsDir() && !skipCargoDir(e.Name()) && csharpMarkersIn(filepath.Join(dir, e.Name())) {
+			return true
+		}
+	}
+	return false
+}
+
+// csharpMarkersIn reports whether dir directly contains a C# / .NET project
+// marker: a solution (.sln / .slnx, the modern VS 17.10+ XML format) or
+// project (.csproj) file, or an SDK-style root file.
+func csharpMarkersIn(dir string) bool {
 	if hasAnyFile(dir, "Directory.Build.props", "Directory.Packages.props", "global.json") {
 		return true
 	}
-	// .slnx is the modern XML solution format (VS 17.10+).
 	return hasGlobMatch(dir, "*.sln") || hasGlobMatch(dir, "*.slnx") || hasGlobMatch(dir, "*.csproj")
 }
 
