@@ -54,7 +54,7 @@ func (a *jstsCouplingAdapter) node(path string, _ map[string]any) string {
 // pointing at a sibling file resolves back to fromNode (the caller drops the
 // self-edge); `./sub` where sub/ is a directory resolves to fromNode/sub;
 // `../b/c` climbs out. Bare specifiers and aliases return ok=false.
-func (a *jstsCouplingAdapter) firstPartyImport(imp, fromNode string, _ map[string]bool) (string, bool) {
+func (a *jstsCouplingAdapter) firstPartyImport(imp, fromNode string, nodes map[string]bool) (string, bool) {
 	imp = strings.TrimSpace(imp)
 	if !strings.HasPrefix(imp, ".") {
 		return "", false // bare specifier / alias → external
@@ -64,21 +64,23 @@ func (a *jstsCouplingAdapter) firstPartyImport(imp, fromNode string, _ map[strin
 		base = ""
 	}
 	// Resolve the import path relative to the importing file's directory.
-	resolved := filepath.Clean(filepath.Join(base, filepath.FromSlash(imp)))
-	if resolved == ".." || strings.HasPrefix(resolved, ".."+string(filepath.Separator)) {
+	resolved := filepath.Clean(filepath.Join(filepath.FromSlash(base), filepath.FromSlash(imp)))
+	resolvedSlash := filepath.ToSlash(resolved)
+	if resolvedSlash == ".." || strings.HasPrefix(resolvedSlash, "../") {
 		return "", false // climbs outside the project
 	}
 	// Directory import (./sub → sub/index.*) vs file import (./sib → sib.*):
-	// when the resolved path is a real directory the module is that directory,
-	// otherwise it's the file's containing directory.
-	targetDir := resolved
-	if !dirExists(filepath.Join(a.root, resolved)) {
-		targetDir = filepath.Dir(resolved)
+	// the resolved path is a directory module iff it's in the node set (it
+	// holds files) — checked against the set instead of an os.Stat per import,
+	// which would be disk I/O on every edge of a large tree.
+	if nodes[resolvedSlash] {
+		return resolvedSlash, true
 	}
+	targetDir := filepath.ToSlash(filepath.Dir(resolved))
 	if targetDir == "" {
 		targetDir = "."
 	}
-	return filepath.ToSlash(targetDir), true
+	return targetDir, true
 }
 
 // absolutise resolves a possibly-relative walk path without a per-call
