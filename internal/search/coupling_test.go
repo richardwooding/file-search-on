@@ -185,8 +185,11 @@ func TestCoupling_JavaPackages(t *testing.T) {
 	// com.svc → com.util; com.util → nothing.
 	mk("com/app", "com.app",
 		"import com.svc.Service;\nimport com.util.Helper;\nimport java.util.List;\n\npublic class C { }\n")
+	// com.svc reaches com.util via a STATIC import — the FQN names a member
+	// (com.util.Helper.help), so the edge only survives if firstPartyImport
+	// resolves the longest declared-package prefix (com.util), not the class.
 	mk("com/svc", "com.svc",
-		"import com.util.Helper;\n\npublic class C { }\n")
+		"import static com.util.Helper.help;\n\npublic class C { }\n")
 	mk("com/util", "com.util",
 		"public class C { }\n")
 

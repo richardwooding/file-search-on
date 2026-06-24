@@ -44,19 +44,25 @@ func (a *javaCouplingAdapter) node(_ string, extra map[string]any) string {
 	return pkg
 }
 
-// firstPartyImport maps an import FQN to the package that owns it and reports
-// whether that package is first-party (declared somewhere in the tree).
-// Handles both `import com.x.Y;` (drop the type) and the wildcard
-// `import com.x.*;` (the FQN already names the package).
+// firstPartyImport maps an import FQN to the first-party package that owns
+// it, by finding the longest prefix that is a declared package. One rule
+// covers every Java import form: wildcard (`com.x.*` → trimmed to `com.x`,
+// matches directly), plain type (`com.x.Y` → `com.x`), and static member
+// (`import static com.x.Y.method` → `com.x`, since neither the member nor
+// the type `com.x.Y` is a declared package but `com.x` is). Longest-match
+// is correct because a type lives in exactly one package, so its package is
+// the longest declared-package prefix of its FQN.
 func (a *javaCouplingAdapter) firstPartyImport(imp, _ string, nodes map[string]bool) (string, bool) {
-	imp = strings.TrimSuffix(strings.TrimSpace(imp), ".*")
-	if nodes[imp] {
-		return imp, true // wildcard import names the package directly
-	}
-	if i := strings.LastIndex(imp, "."); i > 0 {
-		if pkg := imp[:i]; nodes[pkg] {
-			return pkg, true // type import: package is the FQN minus the type name
+	p := strings.TrimSuffix(strings.TrimSpace(imp), ".*")
+	for p != "" {
+		if nodes[p] {
+			return p, true
 		}
+		i := strings.LastIndex(p, ".")
+		if i <= 0 {
+			break
+		}
+		p = p[:i]
 	}
 	return "", false
 }
