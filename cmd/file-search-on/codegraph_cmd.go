@@ -364,7 +364,9 @@ func (c *DeadCodeCmd) Run(ctx context.Context) error {
 				URI:     d.Path,
 			})
 		}
-		_ = writeSARIF(sarif.Rule{ID: "dead-code", Name: "DeadCode", Description: "Candidate unreferenced definitions (functions / types nothing calls)."}, results)
+		if werr := writeSARIF(sarif.Rule{ID: "dead-code", Name: "DeadCode", Description: "Candidate unreferenced definitions (functions / types nothing calls)."}, results); werr != nil {
+			return werr
+		}
 	default:
 		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 		for _, d := range candidates {
@@ -564,7 +566,9 @@ func (c *ComplexityCmd) Run(ctx context.Context) error {
 					EndLine:   f.EndLine,
 				})
 			}
-			_ = writeSARIF(sarif.Rule{ID: "complexity", Name: "CyclomaticComplexity", Description: "Functions ranked by cyclomatic complexity (maintenance hotspots)."}, results)
+			if werr := writeSARIF(sarif.Rule{ID: "complexity", Name: "CyclomaticComplexity", Description: "Functions ranked by cyclomatic complexity (maintenance hotspots)."}, results); werr != nil {
+				return werr
+			}
 		default:
 			tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 			_, _ = fmt.Fprintln(tw, "COMPLEXITY\tLINES\tFUNCTION\tLOCATION")

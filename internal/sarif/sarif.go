@@ -9,6 +9,7 @@ package sarif
 import (
 	"encoding/json"
 	"io"
+	"path/filepath"
 )
 
 const (
@@ -65,7 +66,8 @@ func Write(w io.Writer, version string, rules []Rule, results []Result) error {
 			level = "warning"
 		}
 		loc := location{}
-		loc.PhysicalLocation.ArtifactLocation.URI = res.URI
+		// SARIF artifact URIs use forward slashes (RFC 3986), even on Windows.
+		loc.PhysicalLocation.ArtifactLocation.URI = filepath.ToSlash(res.URI)
 		if res.StartLine > 0 {
 			reg := &region{StartLine: res.StartLine}
 			if res.EndLine >= res.StartLine {

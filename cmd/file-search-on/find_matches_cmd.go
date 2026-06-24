@@ -99,7 +99,9 @@ func (f *FindMatchesCmd) Run(ctx context.Context) error {
 					StartLine: m.Line,
 				})
 			}
-			_ = writeSARIF(sarif.Rule{ID: "find-matches", Name: "PatternMatch", Description: "Lines matching the search pattern: " + f.Pattern}, results)
+			if werr := writeSARIF(sarif.Rule{ID: "find-matches", Name: "PatternMatch", Description: "Lines matching the search pattern: " + f.Pattern}, results); werr != nil {
+				return werr
+			}
 		default:
 			printFindMatches(os.Stdout, res)
 		}
