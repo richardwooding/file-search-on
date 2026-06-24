@@ -345,7 +345,13 @@ var tsPackageQuery = map[string]string{
 	// Kotlin / Scala share the JVM `package com.foo.bar` model (dotted, like
 	// Java). The package name is a single (dotted) identifier node.
 	"kotlin": `(package_header (identifier) @package)`,
-	"scala":  `(package_clause (package_identifier) @package)`,
+	// declaredPackage returns the first capture, so a file's effective package
+	// is the first `package` clause. Scala chained / nested package clauses
+	// (`package com.foo` then `package bar` → com.foo.bar) therefore resolve
+	// to just `com.foo` — coarser, but still a valid node. Joining chained
+	// clauses without mis-handling Scala's multi-package brace form (or C#'s
+	// multiple independent namespaces) is a focused follow-up (#467).
+	"scala": `(package_clause (package_identifier) @package)`,
 }
 
 // tsRelativeImportQuery captures relative imports — kept separate from the
