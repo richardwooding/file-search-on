@@ -30,6 +30,7 @@ type FindMatchesInput struct {
 	RespectGitignore    bool     `json:"respect_gitignore,omitempty" jsonschema:"When true, parse a .gitignore at the walk root and skip matching paths."`
 	FollowSymlinks      bool     `json:"follow_symlinks,omitempty" jsonschema:"When true, descend through symbolic links to directories. Off by default."`
 	PruneBuildArtefacts bool     `json:"prune_build_artefacts,omitempty" jsonschema:"When true, pre-walks each root to discover project subdirectories and prunes the canonical build-artefact basenames (vendor / node_modules / target / __pycache__ / .terraform / …). Unioned with 'excludes'."`
+	IncludeGit          bool     `json:"include_git,omitempty" jsonschema:"When true, walk into .git directories. By default .git is pruned from every walk; set this to include it."`
 }
 
 // FindMatchesOutput is the structured response.
@@ -119,6 +120,7 @@ func (h *handlers) findMatchesHandler(ctx context.Context, _ *mcp.CallToolReques
 		RespectGitignore:    in.RespectGitignore,
 		FollowSymlinks:      in.FollowSymlinks,
 		PruneBuildArtefacts: in.PruneBuildArtefacts,
+		IncludeGitDir:       in.IncludeGit,
 		Pattern:             in.Pattern,
 		ContextBefore:       in.ContextBefore,
 		ContextAfter:        in.ContextAfter,

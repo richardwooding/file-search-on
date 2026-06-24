@@ -285,7 +285,9 @@ func addDirsRecursive(watcher *fsnotify.Watcher, root string, globs []string, re
 		return watcher.Add(filepath.Dir(root))
 	}
 	fileCosts := fileWatchCostsFD()
-	excl := newExcluder(os.DirFS(root), globs, respectGitignore)
+	// includeGit=false: the watcher already hard-skips .git below, and
+	// never needs to watch VCS internals.
+	excl := newExcluder(os.DirFS(root), globs, respectGitignore, false)
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // unreadable entry; skip

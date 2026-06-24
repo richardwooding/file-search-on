@@ -281,6 +281,13 @@ func dirFingerprint(root string) string {
 		if !d.IsDir() {
 			return nil
 		}
+		// Skip .git — it isn't part of the searchable corpus, and its
+		// contents mutate on every commit/fetch, which would otherwise
+		// churn the fingerprint and spuriously invalidate the semantic
+		// cache. The root itself is never a .git skip (path != root).
+		if path != root && d.Name() == ".git" {
+			return fs.SkipDir
+		}
 		info, ierr := d.Info()
 		if ierr != nil {
 			_, _ = h.Write([]byte("?" + path))

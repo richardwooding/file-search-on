@@ -98,7 +98,9 @@ func WatchIndex(ctx context.Context, opts Options, registry *content.Registry, i
 	// would be pruned, so we re-check each path's basename here.
 	var excl *excluder
 	if len(opts.Roots) > 0 {
-		excl = newExcluder(os.DirFS(opts.Roots[0]), excludes, opts.RespectGitignore)
+		// includeGit=false: the background index maintainer never indexes
+		// .git, regardless of any per-search include_git request.
+		excl = newExcluder(os.DirFS(opts.Roots[0]), excludes, opts.RespectGitignore, false)
 	}
 
 	maintain := func(path string, op fsnotify.Op) {

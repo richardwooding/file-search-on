@@ -27,6 +27,7 @@ type FindMatchesCmd struct {
 	RespectGitignore    bool          `name:"respect-gitignore" help:"Parse a .gitignore at each walk root and skip matching paths."`
 	FollowSymlinks      bool          `name:"follow-symlinks" help:"Descend through symbolic links to directories. Off by default."`
 	PruneArtefacts      bool          `name:"prune-build-artefacts" help:"Pre-walk and prune canonical build-artefact basenames (vendor / node_modules / target / __pycache__ / …)."`
+	IncludeGit          bool          `name:"include-git" help:"Walk into .git directories. By default .git is pruned from every walk; pass this to include it. (-d pointed directly at a .git dir works without the flag.)"`
 	IndexPath           string        `name:"index-path" help:"Persistent attribute index file (bbolt). Overrides the default per-cwd index at <UserCacheDir>/file-search-on/indexes/. Speeds up the walk-stage content-type detection on unchanged files."`
 	NoIndex             bool          `name:"no-index" help:"Disable the on-disk index entirely; use only in-memory caching for the process lifetime."`
 	Timeout             time.Duration `name:"timeout" help:"Maximum duration (Go duration: 30s, 2m). On expiry, partial results are still printed and the process exits 124."`
@@ -69,6 +70,7 @@ func (f *FindMatchesCmd) Run(ctx context.Context) error {
 		RespectGitignore:    f.RespectGitignore,
 		FollowSymlinks:      f.FollowSymlinks,
 		PruneBuildArtefacts: f.PruneArtefacts,
+		IncludeGitDir:       f.IncludeGit,
 		Pattern:             f.Pattern,
 		ContextBefore:       before,
 		ContextAfter:        after,
