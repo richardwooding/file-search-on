@@ -9,6 +9,7 @@ import (
 
 	contentpkg "github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/index"
+	"github.com/richardwooding/file-search-on/internal/sarif"
 	"github.com/richardwooding/file-search-on/internal/search"
 )
 
@@ -27,7 +28,7 @@ type UnusedExportsCmd struct {
 	FollowSymlinks      bool          `name:"follow-symlinks" help:"Descend through symbolic links to directories."`
 	PruneBuildArtefacts bool          `name:"prune-build-artefacts" help:"Prune canonical build-artefact dirs (vendor / node_modules / target / …)."`
 
-	Output string `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table | json."`
+	Output string `short:"o" name:"output" enum:"table,json,sarif" default:"table" help:"Output format: table | json | sarif (SARIF 2.1.0 for GitHub Code Scanning)."`
 }
 
 func (c *UnusedExportsCmd) Run(ctx context.Context) error {
@@ -56,9 +57,23 @@ func (c *UnusedExportsCmd) Run(ctx context.Context) error {
 	}, contentpkg.DefaultRegistry())
 
 	if res != nil {
-		if c.Output == "json" {
+		switch c.Output {
+		case "json":
 			_ = writeJSON(os.Stdout, res)
-		} else {
+		case "sarif":
+			results := make([]sarif.Result, 0, len(res.Candidates))
+			for _, cand := range res.Candidates {
+				results = append(results, sarif.Result{
+					RuleID:  "unused-export",
+					Level:   "note",
+					Message: fmt.Sprintf("exported %s %q is referenced only within package %s", cand.Kind, cand.Symbol, cand.Package),
+					URI:     cand.Path,
+				})
+			}
+			if werr := writeSARIF(sarif.Rule{ID: "unused-export", Name: "UnusedExport", Description: "Exported symbols referenced only intra-package (unexport candidates)"}, results); werr != nil {
+				return werr
+			}
+		default:
 			printUnusedExportsTable(os.Stdout, res)
 		}
 	}
