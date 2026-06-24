@@ -109,6 +109,10 @@ func couplingAdapterFor(root string) couplingAdapter {
 // wildcard (trailing ".*") import forms.
 func longestPackagePrefix(imp string, nodes map[string]bool, sep string) (string, bool) {
 	p := strings.TrimSuffix(strings.TrimSpace(imp), ".*")
+	// A PHP FQN may be written fully-qualified with a leading backslash
+	// (\App\Services\Foo); declared namespace nodes never have one, so trim it.
+	// No-op for dot-separated languages (their imports don't start with ".").
+	p = strings.TrimPrefix(p, sep)
 	for p != "" {
 		if nodes[p] {
 			return p, true

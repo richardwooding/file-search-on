@@ -622,7 +622,9 @@ func TestCoupling_PHPNamespaces(t *testing.T) {
 		mustWriteFile(t, filepath.Join(d, "C.php"), "<?php\n"+body)
 	}
 	// Demo\App → Demo\Svc, Demo\Util (Psr\Log is external); Demo\Svc → Demo\Util.
-	mk("App", "namespace Demo\\App;\nuse Demo\\Svc\\Service;\nuse Demo\\Util\\Helper;\nuse Psr\\Log\\Logger;\nclass App {}\n")
+	// The Demo\Svc import is fully-qualified (leading backslash) to exercise
+	// the leading-separator trim.
+	mk("App", "namespace Demo\\App;\nuse \\Demo\\Svc\\Service;\nuse Demo\\Util\\Helper;\nuse Psr\\Log\\Logger;\nclass App {}\n")
 	mk("Svc", "namespace Demo\\Svc;\nuse Demo\\Util\\Helper;\nclass Service {}\n")
 	mk("Util", "namespace Demo\\Util;\nclass Helper {}\n")
 	assertABCGraph(t, root, "Demo\\App", "Demo\\Svc", "Demo\\Util")
