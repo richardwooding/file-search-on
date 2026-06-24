@@ -65,20 +65,28 @@ type couplingAdapter interface {
 }
 
 // couplingAdapterFor selects the adapter for a tree by its build manifest:
-// go.mod ⇒ Go (packages), Cargo.toml ⇒ Rust (crates), pom.xml / Gradle ⇒
-// Java (packages), a .sln / .csproj / props ⇒ C# (namespaces) (#467). Falls
-// back to the Go adapter, whose prepare reports ok=false when there is no
-// go.mod — yielding an empty report, the historical behaviour.
+// go.mod ⇒ Go (packages), Cargo.toml ⇒ Rust (crates), Maven / Gradle / sbt /
+// Mill ⇒ JVM Java/Kotlin/Scala (packages), a .sln / .csproj / props ⇒ C#
+// (namespaces), a Python manifest ⇒ Python (packages), package.json /
+// tsconfig.json ⇒ JS/TS (directory modules) (#467). Falls back to the Go
+// adapter, whose prepare reports ok=false when there is no go.mod — yielding
+// an empty report, the historical behaviour.
 func couplingAdapterFor(root string) couplingAdapter {
 	switch {
 	case fileExists(filepath.Join(root, "go.mod")):
 		return &goCouplingAdapter{}
 	case fileExists(filepath.Join(root, "Cargo.toml")):
 		return &rustCouplingAdapter{}
-	case hasAnyFile(root, "pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"):
-		return &packageDeclAdapter{lang: "java"}
+	case hasAnyFile(root,
+		"pom.xml",                                                                    // Maven
+		"build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts", // Gradle
+		"build.sbt",               // sbt
+		"build.sc", "build.mill"): // Mill
+		// JVM family — Java / Kotlin / Scala share the `package com.foo.bar`
+		// model and dotted imports, so one adapter graphs a mixed project.
+		return &packageDeclAdapter{langs: []string{"java", "kotlin", "scala"}}
 	case isCSharpRoot(root):
-		return &packageDeclAdapter{lang: "csharp"}
+		return &packageDeclAdapter{langs: []string{"csharp"}}
 	case hasAnyFile(root, "pyproject.toml", "setup.py", "setup.cfg", "Pipfile", "requirements.txt", "tox.ini"):
 		return &pythonCouplingAdapter{}
 	case hasAnyFile(root, "package.json", "tsconfig.json"):

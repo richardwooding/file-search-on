@@ -2,13 +2,15 @@ package search
 
 import (
 	"path/filepath"
+	"slices"
 )
 
 // packageDeclAdapter computes package-level coupling for languages where each
 // file declares its package / namespace in-source and the first-party
 // boundary is the set of packages the tree itself declares — build-tool
-// agnostic, no manifest parsing (#467). Java (packages) and C# (namespaces)
-// share this model exactly:
+// agnostic, no manifest parsing (#467). The JVM family (Java / Kotlin /
+// Scala — `package com.foo.bar`) and C# (`namespace Foo.Bar`) share this
+// model exactly:
 //
 //   - node = the file's declared package, read from the builder-internal
 //     `package` attribute (populated by the tree-sitter extractor);
@@ -18,13 +20,17 @@ import (
 //
 // Imports into packages the tree never declares (the JDK, the .NET BCL,
 // third-party libraries) are ignored because they're absent from the node
-// set.
+// set. One adapter can span several languages (the JVM trio share a package
+// model and dotted import syntax), so a mixed Java+Kotlin project graphs as
+// one package set.
 type packageDeclAdapter struct {
-	lang   string // the `language` attribute value this adapter analyses ("java" / "csharp")
+	langs  []string // `language` attribute values this adapter analyses
 	module string
 }
 
-func (a *packageDeclAdapter) matchesLanguage(lang string) bool { return lang == a.lang }
+func (a *packageDeclAdapter) matchesLanguage(lang string) bool {
+	return slices.Contains(a.langs, lang)
+}
 
 // prepare records the project identity (the root directory's base name —
 // these ecosystems have no single canonical module id without parsing a

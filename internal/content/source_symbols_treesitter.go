@@ -342,6 +342,10 @@ var tsPackageQuery = map[string]string{
 	// C# block `namespace Foo.Bar { … }` and file-scoped `namespace Foo.Bar;`
 	// (C# 10+). The name is a qualified_name or identifier — capture either.
 	"csharp": `[(namespace_declaration name: (_) @package) (file_scoped_namespace_declaration name: (_) @package)]`,
+	// Kotlin / Scala share the JVM `package com.foo.bar` model (dotted, like
+	// Java). The package name is a single (dotted) identifier node.
+	"kotlin": `(package_header (identifier) @package)`,
+	"scala":  `(package_clause (package_identifier) @package)`,
 }
 
 // tsRelativeImportQuery captures relative imports — kept separate from the

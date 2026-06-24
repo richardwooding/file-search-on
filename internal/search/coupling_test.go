@@ -574,6 +574,70 @@ func TestCoupling_CSharpNestedSolution(t *testing.T) {
 	}
 }
 
+// TestCoupling_KotlinPackages and TestCoupling_ScalaPackages verify the JVM
+// adapter covers Kotlin and Scala (same package model as Java) — selected by
+// a Gradle / sbt build file (#467).
+func TestCoupling_KotlinPackages(t *testing.T) {
+	root := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "build.gradle.kts"), "plugins { kotlin(\"jvm\") }\n")
+	mk := func(dir, pkg, body string) {
+		d := filepath.Join(root, dir)
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mustWriteFile(t, filepath.Join(d, "C.kt"), "package "+pkg+"\n\n"+body)
+	}
+	mk("app", "com.app", "import com.svc.Service\nimport com.util.Helper\nimport kotlin.collections.List\n\nclass App\n")
+	mk("svc", "com.svc", "import com.util.Helper\n\nclass Service\n")
+	mk("util", "com.util", "class Helper\n")
+	assertABCGraph(t, root, "com.app", "com.svc", "com.util")
+}
+
+func TestCoupling_ScalaPackages(t *testing.T) {
+	root := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "build.sbt"), "name := \"demo\"\n")
+	mk := func(dir, pkg, body string) {
+		d := filepath.Join(root, dir)
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mustWriteFile(t, filepath.Join(d, "C.scala"), "package "+pkg+"\n\n"+body)
+	}
+	mk("app", "com.app", "import com.svc.Service\nimport com.util.Helper\n\nobject App\n")
+	mk("svc", "com.svc", "import com.util.Helper\n\nobject Service\n")
+	mk("util", "com.util", "object Helper\n")
+	assertABCGraph(t, root, "com.app", "com.svc", "com.util")
+}
+
+// assertABCGraph checks the canonical a→b, a→c; b→c; c→∅ coupling shape used
+// by several per-language tests: a={Ca:0,Ce:2,I:1}, b={1,1,0.5}, c={2,0,0}.
+func assertABCGraph(t *testing.T, root, a, b, c string) {
+	t.Helper()
+	res, err := search.Coupling(context.Background(), search.Options{Root: root, Workers: 1}, 0, contentpkg.DefaultRegistry())
+	if err != nil {
+		t.Fatalf("Coupling: %v", err)
+	}
+	got := map[string]search.PackageCoupling{}
+	for _, p := range res.Packages {
+		got[p.Package] = p
+	}
+	want := map[string]struct {
+		ca, ce int
+		i      float64
+	}{a: {0, 2, 1.0}, b: {1, 1, 0.5}, c: {2, 0, 0.0}}
+	for pkg, w := range want {
+		p, ok := got[pkg]
+		if !ok {
+			t.Errorf("missing node %s in %+v", pkg, res.Packages)
+			continue
+		}
+		if p.Afferent != w.ca || p.Efferent != w.ce || p.Instability != w.i {
+			t.Errorf("%s = {Ca:%d Ce:%d I:%.2f}, want {Ca:%d Ce:%d I:%.2f}",
+				pkg, p.Afferent, p.Efferent, p.Instability, w.ca, w.ce, w.i)
+		}
+	}
+}
+
 func TestCoupling_NoGoMod(t *testing.T) {
 	root := t.TempDir()
 	mustWriteFile(t, filepath.Join(root, "x.go"), "package p\n\nfunc F() {}\n")
