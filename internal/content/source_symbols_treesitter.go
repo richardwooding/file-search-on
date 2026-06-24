@@ -94,28 +94,28 @@ var tsDefQuery = map[string]string{
 // tsImportQuery is the per-language tree-sitter query capturing the
 // import path as @import. Empty/missing → imports left unpopulated.
 var tsImportQuery = map[string]string{
-	"rust":       `(use_declaration argument: (_) @import)`,
+	"rust": `(use_declaration argument: (_) @import)`,
 	// ESM import + CommonJS require("x") — the latter covers the large
 	// half of the JS/TS ecosystem that never adopted ES modules.
 	"typescript": `(import_statement source: (string) @import)
 ((call_expression function: (identifier) @_f arguments: (arguments (string) @import)) (#eq? @_f "require"))`,
 	"javascript": `(import_statement source: (string) @import)
 ((call_expression function: (identifier) @_f arguments: (arguments (string) @import)) (#eq? @_f "require"))`,
-	"ruby":       `((call method: (identifier) @_m arguments: (argument_list (string) @import)) (#match? @_m "^require"))`,
-	"swift":      `(import_declaration (identifier) @import)`,
-	"kotlin":     `(import_header (identifier) @import)`,
-	"c":          `(preproc_include path: (_) @import)`,
-	"cpp":        `(preproc_include path: (_) @import)`,
+	"ruby":   `((call method: (identifier) @_m arguments: (argument_list (string) @import)) (#match? @_m "^require"))`,
+	"swift":  `(import_declaration (identifier) @import)`,
+	"kotlin": `(import_header (identifier) @import)`,
+	"c":      `(preproc_include path: (_) @import)`,
+	"cpp":    `(preproc_include path: (_) @import)`,
 	// #365 migrations.
 	"python": `(import_statement (dotted_name) @import)
 (import_from_statement module_name: (dotted_name) @import)`,
-	"java":   `(import_declaration (scoped_identifier) @import)`,
+	"java": `(import_declaration (scoped_identifier) @import)`,
 	"csharp": `(using_directive (qualified_name) @import)
 (using_directive (identifier) @import)`,
-	"php":    `(namespace_use_clause (qualified_name) @import)`,
-	"perl":   `(use_statement (package) @import)`,
-	"r":      `((call function: (identifier) @_f arguments: (arguments (argument (identifier) @import))) (#match? @_f "^(library|require|requireNamespace)$"))`,
-	"scala":  `(import_declaration) @import`,
+	"php":   `(namespace_use_clause (qualified_name) @import)`,
+	"perl":  `(use_statement (package) @import)`,
+	"r":     `((call function: (identifier) @_f arguments: (arguments (argument (identifier) @import))) (#match? @_f "^(library|require|requireNamespace)$"))`,
+	"scala": `(import_declaration) @import`,
 }
 
 // tsRefQuery is the per-language query capturing call-site callee names
@@ -136,23 +136,23 @@ var tsRefQuery = map[string]string{
 (call_expression (navigation_expression suffix: (navigation_suffix (simple_identifier) @reference)))`,
 	"kotlin": `(call_expression (simple_identifier) @reference)
 (call_expression (navigation_expression (navigation_suffix (simple_identifier) @reference)))`,
-	"c":   `(call_expression function: (identifier) @reference)`,
+	"c": `(call_expression function: (identifier) @reference)`,
 	"cpp": `(call_expression function: (identifier) @reference)
 (call_expression function: (field_expression field: (field_identifier) @reference))`,
 	// #365 migrations — call-site callees.
 	"python": `(call function: (identifier) @reference)
 (call function: (attribute attribute: (identifier) @reference))`,
-	"java":   `(method_invocation name: (identifier) @reference)`,
+	"java": `(method_invocation name: (identifier) @reference)`,
 	"csharp": `(invocation_expression function: (identifier) @reference)
 (invocation_expression function: (member_access_expression name: (identifier) @reference))`,
-	"php":    `(function_call_expression (name) @reference)
+	"php": `(function_call_expression (name) @reference)
 (member_call_expression name: (name) @reference)
 (scoped_call_expression name: (name) @reference)`,
 	"perl": `(ambiguous_function_call_expression (function) @reference)
 (method_call_expression (method) @reference)`,
 	"r":      `(call function: (identifier) @reference)`,
 	"scala":  `(call_expression (identifier) @reference)`,
-	"matlab":  `(function_call (identifier) @reference)`,
+	"matlab": `(function_call (identifier) @reference)`,
 }
 
 // tsTypeRefQuery captures type USAGES — a type named as a field type,
@@ -313,14 +313,14 @@ var tsFuncSpanQuery = map[string]string{
 // operators. Counted per enclosing function span; complexity = 1 + count.
 // Node names vary per grammar; iterated via tests.
 var tsDecisionQuery = map[string]string{
-	"rust": `[(if_expression) (while_expression) (for_expression) (loop_expression) (match_arm) (binary_expression "&&") (binary_expression "||")] @decision`,
+	"rust":       `[(if_expression) (while_expression) (for_expression) (loop_expression) (match_arm) (binary_expression "&&") (binary_expression "||")] @decision`,
 	"typescript": `[(if_statement) (while_statement) (for_statement) (for_in_statement) (do_statement) (switch_case) (catch_clause) (ternary_expression) (binary_expression "&&") (binary_expression "||")] @decision`,
 	"javascript": `[(if_statement) (while_statement) (for_statement) (for_in_statement) (do_statement) (switch_case) (catch_clause) (ternary_expression) (binary_expression "&&") (binary_expression "||")] @decision`,
-	"ruby":   `[(if) (elsif) (unless) (while) (until) (for) (when) (rescue) (conditional) (binary "&&") (binary "||")] @decision`,
-	"swift":  `[(if_statement) (guard_statement) (while_statement) (for_statement) (switch_entry) (catch_block) (ternary_expression) (conjunction_expression) (disjunction_expression)] @decision`,
-	"kotlin": `[(if_expression) (while_statement) (do_while_statement) (for_statement) (when_entry) (catch_block) (conjunction_expression) (disjunction_expression)] @decision`,
-	"c":      `[(if_statement) (while_statement) (for_statement) (do_statement) (case_statement) (conditional_expression) (binary_expression "&&") (binary_expression "||")] @decision`,
-	"cpp":    `[(if_statement) (while_statement) (for_statement) (do_statement) (case_statement) (catch_clause) (conditional_expression) (binary_expression "&&") (binary_expression "||")] @decision`,
+	"ruby":       `[(if) (elsif) (unless) (while) (until) (for) (when) (rescue) (conditional) (binary "&&") (binary "||")] @decision`,
+	"swift":      `[(if_statement) (guard_statement) (while_statement) (for_statement) (switch_entry) (catch_block) (ternary_expression) (conjunction_expression) (disjunction_expression)] @decision`,
+	"kotlin":     `[(if_expression) (while_statement) (do_while_statement) (for_statement) (when_entry) (catch_block) (conjunction_expression) (disjunction_expression)] @decision`,
+	"c":          `[(if_statement) (while_statement) (for_statement) (do_statement) (case_statement) (conditional_expression) (binary_expression "&&") (binary_expression "||")] @decision`,
+	"cpp":        `[(if_statement) (while_statement) (for_statement) (do_statement) (case_statement) (catch_clause) (conditional_expression) (binary_expression "&&") (binary_expression "||")] @decision`,
 	// #365 migrations.
 	"python": `[(if_statement) (elif_clause) (for_statement) (while_statement) (except_clause) (conditional_expression) (boolean_operator)] @decision`,
 	"java":   `[(if_statement) (for_statement) (enhanced_for_statement) (while_statement) (do_statement) (switch_label) (catch_clause) (ternary_expression) (binary_expression "&&") (binary_expression "||")] @decision`,
@@ -332,22 +332,32 @@ var tsDecisionQuery = map[string]string{
 	"scala":  `[(if_expression) (for_expression) (while_expression) (case_clause) (catch_clause)] @decision`,
 }
 
+// tsPackageQuery captures the file's declared package / namespace as
+// @package — the node unit for package-level coupling (issue #467). Only
+// languages where a package is declared in-source (rather than implied by
+// directory, as in Go) need an entry. Java today; C# / Scala / Kotlin are
+// natural follow-ups.
+var tsPackageQuery = map[string]string{
+	"java": `(package_declaration [(scoped_identifier) (identifier)] @package)`,
+}
+
 // tsLang holds the concurrent-safe machinery for one language: a
 // ParserPool (safe for concurrent Parse) plus compiled Query objects
 // (safe for concurrent Execute after construction). Built once per
 // language on first use.
 type tsLang struct {
-	pool        *ts.ParserPool
-	lang        *ts.Language // the grammar; needed for Node.Type / ChildByFieldName
-	tagsQuery   *ts.Query
-	defQuery    *ts.Query // supplemental @function/@type; nil when none
-	importQuery *ts.Query // nil when none configured or compile failed
+	pool          *ts.ParserPool
+	lang          *ts.Language // the grammar; needed for Node.Type / ChildByFieldName
+	tagsQuery     *ts.Query
+	defQuery      *ts.Query // supplemental @function/@type; nil when none
+	importQuery   *ts.Query // nil when none configured or compile failed
 	refQuery      *ts.Query // @reference call-site callees; nil when none
 	typeRefQuery  *ts.Query // @typeref type usages (#398); nil when none
 	exportedQuery *ts.Query // @exported public defs (#409); nil when none
 	nonExpQuery   *ts.Query // @name+@vis non-public defs (#409 negation); nil when none
 	spanQuery     *ts.Query // @func.def + @func.name spans; nil when none
 	decisionQuery *ts.Query // @decision complexity points; nil when none
+	packageQuery  *ts.Query // @package the file's declared package/namespace (coupling #467); nil when none
 }
 
 var (
@@ -439,7 +449,38 @@ func buildTSLang(language string) *tsLang {
 			tl.decisionQuery = decQ
 		}
 	}
+	if q := tsPackageQuery[language]; q != "" {
+		if pkgQ, err := ts.NewQuery(q, lang); err == nil {
+			tl.packageQuery = pkgQ
+		}
+	}
 	return tl
+}
+
+// declaredPackage returns the package / namespace a file declares, for
+// package-level coupling (#467). Empty for languages with no package query
+// (the common case) — and it parses only when one exists, so non-package
+// languages pay nothing. Distinct from extractTreeSitterSymbols so that
+// hot path's signature and its many callers stay untouched.
+func declaredPackage(language string, src []byte) string {
+	tl := tsLangFor(language)
+	if tl == nil || tl.packageQuery == nil {
+		return ""
+	}
+	tree, err := tl.pool.Parse(src)
+	if err != nil || tree == nil {
+		return ""
+	}
+	for _, m := range tl.packageQuery.Execute(tree) {
+		for _, c := range m.Captures {
+			if c.Name == "package" {
+				if p := strings.TrimSpace(c.Text(src)); p != "" {
+					return p
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // extractTreeSitterSymbols parses src with the language's grammar and

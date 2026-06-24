@@ -373,8 +373,9 @@ A node with **high Ca and high I** is a fragile hub — heavily relied upon yet 
 
 - **Go** (`go.mod`) → **packages**. Nodes are package import paths (module path + directory); first-party = anything under the `go.mod` module prefix.
 - **Rust** (`Cargo.toml`) → **crates**. Nodes are crates; first-party = the workspace member crates. A `use other_member::…` is an inter-crate edge, while `crate::` / `self::` / `super::` are intra-crate (no edge) and external dependencies are ignored. Crate-level is unambiguous (a `use` path's leading segment is always a crate name); module-level coupling within a single crate is tracked separately in #467.
+- **Java** (`pom.xml` / Gradle) → **packages**. Nodes are declared packages; first-party = the set of packages the tree itself declares (no build-file parsing — works across Maven, Gradle, and plain source trees). An `import com.x.Y` is an edge into package `com.x`; JDK and third-party imports (`java.util.*`, `com.google.*`, …) are ignored because those packages are never declared in-tree.
 
-Non-matching files are ignored. Support for more languages (Java / C# / Python / TS-JS) is tracked in **#467**.
+Non-matching files are ignored. Support for more languages (C# / Python / TS-JS) is tracked in **#467**.
 
 ## Over-exported symbols (`unused-exports`)
 

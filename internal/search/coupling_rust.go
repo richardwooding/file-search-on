@@ -93,7 +93,7 @@ func (a *rustCouplingAdapter) prepare(root string) (string, bool) {
 
 // node maps a Rust source file to its owning crate (the nearest ancestor
 // manifest directory), or "" when the file sits outside every known crate.
-func (a *rustCouplingAdapter) node(path string) string {
+func (a *rustCouplingAdapter) node(path string, _ map[string]any) string {
 	abs := path
 	if !filepath.IsAbs(abs) {
 		switch {
@@ -116,7 +116,7 @@ func (a *rustCouplingAdapter) node(path string) string {
 // firstPartyImport resolves a Rust `use` argument to a first-party crate
 // node. The leading path segment is the crate name; crate/self/super are
 // intra-crate (returned as fromNode, which the caller skips as a self-edge).
-func (a *rustCouplingAdapter) firstPartyImport(imp, fromNode string) (string, bool) {
+func (a *rustCouplingAdapter) firstPartyImport(imp, fromNode string, _ map[string]bool) (string, bool) {
 	leading := imp
 	if before, _, ok := strings.Cut(imp, "::"); ok {
 		leading = before

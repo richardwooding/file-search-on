@@ -201,6 +201,14 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 		if len(owners) > 0 {
 			attrs["method_owners"] = owners
 		}
+		// package (builder-internal, #467): the file's declared package /
+		// namespace — the node unit for package-level coupling (Java today).
+		// Empty for Go (package implied by directory) and languages with no
+		// package concept; computed only when a package query exists, so
+		// non-package languages pay no parse.
+		if pkg := declaredPackage(s.language, bodyBuf.Bytes()); pkg != "" {
+			attrs["package"] = pkg
+		}
 		// exported_symbols (builder-internal, #409): the public subset of
 		// defs for keyword-visibility languages, consumed by unused_exports.
 		// Positive-keyword languages (Rust pub, TS/JS export, Java/C# public)
@@ -261,6 +269,7 @@ func symbolExtractorWired(language string) bool {
 //	Scala      *Spec.scala, *Test.scala
 //	Shell      *_test.sh, test_*.sh
 //	Elixir     *_test.exs
+//
 // testConvention is a per-language test-filename rule: a basename matches
 // if it ends with any suffix, OR (when prefixExt is set) it starts with a
 // prefix AND ends with prefixExt. All values are lowercase.
