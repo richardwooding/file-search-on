@@ -177,7 +177,7 @@ file-search-on near-duplicates 'is_source' -d .
 
 **`complexity`** <span class="badge-cli">CLI</span> <span class="badge-mcp">MCP</span> — rank functions by cyclomatic complexity. The refactor backlog, sorted by where it hurts.
 
-**`coupling`** <span class="badge-cli">CLI</span> <span class="badge-mcp">MCP</span> — per-package afferent/efferent coupling + instability (Martin metrics). The fragile-hub seams.
+**`coupling`** <span class="badge-cli">CLI</span> <span class="badge-mcp">MCP</span> — afferent/efferent coupling + instability (Martin metrics). The fragile-hub seams. *(Go, Rust, JVM, C#, Python, JS/TS, PHP — selected by build manifest.)*
 
 ```sh
 file-search-on complexity 'is_source && language=="go"' --top 10
@@ -255,6 +255,37 @@ file-search-on 'is_source && body.matches("TODO|FIXME|HACK")'
 - **`find-matches`** <span class="badge-cli">CLI</span> <span class="badge-mcp">MCP</span> — regex with before/after context
 - **`validate`** <span class="badge-cli">CLI</span> <span class="badge-mcp">MCP</span> · **`playground`** <span class="badge-cli">CLI</span> — author & test CEL before you walk
 - **`watch`** <span class="badge-cli">CLI</span> <span class="badge-mcp">MCP</span> — *tell me when a matching file appears*
+
+---
+
+# Under the hood · one symbol graph
+
+Most quality tools share a single pass — `BuildCodeGraph` walks the tree once and builds a cross-file **import + definition + reference** graph. Every query is then a lookup over that graph.
+
+**Symbol extraction, per language:**
+
+- **Go** → the standard library's `go/ast` — exact, no external grammar
+- **16 other languages** (Rust, TypeScript, JavaScript, Python, Java, C, C++, C#, Ruby, Swift, Kotlin, Scala, PHP, Perl, R, MATLAB) → **pure-Go tree-sitter** (`gotreesitter`), grammars embedded at build time
+
+> Default matching is **name-based** (fast, language-agnostic). Go adds opt-in **type resolution** (`--resolve`) so same-named methods on different types don't conflate — exactness when you need it.
+
+---
+
+# Under the hood · the algorithms
+
+| Tool | Technique |
+|------|-----------|
+| `complexity` | Cyclomatic complexity over each function's AST span |
+| `coupling` | Martin metrics — Ca / Ce, instability `I = Ce / (Ca+Ce)` *(7 ecosystems, by build manifest)* |
+| `circular` | Tarjan strongly-connected components over the import graph |
+| `who-calls` · `impact` · `call-path` | BFS over the call graph (reverse / forward / shortest-path) |
+| `dead-code` · `unused-exports` | Invert the reference graph — what nothing points at |
+| `test-gaps` | Reference graph filtered to `is_test_file` callers |
+| `coverage-gaps` | Parse a Go `-coverprofile`, fold coverage onto function spans |
+| `churn-owners` | git authorship aggregated per directory |
+| `duplicate-functions` · `near-duplicates` | **SimHash** fingerprints (fuzzy); `duplicates` uses **sha256** (exact) |
+
+> All of it filters through **CEL** (`cel-go`) over typed attributes, and a `(size, mtime)`-validated **bbolt** index makes repeat runs near-instant.
 
 ---
 
