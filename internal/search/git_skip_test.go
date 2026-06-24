@@ -49,13 +49,13 @@ func walkPaths(t *testing.T, opts search.Options) []string {
 }
 
 // anyUnderGit reports whether any path has a `.git` path component — i.e. it
-// lives inside a .git directory. Works for absolute or relative paths.
+// lives inside a .git directory. Wrapping the (slash-normalised) path in
+// separators lets one Contains catch a `.git` segment at the start, middle,
+// or end. Works for absolute or relative paths.
 func anyUnderGit(paths []string) bool {
 	for _, p := range paths {
-		for _, seg := range strings.Split(p, "/") {
-			if seg == ".git" {
-				return true
-			}
+		if strings.Contains("/"+filepath.ToSlash(p)+"/", "/.git/") {
+			return true
 		}
 	}
 	return false
