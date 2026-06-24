@@ -114,7 +114,7 @@ func (c *ReviewCmd) Run(ctx context.Context) error {
 
 func printReviewTable(w *os.File, res *search.ReviewResult) {
 	if len(res.ChangedFiles) == 0 {
-		fmt.Fprintln(w, "PASS — no changed files in the diff.")
+		_, _ = fmt.Fprintln(w, "PASS — no changed files in the diff.")
 		return
 	}
 	if len(res.Findings) > 0 {
@@ -128,9 +128,9 @@ func printReviewTable(w *os.File, res *search.ReviewResult) {
 			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", f.Level, f.Rule, loc, f.Message)
 		}
 		_ = tw.Flush()
-		fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w)
 	}
-	fmt.Fprintf(w, "%s — %d finding(s) (%d fail, %d warn) across %d changed file(s).\n",
+	_, _ = fmt.Fprintf(w, "%s — %d finding(s) (%d fail, %d warn) across %d changed file(s).\n",
 		verdictBanner(res.Verdict), len(res.Findings), res.FailCount, res.WarnCount, len(res.ChangedFiles))
 }
 
