@@ -69,9 +69,9 @@ func (a *pythonCouplingAdapter) firstPartyImport(imp, fromNode string, nodes map
 		if !ok {
 			return "", false
 		}
-		return longestPackagePrefix(fq, nodes)
+		return longestPackagePrefix(fq, nodes, ".")
 	}
-	return longestPackagePrefix(imp, nodes)
+	return longestPackagePrefix(imp, nodes, ".")
 }
 
 // resolveRelativePythonImport turns a dotted relative import into a fully

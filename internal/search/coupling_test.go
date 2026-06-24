@@ -609,6 +609,25 @@ func TestCoupling_ScalaPackages(t *testing.T) {
 	assertABCGraph(t, root, "com.app", "com.svc", "com.util")
 }
 
+// TestCoupling_PHPNamespaces verifies PHP namespace coupling, which uses a
+// backslash separator (App\Services) rather than a dot (#467).
+func TestCoupling_PHPNamespaces(t *testing.T) {
+	root := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "composer.json"), "{\"name\":\"demo/app\"}\n")
+	mk := func(dir, body string) {
+		d := filepath.Join(root, "src", dir)
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mustWriteFile(t, filepath.Join(d, "C.php"), "<?php\n"+body)
+	}
+	// Demo\App → Demo\Svc, Demo\Util (Psr\Log is external); Demo\Svc → Demo\Util.
+	mk("App", "namespace Demo\\App;\nuse Demo\\Svc\\Service;\nuse Demo\\Util\\Helper;\nuse Psr\\Log\\Logger;\nclass App {}\n")
+	mk("Svc", "namespace Demo\\Svc;\nuse Demo\\Util\\Helper;\nclass Service {}\n")
+	mk("Util", "namespace Demo\\Util;\nclass Helper {}\n")
+	assertABCGraph(t, root, "Demo\\App", "Demo\\Svc", "Demo\\Util")
+}
+
 // assertABCGraph checks the canonical a→b, a→c; b→c; c→∅ coupling shape used
 // by several per-language tests: a={Ca:0,Ce:2,I:1}, b={1,1,0.5}, c={2,0,0}.
 func assertABCGraph(t *testing.T, root, a, b, c string) {

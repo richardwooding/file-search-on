@@ -25,6 +25,7 @@ import (
 // one package set.
 type packageDeclAdapter struct {
 	langs  []string // `language` attribute values this adapter analyses
+	sep    string   // namespace separator: "." (JVM / C#) or "\\" (PHP)
 	module string
 }
 
@@ -59,5 +60,5 @@ func (a *packageDeclAdapter) node(_ string, extra map[string]any) string {
 // (`com.x.*` → `com.x`); C# namespace using (`X.Y` → `X.Y` directly) and
 // static using (`X.Y.Type` → `X.Y`).
 func (a *packageDeclAdapter) firstPartyImport(imp, _ string, nodes map[string]bool) (string, bool) {
-	return longestPackagePrefix(imp, nodes)
+	return longestPackagePrefix(imp, nodes, a.sep)
 }
