@@ -342,6 +342,16 @@ var tsPackageQuery = map[string]string{
 	// C# block `namespace Foo.Bar { … }` and file-scoped `namespace Foo.Bar;`
 	// (C# 10+). The name is a qualified_name or identifier — capture either.
 	"csharp": `[(namespace_declaration name: (_) @package) (file_scoped_namespace_declaration name: (_) @package)]`,
+	// Kotlin / Scala share the JVM `package com.foo.bar` model (dotted, like
+	// Java). The package name is a single (dotted) identifier node.
+	"kotlin": `(package_header (identifier) @package)`,
+	// declaredPackage returns the first capture, so a file's effective package
+	// is the first `package` clause. Scala chained / nested package clauses
+	// (`package com.foo` then `package bar` → com.foo.bar) therefore resolve
+	// to just `com.foo` — coarser, but still a valid node. Joining chained
+	// clauses without mis-handling Scala's multi-package brace form (or C#'s
+	// multiple independent namespaces) is a focused follow-up (#467).
+	"scala": `(package_clause (package_identifier) @package)`,
 }
 
 // tsRelativeImportQuery captures relative imports — kept separate from the
