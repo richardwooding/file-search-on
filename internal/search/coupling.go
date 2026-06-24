@@ -35,11 +35,12 @@ type CouplingResult struct {
 // ecosystem differs in two ways Go happens to make trivial (issue #467):
 //
 //  1. the first-party boundary — Go: the go.mod module path; Rust: the set
-//     of workspace member crate names; Java: the set of packages the repo's
-//     own files declare (passed to firstPartyImport as `nodes`), and
+//     of workspace member crate names; Java/C#: the set of packages /
+//     namespaces the repo's own files declare (passed to firstPartyImport as
+//     `nodes`), and
 //  2. mapping a file to a "node" — Go: package = import path = module +
-//     directory; Rust: crate, by nearest-ancestor manifest; Java: the file's
-//     declared package, read from its attributes.
+//     directory; Rust: crate, by nearest-ancestor manifest; Java/C#: the
+//     file's declared package / namespace, read from its attributes.
 type couplingAdapter interface {
 	// language is the source `language` attribute value this adapter
 	// analyses (matched against FileAttributes.Extra["language"]).
@@ -64,9 +65,9 @@ type couplingAdapter interface {
 
 // couplingAdapterFor selects the adapter for a tree by its build manifest:
 // go.mod ⇒ Go (packages), Cargo.toml ⇒ Rust (crates), pom.xml / Gradle ⇒
-// Java (packages) (#467). Falls back to the Go adapter, whose prepare
-// reports ok=false when there is no go.mod — yielding an empty report, the
-// historical behaviour.
+// Java (packages), a .sln / .csproj / props ⇒ C# (namespaces) (#467). Falls
+// back to the Go adapter, whose prepare reports ok=false when there is no
+// go.mod — yielding an empty report, the historical behaviour.
 func couplingAdapterFor(root string) couplingAdapter {
 	switch {
 	case fileExists(filepath.Join(root, "go.mod")):
@@ -74,7 +75,9 @@ func couplingAdapterFor(root string) couplingAdapter {
 	case fileExists(filepath.Join(root, "Cargo.toml")):
 		return &rustCouplingAdapter{}
 	case hasAnyFile(root, "pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"):
-		return &javaCouplingAdapter{}
+		return &packageDeclAdapter{lang: "java"}
+	case isCSharpRoot(root):
+		return &packageDeclAdapter{lang: "csharp"}
 	default:
 		return &goCouplingAdapter{}
 	}
@@ -84,6 +87,38 @@ func couplingAdapterFor(root string) couplingAdapter {
 func hasAnyFile(dir string, names ...string) bool {
 	for _, n := range names {
 		if fileExists(filepath.Join(dir, n)) {
+			return true
+		}
+	}
+	return false
+}
+
+// isCSharpRoot reports whether dir looks like a C# / .NET project root: a
+// solution or project file, or a modern SDK-style root marker. C# has no
+// single canonical root manifest (unlike go.mod / Cargo.toml / pom.xml), so
+// the .sln / .csproj globs are the strongest signal.
+func isCSharpRoot(dir string) bool {
+	if hasAnyFile(dir, "Directory.Build.props", "Directory.Packages.props", "global.json") {
+		return true
+	}
+	// .slnx is the modern XML solution format (VS 17.10+).
+	return hasGlobMatch(dir, "*.sln") || hasGlobMatch(dir, "*.slnx") || hasGlobMatch(dir, "*.csproj")
+}
+
+// hasGlobMatch reports whether any regular file directly in dir has a
+// basename matching pattern. It matches against entry names (not the joined
+// path) so glob metacharacters in dir itself — e.g. a "weird[1]" path
+// component — can't corrupt the match.
+func hasGlobMatch(dir, pattern string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if ok, _ := filepath.Match(pattern, e.Name()); ok {
 			return true
 		}
 	}
