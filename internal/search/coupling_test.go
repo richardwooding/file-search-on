@@ -231,6 +231,64 @@ func TestCoupling_JavaPackages(t *testing.T) {
 	}
 }
 
+func TestCoupling_CSharpNamespaces(t *testing.T) {
+	root := t.TempDir()
+	// A .sln selects the C# adapter; its content is irrelevant.
+	mustWriteFile(t, filepath.Join(root, "App.sln"), "Microsoft Visual Studio Solution File\n")
+	mk := func(dir, src string) {
+		d := filepath.Join(root, dir)
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mustWriteFile(t, filepath.Join(d, "C.cs"), src)
+	}
+	// MyApp.App → MyApp.Svc, MyApp.Util (and System.*, excluded);
+	// MyApp.Svc → MyApp.Util via a STATIC using (exercises longest-prefix);
+	// MyApp.Util → nothing.
+	mk("App",
+		"using MyApp.Svc;\nusing MyApp.Util;\nusing System.Collections.Generic;\nnamespace MyApp.App;\npublic class App {}\n")
+	mk("Svc",
+		"using static MyApp.Util.Helper;\nnamespace MyApp.Svc;\npublic class Svc {}\n")
+	mk("Util",
+		"namespace MyApp.Util;\npublic class Helper { public static void Help() {} }\n")
+
+	res, err := search.Coupling(context.Background(), search.Options{Root: root, Workers: 1}, 0, contentpkg.DefaultRegistry())
+	if err != nil {
+		t.Fatalf("Coupling: %v", err)
+	}
+
+	got := map[string]search.PackageCoupling{}
+	for _, p := range res.Packages {
+		got[p.Package] = p
+	}
+	want := map[string]struct {
+		ca, ce int
+		i      float64
+	}{
+		"MyApp.App":  {0, 2, 1.0},
+		"MyApp.Svc":  {1, 1, 0.5},
+		"MyApp.Util": {2, 0, 0.0},
+	}
+	for ns, w := range want {
+		p, ok := got[ns]
+		if !ok {
+			t.Errorf("missing namespace %s in %+v", ns, res.Packages)
+			continue
+		}
+		if p.Afferent != w.ca || p.Efferent != w.ce || p.Instability != w.i {
+			t.Errorf("%s = {Ca:%d Ce:%d I:%.2f}, want {Ca:%d Ce:%d I:%.2f}",
+				ns, p.Afferent, p.Efferent, p.Instability, w.ca, w.ce, w.i)
+		}
+	}
+	// The .NET BCL namespace System.* must NOT count — never declared in-tree.
+	if _, ok := got["System.Collections.Generic"]; ok {
+		t.Error("BCL namespace System.Collections.Generic leaked into the first-party set")
+	}
+	if len(res.Packages) > 0 && res.Packages[0].Package != "MyApp.Util" {
+		t.Errorf("ranked first = %s, want MyApp.Util (Ca=2)", res.Packages[0].Package)
+	}
+}
+
 func TestCoupling_NoGoMod(t *testing.T) {
 	root := t.TempDir()
 	mustWriteFile(t, filepath.Join(root, "x.go"), "package p\n\nfunc F() {}\n")

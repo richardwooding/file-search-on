@@ -339,6 +339,9 @@ var tsDecisionQuery = map[string]string{
 // natural follow-ups.
 var tsPackageQuery = map[string]string{
 	"java": `(package_declaration [(scoped_identifier) (identifier)] @package)`,
+	// C# block `namespace Foo.Bar { … }` and file-scoped `namespace Foo.Bar;`
+	// (C# 10+). The name is a qualified_name or identifier — capture either.
+	"csharp": `[(namespace_declaration name: (_) @package) (file_scoped_namespace_declaration name: (_) @package)]`,
 }
 
 // tsLang holds the concurrent-safe machinery for one language: a
