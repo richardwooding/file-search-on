@@ -352,6 +352,9 @@ var tsPackageQuery = map[string]string{
 	// clauses without mis-handling Scala's multi-package brace form (or C#'s
 	// multiple independent namespaces) is a focused follow-up (#467).
 	"scala": `(package_clause (package_identifier) @package)`,
+	// PHP `namespace App\Services;` — backslash-separated (the coupling
+	// adapter uses "\\" as the separator for PHP nodes/imports).
+	"php": `(namespace_definition name: (namespace_name) @package)`,
 }
 
 // tsRelativeImportQuery captures relative imports — kept separate from the

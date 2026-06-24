@@ -84,9 +84,14 @@ func couplingAdapterFor(root string) couplingAdapter {
 		"build.sc", "build.mill"): // Mill
 		// JVM family — Java / Kotlin / Scala share the `package com.foo.bar`
 		// model and dotted imports, so one adapter graphs a mixed project.
-		return &packageDeclAdapter{langs: []string{"java", "kotlin", "scala"}}
+		return &packageDeclAdapter{langs: []string{"java", "kotlin", "scala"}, sep: "."}
 	case isCSharpRoot(root):
-		return &packageDeclAdapter{langs: []string{"csharp"}}
+		return &packageDeclAdapter{langs: []string{"csharp"}, sep: "."}
+	case fileExists(filepath.Join(root, "composer.json")):
+		// PHP namespaces use a backslash separator (App\Services). Checked
+		// before package.json so a PHP app with a frontend build (Laravel,
+		// Symfony) graphs its PHP backend rather than its JS assets.
+		return &packageDeclAdapter{langs: []string{"php"}, sep: "\\"}
 	case hasAnyFile(root, "pyproject.toml", "setup.py", "setup.cfg", "Pipfile", "requirements.txt", "tox.ini"):
 		return &pythonCouplingAdapter{}
 	case hasAnyFile(root, "package.json", "tsconfig.json"):
@@ -97,18 +102,22 @@ func couplingAdapterFor(root string) couplingAdapter {
 }
 
 // longestPackagePrefix resolves an import string to the first-party node that
-// owns it: the longest prefix of the dotted FQN that is a declared node.
-// Shared by the package/namespace-declaring adapters (Java, C#) and Python.
-// Correct because a symbol lives in exactly one package, so its package is
-// the longest declared-package prefix of its FQN; covers plain, static, and
+// owns it: the longest prefix of the FQN (split on sep — "." for Java / C# /
+// Kotlin / Scala / Python, "\\" for PHP) that is a declared node. Correct
+// because a symbol lives in exactly one package, so its package is the
+// longest declared-package prefix of its FQN; covers plain, static, and
 // wildcard (trailing ".*") import forms.
-func longestPackagePrefix(imp string, nodes map[string]bool) (string, bool) {
+func longestPackagePrefix(imp string, nodes map[string]bool, sep string) (string, bool) {
 	p := strings.TrimSuffix(strings.TrimSpace(imp), ".*")
+	// A PHP FQN may be written fully-qualified with a leading backslash
+	// (\App\Services\Foo); declared namespace nodes never have one, so trim it.
+	// No-op for dot-separated languages (their imports don't start with ".").
+	p = strings.TrimPrefix(p, sep)
 	for p != "" {
 		if nodes[p] {
 			return p, true
 		}
-		i := strings.LastIndex(p, ".")
+		i := strings.LastIndex(p, sep)
 		if i <= 0 {
 			break
 		}

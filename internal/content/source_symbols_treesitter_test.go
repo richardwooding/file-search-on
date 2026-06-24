@@ -496,6 +496,8 @@ func TestDeclaredPackage(t *testing.T) {
 		{"kotlin package", "kotlin", "package com.foo.bar\n\nclass X\n", "com.foo.bar"},
 		{"kotlin no package", "kotlin", "class X\n", ""},
 		{"scala package", "scala", "package com.foo.bar\n\nobject X\n", "com.foo.bar"},
+		{"php namespace", "php", "<?php\nnamespace App\\Foo;\nclass X {}\n", "App\\Foo"},
+		{"php no namespace", "php", "<?php\nclass X {}\n", ""},
 		{"go has no package query", "go", "package main\n", ""},
 		{"rust has no package query", "rust", "pub fn f() {}\n", ""},
 		{"unwired language", "brainfuck", "+++.", ""},

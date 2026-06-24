@@ -18,9 +18,9 @@ import (
 // packages, Rust (Cargo.toml) → crates, JVM Java/Kotlin/Scala (Maven /
 // Gradle / sbt) → packages, C# (.sln / .csproj) → namespaces, Python
 // (pyproject.toml / setup.py) → packages, JS/TS (package.json /
-// tsconfig.json) → directory modules.
+// tsconfig.json) → directory modules, PHP (composer.json) → namespaces.
 type CouplingCmd struct {
-	Dir  string `short:"d" default:"." help:"Project root (go.mod → Go packages, Cargo.toml → Rust crates, Maven / Gradle / sbt → JVM Java/Kotlin/Scala packages, .sln / .csproj → C# namespaces, pyproject.toml / setup.py → Python packages, package.json / tsconfig.json → JS/TS directory modules)."`
+	Dir  string `short:"d" default:"." help:"Project root (go.mod → Go packages, Cargo.toml → Rust crates, Maven / Gradle / sbt → JVM Java/Kotlin/Scala packages, .sln / .csproj → C# namespaces, pyproject.toml / setup.py → Python packages, package.json / tsconfig.json → JS/TS directory modules, composer.json → PHP namespaces)."`
 	Expr string `name:"expr" help:"CEL pre-filter for which files enter the graph. Defaults to is_source."`
 	Top  int    `name:"top" default:"0" help:"Cap the packages shown (ranked most-depended-upon then most unstable). 0 = all."`
 
