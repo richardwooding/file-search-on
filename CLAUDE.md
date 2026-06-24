@@ -76,7 +76,7 @@ Internal packages compose the pipeline. The first three are tightly coupled by t
 
 - **`internal/index`** — optional cache of `(content_type, attributes)` keyed by absolute path + validated by `(size, mtime)`. Two implementations: in-memory (`NewMemory`, MCP auto-on) and on-disk (`Open` / `OpenWith`, single-file bbolt with `attrs_v1` / `bodies_v1` / `body_access_v1` / `meta` buckets, used by CLI `--index-path`). Encoding is gob. Body cache has its own per-entry + total-size caps with FIFO eviction. Stats counters drive the CLI footer line and the MCP `index_stats` tool.
 
-CLI (`cmd/file-search-on/main.go`) uses `kong`. `main()` builds a cancellable ctx via `signal.NotifyContext` so Ctrl-C / SIGTERM shut down cleanly. The single wire shape `search.Match` (in `internal/search/match.go`) is shared by CLI JSON output and the MCP `search` / `read_attributes` tools via `MatchFrom`.
+CLI (`cmd/file-search-on/main.go`) uses `kong`. `main()` builds a cancellable ctx via `signal.NotifyContext` so Ctrl-C / SIGTERM shut down cleanly. The single wire shape `search.Match` (in `internal/search/match.go`) is shared by CLI JSON output and the MCP `search` / `read_attributes` tools via `MatchFrom`. The CLI and MCP surfaces are at near-total parity: nearly every MCP tool has a CLI subcommand counterpart (and vice versa). The `validate` (wraps `celexpr.ValidateExpr`) and `index-stats` (wraps `index.Index.Stats()`) subcommands are the CLI counterparts of the MCP `validate_expr` / `index_stats` tools — keep both sides in sync when changing either. Direction that does NOT mirror: `organize` / `playground` / `config-paths` / `hash-set` / `embed warm` are CLI-only with no MCP tool.
 
 ### Releases
 
