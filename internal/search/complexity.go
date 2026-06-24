@@ -11,13 +11,18 @@ import (
 )
 
 // FunctionComplexity is one function's cyclomatic complexity + line span.
+// CognitiveComplexity (issue #485) is the SonarSource nesting-weighted metric;
+// it's a pointer because it's computed only for languages that support it
+// (Go today) — nil means "not available for this language", distinct from a
+// genuine 0.
 type FunctionComplexity struct {
-	Path       string `json:"path"`
-	Function   string `json:"function"`
-	Complexity int    `json:"complexity"`
-	StartLine  int    `json:"start_line"`
-	EndLine    int    `json:"end_line"`
-	Lines      int    `json:"lines"`
+	Path                string `json:"path"`
+	Function            string `json:"function"`
+	Complexity          int    `json:"complexity"`
+	CognitiveComplexity *int   `json:"cognitive_complexity,omitempty"`
+	StartLine           int    `json:"start_line"`
+	EndLine             int    `json:"end_line"`
+	Lines               int    `json:"lines"`
 }
 
 // ComplexityReport is the aggregate result of Complexity: per-function
@@ -61,8 +66,10 @@ func Complexity(ctx context.Context, opts Options, registry *content.Registry, t
 		}
 		rows, _ := r.Attrs.Extra["complexity_rows"].([]string)
 		for _, row := range rows {
-			// "func\x00complexity\x00startLine\x00endLine"
-			p := strings.SplitN(row, "\x00", 4)
+			// "func\x00complexity\x00startLine\x00endLine[\x00cognitive]"
+			// The 5th cognitive field is Go-only (#485); 4-field rows from the
+			// tree-sitter extractor leave CognitiveComplexity nil.
+			p := strings.SplitN(row, "\x00", 5)
 			if len(p) < 4 {
 				continue
 			}
@@ -73,13 +80,20 @@ func Complexity(ctx context.Context, opts Options, registry *content.Registry, t
 			start, _ := strconv.Atoi(p[2])
 			end, _ := strconv.Atoi(p[3])
 			lines := max(end-start+1, 0)
+			var cognitive *int
+			if len(p) >= 5 {
+				if cog, cerr := strconv.Atoi(p[4]); cerr == nil {
+					cognitive = &cog
+				}
+			}
 			out.Functions = append(out.Functions, FunctionComplexity{
-				Path:       r.Path,
-				Function:   p[0],
-				Complexity: cx,
-				StartLine:  start,
-				EndLine:    end,
-				Lines:      lines,
+				Path:                r.Path,
+				Function:            p[0],
+				Complexity:          cx,
+				CognitiveComplexity: cognitive,
+				StartLine:           start,
+				EndLine:             end,
+				Lines:               lines,
 			})
 		}
 	}

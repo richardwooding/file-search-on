@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -524,6 +525,15 @@ type ComplexityCmd struct {
 	Output string `short:"o" name:"output" enum:"table,json,sarif" default:"table" help:"Output format: table | json | sarif (SARIF 2.1.0 for GitHub Code Scanning)."`
 }
 
+// cognitiveCell renders a function's cognitive complexity for the table, or
+// "—" when it's unavailable (a non-Go language; #485).
+func cognitiveCell(c *int) string {
+	if c == nil {
+		return "—"
+	}
+	return strconv.Itoa(*c)
+}
+
 func (c *ComplexityCmd) Run(ctx context.Context) error {
 	parentCtx := ctx
 	effectiveCtx := ctx
@@ -557,10 +567,14 @@ func (c *ComplexityCmd) Run(ctx context.Context) error {
 		case "sarif":
 			results := make([]sarif.Result, 0, len(rep.Functions))
 			for _, f := range rep.Functions {
+				msg := fmt.Sprintf("%s has cyclomatic complexity %d (%d lines)", f.Function, f.Complexity, f.Lines)
+				if f.CognitiveComplexity != nil {
+					msg = fmt.Sprintf("%s has cyclomatic complexity %d, cognitive complexity %d (%d lines)", f.Function, f.Complexity, *f.CognitiveComplexity, f.Lines)
+				}
 				results = append(results, sarif.Result{
 					RuleID:    "complexity",
 					Level:     "warning",
-					Message:   fmt.Sprintf("%s has cyclomatic complexity %d (%d lines)", f.Function, f.Complexity, f.Lines),
+					Message:   msg,
 					URI:       f.Path,
 					StartLine: f.StartLine,
 					EndLine:   f.EndLine,
@@ -571,9 +585,9 @@ func (c *ComplexityCmd) Run(ctx context.Context) error {
 			}
 		default:
 			tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			_, _ = fmt.Fprintln(tw, "COMPLEXITY\tLINES\tFUNCTION\tLOCATION")
+			_, _ = fmt.Fprintln(tw, "COMPLEXITY\tCOGNITIVE\tLINES\tFUNCTION\tLOCATION")
 			for _, f := range rep.Functions {
-				_, _ = fmt.Fprintf(tw, "%d\t%d\t%s\t%s:%d\n", f.Complexity, f.Lines, f.Function, f.Path, f.StartLine)
+				_, _ = fmt.Fprintf(tw, "%d\t%s\t%d\t%s\t%s:%d\n", f.Complexity, cognitiveCell(f.CognitiveComplexity), f.Lines, f.Function, f.Path, f.StartLine)
 			}
 			_ = tw.Flush()
 			_, _ = fmt.Fprintf(os.Stderr, "%d function(s) total; showing worst %d\n", rep.TotalFunctions, len(rep.Functions))

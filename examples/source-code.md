@@ -265,6 +265,22 @@ file-search-on code-graph -o json -d . | jq '.import_hubs[:5]'
 
 `imported_by` is accurate for every language whose imports are extracted (Go via AST; Python / Java / C# / PHP / Perl / R / MATLAB / Scala via the import-shape extractors). `find_definition` is limited to the languages with symbol extraction — for the rest, fall back to `find-matches`. Genuine call-graph ("who *calls* Y?") is still out of scope (see below) — it needs call-site extraction.
 
+## Complexity: cyclomatic + cognitive (`complexity`)
+
+`complexity` ranks functions worst-first and reports two metrics side by side:
+
+```sh
+file-search-on complexity 'is_source && language == "go"' --top 5
+# COMPLEXITY  COGNITIVE  LINES  FUNCTION    LOCATION
+# 67          159        371    WalkStream  internal/search/walker.go:477
+# …
+```
+
+- **Cyclomatic** (the long-standing metric) counts decision points flatly — `if` / `for` / `case` / `&&` / `||`. It answers *how many paths* a function has.
+- **Cognitive** (SonarSource, issue #485) weights *nesting*: an `if` inside a loop inside an `if` costs more than three flat `if`s, because deeply-nested logic is harder to follow. It answers *how hard the function is to understand*. A function can have modest cyclomatic complexity but high cognitive complexity (lots of nesting) — that's the one worth refactoring first.
+
+Cognitive complexity is computed for **Go** today (precise, matching the SonarSource reference examples). For the tree-sitter languages the `COGNITIVE` column shows `—` (not yet available — tracked in #491); cyclomatic is reported for all of them. `-o json` carries `cognitive_complexity` per function (omitted where unavailable), and `-o sarif` includes it in the finding message. Same data over MCP via the `complexity` tool.
+
 ## Find copy-pasted functions (`duplicate-functions`)
 
 `near-duplicates` compares whole *files*; `duplicate-functions` compares individual **functions**, so it catches a 20-line helper that's been copy-pasted into otherwise-distinct files. It splits each source file into its functions (the same per-function spans `complexity` uses), SimHashes each body, and clusters the near-identical ones — your extract-this-helper worklist.
