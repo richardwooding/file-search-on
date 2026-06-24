@@ -55,3 +55,7 @@ dist-extra/
 # Hugo docs-site build output
 /public/
 .hugo_build.lock
+
+# Rendered Marp presentation outputs (source .md is tracked)
+presentations/*.html
+presentations/*.pdf

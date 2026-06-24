@@ -158,9 +158,27 @@ file-search-on -d .                                   # empty expression matches
 | `stats [expr]` | Histogram + totals, bucketed by `group_by` | [examples/group-by.md](./examples/group-by.md) |
 | `duplicates [expr]` | Byte-identical files by sha256 | [examples/duplicates.md](./examples/duplicates.md) |
 | `near-duplicates [expr]` | Similar files by SimHash fingerprint of extracted body | [examples/near-duplicates.md](./examples/near-duplicates.md) |
+| `duplicate-functions [expr]` | Clusters of near-identical **functions** across the tree (copy-pasted logic file-level scans miss) — your extract-this-helper worklist | [examples/source-code.md](./examples/source-code.md) |
 | `archive-contents <path> [--expr]` | List or filter entries inside ZIP / TAR / TAR.GZ / GZIP — full CEL vocabulary on per-entry attributes | [examples/archive-search.md](./examples/archive-search.md) |
 | `archive-read <path> <entry>` | Read a single entry's bytes out of an archive without extracting | [examples/archive-search.md](./examples/archive-search.md) |
 | `find-matches <re> --expr <cel> -C N` | Line-level regex hits with context | [examples/find-matches.md](./examples/find-matches.md) |
+| `validate <expr>` | Compile-check a CEL expression without walking — fast pre-flight / CI gate; exits non-zero on error with a "did you mean" hint | — |
+| `find-definition <symbol>` | Locate where a function or type is defined across a tree (symbol-aware) | [examples/source-code.md](./examples/source-code.md) |
+| `references <symbol>` | Every usage of a symbol with file:line — calls, type usages, value passing (the IDE "find references" primitive) | [examples/source-code.md](./examples/source-code.md) |
+| `who-calls <symbol>` | Files / functions that call or reference a given symbol (one hop) | [examples/source-code.md](./examples/source-code.md) |
+| `calls <symbol>` | The distinct functions a given function calls (forward lookup; complement to `who-calls`) | [examples/source-code.md](./examples/source-code.md) |
+| `call-path <from> <to>` | Shortest call path A→B — *how* A reaches B through the call graph | [examples/source-code.md](./examples/source-code.md) |
+| `impact <symbol>` | Transitive reverse-dependency closure — the blast radius of changing a function | [examples/source-code.md](./examples/source-code.md) |
+| `imported-by <module>` | Reverse-dependency lookup: every source file that imports a module (`--mode exact\|prefix\|regex`) | [examples/source-code.md](./examples/source-code.md) |
+| `code-graph [expr]` | Project-wide structure overview — import hubs, high-fan-out files, duplicate definitions, language breakdown | [examples/source-code.md](./examples/source-code.md) |
+| `complexity [expr]` | Functions ranked by cyclomatic complexity (worst-first) — maintenance hotspots | [examples/source-code.md](./examples/source-code.md) |
+| `dead-code [expr]` | Candidate unreferenced definitions (functions / types nothing calls) — heuristic, for review | [examples/source-code.md](./examples/source-code.md) |
+| `unused-exports [expr]` | Exported symbols referenced only within their own package — candidates to unexport | [examples/source-code.md](./examples/source-code.md) |
+| `test-gaps [expr]` | Production files whose functions are never referenced from a test — no coverage run needed | [examples/source-code.md](./examples/source-code.md) |
+| `coverage-gaps <profile>` | Functions below a coverage threshold from a Go coverage profile (`go test -coverprofile`) | [examples/source-code.md](./examples/source-code.md) |
+| `churn-owners [--expr]` | Ownership / bus-factor per directory from git authorship — single-maintainer hotspots | [examples/source-code.md](./examples/source-code.md) |
+| `coupling [--top N]` | Per-package afferent/efferent coupling + instability (Martin metrics) — fragile architectural seams (Go) | [examples/source-code.md](./examples/source-code.md) |
+| `api-diff <tree-a> <tree-b>` | Removed exported symbols between two trees — a breaking-change release gate | [examples/source-code.md](./examples/source-code.md) |
 | `playground [expr] -d <dir>` | Interactive TUI — type a CEL expression and watch a directory's files filter live as you type; prints the final expression on exit. Pass `--embedding-model` for **semantic mode**: a natural-language query box ranks files by `similarity` and the CEL box filters live | [examples/playground.md](./examples/playground.md) |
 | `watch [expr] -d <dir>` | Continuously watch directories; emit each new / changed file that matches — the inverse of `search` | [examples/watch.md](./examples/watch.md) |
 | `diff <tree-a> <tree-b> --op <set-op>` | Cross-tree set operations by sha256 — what's in A but not B, the intersection, content drift between same-named files | [examples/diff.md](./examples/diff.md) |
@@ -170,8 +188,13 @@ file-search-on -d .                                   # empty expression matches
 | `find-projects [root]` | Walk a tree listing every project subdirectory | [examples/projects.md](./examples/projects.md) |
 | `which-project <path>` | Walk UP from a file/dir to its nearest enclosing project root | [examples/projects.md](./examples/projects.md) |
 | `config-paths` | Print platform-specific project-type config paths | [examples/projects.md](./examples/projects.md) |
+| `hash-set build\|info` | Compile a text / NSRL-CSV hash list into a bbolt hashset (or print its counts) for `--hash-allowlist` / `--hash-denylist` | [examples/hashsets.md](./examples/hashsets.md) |
+| `embed list\|pull\|warm` | Manage Ollama embedding models for semantic search — list installed/recommended, pull a model, pre-warm a tree's embeddings cache | [examples/semantic-search.md](./examples/semantic-search.md) |
 | `monitors` | List the dashboard URLs of every running instance (mcp / watch started with `--monitor`) | [examples/monitoring.md](./examples/monitoring.md) |
+| `index-stats [--index-path]` | Inspect the on-disk attribute/body/embedding cache without running a search — entry counts, bytes used, hit/miss counters | [examples/indexing.md](./examples/indexing.md) |
 | `mcp` | Run as a Model Context Protocol server | [MCP server mode](#mcp-server-mode) |
+
+The source-aware **code-intelligence** commands (`find-definition` through `api-diff`) share a cross-file symbol + import graph and Go/tree-sitter symbol extraction; [examples/source-code.md](./examples/source-code.md) walks through the whole family. Each also has a matching MCP tool (see [MCP server mode](#mcp-server-mode)) — CLI and MCP are at near-total parity.
 
 `file-search-on --list` prints the canonical schema (every attribute, every built-in function, every registered content type) — useful for "what can I filter on?" exploration.
 
