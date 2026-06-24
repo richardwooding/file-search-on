@@ -209,6 +209,13 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 		if pkg := declaredPackage(s.language, bodyBuf.Bytes()); pkg != "" {
 			attrs["package"] = pkg
 		}
+		// relative_imports (builder-internal, #467): relative imports with
+		// their leading dots preserved, kept separate from `imports` so that
+		// attribute stays free of dotted-relative strings. Python today; the
+		// coupling adapter resolves them against the file's own package.
+		if rel := relativeImports(s.language, bodyBuf.Bytes()); len(rel) > 0 {
+			attrs["relative_imports"] = rel
+		}
 		// exported_symbols (builder-internal, #409): the public subset of
 		// defs for keyword-visibility languages, consumed by unused_exports.
 		// Positive-keyword languages (Rust pub, TS/JS export, Java/C# public)

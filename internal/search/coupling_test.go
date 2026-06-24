@@ -373,6 +373,57 @@ func TestCoupling_PythonPackages(t *testing.T) {
 	}
 }
 
+// TestCoupling_PythonRelativeImports verifies relative imports (the idiomatic
+// way Python packages import internally, e.g. flask) are resolved against the
+// importing file's package and counted — the absolute-only version produced
+// an empty graph for such projects (#467).
+func TestCoupling_PythonRelativeImports(t *testing.T) {
+	root := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "pyproject.toml"), "[project]\nname = \"demo\"\n")
+	mk := func(pkg, file, src string) {
+		dir := filepath.Join(root, filepath.FromSlash(pkg))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mustWriteFile(t, filepath.Join(dir, file), src)
+	}
+	// pkg → pkg.svc, pkg → pkg.util (the `from . import helper` is a self-edge,
+	// dropped); pkg.svc → pkg.util via a two-dot relative import.
+	mk("pkg", "app.py",
+		"from .svc import s\nfrom .util import u\nfrom . import helper\n\ndef main():\n    pass\n")
+	mk("pkg", "helper.py", "def h():\n    pass\n")
+	mk("pkg/svc", "service.py", "from ..util import u\n\ndef s():\n    pass\n")
+	mk("pkg/util", "helper.py", "def u():\n    pass\n")
+
+	res, err := search.Coupling(context.Background(), search.Options{Root: root, Workers: 1}, 0, contentpkg.DefaultRegistry())
+	if err != nil {
+		t.Fatalf("Coupling: %v", err)
+	}
+	got := map[string]search.PackageCoupling{}
+	for _, p := range res.Packages {
+		got[p.Package] = p
+	}
+	want := map[string]struct {
+		ca, ce int
+		i      float64
+	}{
+		"pkg":      {0, 2, 1.0},
+		"pkg.svc":  {1, 1, 0.5},
+		"pkg.util": {2, 0, 0.0},
+	}
+	for pkg, w := range want {
+		p, ok := got[pkg]
+		if !ok {
+			t.Errorf("missing package %s in %+v", pkg, res.Packages)
+			continue
+		}
+		if p.Afferent != w.ca || p.Efferent != w.ce || p.Instability != w.i {
+			t.Errorf("%s = {Ca:%d Ce:%d I:%.2f}, want {Ca:%d Ce:%d I:%.2f}",
+				pkg, p.Afferent, p.Efferent, p.Instability, w.ca, w.ce, w.i)
+		}
+	}
+}
+
 // TestCoupling_PythonSrcLayout checks import-root discovery: with a top-level
 // src/, package nodes are dotted relative to src/, not the project root.
 func TestCoupling_PythonSrcLayout(t *testing.T) {

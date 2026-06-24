@@ -63,6 +63,47 @@ func (a *pythonCouplingAdapter) node(path string, _ map[string]any) string {
 	return strings.ReplaceAll(filepath.ToSlash(rel), "/", ".")
 }
 
-func (a *pythonCouplingAdapter) firstPartyImport(imp, _ string, nodes map[string]bool) (string, bool) {
+func (a *pythonCouplingAdapter) firstPartyImport(imp, fromNode string, nodes map[string]bool) (string, bool) {
+	if strings.HasPrefix(imp, ".") {
+		fq, ok := resolveRelativePythonImport(imp, fromNode)
+		if !ok {
+			return "", false
+		}
+		return longestPackagePrefix(fq, nodes)
+	}
 	return longestPackagePrefix(imp, nodes)
+}
+
+// resolveRelativePythonImport turns a dotted relative import into a fully
+// qualified module path, anchored at the importing file's package (fromNode).
+// One leading dot is the current package; each additional dot ascends one
+// level; the remainder (the dotted name after the dots, possibly empty) is
+// appended. Returns ok=false when the import climbs above the import root.
+//
+//	from . import x       in pkg "a.b" → "a.b"   (x is a sibling module → self-edge, dropped)
+//	from .sub import y     in pkg "a.b" → "a.b.sub"
+//	from ..other import z  in pkg "a.b" → "a.other"
+func resolveRelativePythonImport(imp, fromNode string) (string, bool) {
+	dots := 0
+	for dots < len(imp) && imp[dots] == '.' {
+		dots++
+	}
+	remainder := imp[dots:]
+
+	var segs []string
+	if fromNode != "" {
+		segs = strings.Split(fromNode, ".")
+	}
+	up := dots - 1 // 1 dot = current package; extra dots ascend
+	if up > len(segs) {
+		return "", false // climbs above the import root
+	}
+	segs = segs[:len(segs)-up]
+	if remainder != "" {
+		segs = append(segs, remainder)
+	}
+	if len(segs) == 0 {
+		return "", false
+	}
+	return strings.Join(segs, "."), true
 }

@@ -344,23 +344,33 @@ var tsPackageQuery = map[string]string{
 	"csharp": `[(namespace_declaration name: (_) @package) (file_scoped_namespace_declaration name: (_) @package)]`,
 }
 
+// tsRelativeImportQuery captures relative imports — kept separate from the
+// absolute-import query (tsImportQuery) so the shared `imports` attribute
+// stays free of leading-dot strings. The capture text preserves the dots
+// (".", ".ctx", "..pkg.mod") so a consumer can resolve them against the
+// importing file's own package. Python today (coupling #467).
+var tsRelativeImportQuery = map[string]string{
+	"python": `(import_from_statement module_name: (relative_import) @import)`,
+}
+
 // tsLang holds the concurrent-safe machinery for one language: a
 // ParserPool (safe for concurrent Parse) plus compiled Query objects
 // (safe for concurrent Execute after construction). Built once per
 // language on first use.
 type tsLang struct {
-	pool          *ts.ParserPool
-	lang          *ts.Language // the grammar; needed for Node.Type / ChildByFieldName
-	tagsQuery     *ts.Query
-	defQuery      *ts.Query // supplemental @function/@type; nil when none
-	importQuery   *ts.Query // nil when none configured or compile failed
-	refQuery      *ts.Query // @reference call-site callees; nil when none
-	typeRefQuery  *ts.Query // @typeref type usages (#398); nil when none
-	exportedQuery *ts.Query // @exported public defs (#409); nil when none
-	nonExpQuery   *ts.Query // @name+@vis non-public defs (#409 negation); nil when none
-	spanQuery     *ts.Query // @func.def + @func.name spans; nil when none
-	decisionQuery *ts.Query // @decision complexity points; nil when none
-	packageQuery  *ts.Query // @package the file's declared package/namespace (coupling #467); nil when none
+	pool           *ts.ParserPool
+	lang           *ts.Language // the grammar; needed for Node.Type / ChildByFieldName
+	tagsQuery      *ts.Query
+	defQuery       *ts.Query // supplemental @function/@type; nil when none
+	importQuery    *ts.Query // nil when none configured or compile failed
+	refQuery       *ts.Query // @reference call-site callees; nil when none
+	typeRefQuery   *ts.Query // @typeref type usages (#398); nil when none
+	exportedQuery  *ts.Query // @exported public defs (#409); nil when none
+	nonExpQuery    *ts.Query // @name+@vis non-public defs (#409 negation); nil when none
+	spanQuery      *ts.Query // @func.def + @func.name spans; nil when none
+	decisionQuery  *ts.Query // @decision complexity points; nil when none
+	packageQuery   *ts.Query // @package the file's declared package/namespace (coupling #467); nil when none
+	relImportQuery *ts.Query // @import relative imports, dots preserved (coupling #467); nil when none
 }
 
 var (
@@ -457,7 +467,39 @@ func buildTSLang(language string) *tsLang {
 			tl.packageQuery = pkgQ
 		}
 	}
+	if q := tsRelativeImportQuery[language]; q != "" {
+		if relQ, err := ts.NewQuery(q, lang); err == nil {
+			tl.relImportQuery = relQ
+		}
+	}
 	return tl
+}
+
+// relativeImports returns the file's relative imports with leading dots
+// preserved (".", ".pkg.mod", "..sib") — for package-level coupling (#467).
+// Empty for languages with no relative-import query (the common case), and
+// it parses only when one exists. Distinct from extractTreeSitterSymbols so
+// the absolute-import path and its callers stay untouched.
+func relativeImports(language string, src []byte) []string {
+	tl := tsLangFor(language)
+	if tl == nil || tl.relImportQuery == nil {
+		return nil
+	}
+	tree, err := tl.pool.Parse(src)
+	if err != nil || tree == nil {
+		return nil
+	}
+	var out []string
+	for _, m := range tl.relImportQuery.Execute(tree) {
+		for _, c := range m.Captures {
+			if c.Name == "import" {
+				if p := strings.TrimSpace(c.Text(src)); p != "" {
+					out = append(out, p)
+				}
+			}
+		}
+	}
+	return dedupeStrings(out)
 }
 
 // declaredPackage returns the package / namespace a file declares, for

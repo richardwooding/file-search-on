@@ -461,6 +461,26 @@ func TestExtractTreeSitterComplexity(t *testing.T) {
 	}
 }
 
+// TestRelativeImports covers the relative-import extraction (dots preserved)
+// that backs Python package-level coupling (#467).
+func TestRelativeImports(t *testing.T) {
+	got := relativeImports("python", []byte(
+		"import os\nfrom mypkg.svc import thing\nfrom . import cli\nfrom .ctx import App\nfrom ..sansio import x\n"))
+	want := map[string]bool{".": true, ".ctx": true, "..sansio": true}
+	if len(got) != len(want) {
+		t.Fatalf("relativeImports = %v, want keys %v", got, want)
+	}
+	for _, g := range got {
+		if !want[g] {
+			t.Errorf("unexpected relative import %q (absolute imports must not appear here)", g)
+		}
+	}
+	// Languages with no relative-import query return nothing.
+	if r := relativeImports("go", []byte("package main\nimport \"fmt\"\n")); r != nil {
+		t.Errorf("go relativeImports = %v, want nil", r)
+	}
+}
+
 // TestDeclaredPackage covers the file's declared package/namespace
 // extraction that backs package-level coupling (#467).
 func TestDeclaredPackage(t *testing.T) {
