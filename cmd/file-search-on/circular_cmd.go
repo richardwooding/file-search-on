@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -76,7 +77,7 @@ func (c *CircularCmd) Run(ctx context.Context) error {
 	return nil
 }
 
-func printCyclesTable(w *os.File, res *search.CyclesResult) {
+func printCyclesTable(w io.Writer, res *search.CyclesResult) {
 	if res.Module == "" {
 		_, _ = fmt.Fprintln(w, "no recognised build manifest at the root — circular resolves first-party nodes only (see 'coupling' for the manifest list)")
 		return
@@ -86,8 +87,11 @@ func printCyclesTable(w *os.File, res *search.CyclesResult) {
 		return
 	}
 	for _, cy := range res.Cycles {
-		// Render the cycle as a loop: a → b → c → a.
-		_, _ = fmt.Fprintf(w, "[%d] %s → %s\n", cy.Length, strings.Join(cy.Nodes, " → "), cy.Nodes[0])
+		// List the mutually-dependent members. Nodes is a sorted set (a
+		// strongly-connected component), not an edge-ordered path, so render
+		// it as a group rather than drawing directed arrows that might imply
+		// edges the graph doesn't have.
+		_, _ = fmt.Fprintf(w, "[%d] %s\n", cy.Length, strings.Join(cy.Nodes, ", "))
 	}
 	_, _ = fmt.Fprintf(w, "\n%d circular dependenc%s in %s.\n",
 		res.Count, plural(res.Count, "y", "ies"), res.Module)

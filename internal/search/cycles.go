@@ -8,9 +8,12 @@ import (
 )
 
 // Cycle is one circular dependency — a strongly-connected component of size
-// > 1 in the first-party import graph. Nodes are the packages / crates /
-// namespaces / directory-modules that mutually (transitively) depend on each
-// other, sorted for stable output.
+// > 1 in the first-party import graph: a set of packages / crates / namespaces
+// / directory-modules that mutually (transitively) depend on each other. A
+// size-2 cycle is a direct a↔b pair; a larger one is a tangled group that
+// contains at least one cycle through all its members. Nodes is the sorted
+// member SET, not an edge-ordered path — there's no single canonical loop
+// order, so consumers should treat it as a group rather than a sequence.
 type Cycle struct {
 	Nodes  []string `json:"nodes"`
 	Length int      `json:"length"`
