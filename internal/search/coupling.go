@@ -246,14 +246,22 @@ func Coupling(ctx context.Context, opts Options, top int, registry *content.Regi
 			continue
 		}
 		imports, _ := r.Attrs.Extra["imports"].([]string)
-		for _, imp := range imports {
-			target, ok := adapter.firstPartyImport(imp, node, nodes)
-			if !ok || target == node {
-				continue
+		// relative_imports is populated only for languages whose imports are
+		// dotted-relative (Python); empty elsewhere, so this is a no-op for
+		// other adapters. Kept separate from `imports` to leave that shared
+		// attribute free of leading-dot strings. Iterated as a second list
+		// (not appended) so the cached `imports` slice is never mutated.
+		relImports, _ := r.Attrs.Extra["relative_imports"].([]string)
+		for _, list := range [][]string{imports, relImports} {
+			for _, imp := range list {
+				target, ok := adapter.firstPartyImport(imp, node, nodes)
+				if !ok || target == node {
+					continue
+				}
+				touch(target)
+				efferent[node][target] = true
+				afferent[target][node] = true
 			}
-			touch(target)
-			efferent[node][target] = true
-			afferent[target][node] = true
 		}
 	}
 
