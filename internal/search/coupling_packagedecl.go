@@ -24,7 +24,7 @@ type packageDeclAdapter struct {
 	module string
 }
 
-func (a *packageDeclAdapter) language() string { return a.lang }
+func (a *packageDeclAdapter) matchesLanguage(lang string) bool { return lang == a.lang }
 
 // prepare records the project identity (the root directory's base name —
 // these ecosystems have no single canonical module id without parsing a

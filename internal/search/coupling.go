@@ -42,9 +42,10 @@ type CouplingResult struct {
 //     directory; Rust: crate, by nearest-ancestor manifest; Java/C#: the
 //     file's declared package / namespace, read from its attributes.
 type couplingAdapter interface {
-	// language is the source `language` attribute value this adapter
-	// analyses (matched against FileAttributes.Extra["language"]).
-	language() string
+	// matchesLanguage reports whether a file's `language` attribute is one
+	// this adapter analyses. Most adapters match a single language; the
+	// JS/TS adapter spans both "javascript" and "typescript".
+	matchesLanguage(lang string) bool
 	// prepare resolves the first-party scope rooted at root, caches any
 	// per-language state on the adapter, and returns the report identity
 	// (CouplingResult.Module) plus whether anything is analysable. ok=false
@@ -80,6 +81,8 @@ func couplingAdapterFor(root string) couplingAdapter {
 		return &packageDeclAdapter{lang: "csharp"}
 	case hasAnyFile(root, "pyproject.toml", "setup.py", "setup.cfg", "Pipfile", "requirements.txt", "tox.ini"):
 		return &pythonCouplingAdapter{}
+	case hasAnyFile(root, "package.json", "tsconfig.json"):
+		return &jstsCouplingAdapter{}
 	default:
 		return &goCouplingAdapter{}
 	}
@@ -223,7 +226,7 @@ func Coupling(ctx context.Context, opts Options, top int, registry *content.Regi
 		if r.Attrs == nil {
 			continue
 		}
-		if lang, _ := r.Attrs.Extra["language"].(string); lang != adapter.language() {
+		if lang, _ := r.Attrs.Extra["language"].(string); !adapter.matchesLanguage(lang) {
 			continue
 		}
 		node := adapter.node(r.Path, r.Attrs.Extra)
@@ -305,7 +308,7 @@ type goCouplingAdapter struct {
 	module string
 }
 
-func (a *goCouplingAdapter) language() string { return "go" }
+func (a *goCouplingAdapter) matchesLanguage(lang string) bool { return lang == "go" }
 
 func (a *goCouplingAdapter) prepare(root string) (string, bool) {
 	a.root = root

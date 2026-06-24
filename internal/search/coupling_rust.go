@@ -35,7 +35,7 @@ type crateDir struct {
 	crate string // normalized crate name
 }
 
-func (a *rustCouplingAdapter) language() string { return "rust" }
+func (a *rustCouplingAdapter) matchesLanguage(lang string) bool { return lang == "rust" }
 
 // prepare walks root for Cargo.toml manifests, records each member crate's
 // name + directory, and reports the workspace identity. ok=false when no
