@@ -128,31 +128,66 @@ func hasAnyFile(dir string, names ...string) bool {
 // isCSharpRoot reports whether dir looks like a C# / .NET project root: a
 // solution or project file, or a modern SDK-style root marker. C# has no
 // single canonical root manifest (unlike go.mod / Cargo.toml / pom.xml), so
-// the .sln / .csproj globs are the strongest signal.
+// the .sln / .csproj files are the strongest signal. Solutions commonly live
+// one level down (e.g. a Src/ directory holds the .sln/.csproj while the repo
+// root has none), so the root's immediate subdirectories are checked too —
+// node resolution is namespace-based (root-independent), so walking from dir
+// still yields the right graph either way.
+//
+// dir is read once here (for both its own markers and its subdir list), then
+// each candidate subdir is read once — no per-marker globbing.
 func isCSharpRoot(dir string) bool {
-	if hasAnyFile(dir, "Directory.Build.props", "Directory.Packages.props", "global.json") {
-		return true
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
 	}
-	// .slnx is the modern XML solution format (VS 17.10+).
-	return hasGlobMatch(dir, "*.sln") || hasGlobMatch(dir, "*.slnx") || hasGlobMatch(dir, "*.csproj")
+	var subdirs []string
+	for _, e := range entries {
+		if e.IsDir() {
+			if !skipCargoDir(e.Name()) {
+				subdirs = append(subdirs, e.Name())
+			}
+			continue
+		}
+		if isCSharpMarkerFile(e.Name()) {
+			return true
+		}
+	}
+	for _, sd := range subdirs {
+		if csharpMarkersIn(filepath.Join(dir, sd)) {
+			return true
+		}
+	}
+	return false
 }
 
-// hasGlobMatch reports whether any regular file directly in dir has a
-// basename matching pattern. It matches against entry names (not the joined
-// path) so glob metacharacters in dir itself — e.g. a "weird[1]" path
-// component — can't corrupt the match.
-func hasGlobMatch(dir, pattern string) bool {
+// csharpMarkersIn reports whether dir directly contains a C# / .NET project
+// marker, in a single directory read.
+func csharpMarkersIn(dir string) bool {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return false
 	}
 	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		if ok, _ := filepath.Match(pattern, e.Name()); ok {
+		if !e.IsDir() && isCSharpMarkerFile(e.Name()) {
 			return true
 		}
+	}
+	return false
+}
+
+// isCSharpMarkerFile reports whether a filename is a C# / .NET project marker:
+// an SDK-style root file or a solution (.sln / .slnx, the VS 17.10+ XML
+// format) / project (.csproj) file. Matching on the name (not a joined path)
+// is immune to glob metacharacters in the directory path itself.
+func isCSharpMarkerFile(name string) bool {
+	switch name {
+	case "Directory.Build.props", "Directory.Packages.props", "global.json":
+		return true
+	}
+	switch filepath.Ext(name) {
+	case ".sln", ".slnx", ".csproj":
+		return true
 	}
 	return false
 }
