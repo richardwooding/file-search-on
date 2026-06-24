@@ -78,9 +78,38 @@ func couplingAdapterFor(root string) couplingAdapter {
 		return &packageDeclAdapter{lang: "java"}
 	case isCSharpRoot(root):
 		return &packageDeclAdapter{lang: "csharp"}
+	case hasAnyFile(root, "pyproject.toml", "setup.py", "setup.cfg", "Pipfile", "requirements.txt", "tox.ini"):
+		return &pythonCouplingAdapter{}
 	default:
 		return &goCouplingAdapter{}
 	}
+}
+
+// longestPackagePrefix resolves an import string to the first-party node that
+// owns it: the longest prefix of the dotted FQN that is a declared node.
+// Shared by the package/namespace-declaring adapters (Java, C#) and Python.
+// Correct because a symbol lives in exactly one package, so its package is
+// the longest declared-package prefix of its FQN; covers plain, static, and
+// wildcard (trailing ".*") import forms.
+func longestPackagePrefix(imp string, nodes map[string]bool) (string, bool) {
+	p := strings.TrimSuffix(strings.TrimSpace(imp), ".*")
+	for p != "" {
+		if nodes[p] {
+			return p, true
+		}
+		i := strings.LastIndex(p, ".")
+		if i <= 0 {
+			break
+		}
+		p = p[:i]
+	}
+	return "", false
+}
+
+// dirExists reports whether path exists and is a directory.
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 // hasAnyFile reports whether any of names exists as a regular file in dir.

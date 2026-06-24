@@ -321,6 +321,90 @@ func TestCoupling_CSharpRootGlobMetachars(t *testing.T) {
 	}
 }
 
+func TestCoupling_PythonPackages(t *testing.T) {
+	root := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "pyproject.toml"), "[project]\nname = \"demo\"\n")
+	mk := func(pkg, file, src string) {
+		dir := filepath.Join(root, pkg)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mustWriteFile(t, filepath.Join(dir, file), src)
+	}
+	// app → svc, app → util (and os, excluded); svc → util; util → nothing.
+	mk("app", "main.py",
+		"import svc.service\nfrom util.helper import h\nimport os\n\ndef main():\n    pass\n")
+	mk("svc", "service.py",
+		"from util.helper import h\n\ndef s():\n    pass\n")
+	mk("util", "helper.py",
+		"def h():\n    pass\n")
+
+	res, err := search.Coupling(context.Background(), search.Options{Root: root, Workers: 1}, 0, contentpkg.DefaultRegistry())
+	if err != nil {
+		t.Fatalf("Coupling: %v", err)
+	}
+
+	got := map[string]search.PackageCoupling{}
+	for _, p := range res.Packages {
+		got[p.Package] = p
+	}
+	want := map[string]struct {
+		ca, ce int
+		i      float64
+	}{
+		"app":  {0, 2, 1.0},
+		"svc":  {1, 1, 0.5},
+		"util": {2, 0, 0.0},
+	}
+	for pkg, w := range want {
+		p, ok := got[pkg]
+		if !ok {
+			t.Errorf("missing package %s in %+v", pkg, res.Packages)
+			continue
+		}
+		if p.Afferent != w.ca || p.Efferent != w.ce || p.Instability != w.i {
+			t.Errorf("%s = {Ca:%d Ce:%d I:%.2f}, want {Ca:%d Ce:%d I:%.2f}",
+				pkg, p.Afferent, p.Efferent, p.Instability, w.ca, w.ce, w.i)
+		}
+	}
+	// The stdlib import os must NOT count — not a first-party package.
+	if _, ok := got["os"]; ok {
+		t.Error("stdlib package os leaked into the first-party set")
+	}
+}
+
+// TestCoupling_PythonSrcLayout checks import-root discovery: with a top-level
+// src/, package nodes are dotted relative to src/, not the project root.
+func TestCoupling_PythonSrcLayout(t *testing.T) {
+	root := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "setup.py"), "from setuptools import setup\nsetup()\n")
+	mk := func(pkg, file, src string) {
+		dir := filepath.Join(root, "src", pkg)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mustWriteFile(t, filepath.Join(dir, file), src)
+	}
+	mk("pkga", "mod.py", "from pkgb.thing import t\n\ndef a():\n    pass\n")
+	mk("pkgb", "thing.py", "def t():\n    pass\n")
+
+	res, err := search.Coupling(context.Background(), search.Options{Root: root, Workers: 1}, 0, contentpkg.DefaultRegistry())
+	if err != nil {
+		t.Fatalf("Coupling: %v", err)
+	}
+	got := map[string]search.PackageCoupling{}
+	for _, p := range res.Packages {
+		got[p.Package] = p
+	}
+	// Nodes are "pkga"/"pkgb" (relative to src/), not "src.pkga".
+	if b, ok := got["pkgb"]; !ok || b.Afferent != 1 {
+		t.Errorf("pkgb Ca = %d (present=%v), want 1 (imported by pkga)", b.Afferent, ok)
+	}
+	if _, leaked := got["src.pkga"]; leaked {
+		t.Error("import root src/ not stripped: got node src.pkga")
+	}
+}
+
 func TestCoupling_NoGoMod(t *testing.T) {
 	root := t.TempDir()
 	mustWriteFile(t, filepath.Join(root, "x.go"), "package p\n\nfunc F() {}\n")

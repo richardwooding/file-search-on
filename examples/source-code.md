@@ -375,8 +375,9 @@ A node with **high Ca and high I** is a fragile hub — heavily relied upon yet 
 - **Rust** (`Cargo.toml`) → **crates**. Nodes are crates; first-party = the workspace member crates. A `use other_member::…` is an inter-crate edge, while `crate::` / `self::` / `super::` are intra-crate (no edge) and external dependencies are ignored. Crate-level is unambiguous (a `use` path's leading segment is always a crate name); module-level coupling within a single crate is tracked separately in #467.
 - **Java** (`pom.xml` / Gradle) → **packages**. Nodes are declared packages; first-party = the set of packages the tree itself declares (no build-file parsing — works across Maven, Gradle, and plain source trees). An `import com.x.Y` is an edge into package `com.x`; JDK and third-party imports (`java.util.*`, `com.google.*`, …) are ignored because those packages are never declared in-tree.
 - **C#** (`.sln` / `.csproj`) → **namespaces**. Same model as Java: nodes are declared namespaces, first-party = the namespaces the tree declares. A `using MyApp.Svc;` edges into namespace `MyApp.Svc`, a `using static MyApp.Util.Helper;` resolves to `MyApp.Util`; .NET BCL and third-party namespaces (`System.*`, …) are ignored.
+- **Python** (`pyproject.toml` / `setup.py`) → **packages**. A file's package is the dotted path of its directory beneath the *import root* — a top-level `src/` when present (src-layout), else the project root. `import a.b.c` / `from a.b import c` edge into the longest first-party package prefix; stdlib and third-party imports (`os`, `numpy`, …) are ignored. Absolute imports only — relative imports (`from . import x`) aren't surfaced (most are intra-package anyway).
 
-Non-matching files are ignored. Support for more languages (Python / TS-JS) is tracked in **#467**.
+Non-matching files are ignored. Support for more languages (TS / JS) is tracked in **#467**.
 
 ## Over-exported symbols (`unused-exports`)
 
