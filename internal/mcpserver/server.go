@@ -517,6 +517,11 @@ func New(version string, idx index.Index, defaultTimeout time.Duration, embedDef
 	}, instrument(h.metrics, "calls", h.callsHandler))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name:        "trace",
+		Description: "Both directions of a symbol's call graph in one call: its callers (who_calls — files that call it) and its callees (calls — functions it invokes), optionally plus the transitive caller closure (impact). A convenience over running who_calls / calls / impact separately, sharing one code-graph build. Input: symbol (required, exact function/method name), impact_depth (0 = omit the closure; N > 0 = include transitive callers up to N hops), plus expr (defaults to is_source) / dir / dirs / excludes / respect_gitignore / timeout_seconds. Output: symbol, defined_on (owning types when the name is a method), callers[] {path, language}, callees[] (distinct names), impact[] {symbol, depth, paths} when requested, callers_count / callees_count, total_files. Name-based, same caveats as who_calls / calls.",
+	}, instrument(h.metrics, "trace", h.traceHandler))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "complexity",
 		Description: "List functions ranked by cyclomatic complexity (worst-first) — find the gnarliest, hardest-to-maintain functions in a tree. Each row: {path, function, complexity, start_line, end_line, lines}. Complexity is gocyclo-style (1 + branch points: if / for / while / case / && / ||). Input: expr (defaults to is_source — narrow with language == \"go\"), top (cap, default 50), plus dir / dirs / excludes / respect_gitignore / timeout_seconds. Coverage: Go (stdlib AST) + every tree-sitter language (Rust / TypeScript / JavaScript / Ruby / Swift / Kotlin / C / C++ / Python / Java / C# / PHP / Perl / R / MATLAB / Scala); Perl / R under-count (sparser decision queries). Directionally accurate for RANKING hotspots — the exact number depends on per-grammar node coverage, so treat it as 'which functions are scariest', not a certified metric. For a file-level filter use the search tool's max_complexity attribute (e.g. 'is_source && max_complexity > 15'); this tool is the per-function drill-down.",
 	}, instrument(h.metrics, "complexity", h.complexityHandler))

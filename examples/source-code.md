@@ -320,6 +320,19 @@ file-search-on call-path Run writeRow -d .
 
 It BFSes the call graph and prints the shortest `from → … → to` chain (or reports unreachable). `--max-depth` caps the search. Same name-based heuristics apply.
 
+## Both directions at once (`trace`)
+
+`who-calls` and `calls` answer one direction each; `trace` shows both for a symbol in a single report — its callers and its callees — so you don't run two commands to understand a function's immediate call neighborhood. Add `--impact-depth N` to also include the transitive caller closure (the `impact` blast radius) up to N hops.
+
+```sh
+file-search-on trace ProcessOrder -d .
+# CALLERS of ProcessOrder (2): … the files that call it
+# CALLEES of ProcessOrder (5): … the functions it invokes
+file-search-on trace ProcessOrder --impact-depth 3 -o json
+```
+
+It reuses the same code graph as `who-calls` / `calls` / `impact`, so the same name-based caveats apply.
+
 ## Catch a breaking API change before you tag (`api-diff`)
 
 Before cutting a release, diff the exported surface of the released tree against your working tree. `api-diff` reports which exported functions/types **vanished** (the breaking set) and which were **added**:
