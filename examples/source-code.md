@@ -382,6 +382,20 @@ A node with **high Ca and high I** is a fragile hub — heavily relied upon yet 
 
 Non-matching files are ignored. Support for more languages is tracked in **#467**.
 
+## Circular dependencies (`circular`)
+
+`circular` finds dependency cycles — groups of packages/crates/namespaces/modules that (transitively) import each other — by computing the strongly-connected components of the same first-party import graph `coupling` builds. Cycles make a codebase hard to test in isolation, build incrementally, and reason about; breaking them is high-value refactoring.
+
+```sh
+file-search-on circular -d .
+# [3] app/orders → app/billing → app/notify → app/orders
+# [2] internal/a → internal/b → internal/a
+#
+# 2 circular dependencies in github.com/you/m.
+```
+
+Each line is one cycle, rendered as a loop and ranked largest-first; `[N]` is its size. Because it shares `coupling`'s manifest-based language selection, it works for Go, Rust, JVM (Java/Kotlin/Scala), C#, Python, JS/TS, and PHP — point `-d` at the project root. `-o json` emits `{module, cycles: [{nodes, length}], count}`. Self-imports are never reported.
+
 ## Over-exported symbols (`unused-exports`)
 
 `dead-code` finds symbols used *nowhere*; `unused-exports` finds the subtler case — exported symbols used *somewhere*, but never across a package boundary. They could be unexported to shrink the package's public API surface:
