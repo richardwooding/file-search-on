@@ -217,11 +217,28 @@ func Coupling(ctx context.Context, opts Options, top int, registry *content.Regi
 		ensure(afferent, node)
 	}
 
-	// Pass 1: map each first-party file to its node and collect the node set
-	// — the first-party boundary for adapters that derive it from the tree
-	// (Java). fileNode caches the per-result node so pass 2 doesn't recompute.
+	// fileNode caches each result's node so pass 2 doesn't recompute it; nodes
+	// is the first-party boundary for adapters that derive it from the tree.
 	fileNode := make([]string, len(results))
 	nodes := map[string]bool{}
+
+	// addImportEdges records every first-party node→node edge from one file's
+	// import list. Defined once (loop-invariant capture, incl. the nodes map)
+	// so pass 2 can apply it to both `imports` and `relative_imports` without
+	// a per-file slice allocation.
+	addImportEdges := func(node string, imports []string) {
+		for _, imp := range imports {
+			target, ok := adapter.firstPartyImport(imp, node, nodes)
+			if !ok || target == node {
+				continue
+			}
+			touch(target)
+			efferent[node][target] = true
+			afferent[target][node] = true
+		}
+	}
+
+	// Pass 1: map each first-party file to its node and collect the node set.
 	for i, r := range results {
 		if r.Attrs == nil {
 			continue
@@ -246,23 +263,13 @@ func Coupling(ctx context.Context, opts Options, top int, registry *content.Regi
 			continue
 		}
 		imports, _ := r.Attrs.Extra["imports"].([]string)
+		addImportEdges(node, imports)
 		// relative_imports is populated only for languages whose imports are
 		// dotted-relative (Python); empty elsewhere, so this is a no-op for
 		// other adapters. Kept separate from `imports` to leave that shared
-		// attribute free of leading-dot strings. Iterated as a second list
-		// (not appended) so the cached `imports` slice is never mutated.
+		// attribute free of leading-dot strings.
 		relImports, _ := r.Attrs.Extra["relative_imports"].([]string)
-		for _, list := range [][]string{imports, relImports} {
-			for _, imp := range list {
-				target, ok := adapter.firstPartyImport(imp, node, nodes)
-				if !ok || target == node {
-					continue
-				}
-				touch(target)
-				efferent[node][target] = true
-				afferent[target][node] = true
-			}
-		}
+		addImportEdges(node, relImports)
 	}
 
 	for node := range efferent {
