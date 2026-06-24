@@ -2,7 +2,6 @@ package search
 
 import (
 	"path/filepath"
-	"strings"
 )
 
 // packageDeclAdapter computes package-level coupling for languages where each
@@ -48,24 +47,11 @@ func (a *packageDeclAdapter) node(_ string, extra map[string]any) string {
 	return pkg
 }
 
-// firstPartyImport maps an import FQN to the first-party package that owns
-// it, by finding the longest prefix that is a declared package. Longest-match
-// is correct because a type lives in exactly one package, so its package is
-// the longest declared-package prefix of its FQN. Handles every form: Java
-// plain (`com.x.Y` → `com.x`), static (`com.x.Y.member` → `com.x`), wildcard
+// firstPartyImport maps an import FQN to the first-party package that owns it
+// via the longest declared-package prefix. Handles every form: Java plain
+// (`com.x.Y` → `com.x`), static (`com.x.Y.member` → `com.x`), wildcard
 // (`com.x.*` → `com.x`); C# namespace using (`X.Y` → `X.Y` directly) and
 // static using (`X.Y.Type` → `X.Y`).
 func (a *packageDeclAdapter) firstPartyImport(imp, _ string, nodes map[string]bool) (string, bool) {
-	p := strings.TrimSuffix(strings.TrimSpace(imp), ".*")
-	for p != "" {
-		if nodes[p] {
-			return p, true
-		}
-		i := strings.LastIndex(p, ".")
-		if i <= 0 {
-			break
-		}
-		p = p[:i]
-	}
-	return "", false
+	return longestPackagePrefix(imp, nodes)
 }
