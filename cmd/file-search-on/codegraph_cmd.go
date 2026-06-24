@@ -12,6 +12,7 @@ import (
 
 	contentpkg "github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/index"
+	"github.com/richardwooding/file-search-on/internal/sarif"
 	"github.com/richardwooding/file-search-on/internal/search"
 )
 
@@ -268,7 +269,7 @@ func (c *WhoCallsCmd) Run(ctx context.Context) error {
 type DeadCodeCmd struct {
 	Expr string `arg:"" optional:"" help:"CEL pre-filter for which files enter the graph. Defaults to is_source."`
 	codeGraphWalkFlags
-	Output         string `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table | json."`
+	Output         string `short:"o" name:"output" enum:"table,json,sarif" default:"table" help:"Output format: table | json | sarif (SARIF 2.1.0 for GitHub Code Scanning)."`
 	Resolve        bool   `name:"resolve" help:"Type-resolve Go via go/packages for precise dead-code (distinguishes same-named methods, counts cross-package usage) instead of name-based matching. Requires the 'go' toolchain and a buildable module — falls back to name-based otherwise. Dev-environment only; the first -d root is resolved. Issue #447."`
 	IgnoreExported bool   `name:"ignore-exported" help:"Drop exported/public symbols (funcs, methods, types) from the candidates — exported API used only by external callers is the dominant dead-code false positive. Visibility is known for name-convention (Go / Python) and keyword (Rust / TS / JS / Java / C# / Kotlin / Scala) languages; symbols in languages without a visibility signal are kept."`
 }
@@ -344,11 +345,27 @@ func (c *DeadCodeCmd) Run(ctx context.Context) error {
 		dcPaths[i] = d.Path
 	}
 	hint := g.GeneratedHint(dcPaths)
-	if c.Output == "json" {
+	switch c.Output {
+	case "json":
 		_ = writeJSON(os.Stdout, map[string]any{
 			"candidates": candidates, "count": len(candidates), "total_files": g.TotalFiles, "hint": hint, "resolved": resolved,
 		})
-	} else {
+	case "sarif":
+		results := make([]sarif.Result, 0, len(candidates))
+		for _, d := range candidates {
+			name := d.Symbol
+			if d.Owner != "" {
+				name = d.Owner + "." + d.Symbol
+			}
+			results = append(results, sarif.Result{
+				RuleID:  "dead-code",
+				Level:   "note",
+				Message: fmt.Sprintf("unreferenced %s %q (heuristic — review before deleting)", d.Kind, name),
+				URI:     d.Path,
+			})
+		}
+		_ = writeSARIF(sarif.Rule{ID: "dead-code", Name: "DeadCode", Description: "Candidate unreferenced definitions (functions / types nothing calls)."}, results)
+	default:
 		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 		for _, d := range candidates {
 			name := d.Symbol
@@ -502,7 +519,7 @@ type ComplexityCmd struct {
 	Expr string `arg:"" optional:"" help:"CEL pre-filter for which files enter the report. Defaults to is_source."`
 	codeGraphWalkFlags
 	Top    int    `name:"top" default:"50" help:"Cap on functions returned (worst-first)."`
-	Output string `short:"o" name:"output" enum:"table,json" default:"table" help:"Output format: table | json."`
+	Output string `short:"o" name:"output" enum:"table,json,sarif" default:"table" help:"Output format: table | json | sarif (SARIF 2.1.0 for GitHub Code Scanning)."`
 }
 
 func (c *ComplexityCmd) Run(ctx context.Context) error {
@@ -532,9 +549,23 @@ func (c *ComplexityCmd) Run(ctx context.Context) error {
 		return fmt.Errorf("complexity failed: %w", rerr)
 	}
 	if rep != nil {
-		if c.Output == "json" {
+		switch c.Output {
+		case "json":
 			_ = writeJSON(os.Stdout, rep)
-		} else {
+		case "sarif":
+			results := make([]sarif.Result, 0, len(rep.Functions))
+			for _, f := range rep.Functions {
+				results = append(results, sarif.Result{
+					RuleID:    "complexity",
+					Level:     "warning",
+					Message:   fmt.Sprintf("%s has cyclomatic complexity %d (%d lines)", f.Function, f.Complexity, f.Lines),
+					URI:       f.Path,
+					StartLine: f.StartLine,
+					EndLine:   f.EndLine,
+				})
+			}
+			_ = writeSARIF(sarif.Rule{ID: "complexity", Name: "CyclomaticComplexity", Description: "Functions ranked by cyclomatic complexity (maintenance hotspots)."}, results)
+		default:
 			tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 			_, _ = fmt.Fprintln(tw, "COMPLEXITY\tLINES\tFUNCTION\tLOCATION")
 			for _, f := range rep.Functions {

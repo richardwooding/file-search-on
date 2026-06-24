@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	contentpkg "github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/index"
+	"github.com/richardwooding/file-search-on/internal/sarif"
 	"github.com/richardwooding/file-search-on/internal/search"
 )
 
@@ -31,7 +33,7 @@ type FindMatchesCmd struct {
 	IndexPath           string        `name:"index-path" help:"Persistent attribute index file (bbolt). Overrides the default per-cwd index at <UserCacheDir>/file-search-on/indexes/. Speeds up the walk-stage content-type detection on unchanged files."`
 	NoIndex             bool          `name:"no-index" help:"Disable the on-disk index entirely; use only in-memory caching for the process lifetime."`
 	Timeout             time.Duration `name:"timeout" help:"Maximum duration (Go duration: 30s, 2m). On expiry, partial results are still printed and the process exits 124."`
-	Output              string        `short:"o" name:"output" enum:"default,json" default:"default" help:"Output format: default (grep-style: path:line:text) | json."`
+	Output              string        `short:"o" name:"output" enum:"default,json,sarif" default:"default" help:"Output format: default (grep-style: path:line:text) | json | sarif (SARIF 2.1.0 for GitHub Code Scanning)."`
 }
 
 func (f *FindMatchesCmd) Run(ctx context.Context) error {
@@ -81,11 +83,24 @@ func (f *FindMatchesCmd) Run(ctx context.Context) error {
 	// Print whatever was collected even on cancellation — FindMatches
 	// returns the partial set with Cancelled=true rather than nil.
 	if res != nil {
-		if f.Output == "json" {
+		switch f.Output {
+		case "json":
 			if jerr := printFindMatchesJSON(os.Stdout, res); jerr != nil {
 				return jerr
 			}
-		} else {
+		case "sarif":
+			results := make([]sarif.Result, 0, len(res.Matches))
+			for _, m := range res.Matches {
+				results = append(results, sarif.Result{
+					RuleID:    "find-matches",
+					Level:     "note",
+					Message:   truncateForMessage(strings.TrimSpace(m.Text)),
+					URI:       m.Path,
+					StartLine: m.Line,
+				})
+			}
+			_ = writeSARIF(sarif.Rule{ID: "find-matches", Name: "PatternMatch", Description: "Lines matching the search pattern: " + f.Pattern}, results)
+		default:
 			printFindMatches(os.Stdout, res)
 		}
 	}
