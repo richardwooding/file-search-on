@@ -55,6 +55,10 @@ func (c *TraceCmd) Run(ctx context.Context) error {
 			out["impact"] = impact
 			out["impact_count"] = len(impact)
 		}
+		if g.Cancelled {
+			out["cancelled"] = true
+			out["cancellation_reason"] = g.CancellationReason
+		}
 		_ = writeJSON(os.Stdout, out)
 	} else {
 		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)

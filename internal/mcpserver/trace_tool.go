@@ -52,13 +52,15 @@ func (h *handlers) traceHandler(ctx context.Context, _ *mcp.CallToolRequest, in 
 	callers := g.WhoCalls(in.Symbol)
 	callees := g.Calls(in.Symbol)
 	out := TraceOutput{
-		Symbol:       in.Symbol,
-		DefinedOn:    g.OwnersOf(in.Symbol),
-		Callers:      callers,
-		Callees:      callees,
-		CallersCount: len(callers),
-		CalleesCount: len(callees),
-		TotalFiles:   g.TotalFiles,
+		Symbol:             in.Symbol,
+		DefinedOn:          g.OwnersOf(in.Symbol),
+		Callers:            callers,
+		Callees:            callees,
+		CallersCount:       len(callers),
+		CalleesCount:       len(callees),
+		TotalFiles:         g.TotalFiles,
+		Cancelled:          g.Cancelled,
+		CancellationReason: g.CancellationReason,
 	}
 	if in.ImpactDepth > 0 {
 		out.Impact = g.Impact(in.Symbol, in.ImpactDepth)
