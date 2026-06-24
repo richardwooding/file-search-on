@@ -58,11 +58,11 @@ func (v *ValidateCmd) Run(_ context.Context) error {
 
 func printValidateText(w *os.File, res celexpr.ValidationResult) {
 	if res.OK {
-		fmt.Fprintln(w, "OK — expression compiles.")
+		_, _ = fmt.Fprintln(w, "OK — expression compiles.")
 	} else {
-		fmt.Fprintf(w, "INVALID — %s\n", res.Error)
+		_, _ = fmt.Fprintf(w, "INVALID — %s\n", res.Error)
 		if res.Suggestion != "" {
-			fmt.Fprintf(w, "  %s\n", res.Suggestion)
+			_, _ = fmt.Fprintf(w, "  %s\n", res.Suggestion)
 		}
 	}
 	if len(res.ReferencedVariables) > 0 || len(res.ReferencedFunctions) > 0 {

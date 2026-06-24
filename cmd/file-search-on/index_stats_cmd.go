@@ -95,11 +95,11 @@ func (c *IndexStatsCmd) Run(_ context.Context) error {
 }
 
 func printIndexStatsText(w *os.File, backend IndexBackend, st index.Stats) {
-	fmt.Fprintf(w, "backend: %s", backend.Mode)
+	_, _ = fmt.Fprintf(w, "backend: %s", backend.Mode)
 	if backend.Path != "" {
-		fmt.Fprintf(w, " (%s)", backend.Path)
+		_, _ = fmt.Fprintf(w, " (%s)", backend.Path)
 	}
-	fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w)
 
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	_, _ = fmt.Fprintf(tw, "attr entries\t%d\n", st.AttrEntriesCount)
