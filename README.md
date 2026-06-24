@@ -285,6 +285,8 @@ Fingerprints cache via `--index-path` alongside the exact hash; repeat runs skip
 
 `-d <dir>` (repeatable for multi-root walks), `--exclude <glob>` (basename, repeatable), `--respect-gitignore`, `--timeout 30s` (partial results returned on expiry), `--workers N`, `--index-path <file.db>` (override the per-cwd default index — see [examples/indexing.md](./examples/indexing.md)), `--no-index` (opt out of on-disk caching for hermetic runs).
 
+**`.git` is always pruned** from every walk (CLI and MCP) — its objects/refs/logs are never searched or indexed. `search` and `find-matches` expose `--include-git` (CLI) / `include_git` (MCP) to walk into it; pointing `-d` directly at a `.git` directory also works (the walk root is exempt).
+
 ### Pointing at a non-default Ollama
 
 For semantic search and `search_semantic` (MCP), the embedding HTTP endpoint resolves in this order:

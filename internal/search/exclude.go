@@ -26,9 +26,18 @@ type excluder struct {
 }
 
 // newExcluder builds an excluder from the user-provided glob patterns
-// and (optionally) a .gitignore at the fsys root. Returns nil when
-// neither feature is enabled, signalling "no exclusion" to the walker.
-func newExcluder(fsys fs.FS, globs []string, respectGitignore bool) *excluder {
+// and (optionally) a .gitignore at the fsys root. Unless includeGit is
+// true, a ".git" basename pattern is prepended so VCS metadata dirs are
+// pruned from every walk by default (the walk root itself is exempt — the
+// walker skips the exclude check at fsPath=="."). Returns nil only when no
+// exclusion at all applies (includeGit, no globs, no .gitignore).
+func newExcluder(fsys fs.FS, globs []string, respectGitignore, includeGit bool) *excluder {
+	if !includeGit {
+		// Literal ".git" matches only ".git" via filepath.Match — not
+		// ".gitignore" or ".github". Prepend to a fresh slice so the
+		// caller's globs are never mutated.
+		globs = append([]string{".git"}, globs...)
+	}
 	var ignore *gitignore.GitIgnore
 	if respectGitignore {
 		if data, err := fs.ReadFile(fsys, ".gitignore"); err == nil {

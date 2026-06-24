@@ -313,6 +313,15 @@ type Options struct {
 	// the OS. Best avoided unless you know the tree is acyclic.
 	FollowSymlinks bool
 
+	// IncludeGitDir, when true, walks into `.git` directories. The
+	// default (false) prunes any directory named `.git` from every walk
+	// — VCS internals (objects, refs, logs) are never searched or
+	// indexed. The walk ROOT is exempt from this prune, so pointing a
+	// root directly at a `.git` dir still works without the flag. Only
+	// the `search` and `find-matches` surfaces expose an opt-in to set
+	// this; every other command always skips `.git`.
+	IncludeGitDir bool
+
 	// SimilarityThreshold is consumed by FindNearDuplicates: the
 	// minimum SimHash similarity (0..1) at which two files are
 	// considered near-duplicates. 0.85 by default (≈ 9 bits Hamming
@@ -570,7 +579,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 			specs = append(specs, rootSpec{
 				root:     r,
 				fsys:     rfs,
-				exc:      newExcluder(rfs, excludesFor(r), opts.RespectGitignore),
+				exc:      newExcluder(rfs, excludesFor(r), opts.RespectGitignore, opts.IncludeGitDir),
 				resolver: makeResolver(r),
 				gitCache: makeGitCache(r),
 			})
@@ -587,7 +596,7 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 		specs = append(specs, rootSpec{
 			root:     root,
 			fsys:     fsys,
-			exc:      newExcluder(fsys, excludesFor(root), opts.RespectGitignore),
+			exc:      newExcluder(fsys, excludesFor(root), opts.RespectGitignore, opts.IncludeGitDir),
 			resolver: makeResolver(root),
 			gitCache: makeGitCache(root),
 		})

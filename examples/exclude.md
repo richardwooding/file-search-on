@@ -1,19 +1,25 @@
 # Excludes and .gitignore: prune the walk
 
-By default the walker visits everything. For dev repos, `node_modules`, `.git`, `target`, `dist`, and friends often dwarf the actual source — pruning them up front is a huge real-world win. Two mechanisms cover the common cases:
+By default the walker visits everything **except `.git`** (see below). For dev repos, `node_modules`, `target`, `dist`, and friends often dwarf the actual source — pruning them up front is a huge real-world win. Two mechanisms cover the common cases:
 
 - `--exclude <pattern>` — explicit glob list, matched against the basename of each entry. Repeatable.
 - `--respect-gitignore` — parse a `.gitignore` at the walk root and honour standard gitignore semantics (including `**` and negation).
 
 Both can be combined.
 
+## `.git` is always skipped
+
+Every walk — `search`, `stats`, `duplicates`, `find-matches`, the code-analysis commands, and the MCP equivalents — **prunes `.git` directories by default**, so VCS internals (objects, refs, logs) are never searched or indexed. You don't need `--exclude .git`. To override:
+
+- `search` / `find-matches` accept `--include-git` (CLI) / `include_git` (MCP) to walk into `.git`.
+- Pointing `-d` directly at a `.git` directory works without any flag — the walk root itself is exempt from the prune.
+
 ## CLI
 
 ```sh
-# Skip the usual suspects in a dev repo
+# Skip the usual suspects in a dev repo (.git is already skipped by default)
 file-search-on 'is_source' -d . \
     --exclude node_modules \
-    --exclude .git \
     --exclude target \
     --exclude dist
 
