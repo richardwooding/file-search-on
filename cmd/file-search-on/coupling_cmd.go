@@ -17,9 +17,9 @@ import (
 // root. Granularity is picked by the manifest at the root — Go (go.mod) →
 // packages, Rust (Cargo.toml) → crates, Java (pom.xml / Gradle) → packages,
 // C# (.sln / .csproj) → namespaces, Python (pyproject.toml / setup.py) →
-// packages.
+// packages, JS/TS (package.json / tsconfig.json) → directory modules.
 type CouplingCmd struct {
-	Dir  string `short:"d" default:"." help:"Project root (go.mod → Go packages, Cargo.toml → Rust crates, pom.xml / Gradle → Java packages, .sln / .csproj → C# namespaces, pyproject.toml / setup.py → Python packages)."`
+	Dir  string `short:"d" default:"." help:"Project root (go.mod → Go packages, Cargo.toml → Rust crates, pom.xml / Gradle → Java packages, .sln / .csproj → C# namespaces, pyproject.toml / setup.py → Python packages, package.json / tsconfig.json → JS/TS directory modules)."`
 	Expr string `name:"expr" help:"CEL pre-filter for which files enter the graph. Defaults to is_source."`
 	Top  int    `name:"top" default:"0" help:"Cap the packages shown (ranked most-depended-upon then most unstable). 0 = all."`
 

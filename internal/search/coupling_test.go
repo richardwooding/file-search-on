@@ -405,6 +405,85 @@ func TestCoupling_PythonSrcLayout(t *testing.T) {
 	}
 }
 
+func TestCoupling_TypeScriptModules(t *testing.T) {
+	root := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "package.json"), "{\"name\":\"demo\"}\n")
+	mk := func(dir, file, src string) {
+		d := filepath.Join(root, filepath.FromSlash(dir))
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mustWriteFile(t, filepath.Join(d, file), src)
+	}
+	// src/app → src/svc, src/app → src/util (a sibling "./local" and the bare
+	// "react" must NOT count); src/svc → src/util; src/util → nothing.
+	mk("src/app", "index.ts",
+		"import { s } from \"../svc/service\";\nimport { h } from \"../util/helper\";\nimport { x } from \"./local\";\nimport React from \"react\";\nexport const app = s + h + x;\n")
+	mk("src/app", "local.ts", "export const x = 0;\n")
+	mk("src/svc", "service.ts", "import { h } from \"../util/helper\";\nexport const s = h;\n")
+	mk("src/util", "helper.ts", "export const h = 1;\n")
+
+	res, err := search.Coupling(context.Background(), search.Options{Root: root, Workers: 1}, 0, contentpkg.DefaultRegistry())
+	if err != nil {
+		t.Fatalf("Coupling: %v", err)
+	}
+	got := map[string]search.PackageCoupling{}
+	for _, p := range res.Packages {
+		got[p.Package] = p
+	}
+	want := map[string]struct {
+		ca, ce int
+		i      float64
+	}{
+		"src/app":  {0, 2, 1.0}, // imports svc + util; the sibling ./local is a self-edge (dropped)
+		"src/svc":  {1, 1, 0.5},
+		"src/util": {2, 0, 0.0},
+	}
+	for mod, w := range want {
+		p, ok := got[mod]
+		if !ok {
+			t.Errorf("missing module %s in %+v", mod, res.Packages)
+			continue
+		}
+		if p.Afferent != w.ca || p.Efferent != w.ce || p.Instability != w.i {
+			t.Errorf("%s = {Ca:%d Ce:%d I:%.2f}, want {Ca:%d Ce:%d I:%.2f}",
+				mod, p.Afferent, p.Efferent, p.Instability, w.ca, w.ce, w.i)
+		}
+	}
+	// The bare specifier react must NOT count as a first-party module.
+	if _, ok := got["react"]; ok {
+		t.Error("bare specifier react leaked into the module set")
+	}
+}
+
+// TestCoupling_JSDirectoryImport covers the directory-vs-file branch: `../b`
+// where b/ is a directory (b/index.js) resolves to module b, not its parent.
+func TestCoupling_JSDirectoryImport(t *testing.T) {
+	root := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "package.json"), "{}\n")
+	mk := func(dir, src string) {
+		d := filepath.Join(root, dir)
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mustWriteFile(t, filepath.Join(d, "index.js"), src)
+	}
+	mk("a", "const { t } = require(\"../b\");\nmodule.exports = { t };\n")
+	mk("b", "module.exports = { t: 1 };\n")
+
+	res, err := search.Coupling(context.Background(), search.Options{Root: root, Workers: 1}, 0, contentpkg.DefaultRegistry())
+	if err != nil {
+		t.Fatalf("Coupling: %v", err)
+	}
+	got := map[string]search.PackageCoupling{}
+	for _, p := range res.Packages {
+		got[p.Package] = p
+	}
+	if b, ok := got["b"]; !ok || b.Afferent != 1 {
+		t.Errorf("module b Ca = %d (present=%v), want 1 (the ../b directory import from a)", b.Afferent, ok)
+	}
+}
+
 func TestCoupling_NoGoMod(t *testing.T) {
 	root := t.TempDir()
 	mustWriteFile(t, filepath.Join(root, "x.go"), "package p\n\nfunc F() {}\n")

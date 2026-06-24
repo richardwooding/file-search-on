@@ -25,7 +25,7 @@ type pythonCouplingAdapter struct {
 	module     string
 }
 
-func (a *pythonCouplingAdapter) language() string { return "python" }
+func (a *pythonCouplingAdapter) matchesLanguage(lang string) bool { return lang == "python" }
 
 func (a *pythonCouplingAdapter) prepare(root string) (string, bool) {
 	abs, err := filepath.Abs(root)

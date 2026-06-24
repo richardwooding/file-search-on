@@ -376,8 +376,9 @@ A node with **high Ca and high I** is a fragile hub — heavily relied upon yet 
 - **Java** (`pom.xml` / Gradle) → **packages**. Nodes are declared packages; first-party = the set of packages the tree itself declares (no build-file parsing — works across Maven, Gradle, and plain source trees). An `import com.x.Y` is an edge into package `com.x`; JDK and third-party imports (`java.util.*`, `com.google.*`, …) are ignored because those packages are never declared in-tree.
 - **C#** (`.sln` / `.csproj`) → **namespaces**. Same model as Java: nodes are declared namespaces, first-party = the namespaces the tree declares. A `using MyApp.Svc;` edges into namespace `MyApp.Svc`, a `using static MyApp.Util.Helper;` resolves to `MyApp.Util`; .NET BCL and third-party namespaces (`System.*`, …) are ignored.
 - **Python** (`pyproject.toml` / `setup.py`) → **packages**. A file's package is the dotted path of its directory beneath the *import root* — a top-level `src/` when present (src-layout), else the project root. `import a.b.c` / `from a.b import c` edge into the longest first-party package prefix; stdlib and third-party imports (`os`, `numpy`, …) are ignored. Absolute imports only — relative imports (`from . import x`) aren't surfaced (most are intra-package anyway).
+- **JS / TS** (`package.json` / `tsconfig.json`) → **directory modules**. JS/TS has no package declaration, so the unit is the directory: node = a file's directory relative to the project root. A relative import (`./x`, `../y`) is first-party and resolves to the directory it targets (`./sub` → `sub/` when that's a real directory, else the file's own directory — so a same-directory sibling import is a self-edge and dropped); bare specifiers (`react`, `@scope/pkg`) are external. Covers `.ts` / `.tsx` / `.js` / `.mjs` / `.cjs` / `.jsx` and both `import` and `require(...)`. `tsconfig` path aliases (`@/x`) aren't resolved yet (read as external).
 
-Non-matching files are ignored. Support for more languages (TS / JS) is tracked in **#467**.
+Non-matching files are ignored. Support for more languages is tracked in **#467**.
 
 ## Over-exported symbols (`unused-exports`)
 
