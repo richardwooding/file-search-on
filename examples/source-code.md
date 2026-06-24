@@ -355,9 +355,9 @@ file-search-on coverage-gaps cover.out -o json -d . | jq '.gaps[] | select(.full
 
 Each gap carries `{function, covered_pct, covered/total statements, line range}`. It resolves the profile's import-path filenames to disk via the module path in `go.mod` (so run it from / point `-d` at the module root). Go coverage profiles only.
 
-## Package coupling + instability (`coupling`)
+## Coupling + instability (`coupling`)
 
-Which packages are the risky architectural seams? `coupling` computes Robert C. Martin's metrics per first-party Go package — afferent coupling (Ca, how many packages depend on it), efferent coupling (Ce, how many it depends on), and instability `I = Ce / (Ca + Ce)`:
+Which units are the risky architectural seams? `coupling` computes Robert C. Martin's metrics over first-party nodes — afferent coupling (Ca, how many depend on it), efferent coupling (Ce, how many it depends on), and instability `I = Ce / (Ca + Ce)`:
 
 ```sh
 # Ranked most-depended-upon (high Ca) then most unstable (high I).
@@ -367,7 +367,14 @@ file-search-on coupling -d . --top 20
 # 1   9   0.90         github.com/you/m/internal/mcpserver ← unstable top-level adapter
 ```
 
-A package with **high Ca and high I** is a fragile hub — heavily relied upon yet itself volatile, the most dangerous place to change. A stable core (high Ca, low I) is healthy; an unstable leaf (low Ca, high I) is fine. Run it at the **module root** — resolution keys on the `go.mod` module prefix to tell first-party packages from third-party imports. **Go-only**; non-Go files are ignored.
+A node with **high Ca and high I** is a fragile hub — heavily relied upon yet itself volatile, the most dangerous place to change. A stable core (high Ca, low I) is healthy; an unstable leaf (low Ca, high I) is fine.
+
+**Granularity is picked by the build manifest at the root**, so run it at the **project root**:
+
+- **Go** (`go.mod`) → **packages**. Nodes are package import paths (module path + directory); first-party = anything under the `go.mod` module prefix.
+- **Rust** (`Cargo.toml`) → **crates**. Nodes are crates; first-party = the workspace member crates. A `use other_member::…` is an inter-crate edge, while `crate::` / `self::` / `super::` are intra-crate (no edge) and external dependencies are ignored. Crate-level is unambiguous (a `use` path's leading segment is always a crate name); module-level coupling within a single crate is tracked separately in #467.
+
+Non-matching files are ignored. Support for more languages (Java / C# / Python / TS-JS) is tracked in **#467**.
 
 ## Over-exported symbols (`unused-exports`)
 

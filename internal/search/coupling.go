@@ -3,6 +3,7 @@ package search
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -29,34 +30,50 @@ type CouplingResult struct {
 
 // couplingAdapter encapsulates the per-language pieces the coupling metric
 // needs; the graph math (Ca/Ce/I + ranking, in Coupling) is entirely
-// language-agnostic. Go is the only adapter today; per-language adapters
-// (Rust, Java/C#, …) are tracked in issue #467. Each ecosystem differs in
-// two ways Go happens to make trivial:
+// language-agnostic. Adapters are stateful — prepare resolves and caches
+// the first-party scope, then node/firstPartyImport consult it. Each
+// ecosystem differs in two ways Go happens to make trivial (issue #467):
 //
-//  1. the first-party boundary (Go: the go.mod module path), and
-//  2. mapping a file + an import string to a package "node" (Go: import
-//     path == module + directory, lexical and 1:1 with directories).
+//  1. the first-party boundary (Go: the go.mod module path; Rust: the set
+//     of workspace member crate names), and
+//  2. mapping a file + an import string to a "node" (Go: package = import
+//     path = module + directory; Rust: crate, by nearest-ancestor manifest).
 type couplingAdapter interface {
 	// language is the source `language` attribute value this adapter
 	// analyses (matched against FileAttributes.Extra["language"]).
 	language() string
-	// unit resolves the first-party scope rooted at root and returns its
-	// identity (the value surfaced as CouplingResult.Module). An empty
-	// string means there is nothing first-party to resolve there, and
-	// Coupling returns an empty report.
-	unit(root string) string
-	// node maps a source file to its package node id within unit, or ""
-	// to skip the file.
-	node(root, path, unit string) string
+	// prepare resolves the first-party scope rooted at root, caches any
+	// per-language state on the adapter, and returns the report identity
+	// (CouplingResult.Module) plus whether anything is analysable. ok=false
+	// ⇒ Coupling returns an empty report without walking.
+	prepare(root string) (module string, ok bool)
+	// node maps a source file to its node id, or "" to skip the file.
+	node(path string) string
 	// firstPartyImport reports whether import string imp (extracted from a
 	// file whose node is fromNode) targets a first-party node, and if so
 	// returns that node id. Returns ok=false for external dependencies.
-	firstPartyImport(imp, unit, fromNode string) (node string, ok bool)
+	firstPartyImport(imp, fromNode string) (node string, ok bool)
 }
 
-// couplingAdapterFor selects the adapter used to analyse a tree. Only Go is
-// wired today (issue #410); #467 will dispatch per detected language.
-func couplingAdapterFor() couplingAdapter { return goCouplingAdapter{} }
+// couplingAdapterFor selects the adapter for a tree by its build manifest:
+// go.mod ⇒ Go (package granularity), Cargo.toml ⇒ Rust (crate granularity,
+// #467). Falls back to the Go adapter, whose prepare reports ok=false when
+// there is no go.mod — yielding an empty report, the historical behaviour.
+func couplingAdapterFor(root string) couplingAdapter {
+	if fileExists(filepath.Join(root, "go.mod")) {
+		return &goCouplingAdapter{}
+	}
+	if fileExists(filepath.Join(root, "Cargo.toml")) {
+		return &rustCouplingAdapter{}
+	}
+	return &goCouplingAdapter{}
+}
+
+// fileExists reports whether path exists and is a regular file.
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
+}
 
 // Coupling computes per-package afferent (Ca) / efferent (Ce) coupling and
 // instability (I = Ce/(Ca+Ce)) over the first-party packages under the
@@ -66,10 +83,10 @@ func couplingAdapterFor() couplingAdapter { return goCouplingAdapter{} }
 // "fragile hub" seams a refactor is riskiest near.
 //
 // The graph math here is language-agnostic; the first-party boundary and
-// the file/import → node mappings come from a couplingAdapter. Go is the
-// only adapter today (per-language support tracked in #467), so opts.Root
-// must be a Go module root and an empty report (Module == "") is returned
-// when no go.mod is found there.
+// the file/import → node mappings come from a couplingAdapter selected by
+// the build manifest at opts.Root: go.mod ⇒ Go packages, Cargo.toml ⇒ Rust
+// crates (#467). An empty report (Module == "") is returned when the root
+// carries no recognised manifest.
 func Coupling(ctx context.Context, opts Options, top int, registry *content.Registry) (*CouplingResult, error) {
 	root := opts.Root
 	if root == "" && len(opts.Roots) > 0 {
@@ -79,10 +96,10 @@ func Coupling(ctx context.Context, opts Options, top int, registry *content.Regi
 		root = "."
 	}
 
-	adapter := couplingAdapterFor()
-	unit := adapter.unit(root)
+	adapter := couplingAdapterFor(root)
+	unit, ok := adapter.prepare(root)
 	res := &CouplingResult{Module: unit, Packages: []PackageCoupling{}}
-	if unit == "" {
+	if !ok {
 		return res, nil // nothing first-party to resolve at root
 	}
 
@@ -119,14 +136,14 @@ func Coupling(ctx context.Context, opts Options, top int, registry *content.Regi
 		if lang, _ := r.Attrs.Extra["language"].(string); lang != adapter.language() {
 			continue
 		}
-		node := adapter.node(root, r.Path, unit)
+		node := adapter.node(r.Path)
 		if node == "" {
 			continue
 		}
 		touch(node)
 		imports, _ := r.Attrs.Extra["imports"].([]string)
 		for _, imp := range imports {
-			target, ok := adapter.firstPartyImport(imp, unit, node)
+			target, ok := adapter.firstPartyImport(imp, node)
 			if !ok || target == node {
 				continue
 			}
@@ -182,17 +199,25 @@ func Coupling(ctx context.Context, opts Options, top int, registry *content.Regi
 
 // goCouplingAdapter resolves Go packages: the first-party boundary is the
 // go.mod module path and a package node is module + the file's directory.
-type goCouplingAdapter struct{}
-
-func (goCouplingAdapter) language() string        { return "go" }
-func (goCouplingAdapter) unit(root string) string { return moduledPath(root) }
-
-func (goCouplingAdapter) node(root, path, unit string) string {
-	return goPackageImportPath(root, path, unit)
+type goCouplingAdapter struct {
+	root   string
+	module string
 }
 
-func (goCouplingAdapter) firstPartyImport(imp, unit, _ string) (string, bool) {
-	if isFirstParty(imp, unit) {
+func (a *goCouplingAdapter) language() string { return "go" }
+
+func (a *goCouplingAdapter) prepare(root string) (string, bool) {
+	a.root = root
+	a.module = moduledPath(root)
+	return a.module, a.module != ""
+}
+
+func (a *goCouplingAdapter) node(path string) string {
+	return goPackageImportPath(a.root, path, a.module)
+}
+
+func (a *goCouplingAdapter) firstPartyImport(imp, _ string) (string, bool) {
+	if isFirstParty(imp, a.module) {
 		return imp, true // a Go import string IS the package path
 	}
 	return "", false
