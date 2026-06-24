@@ -15,9 +15,9 @@ import (
 // CouplingCmd is the coupling subcommand (issue #410, #467): afferent/
 // efferent coupling + instability over first-party nodes under a project
 // root. Granularity is picked by the manifest at the root — Go (go.mod) →
-// packages, Rust (Cargo.toml) → crates.
+// packages, Rust (Cargo.toml) → crates, Java (pom.xml / Gradle) → packages.
 type CouplingCmd struct {
-	Dir  string `short:"d" default:"." help:"Project root (holds go.mod for Go packages, or Cargo.toml for Rust crates)."`
+	Dir  string `short:"d" default:"." help:"Project root (go.mod → Go packages, Cargo.toml → Rust crates, pom.xml / Gradle → Java packages)."`
 	Expr string `name:"expr" help:"CEL pre-filter for which files enter the graph. Defaults to is_source."`
 	Top  int    `name:"top" default:"0" help:"Cap the packages shown (ranked most-depended-upon then most unstable). 0 = all."`
 

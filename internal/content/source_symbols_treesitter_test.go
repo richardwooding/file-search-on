@@ -460,3 +460,25 @@ func TestExtractTreeSitterComplexity(t *testing.T) {
 		})
 	}
 }
+
+// TestDeclaredPackage covers the file's declared package/namespace
+// extraction that backs package-level coupling (#467).
+func TestDeclaredPackage(t *testing.T) {
+	cases := []struct {
+		name, language, src, want string
+	}{
+		{"java multi-segment", "java", "package com.foo.bar;\n\npublic class X {}\n", "com.foo.bar"},
+		{"java single-segment", "java", "package app;\n\nclass X {}\n", "app"},
+		{"java default package", "java", "public class X {}\n", ""},
+		{"go has no package query", "go", "package main\n", ""},
+		{"rust has no package query", "rust", "pub fn f() {}\n", ""},
+		{"unwired language", "brainfuck", "+++.", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := declaredPackage(tc.language, []byte(tc.src)); got != tc.want {
+				t.Errorf("declaredPackage(%q) = %q, want %q", tc.language, got, tc.want)
+			}
+		})
+	}
+}

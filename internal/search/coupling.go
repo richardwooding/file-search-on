@@ -34,10 +34,12 @@ type CouplingResult struct {
 // the first-party scope, then node/firstPartyImport consult it. Each
 // ecosystem differs in two ways Go happens to make trivial (issue #467):
 //
-//  1. the first-party boundary (Go: the go.mod module path; Rust: the set
-//     of workspace member crate names), and
-//  2. mapping a file + an import string to a "node" (Go: package = import
-//     path = module + directory; Rust: crate, by nearest-ancestor manifest).
+//  1. the first-party boundary — Go: the go.mod module path; Rust: the set
+//     of workspace member crate names; Java: the set of packages the repo's
+//     own files declare (passed to firstPartyImport as `nodes`), and
+//  2. mapping a file to a "node" — Go: package = import path = module +
+//     directory; Rust: crate, by nearest-ancestor manifest; Java: the file's
+//     declared package, read from its attributes.
 type couplingAdapter interface {
 	// language is the source `language` attribute value this adapter
 	// analyses (matched against FileAttributes.Extra["language"]).
@@ -47,26 +49,45 @@ type couplingAdapter interface {
 	// (CouplingResult.Module) plus whether anything is analysable. ok=false
 	// ⇒ Coupling returns an empty report without walking.
 	prepare(root string) (module string, ok bool)
-	// node maps a source file to its node id, or "" to skip the file.
-	node(path string) string
-	// firstPartyImport reports whether import string imp (extracted from a
-	// file whose node is fromNode) targets a first-party node, and if so
-	// returns that node id. Returns ok=false for external dependencies.
-	firstPartyImport(imp, fromNode string) (node string, ok bool)
+	// node maps a source file to its node id, or "" to skip the file. extra
+	// is the file's FileAttributes.Extra (Java reads its declared package
+	// from it; Go/Rust derive the node from the path alone).
+	node(path string, extra map[string]any) string
+	// firstPartyImport reports whether import string imp (from a file whose
+	// node is fromNode) targets a first-party node, and if so returns that
+	// node id. nodes is the set of every node the repo's own files occupy —
+	// the first-party boundary for adapters (Java) that derive it from the
+	// tree rather than a manifest; manifest-based adapters (Go/Rust) ignore
+	// it. Returns ok=false for external dependencies.
+	firstPartyImport(imp, fromNode string, nodes map[string]bool) (node string, ok bool)
 }
 
 // couplingAdapterFor selects the adapter for a tree by its build manifest:
-// go.mod ⇒ Go (package granularity), Cargo.toml ⇒ Rust (crate granularity,
-// #467). Falls back to the Go adapter, whose prepare reports ok=false when
-// there is no go.mod — yielding an empty report, the historical behaviour.
+// go.mod ⇒ Go (packages), Cargo.toml ⇒ Rust (crates), pom.xml / Gradle ⇒
+// Java (packages) (#467). Falls back to the Go adapter, whose prepare
+// reports ok=false when there is no go.mod — yielding an empty report, the
+// historical behaviour.
 func couplingAdapterFor(root string) couplingAdapter {
-	if fileExists(filepath.Join(root, "go.mod")) {
+	switch {
+	case fileExists(filepath.Join(root, "go.mod")):
+		return &goCouplingAdapter{}
+	case fileExists(filepath.Join(root, "Cargo.toml")):
+		return &rustCouplingAdapter{}
+	case hasAnyFile(root, "pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"):
+		return &javaCouplingAdapter{}
+	default:
 		return &goCouplingAdapter{}
 	}
-	if fileExists(filepath.Join(root, "Cargo.toml")) {
-		return &rustCouplingAdapter{}
+}
+
+// hasAnyFile reports whether any of names exists as a regular file in dir.
+func hasAnyFile(dir string, names ...string) bool {
+	for _, n := range names {
+		if fileExists(filepath.Join(dir, n)) {
+			return true
+		}
 	}
-	return &goCouplingAdapter{}
+	return false
 }
 
 // fileExists reports whether path exists and is a regular file.
@@ -129,21 +150,37 @@ func Coupling(ctx context.Context, opts Options, top int, registry *content.Regi
 		ensure(afferent, node)
 	}
 
-	for _, r := range results {
+	// Pass 1: map each first-party file to its node and collect the node set
+	// — the first-party boundary for adapters that derive it from the tree
+	// (Java). fileNode caches the per-result node so pass 2 doesn't recompute.
+	fileNode := make([]string, len(results))
+	nodes := map[string]bool{}
+	for i, r := range results {
 		if r.Attrs == nil {
 			continue
 		}
 		if lang, _ := r.Attrs.Extra["language"].(string); lang != adapter.language() {
 			continue
 		}
-		node := adapter.node(r.Path)
+		node := adapter.node(r.Path, r.Attrs.Extra)
 		if node == "" {
 			continue
 		}
+		fileNode[i] = node
+		nodes[node] = true
 		touch(node)
+	}
+
+	// Pass 2: resolve each file's imports to first-party nodes and record the
+	// node→node edges.
+	for i, r := range results {
+		node := fileNode[i]
+		if node == "" {
+			continue
+		}
 		imports, _ := r.Attrs.Extra["imports"].([]string)
 		for _, imp := range imports {
-			target, ok := adapter.firstPartyImport(imp, node)
+			target, ok := adapter.firstPartyImport(imp, node, nodes)
 			if !ok || target == node {
 				continue
 			}
@@ -212,13 +249,13 @@ func (a *goCouplingAdapter) prepare(root string) (string, bool) {
 	return a.module, a.module != ""
 }
 
-func (a *goCouplingAdapter) node(path string) string {
+func (a *goCouplingAdapter) node(path string, _ map[string]any) string {
 	return goPackageImportPath(a.root, path, a.module)
 }
 
-func (a *goCouplingAdapter) firstPartyImport(imp, _ string) (string, bool) {
+func (a *goCouplingAdapter) firstPartyImport(imp, _ string, _ map[string]bool) (string, bool) {
 	if isFirstParty(imp, a.module) {
-		return imp, true // a Go import string IS the package path
+		return imp, true // a Go import string IS the package path; boundary is the go.mod prefix
 	}
 	return "", false
 }
