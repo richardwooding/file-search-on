@@ -409,6 +409,27 @@ file-search-on circular -d .
 
 Each line is one cycle — the mutually-dependent members of a strongly-connected component — ranked largest-first; `[N]` is its size. (Members are listed as a set, not an edge path: a strongly-connected group has no single canonical loop order.) Because it shares `coupling`'s manifest-based language selection, it works for Go, Rust, JVM (Java/Kotlin/Scala), C#, Python, JS/TS, and PHP — point `-d` at the project root. `-o json` emits `{module, cycles: [{nodes, length}], count}`. Self-imports are never reported.
 
+## Diff-scoped review gate (`review`)
+
+`review` is the pre-commit / PR gate: it resolves the files changed in the git diff, runs the per-file analyses scoped to just those files, and emits findings plus an overall **pass / warn / fail** verdict. The exit code makes it a drop-in CI gate (`fail` → non-zero).
+
+```sh
+# Pre-commit: review the uncommitted changes vs HEAD.
+file-search-on review -d .
+
+# PR gate: review what this branch added since it forked from main.
+file-search-on review --base origin/main
+# LEVEL  RULE        LOCATION                  FINDING
+# fail   complexity  internal/api/handler.go:88  ServeHTTP has cyclomatic complexity 22 (> 15)
+# warn   dead-code   internal/api/util.go        function "oldHelper" is never referenced (candidate dead code)
+#
+# FAIL — 2 finding(s) (1 fail, 1 warn) across 6 changed file(s).
+```
+
+Two checks compose today: **complexity** (a changed-file function above `--max-complexity`, default 15, is a `fail`) and **dead-code** (an unreferenced symbol in a changed file is a `warn`; skip it with `--no-dead-code`). The walk covers the whole `-d` tree so the dead-code graph sees every reference, then findings are filtered to the changed set. `--base <ref>` diffs `<ref>...HEAD` (the merge-base semantics a PR uses); omit it to review uncommitted working-tree changes. `--strict` makes `warn` verdicts exit non-zero too. `-o json` emits the full `{verdict, findings, changed_files, …}` structure and `-o sarif` feeds GitHub Code Scanning. Deleted files are skipped; untracked (never-added) files aren't in the diff yet.
+
+Same surface over MCP via the `review` tool — `base`, `max_complexity`, `skip_dead_code`.
+
 ## Over-exported symbols (`unused-exports`)
 
 `dead-code` finds symbols used *nowhere*; `unused-exports` finds the subtler case — exported symbols used *somewhere*, but never across a package boundary. They could be unexported to shrink the package's public API surface:
