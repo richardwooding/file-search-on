@@ -25,6 +25,7 @@ import (
 type rustCouplingAdapter struct {
 	crates map[string]bool // normalized first-party crate names
 	dirs   []crateDir      // crate root dirs, nearest-ancestor lookup
+	cwd    string          // working dir captured in prepare, to absolutise relative file paths in node without a per-call syscall
 }
 
 // crateDir associates a crate's manifest directory with its (normalized)
@@ -44,7 +45,10 @@ func (a *rustCouplingAdapter) prepare(root string) (string, bool) {
 	if err != nil {
 		absRoot = root
 	}
+	// Reset state so a reused adapter never leaks crates/dirs across runs.
 	a.crates = map[string]bool{}
+	a.dirs = nil
+	a.cwd, _ = os.Getwd() // captured once; node uses it instead of per-file filepath.Abs
 
 	_ = filepath.WalkDir(absRoot, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -90,9 +94,16 @@ func (a *rustCouplingAdapter) prepare(root string) (string, bool) {
 // node maps a Rust source file to its owning crate (the nearest ancestor
 // manifest directory), or "" when the file sits outside every known crate.
 func (a *rustCouplingAdapter) node(path string) string {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		abs = path
+	abs := path
+	if !filepath.IsAbs(abs) {
+		switch {
+		case a.cwd != "":
+			abs = filepath.Join(a.cwd, abs) // cheap: no syscall, cwd cached in prepare
+		default:
+			if p, err := filepath.Abs(abs); err == nil {
+				abs = p
+			}
+		}
 	}
 	for _, cd := range a.dirs {
 		if abs == cd.dir || strings.HasPrefix(abs, cd.dir+string(filepath.Separator)) {
