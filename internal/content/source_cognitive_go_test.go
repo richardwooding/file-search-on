@@ -148,6 +148,20 @@ func fib(n int) int {
 			want: 3,
 		},
 		{
+			// Method recursion via the receiver: if (+1) + two recursive
+			// calls on the receiver (+2) = 3.
+			name: "method-recursion",
+			src: `package p
+type T struct{ n int }
+func (t *T) fib(n int) int {
+	if n < 2 {
+		return n
+	}
+	return t.fib(n-1) + t.fib(n-2)
+}`,
+			want: 3,
+		},
+		{
 			// A trivial function has zero cognitive complexity.
 			name: "trivial",
 			src: `package p

@@ -25,6 +25,7 @@ import (
 func goCognitiveComplexity(fn *ast.FuncDecl) int {
 	v := &goCognitiveVisitor{
 		name:       fn.Name.Name,
+		receiver:   goReceiverName(fn),
 		elseIf:     map[*ast.IfStmt]bool{},
 		calculated: map[*ast.BinaryExpr]bool{},
 	}
@@ -32,11 +33,21 @@ func goCognitiveComplexity(fn *ast.FuncDecl) int {
 	return v.complexity
 }
 
+// goReceiverName returns the receiver variable name of a method (e.g. "b" for
+// `func (b *Buffer) …`), or "" for a plain function or an unnamed receiver.
+func goReceiverName(fn *ast.FuncDecl) string {
+	if fn.Recv == nil || len(fn.Recv.List) == 0 || len(fn.Recv.List[0].Names) == 0 {
+		return ""
+	}
+	return fn.Recv.List[0].Names[0].Name
+}
+
 type goCognitiveVisitor struct {
 	complexity int
 	nesting    int
-	name       string                 // enclosing function name, for recursion detection
-	elseIf     map[*ast.IfStmt]bool    // if-statements reached as an `else if` (no nesting penalty)
+	name       string                  // enclosing function/method name, for recursion detection
+	receiver   string                  // receiver variable name (methods), for `recv.Method()` recursion
+	elseIf     map[*ast.IfStmt]bool     // if-statements reached as an `else if` (no nesting penalty)
 	calculated map[*ast.BinaryExpr]bool // logical sub-expressions already folded into a sequence
 }
 
@@ -81,7 +92,7 @@ func (v *goCognitiveVisitor) Visit(n ast.Node) ast.Visitor {
 	case *ast.BinaryExpr:
 		v.binaryExpr(n)
 	case *ast.CallExpr:
-		if callIdentName(n.Fun) == v.name {
+		if v.isRecursion(n.Fun) {
 			v.complexity++ // direct recursion
 		}
 	}
@@ -139,7 +150,7 @@ func (v *goCognitiveVisitor) binaryExpr(n *ast.BinaryExpr) {
 	}
 	var ops []token.Token
 	v.collectLogicalOps(n, &ops)
-	var last token.Token = token.ILLEGAL
+	last := token.ILLEGAL
 	for _, op := range ops {
 		if op != last {
 			v.complexity++
@@ -172,12 +183,20 @@ func isLogicalOp(op token.Token) bool {
 	return op == token.LAND || op == token.LOR
 }
 
-// callIdentName returns the bare identifier a call targets, or "" for calls
-// through a selector / value (recursion detection is name-based, like the rest
-// of the call graph).
-func callIdentName(fun ast.Expr) string {
-	if id, ok := fun.(*ast.Ident); ok {
-		return id.Name
+// isRecursion reports whether a call targets the function being analysed —
+// either a plain `f(...)` (Ident == name) or, for a method, a call on the
+// receiver `recv.Method(...)` (SelectorExpr with X == receiver, Sel == name).
+// Name-based, like the rest of the call graph; it doesn't resolve types.
+func (v *goCognitiveVisitor) isRecursion(fun ast.Expr) bool {
+	switch f := fun.(type) {
+	case *ast.Ident:
+		return f.Name == v.name
+	case *ast.SelectorExpr:
+		if v.receiver == "" || f.Sel == nil || f.Sel.Name != v.name {
+			return false
+		}
+		recv, ok := f.X.(*ast.Ident)
+		return ok && recv.Name == v.receiver
 	}
-	return ""
+	return false
 }
