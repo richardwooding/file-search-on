@@ -156,6 +156,56 @@ func TestTSCognitiveComplexity(t *testing.T) {
 				"}\n",
 			want: 6,
 		},
+		{
+			name: "c-nested", language: "c", fn: "branchy",
+			src: "int branchy(int x){\n  if(x>0){\n    for(int i=0;i<x;i++){\n      if(i%2==0){ return i; }\n    }\n  }\n  return 0;\n}\n",
+			want: 6,
+		},
+		{
+			name: "c-elseif", language: "c", fn: "f",
+			src: "int f(int n){\n  if(n==1){ return 1; }\n  else if(n==2){ return 2; }\n  return 0;\n}\n",
+			want: 2, // if(1) + else-if(1); trailing plain else not separately counted in C-family
+		},
+		{
+			name: "c-switch", language: "c", fn: "f",
+			src: "int f(int n){\n  switch(n){\n    case 1: return 1;\n    default: return 0;\n  }\n}\n",
+			want: 1, // switch +1, cases free
+		},
+		{
+			name: "cpp-trycatch", language: "cpp", fn: "f",
+			src: "int f(int x){\n  if(x>0){\n    try { g(); } catch(int e){ if(e>0){ return e; } }\n  }\n  return 0;\n}\n",
+			want: 6, // if(1) + catch at nesting 1(+2) + if at nesting 2(+3)
+		},
+		{
+			name: "csharp-nested", language: "csharp", fn: "Branchy",
+			src: "class C{\n  int Branchy(int x){\n    if(x>0){\n      for(int i=0;i<x;i++){\n        if(i%2==0){ return i; }\n      }\n    }\n    return 0;\n  }\n}\n",
+			want: 6,
+		},
+		{
+			name: "csharp-elseif", language: "csharp", fn: "F",
+			src: "class C{\n  int F(int n){\n    if(n==1){ return 1; }\n    else if(n==2){ return 2; }\n    return 0;\n  }\n}\n",
+			want: 2,
+		},
+		{
+			name: "kotlin-nested", language: "kotlin", fn: "branchy",
+			src: "fun branchy(x: Int): Int {\n  if (x > 0) {\n    for (i in 0..x) {\n      if (i % 2 == 0) { return i }\n    }\n  }\n  return 0\n}\n",
+			want: 6,
+		},
+		{
+			name: "kotlin-when", language: "kotlin", fn: "f",
+			src: "fun f(n: Int): Int {\n  return when (n) {\n    1 -> 1\n    2 -> 2\n    else -> 0\n  }\n}\n",
+			want: 1, // when +1, entries free
+		},
+		{
+			name: "php-nested", language: "php", fn: "branchy",
+			src: "<?php function branchy($x){\n  if($x>0){\n    foreach($xs as $i){\n      if($i%2==0){ return $i; }\n    }\n  }\n  return 0;\n}\n",
+			want: 6,
+		},
+		{
+			name: "php-elseif", language: "php", fn: "f",
+			src: "<?php function f($n){\n  if($n==1){ return 1; }\n  elseif($n==2){ return 2; }\n  else { return 3; }\n  return 0;\n}\n",
+			want: 3, // php else_if_clause + else_clause are distinct flat nodes
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

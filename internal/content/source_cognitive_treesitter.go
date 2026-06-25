@@ -21,17 +21,28 @@ import (
 // else-if cost, matching the precise Go behaviour.
 
 // tsCognitiveSpec classifies one grammar's nodes for the cognitive walk.
+//
+// `else if` detection is parent-driven: when the walk is AT an if node (ifType)
+// it tags its else-branch if-child's byte range, and a tagged node is later
+// charged the flat else-if cost. This avoids Node.Parent(), which gotreesitter
+// routes through hidden supertype wrappers (e.g. C#'s `statement`) and which
+// conflates Kotlin's meaningful `statements` wrapper.
 type tsCognitiveSpec struct {
 	// nesting nodes cost 1 + nesting and raise the nesting level for children.
 	nesting map[string]bool
 	// flat nodes cost a flat 1 (continuations like elif_clause / else_clause).
 	flat map[string]bool
-	// elseField, when set, marks a nesting node reached as the named field of a
-	// same-type parent as an `else if` (flat cost, no nesting penalty) — e.g.
-	// JS/TS/Java if_statement in a parent if_statement's "alternative".
+	// ifType is the grammar's if node — the only node whose else branch is
+	// scanned for an else-if. Empty disables else-if detection (the grammar's
+	// else/elif are then distinct flat nodes, e.g. Python / PHP).
+	ifType string
+	// elseField, when set, is the field on an if node holding the else branch;
+	// when that field's value is itself an ifType node, it's an `else if`
+	// (JS/TS/Java/C# "alternative").
 	elseField string
-	// elseParentType, when set, marks a nesting node whose direct parent is this
-	// type as an `else if` — e.g. Rust if_expression under an else_clause.
+	// elseParentType, when set, is the wrapper node holding the else branch
+	// (Rust/C/C++ "else_clause", Kotlin "control_structure_body"); a direct
+	// ifType child of that wrapper is an `else if`.
 	elseParentType string
 }
 
@@ -52,23 +63,51 @@ var tsCognitiveSpecs = map[string]tsCognitiveSpec{
 	},
 	"javascript": {
 		nesting:   tsNodeSet("if_statement", "for_statement", "for_in_statement", "for_of_statement", "while_statement", "do_statement", "switch_statement", "catch_clause", "ternary_expression"),
-		flat:      tsNodeSet(),
+		ifType:    "if_statement",
 		elseField: "alternative",
 	},
 	"typescript": {
 		nesting:   tsNodeSet("if_statement", "for_statement", "for_in_statement", "for_of_statement", "while_statement", "do_statement", "switch_statement", "catch_clause", "ternary_expression"),
-		flat:      tsNodeSet(),
+		ifType:    "if_statement",
 		elseField: "alternative",
 	},
 	"java": {
 		nesting:   tsNodeSet("if_statement", "for_statement", "enhanced_for_statement", "while_statement", "do_statement", "switch_statement", "switch_expression", "catch_clause", "ternary_expression"),
-		flat:      tsNodeSet(),
+		ifType:    "if_statement",
 		elseField: "alternative",
 	},
 	"rust": {
 		nesting:        tsNodeSet("if_expression", "while_expression", "for_expression", "loop_expression", "match_expression"),
-		flat:           tsNodeSet(),
+		ifType:         "if_expression",
 		elseParentType: "else_clause",
+	},
+	"c": {
+		nesting:        tsNodeSet("if_statement", "for_statement", "while_statement", "do_statement", "switch_statement", "conditional_expression"),
+		ifType:         "if_statement",
+		elseParentType: "else_clause",
+	},
+	"cpp": {
+		nesting:        tsNodeSet("if_statement", "for_statement", "for_range_loop", "while_statement", "do_statement", "switch_statement", "catch_clause", "conditional_expression"),
+		ifType:         "if_statement",
+		elseParentType: "else_clause",
+	},
+	"csharp": {
+		nesting:   tsNodeSet("if_statement", "for_statement", "foreach_statement", "while_statement", "do_statement", "switch_statement", "catch_clause", "conditional_expression"),
+		ifType:    "if_statement",
+		elseField: "alternative",
+	},
+	"kotlin": {
+		// else-if is an if_expression directly under the else control_structure_body;
+		// a braced body wraps its contents in a `statements` node instead, so a
+		// direct if_expression child only appears for a genuine else-if (a
+		// braceless `if a if b` then-body is the rare exception).
+		nesting:        tsNodeSet("if_expression", "for_statement", "while_statement", "do_while_statement", "when_expression", "catch_block"),
+		ifType:         "if_expression",
+		elseParentType: "control_structure_body",
+	},
+	"php": {
+		nesting: tsNodeSet("if_statement", "for_statement", "foreach_statement", "while_statement", "do_statement", "switch_statement", "catch_clause", "conditional_expression"),
+		flat:    tsNodeSet("else_if_clause", "else_clause"),
 	},
 }
 
@@ -88,6 +127,9 @@ func tsCognitiveComplexity(language string, tl *tsLang, tree *ts.Tree, funcSpans
 	for i, s := range funcSpans {
 		byRange[[2]uint32{s.start, s.end}] = i
 	}
+	// elseIf holds the byte ranges of if-nodes that sit in an else branch (an
+	// `else if`), tagged from the parent if while walking — see tsTagElseIf.
+	elseIf := map[[2]uint32]bool{}
 
 	var walk func(n *ts.Node, spanIdx, nesting int)
 	walk = func(n *ts.Node, spanIdx, nesting int) {
@@ -96,9 +138,10 @@ func tsCognitiveComplexity(language string, tl *tsLang, tree *ts.Tree, funcSpans
 			if c == nil {
 				continue
 			}
+			rng := [2]uint32{c.StartByte(), c.EndByte()}
 			// Entering a function definition starts a fresh nesting context so
 			// depth is measured per-function (and matches the per-function rows).
-			if idx, ok := byRange[[2]uint32{c.StartByte(), c.EndByte()}]; ok {
+			if idx, ok := byRange[rng]; ok {
 				walk(c, idx, 0)
 				continue
 			}
@@ -107,7 +150,7 @@ func tsCognitiveComplexity(language string, tl *tsLang, tree *ts.Tree, funcSpans
 			// walks children + makes CGO Type calls, so it's worth not repeating.
 			t := c.Type(tl.lang)
 			if spec.nesting[t] {
-				if tsIsElseContinuation(c, t, spec, tl.lang) {
+				if elseIf[rng] {
 					if spanIdx >= 0 {
 						cog[spanIdx]++ // else if: flat cost, no nesting penalty
 					}
@@ -116,6 +159,7 @@ func tsCognitiveComplexity(language string, tl *tsLang, tree *ts.Tree, funcSpans
 					if spanIdx >= 0 {
 						cog[spanIdx] += 1 + nesting
 					}
+					tsTagElseIf(c, t, spec, tl.lang, elseIf)
 					walk(c, spanIdx, nesting+1)
 				}
 			} else if spec.flat[t] {
@@ -144,23 +188,35 @@ func tsCognitiveComplexity(language string, tl *tsLang, tree *ts.Tree, funcSpans
 	return out
 }
 
-// tsIsElseContinuation reports whether a nesting node is actually an `else if`
-// — a nested if in the else branch — which costs a flat 1 with no nesting
-// penalty (the SonarSource rule the Go path also applies).
-func tsIsElseContinuation(n *ts.Node, t string, spec tsCognitiveSpec, lang *ts.Language) bool {
-	parent := n.Parent()
-	if parent == nil {
-		return false
+// tsTagElseIf records, while the walk is AT an if node (c, type t), the byte
+// range of an if-node sitting in its else branch — an `else if`, which should
+// be charged the flat else-if cost rather than a nested-if cost. Driven from
+// the parent (via the else field / wrapper child) so it never relies on
+// Node.Parent(), which gotreesitter routes through hidden wrappers.
+func tsTagElseIf(c *ts.Node, t string, spec tsCognitiveSpec, lang *ts.Language, set map[[2]uint32]bool) {
+	if spec.ifType == "" || t != spec.ifType {
+		return
 	}
-	if spec.elseField != "" && parent.Type(lang) == t {
-		if alt := parent.ChildByFieldName(spec.elseField, lang); alt != nil && tsSameNode(alt, n) {
-			return true
+	if spec.elseField != "" {
+		// The else branch is a field whose value, when an ifType node, is an else if.
+		if alt := c.ChildByFieldName(spec.elseField, lang); alt != nil && alt.Type(lang) == t {
+			set[[2]uint32{alt.StartByte(), alt.EndByte()}] = true
 		}
 	}
-	if spec.elseParentType != "" && parent.Type(lang) == spec.elseParentType {
-		return true
+	if spec.elseParentType != "" {
+		// The else branch is a wrapper child; a direct ifType child of it is an else if.
+		for i := 0; i < c.ChildCount(); i++ {
+			w := c.Child(i)
+			if w == nil || w.Type(lang) != spec.elseParentType {
+				continue
+			}
+			for j := 0; j < w.ChildCount(); j++ {
+				if gc := w.Child(j); gc != nil && gc.Type(lang) == t {
+					set[[2]uint32{gc.StartByte(), gc.EndByte()}] = true
+				}
+			}
+		}
 	}
-	return false
 }
 
 // tsBoolOp returns the logical operator a node represents ("&&" / "||"), or ""
@@ -196,11 +252,4 @@ func tsBoolOp(n *ts.Node, lang *ts.Language) string {
 func tsSameRunAsParent(n *ts.Node, op string, lang *ts.Language) bool {
 	parent := n.Parent()
 	return parent != nil && tsBoolOp(parent, lang) == op
-}
-
-// tsSameNode compares two nodes by type + byte span (gotreesitter may hand back
-// distinct *Node values for the same syntactic node, so pointer equality is
-// unreliable).
-func tsSameNode(a, b *ts.Node) bool {
-	return a.StartByte() == b.StartByte() && a.EndByte() == b.EndByte()
 }
