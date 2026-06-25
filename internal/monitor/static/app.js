@@ -152,18 +152,20 @@ function renderCapabilities(d) {
     : `<span class="pill pill-unknown">unreachable</span>`;
 
   // Profiling — when --pprof mounted the runtime endpoints on this
-  // dashboard, link straight to them (relative to the dashboard root) and
-  // surface the go-tool-pprof command. Otherwise nudge toward the flag.
-  const base = window.location.origin;
+  // dashboard, link straight to them and surface the go-tool-pprof
+  // command. Resolve via new URL against the current page so the links
+  // stay correct under a subpath / reverse proxy and regardless of a
+  // trailing slash. Otherwise nudge toward the flag.
+  const pp = (p) => new URL("debug/pprof/" + p, window.location.href).href;
   const pprofCell = d.pprof
     ? `<span class="pill pill-ok">enabled</span>
        <div class="pprof-links">
-         <a href="debug/pprof/" target="_blank" rel="noopener">index</a>
-         <a href="debug/pprof/heap?debug=1" target="_blank" rel="noopener">heap</a>
-         <a href="debug/pprof/goroutine?debug=1" target="_blank" rel="noopener">goroutines</a>
-         <a href="debug/pprof/profile?seconds=30" target="_blank" rel="noopener">CPU&nbsp;(30s)</a>
+         <a href="${pp("")}" target="_blank" rel="noopener">index</a>
+         <a href="${pp("heap?debug=1")}" target="_blank" rel="noopener">heap</a>
+         <a href="${pp("goroutine?debug=1")}" target="_blank" rel="noopener">goroutines</a>
+         <a href="${pp("profile?seconds=30")}" target="_blank" rel="noopener">CPU&nbsp;(30s)</a>
        </div>
-       <code class="pprof-cmd">go tool pprof ${base}/debug/pprof/profile</code>`
+       <code class="pprof-cmd">go tool pprof ${pp("profile")}</code>`
     : `<span class="pill pill-unknown">disabled</span>
        <span class="muted">restart with <code>--pprof</code> to mount /debug/pprof/*</span>`;
 
