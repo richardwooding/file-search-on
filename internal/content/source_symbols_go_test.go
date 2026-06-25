@@ -142,6 +142,10 @@ import "context"
 type Req struct{ A int }
 type Resp struct{ B int }
 
+type Doer interface {
+	Do(x int) error
+}
+
 func register(s any) { AddTool(s, handle) }
 
 func handle(ctx context.Context, in Req) (Resp, error) { return Resp{}, nil }
@@ -155,7 +159,12 @@ func handle(ctx context.Context, in Req) (Resp, error) { return Resp{}, nil }
 	for _, e := range got {
 		have[e] = true
 	}
-	for _, want := range []string{"v\x00handle", "s\x00handle\x00Req", "s\x00handle\x00Resp"} {
+	for _, want := range []string{
+		"v\x00handle",          // handle passed as a value (#504)
+		"s\x00handle\x00Req",   // exported param type
+		"s\x00handle\x00Resp",  // exported result type
+		"i\x00Do",              // interface method (#505)
+	} {
 		if !have[want] {
 			t.Errorf("goHandlerBoundary missing %q; got %v", want, got)
 		}

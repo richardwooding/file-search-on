@@ -122,6 +122,10 @@ type UnusedExportsResult struct {
 // mcp.AddTool / HandleFunc pattern) is bound to an external generic API that
 // reflects over it, so it must stay exported and is excluded — even though
 // every textual reference to it sits inside the defining package.
+//
+// Interface-satisfaction exemption (#505): a method whose name is declared on
+// a first-party interface can't be unexported without breaking the interface,
+// so such methods are excluded too (name-based; same caveats).
 func UnusedExports(ctx context.Context, opts Options, registry *content.Registry) (*UnusedExportsResult, error) {
 	root := opts.Root
 	if root == "" && len(opts.Roots) > 0 {
@@ -163,6 +167,7 @@ func UnusedExports(ctx context.Context, opts Options, registry *content.Registry
 	// exported even though every textual reference sits in its own package.
 	valueRefFuncs := map[string]bool{}      // handler names passed as call-arg values
 	sigTypesByFunc := map[string][]string{} // func name -> exported signature type names
+	interfaceMethods := map[string]bool{}   // method names declared on any interface (#505)
 
 	note := func(name, kind, pkg, path, lang string) {
 		d := defs[name]
@@ -240,6 +245,8 @@ func UnusedExports(ctx context.Context, opts Options, registry *content.Registry
 							sigTypesByFunc[rest[:i]] = append(sigTypesByFunc[rest[:i]], rest[i+1:])
 						}
 					}
+				case strings.HasPrefix(e, "i\x00"):
+					interfaceMethods[e[2:]] = true
 				}
 			}
 		}
@@ -264,6 +271,9 @@ func UnusedExports(ctx context.Context, opts Options, registry *content.Registry
 		}
 		if d.kind == "type" && boundaryExempt[name] {
 			continue // bound to an external generic registration API (#504)
+		}
+		if d.kind == "function" && interfaceMethods[name] {
+			continue // satisfies a first-party interface — can't unexport (#505)
 		}
 		users := refPkgs[name]
 		if len(users) == 0 {

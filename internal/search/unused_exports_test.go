@@ -91,6 +91,43 @@ func TestUnusedExports_AddToolBoundary(t *testing.T) {
 	}
 }
 
+// TestUnusedExports_InterfaceMethod pins issue #505: a method whose name is
+// declared on a first-party interface can't be unexported without breaking
+// the interface, so it must NOT be reported — even when referenced only
+// intra-package. A control exported method NOT on any interface, referenced
+// only intra-package, must still be reported (the exemption doesn't over-apply).
+func TestUnusedExports_InterfaceMethod(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWriteFile(t, filepath.Join(root, "go.mod"), "module example.com/m\n\ngo 1.21\n")
+	mustWriteFile(t, filepath.Join(root, "pkg", "iface.go"),
+		"package pkg\n\ntype Doer interface { Run() }\n")
+	mustWriteFile(t, filepath.Join(root, "pkg", "impl.go"),
+		"package pkg\n\ntype T struct{}\n\n"+
+			"func (T) Run() {}\n"+        // satisfies Doer.Run — must NOT be flagged
+			"func (T) HelperOnly() {}\n") // exported, not on any interface — control
+	// Reference both intra-package so they're candidates (not dead_code).
+	mustWriteFile(t, filepath.Join(root, "pkg", "use.go"),
+		"package pkg\n\nfunc use() { var t T; t.Run(); t.HelperOnly() }\n")
+
+	res, err := search.UnusedExports(context.Background(), search.Options{Root: root, Expr: "is_source"}, contentpkg.DefaultRegistry())
+	if err != nil {
+		t.Fatalf("UnusedExports: %v", err)
+	}
+	got := map[string]bool{}
+	for _, c := range res.Candidates {
+		got[c.Symbol] = true
+	}
+	if got["Run"] {
+		t.Errorf("Run satisfies the Doer interface — must be exempt (#505): %+v", res.Candidates)
+	}
+	if !got["HelperOnly"] {
+		t.Errorf("HelperOnly is exported, intra-only, NOT an interface method — must still be a candidate: %+v", res.Candidates)
+	}
+}
+
 // TestUnusedExports_TypeScript pins Phase B keyword-visibility + file-as-
 // module: an `export`ed function used only within its own file is a
 // candidate; one imported and used from another file is not; a non-exported
