@@ -279,7 +279,7 @@ file-search-on complexity 'is_source && language == "go"' --top 5
 - **Cyclomatic** (the long-standing metric) counts decision points flatly — `if` / `for` / `case` / `&&` / `||`. It answers *how many paths* a function has.
 - **Cognitive** (SonarSource, issue #485) weights *nesting*: an `if` inside a loop inside an `if` costs more than three flat `if`s, because deeply-nested logic is harder to follow. It answers *how hard the function is to understand*. A function can have modest cyclomatic complexity but high cognitive complexity (lots of nesting) — that's the one worth refactoring first.
 
-Cognitive complexity is computed for **Go** today (precise, matching the SonarSource reference examples). For the tree-sitter languages the `COGNITIVE` column shows `—` (not yet available — tracked in #491); cyclomatic is reported for all of them. `-o json` carries `cognitive_complexity` per function (omitted where unavailable), and `-o sarif` includes it in the finding message. Same data over MCP via the `complexity` tool.
+Cognitive complexity is computed for **Go** (precise, matching the SonarSource reference examples) plus **Python, JavaScript, TypeScript, Java, and Rust** (the same nesting-weighted walk over their parse trees). For the remaining tree-sitter languages the `COGNITIVE` column shows `—` (not yet available — tracked in #491); cyclomatic is reported for all of them. `-o json` carries `cognitive_complexity` per function (omitted where unavailable), and `-o sarif` includes it in the finding message. Same data over MCP via the `complexity` tool.
 
 ## Find copy-pasted functions (`duplicate-functions`)
 

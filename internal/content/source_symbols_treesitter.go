@@ -564,7 +564,7 @@ func extractTreeSitterSymbols(language string, src []byte) (functions, types, im
 	// field/param/return/generic type count as referenced — but never become
 	// call edges (the call graph stays call-only).
 	references = append(references, tsCollectTypeRefs(tl, tree, src)...)
-	complexityRows = tsComplexityRows(tl, tree, funcSpans)
+	complexityRows = tsComplexityRows(language, tl, tree, funcSpans)
 
 	return dedupeStrings(functions), dedupeStrings(types), dedupeStrings(imports),
 		dedupeStrings(references), dedupeStrings(callEdges), complexityRows
@@ -838,8 +838,11 @@ func subtractStrings(all, remove []string) []string {
 
 // tsComplexityRows computes per-function cyclomatic complexity (1 +
 // decision points contained in the innermost enclosing span) as
-// "name\x00complexity\x00startLine\x00endLine" rows (#364).
-func tsComplexityRows(tl *tsLang, tree *ts.Tree, funcSpans []tsFuncSpan) (rows []string) {
+// "name\x00complexity\x00startLine\x00endLine[\x00cognitive]" rows (#364).
+// The trailing cognitive field (#491) is appended only for languages with a
+// cognitive spec; otherwise the row stays 4-field and the consumer reports
+// cognitive as unavailable.
+func tsComplexityRows(language string, tl *tsLang, tree *ts.Tree, funcSpans []tsFuncSpan) (rows []string) {
 	if tl.decisionQuery == nil || len(funcSpans) == 0 {
 		return nil
 	}
@@ -854,8 +857,13 @@ func tsComplexityRows(tl *tsLang, tree *ts.Tree, funcSpans []tsFuncSpan) (rows [
 			}
 		}
 	}
+	cognitive := tsCognitiveComplexity(language, tl, tree, funcSpans)
 	for i, s := range funcSpans {
-		rows = append(rows, fmt.Sprintf("%s\x00%d\x00%d\x00%d", s.name, 1+decisionCount[i], s.startLine, s.endLine))
+		if cognitive != nil && i < len(cognitive) {
+			rows = append(rows, fmt.Sprintf("%s\x00%d\x00%d\x00%d\x00%d", s.name, 1+decisionCount[i], s.startLine, s.endLine, *cognitive[i]))
+		} else {
+			rows = append(rows, fmt.Sprintf("%s\x00%d\x00%d\x00%d", s.name, 1+decisionCount[i], s.startLine, s.endLine))
+		}
 	}
 	return rows
 }
