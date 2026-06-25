@@ -6,7 +6,20 @@ import (
 	"go/parser"
 	"go/token"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
+
+// goExportedName reports whether name's first rune is upper-case — Go's
+// export convention. Mirrors search.isExportedName (kept local so the stable
+// content package doesn't import search).
+func goExportedName(name string) bool {
+	if name == "" {
+		return false
+	}
+	r, _ := utf8.DecodeRuneInString(name)
+	return unicode.IsUpper(r)
+}
 
 // extractGoSymbols parses Go source via the stdlib AST and returns
 // (functions, types, imports). The Go path is the gold standard: free,
@@ -204,6 +217,63 @@ func goValueRefs(f *ast.File) []string {
 		return true
 	})
 	return out
+}
+
+// goHandlerBoundary extracts the data that spares registration-bound types
+// from the unused_exports "package-local" false positive (issue #504). It
+// returns two relations tag-encoded into one []string (mirroring the
+// call_edges "\x00" convention) so they ride in a single attribute:
+//
+//	"v\x00<func>"           — <func> is passed as a VALUE to a call (a handler
+//	                          registered via the AddTool / HandleFunc pattern, #421).
+//	"s\x00<func>\x00<Type>" — exported <Type> appears in <func>'s signature
+//	                          (a parameter or result type).
+//
+// The aggregator (search.UnusedExports) joins them: an exported type in the
+// signature of a function that is registered as a value is bound to that
+// external generic API — e.g. mcp.AddTool[In, Out] infers In/Out from the
+// handler signature — and must stay exported, so it is exempt from the
+// unexport-candidate list even though every textual reference to it sits
+// inside the defining package.
+//
+// Only EXPORTED signature types are emitted (unused_exports only judges
+// exported symbols), which bounds the output. Re-parses the source (a second
+// go/parser pass beyond extractGoSymbols); the result caches in the attribute
+// index alongside the other symbol data, so the cost is paid once per
+// (file, size, mtime).
+func goHandlerBoundary(src []byte) []string {
+	fset := token.NewFileSet()
+	f, _ := parser.ParseFile(fset, "", src, parser.AllErrors)
+	if f == nil {
+		return nil
+	}
+	var out []string
+	for _, name := range goValueRefs(f) {
+		out = append(out, "v\x00"+name)
+	}
+	for _, decl := range f.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name == nil || fn.Type == nil {
+			continue
+		}
+		var sigTypes []string
+		if fn.Type.Params != nil {
+			for _, p := range fn.Type.Params.List {
+				collectTypeIdents(p.Type, &sigTypes)
+			}
+		}
+		if fn.Type.Results != nil {
+			for _, r := range fn.Type.Results.List {
+				collectTypeIdents(r.Type, &sigTypes)
+			}
+		}
+		for _, t := range dedupeStrings(sigTypes) {
+			if goExportedName(t) {
+				out = append(out, "s\x00"+fn.Name.Name+"\x00"+t)
+			}
+		}
+	}
+	return dedupeStrings(out)
 }
 
 // goFunctionSpans returns the 1-based inclusive line span of every top-level

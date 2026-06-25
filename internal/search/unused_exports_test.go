@@ -48,6 +48,49 @@ func TestUnusedExports_Python(t *testing.T) {
 	}
 }
 
+// TestUnusedExports_AddToolBoundary pins issue #504: an exported type used
+// only as the parameter / result type of a handler that is REGISTERED AS A
+// VALUE (the mcp.AddTool / HandleFunc pattern) is bound to an external generic
+// API and must NOT be reported — even though every reference to it sits in its
+// own package. A control type used only intra-package but NOT via a registered
+// handler must still be reported, proving the exemption doesn't over-apply.
+func TestUnusedExports_AddToolBoundary(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "srv"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWriteFile(t, filepath.Join(root, "go.mod"), "module example.com/m\n\ngo 1.21\n")
+	// Req / Resp are the handler's signature types; Widget is the control.
+	mustWriteFile(t, filepath.Join(root, "srv", "handler.go"),
+		"package srv\n\nimport \"context\"\n\n"+
+			"type Req struct{ A int }\n"+
+			"type Resp struct{ B int }\n"+
+			"type Widget struct{ C int }\n\n"+
+			"func handle(ctx context.Context, in Req) (Resp, error) { return Resp{}, nil }\n\n"+
+			"func useWidget() Widget { return Widget{} }\n")
+	// register.go passes handle as a VALUE to a call — the AddTool pattern.
+	mustWriteFile(t, filepath.Join(root, "srv", "register.go"),
+		"package srv\n\nfunc register() { reg(handle) }\n")
+
+	res, err := search.UnusedExports(context.Background(), search.Options{Root: root, Expr: "is_source"}, contentpkg.DefaultRegistry())
+	if err != nil {
+		t.Fatalf("UnusedExports: %v", err)
+	}
+	got := map[string]bool{}
+	for _, c := range res.Candidates {
+		got[c.Symbol] = true
+	}
+	if got["Req"] {
+		t.Errorf("Req is a registered handler's param type — must be exempt (#504): %+v", res.Candidates)
+	}
+	if got["Resp"] {
+		t.Errorf("Resp is a registered handler's result type — must be exempt (#504): %+v", res.Candidates)
+	}
+	if !got["Widget"] {
+		t.Errorf("Widget is exported, intra-only, NOT a registered-handler type — must still be a candidate: %+v", res.Candidates)
+	}
+}
+
 // TestUnusedExports_TypeScript pins Phase B keyword-visibility + file-as-
 // module: an `export`ed function used only within its own file is a
 // candidate; one imported and used from another file is not; a non-exported

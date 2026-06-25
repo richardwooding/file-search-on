@@ -132,6 +132,37 @@ func contains(slice []string, want string) bool {
 // a VALUE (passed as a call argument) must appear in references — so a
 // handler registered via a callback isn't a dead_code false positive — but
 // must NOT become a call edge (passing a function isn't calling it).
+// TestGoHandlerBoundary pins issue #504: the boundary extractor emits the
+// value-ref of a handler passed to a call AND the exported types in that
+// handler's signature, so unused_exports can exempt AddTool[In,Out]-bound
+// types from the package-local false positive.
+func TestGoHandlerBoundary(t *testing.T) {
+	src := []byte(`package srv
+
+import "context"
+
+type Req struct{ A int }
+type Resp struct{ B int }
+
+func register(s any) { AddTool(s, handle) }
+
+func handle(ctx context.Context, in Req) (Resp, error) { return Resp{}, nil }
+`)
+	got := goHandlerBoundary(src)
+	have := map[string]bool{}
+	for _, e := range got {
+		have[e] = true
+	}
+	for _, want := range []string{"v\x00handle", "s\x00handle\x00Req", "s\x00handle\x00Resp"} {
+		if !have[want] {
+			t.Errorf("goHandlerBoundary missing %q; got %v", want, got)
+		}
+	}
+	if have["s\x00register\x00Req"] {
+		t.Errorf("register has no Req in its signature; unexpected entry: %v", got)
+	}
+}
+
 func TestExtractGoSymbols_ValueRefs(t *testing.T) {
 	src := []byte(`package p
 

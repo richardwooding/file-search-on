@@ -157,6 +157,11 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 		case "go":
 			// Go keeps the stdlib-AST extractor (rigorous, free).
 			funcs, types, imports, refs, callEdges, complexityRows = extractGoSymbols(bodyBuf.Bytes())
+			// Registration-boundary data for the unused_exports #504 exemption
+			// (handler value-refs + their signature types). Go-only for now.
+			if boundary := goHandlerBoundary(bodyBuf.Bytes()); len(boundary) > 0 {
+				attrs["handler_boundary"] = boundary
+			}
 		default:
 			// Every other wired language (Python / Java / C# / PHP / Perl /
 			// R / MATLAB / Scala + Rust / TS / JS / Ruby / Swift / Kotlin /
