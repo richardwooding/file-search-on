@@ -64,8 +64,10 @@ Non-recursive — only the given directory's own listing is read. Use `find-proj
 ## find-projects — discover projects under a root
 
 ```sh
-# All projects under ~/Code (stops at the first match per branch by default)
-file-search-on find-projects ~/Code --exclude node_modules --exclude .git
+# All projects under ~/Code (stops at the first match per branch by default).
+# Version-control dirs (.git/.hg/.svn) are skipped automatically — no need to
+# --exclude them; add --exclude for other trees like node_modules.
+file-search-on find-projects ~/Code --exclude node_modules
 
 # Only Go and Rust projects
 file-search-on find-projects ~/Code --type go --type rust

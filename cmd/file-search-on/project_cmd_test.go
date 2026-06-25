@@ -134,6 +134,43 @@ func TestFindProjectsCmd_Run_FindsGoModules(t *testing.T) {
 	}
 }
 
+// TestFindProjectsCmd_Run_SkipsGitDir verifies projectdetect's walk does not
+// descend version-control metadata dirs (pruned by default since
+// projectdetect v0.4.0): a go.mod buried inside .git must not be reported,
+// while a sibling real project is. Closes the .git-descent gap of #478.
+func TestFindProjectsCmd_Run_SkipsGitDir(t *testing.T) {
+	tmp := t.TempDir()
+	// A real project at the root.
+	mustWriteFile(t, filepath.Join(tmp, "go.mod"), "module example.com/real\n\ngo 1.24\n")
+	// A decoy project buried inside .git — must be pruned, not reported.
+	gitSub := filepath.Join(tmp, ".git", "modules", "vendored")
+	if err := mkdirAll(gitSub); err != nil {
+		t.Fatalf("mkdir %s: %v", gitSub, err)
+	}
+	mustWriteFile(t, filepath.Join(gitSub, "go.mod"), "module example.com/decoy\n\ngo 1.24\n")
+
+	cmd := &FindProjectsCmd{Dir: tmp, Nested: true, Output: "json"}
+	out, err := captureStdout(t, func() error { return cmd.Run(t.Context()) })
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	var got struct {
+		Projects []struct {
+			Path string `json:"path"`
+		} `json:"projects"`
+	}
+	if err := json.NewDecoder(strings.NewReader(out)).Decode(&got); err != nil {
+		t.Fatalf("decode JSON: %v\nraw: %q", err, out)
+	}
+	// Exactly the root project — never the decoy buried under .git.
+	if len(got.Projects) != 1 {
+		t.Fatalf("expected only the real project, got %d: %+v", len(got.Projects), got.Projects)
+	}
+	if p := filepath.Clean(got.Projects[0].Path); p != filepath.Clean(tmp) {
+		t.Errorf("reported project = %q, want the root %q (a .git-buried project leaked)", p, tmp)
+	}
+}
+
 // TestFindProjectsCmd_Run_TypeFilter restricts the report to a
 // single project type and confirms only matching dirs come back.
 func TestFindProjectsCmd_Run_TypeFilter(t *testing.T) {

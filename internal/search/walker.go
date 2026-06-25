@@ -561,7 +561,11 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 		if !opts.PruneBuildArtefacts {
 			return opts.Excludes
 		}
-		extra, err := projectdetect.CollectBuildExcludes(ctx, r)
+		// Thread the user's excludes into the build-artefact pre-walk so it
+		// prunes the same basenames the main walk does (projectdetect v0.4.0
+		// also skips .git/.hg/.svn by default) instead of descending them just
+		// to discover build-excludes.
+		extra, err := projectdetect.CollectBuildExcludesWithOptions(ctx, r, projectdetect.FindOptions{Excludes: opts.Excludes})
 		if err != nil || len(extra) == 0 {
 			return opts.Excludes
 		}

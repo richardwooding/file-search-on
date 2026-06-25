@@ -22,7 +22,7 @@ require (
 	github.com/richardwooding/fingerprint v0.1.0
 	github.com/richardwooding/gitmeta v0.1.0
 	github.com/richardwooding/ollamaembed v0.1.0
-	github.com/richardwooding/projectdetect v0.3.0
+	github.com/richardwooding/projectdetect v0.4.0
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
 	go.etcd.io/bbolt v1.5.0
 	golang.org/x/image v0.43.0

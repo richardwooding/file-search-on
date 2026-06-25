@@ -115,8 +115,8 @@ github.com/richardwooding/gitmeta v0.1.0 h1:TOf6P+dzcFh5fFbDwJrJFVUGPzbwqyg76wRo
 github.com/richardwooding/gitmeta v0.1.0/go.mod h1:arft+ynVGxEeeRnQMnosIvlfsaxEAaHoBYh1U7Nq1n0=
 github.com/richardwooding/ollamaembed v0.1.0 h1:N5bx4v7IxnOa+Rw4/ROlkQS2LjQCPnAiuPP7Xr1OpS0=
 github.com/richardwooding/ollamaembed v0.1.0/go.mod h1:rj/euwbkM8dcad6EMzp5bshVy+GVdu5JEojbFTFNQhY=
-github.com/richardwooding/projectdetect v0.3.0 h1:kPm3L6DmJw5Ni6L9jtZFYe7Fqy9GpzPUT9jLcl1fOik=
-github.com/richardwooding/projectdetect v0.3.0/go.mod h1:+49ozT8n9+Hsu93/nb7wKclou9qLpEtqLeqefrR4bEg=
+github.com/richardwooding/projectdetect v0.4.0 h1:v6ZTF/r0BD/s7Cw2WW+B6zVhM4YGLiBl1l5lbTdLtrE=
+github.com/richardwooding/projectdetect v0.4.0/go.mod h1:+49ozT8n9+Hsu93/nb7wKclou9qLpEtqLeqefrR4bEg=
 github.com/rivo/uniseg v0.4.7 h1:WUdvkW8uEhrYfLC4ZzdpI2ztxP1I582+49Oc5Mq64VQ=
 github.com/rivo/uniseg v0.4.7/go.mod h1:FN3SvrM+Zdj16jyLfmOkMNblXMcoc8DfTHruCPUcx88=
 github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06 h1:OkMGxebDjyw0ULyrTYWeN0UNCCkmCWfjPnIA2W6oviI=
