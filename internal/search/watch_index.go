@@ -85,7 +85,9 @@ func WatchIndex(ctx context.Context, opts Options, registry *content.Registry, i
 	excludes := opts.Excludes
 	if opts.PruneBuildArtefacts {
 		for _, root := range opts.Roots {
-			if extra, err := projectdetect.CollectBuildExcludes(ctx, root); err == nil {
+			// Honour the user's excludes in the build-artefact pre-walk too
+			// (projectdetect v0.4.0 also skips .git/.hg/.svn by default).
+			if extra, err := projectdetect.CollectBuildExcludesWithOptions(ctx, root, projectdetect.FindOptions{Excludes: opts.Excludes}); err == nil {
 				excludes = append(excludes, extra...)
 			}
 		}

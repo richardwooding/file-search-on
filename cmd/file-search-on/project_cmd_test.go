@@ -134,6 +134,38 @@ func TestFindProjectsCmd_Run_FindsGoModules(t *testing.T) {
 	}
 }
 
+// TestFindProjectsCmd_Run_SkipsGitDir verifies projectdetect's walk does not
+// descend version-control metadata dirs (pruned by default since
+// projectdetect v0.4.0): a go.mod buried inside .git must not be reported,
+// while a sibling real project is. Closes the .git-descent gap of #478.
+func TestFindProjectsCmd_Run_SkipsGitDir(t *testing.T) {
+	tmp := t.TempDir()
+	// A real project at the root.
+	mustWriteFile(t, filepath.Join(tmp, "go.mod"), "module example.com/real\n\ngo 1.24\n")
+	// A decoy project buried inside .git — must be pruned, not reported.
+	gitSub := filepath.Join(tmp, ".git", "modules", "vendored")
+	if err := mkdirAll(gitSub); err != nil {
+		t.Fatalf("mkdir %s: %v", gitSub, err)
+	}
+	mustWriteFile(t, filepath.Join(gitSub, "go.mod"), "module example.com/decoy\n\ngo 1.24\n")
+
+	cmd := &FindProjectsCmd{Dir: tmp, Nested: true, Output: "json"}
+	out, err := captureStdout(t, func() error { return cmd.Run(t.Context()) })
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if strings.Contains(out, "decoy") || strings.Contains(out, ".git") {
+		t.Errorf("project inside .git should be pruned, but appeared in output:\n%s", out)
+	}
+	var got map[string]any
+	if err := json.NewDecoder(strings.NewReader(out)).Decode(&got); err != nil {
+		t.Fatalf("decode JSON: %v\nraw: %q", err, out)
+	}
+	if projects, _ := got["projects"].([]any); len(projects) != 1 {
+		t.Errorf("expected only the real project, got %d: %v", len(projects), projects)
+	}
+}
+
 // TestFindProjectsCmd_Run_TypeFilter restricts the report to a
 // single project type and confirms only matching dirs come back.
 func TestFindProjectsCmd_Run_TypeFilter(t *testing.T) {
