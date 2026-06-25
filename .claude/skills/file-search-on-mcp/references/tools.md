@@ -1,6 +1,6 @@
 # Tool reference
 
-Every MCP tool the `file-search-on` server exposes (40 tools). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same families as the SKILL.md table.
+Every MCP tool the `file-search-on` server exposes (43 tools). Each entry has a one-line purpose, the key inputs (omitting boilerplate like `timeout_seconds`), the output shape, gotchas worth knowing, and one example invocation. Grouped by the same families as the SKILL.md table.
 
 ## Contents
 
@@ -9,7 +9,7 @@ Every MCP tool the `file-search-on` server exposes (40 tools). Each entry has a 
 - Dedup & diff — `find_duplicates`, `find_near_duplicates`, `find_duplicate_functions`, `diff_trees`, `api_diff`
 - Archive — `list_archive_contents`, `read_file_in_archive`
 - Pattern + watch — `find_matches`, `watch_search`
-- Cross-file code graph — `imported_by`, `find_definition`, `references`, `code_graph`, `who_calls`, `calls`, `impact`, `call_path`, `dead_code`, `test_gaps`, `coverage_gaps`, `complexity`, `coupling`, `unused_exports`
+- Cross-file code graph — `imported_by`, `find_definition`, `references`, `code_graph`, `who_calls`, `calls`, `impact`, `call_path`, `trace`, `dead_code`, `test_gaps`, `coverage_gaps`, `complexity`, `coupling`, `circular`, `unused_exports`, `review`
 - CEL utilities — `validate_expr`, `list_attributes`
 - Project + presets + monitoring — `detect_project`, `find_projects`, `resolve_project_for_path`, `list_presets`, `query_preset`, `index_stats`, `monitor_info`
 
@@ -688,6 +688,23 @@ Gotcha: name-based, same caveats as `impact` / `calls`. Among equal-length route
 { "name": "call_path", "arguments": { "from": "Run", "to": "BuildCodeGraph", "dir": "." } }
 ```
 
+### `trace`
+
+Both directions of a symbol's call graph in one call — its `callers` (like `who_calls`) and its `callees` (like `calls`), optionally plus the transitive caller closure (like `impact`). A convenience that shares one code-graph build instead of three separate calls.
+
+Key inputs:
+
+- `symbol` — exact function/method name (required).
+- `impact_depth` — 0 (default) omits the closure; N > 0 includes transitive callers up to N hops.
+
+Output: `symbol`, `defined_on` (owning types when the name is a method), `callers[]` (`{path, language}`), `callees[]` (distinct names), `impact[]` (`{symbol, depth, paths[]}`, only when `impact_depth > 0`), `callers_count`, `callees_count`, `total_files`.
+
+Gotcha: name-based, same caveats as `who_calls` / `calls`. Use when you want the full picture of one function (who uses it AND what it depends on) without three round-trips.
+
+```json
+{ "name": "trace", "arguments": { "symbol": "BuildCodeGraph", "impact_depth": 2, "dir": "." } }
+```
+
 ### `dead_code`
 
 Candidate definitions (functions/types) whose name is never referenced anywhere in the walked set.
@@ -734,20 +751,37 @@ Gotcha: Go coverage profiles only. Unlike `test_gaps` it catches partially-teste
 
 ### `coupling`
 
-Per-package afferent/efferent coupling + instability (Robert C. Martin's metrics) over first-party **Go** packages — the architecture-health report the import fan-out guard only gestures at.
+Afferent/efferent coupling + instability (Robert C. Martin's metrics) over first-party nodes — the architecture-health report the import fan-out guard only gestures at.
 
 Key inputs:
 
-- `dir` — the MODULE ROOT holding go.mod (default '.'); `dirs[]` uses the first root.
+- `dir` — the PROJECT ROOT holding a recognised build manifest (default '.'); `dirs[]` uses the first root.
 - `expr` — CEL pre-filter (default `is_source`).
-- `top` — cap the packages returned; 0 (default) = all.
+- `top` — cap the nodes returned; 0 (default) = all.
 
-Output: `module` (the go.mod path), `packages[]` (`{package, afferent (Ca), efferent (Ce), instability}`, ranked most-depended-upon then most unstable), `count`. `instability = Ce/(Ca+Ce)` — 0 = maximally stable (depended-upon, depends on nothing), 1 = maximally unstable.
+Output: `module` (project identity), `packages[]` (`{package, afferent (Ca), efferent (Ce), instability}`, ranked most-depended-upon then most unstable), `count`. `instability = Ce/(Ca+Ce)` — 0 = maximally stable (depended-upon, depends on nothing), 1 = maximally unstable.
 
-Gotcha: **Go-only** — resolution keys on the go.mod module prefix to tell first-party packages from third-party imports; returns `module:""` + empty `packages` when no go.mod is at `dir`. High Ca + high I = a fragile hub (heavily relied upon yet volatile — the riskiest seam to change); a stable core has high Ca + low I.
+Gotcha: **multi-language** — the granularity and first-party boundary are selected by the build manifest at `dir`: Go (go.mod) → packages, Rust (Cargo.toml) → crates, JVM Java/Kotlin/Scala (Maven / Gradle / sbt) → packages, C# (.sln / .csproj) → namespaces, Python (pyproject.toml / setup.py) → packages, JS/TS (package.json / tsconfig.json) → directory modules, PHP (composer.json) → namespaces. Returns `module:""` + empty `packages` when no recognised manifest is at `dir`. High Ca + high I = a fragile hub (heavily relied upon yet volatile — the riskiest seam to change); a stable core has high Ca + low I.
 
 ```json
 { "name": "coupling", "arguments": { "dir": ".", "top": 20 } }
+```
+
+### `circular`
+
+Circular dependencies — strongly-connected components (size > 1) in the first-party import graph, found via Tarjan's SCC. A cycle is a group of packages/crates/namespaces/directory-modules that transitively import each other: the seams that make a codebase hard to test, build incrementally, or reason about.
+
+Key inputs:
+
+- `dir` — the PROJECT ROOT holding a recognised build manifest (default '.').
+- `expr` — CEL pre-filter (default `is_source`).
+
+Output: `module` (project identity), `cycles[]` (`{nodes (sorted), length}`, ranked largest-first), `count`. `module:""` + empty `cycles` when no recognised manifest is at `dir`; self-edges are never reported.
+
+Gotcha: multi-language, same manifest-driven granularity / first-party boundary as `coupling` (Go → packages, Rust → crates, JVM → packages, C# → namespaces, Python → packages, JS/TS → directory modules, PHP → namespaces).
+
+```json
+{ "name": "circular", "arguments": { "dir": "." } }
 ```
 
 ### `unused_exports`
@@ -775,12 +809,32 @@ Key inputs:
 
 - `top` — cap on functions returned (default 50).
 
-Output: `functions[]` (`{path, function, complexity, start_line, end_line, lines}`, sorted by complexity desc), `total_functions`.
+Output: `functions[]` (`{path, function, complexity, cognitive_complexity, start_line, end_line, lines}`, sorted by complexity desc), `total_functions`.
 
-Gotcha: gocyclo-style (1 + branch points). Coverage = Go + the tree-sitter languages. Directional for *ranking* hotspots — the exact number depends on per-grammar node coverage, not a certified metric. For a file-level filter use the search tool's `max_complexity` attribute; this is the per-function drill-down.
+Gotcha: `complexity` is gocyclo-style (1 + branch points). `cognitive_complexity` is the SonarSource nesting-weighted metric — it weights deeply-nested control flow more heavily than flat sequences, tracking how hard code is to UNDERSTAND rather than how many paths it has; present for Go (precise) + every tree-sitter language except Swift (omitted there, #491). Coverage = Go + the tree-sitter languages (Perl / R under-count, sparser decision queries). Directional for *ranking* hotspots — the exact number depends on per-grammar node coverage, not a certified metric. For a file-level filter use the search tool's `max_complexity` attribute; this is the per-function drill-down.
 
 ```json
 { "name": "complexity", "arguments": { "expr": "is_source && language == \"go\"", "top": 20, "dir": "." } }
+```
+
+### `review`
+
+Diff-scoped review gate — resolves the files changed in the git diff, runs the per-file analyses scoped to them, and returns the findings plus an overall pass/warn/fail verdict. The pre-commit / PR gate that composes the individual analysis tools.
+
+Key inputs:
+
+- `dir` — the git working directory + walk root (default '.'). Must be a git repo.
+- `base` — empty = uncommitted changes vs HEAD (pre-commit gate); a ref like `origin/main` = `<base>...HEAD` (PR gate).
+- `max_complexity` — cyclomatic threshold; a changed function above it is a FAIL (default 15).
+- `max_cognitive` — cognitive (SonarSource nesting-weighted) threshold; a changed function above it is a FAIL (default 15) — catches deeply-nested code a modest cyclomatic count misses.
+- `skip_dead_code` — skip the dead-code WARN check.
+
+Output: `base`, `changed_files[]`, `files_analysed`, `findings[]` (`{rule, level: warn|fail, message, path, symbol, start_line, end_line}`), `verdict` (fail if any fail finding; warn if any warn and no fail; else pass), `warn_count`, `fail_count`.
+
+Gotcha: the walk covers the whole `dir` (so the dead-code graph sees the whole project), but findings are filtered to the changed set. Verdict is pass when the diff is empty. Deleted files are excluded; untracked files aren't in the diff. Errors when `dir` isn't a git repository.
+
+```json
+{ "name": "review", "arguments": { "dir": ".", "base": "origin/main", "max_complexity": 15 } }
 ```
 
 ---
