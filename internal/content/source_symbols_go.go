@@ -58,12 +58,12 @@ func goExportedName(name string) bool {
 // SonarSource cognitive complexity. Builder-internal, like callEdges. The
 // trailing cognitive field is Go-only today; the tree-sitter extractor emits
 // the 4-field form, so consumers treat a missing 5th field as "unavailable".
-func extractGoSymbols(src []byte) (functions, types, imports, references, callEdges, complexityRows []string) {
+func extractGoSymbols(src []byte) (functions, types, imports, references, callEdges, complexityRows, handlerBoundary []string) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "", src, parser.AllErrors)
 	if f == nil {
 		_ = err
-		return nil, nil, nil, nil, nil, nil
+		return nil, nil, nil, nil, nil, nil, nil
 	}
 	for _, decl := range f.Decls {
 		switch d := decl.(type) {
@@ -107,7 +107,7 @@ func extractGoSymbols(src []byte) (functions, types, imports, references, callEd
 		return true
 	})
 	references = append(references, goTypeRefs(f)...)
-	return functions, types, imports, dedupeStrings(references), dedupeStrings(callEdges), complexityRows
+	return functions, types, imports, dedupeStrings(references), dedupeStrings(callEdges), complexityRows, goHandlerBoundary(f)
 }
 
 // goPredeclared is the set of Go predeclared type names. They appear in
@@ -237,13 +237,11 @@ func goValueRefs(f *ast.File) []string {
 // inside the defining package.
 //
 // Only EXPORTED signature types are emitted (unused_exports only judges
-// exported symbols), which bounds the output. Re-parses the source (a second
-// go/parser pass beyond extractGoSymbols); the result caches in the attribute
+// exported symbols), which bounds the output. Takes the AST already parsed by
+// extractGoSymbols (no second parse); the result caches in the attribute
 // index alongside the other symbol data, so the cost is paid once per
 // (file, size, mtime).
-func goHandlerBoundary(src []byte) []string {
-	fset := token.NewFileSet()
-	f, _ := parser.ParseFile(fset, "", src, parser.AllErrors)
+func goHandlerBoundary(f *ast.File) []string {
 	if f == nil {
 		return nil
 	}

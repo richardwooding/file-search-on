@@ -83,7 +83,7 @@ func TestMigratedLanguages(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.language, func(t *testing.T) {
-			funcs, types, imports, refs, _, _ := extractTreeSitterSymbols(tc.language, []byte(tc.src))
+			funcs, types, imports, refs, _, _, _ := extractTreeSitterSymbols(tc.language, []byte(tc.src))
 			checkContains(t, "functions", funcs, tc.wantFuncs)
 			checkContains(t, "type_names", types, tc.wantTypes)
 			checkContains(t, "imports", imports, tc.wantImports)

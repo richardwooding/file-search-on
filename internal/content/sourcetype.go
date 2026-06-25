@@ -152,23 +152,20 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 		attrs["is_generated_code"] = true
 	}
 	if bodyBuf != nil && bodyBuf.Len() > 0 {
-		var funcs, types, imports, refs, callEdges, complexityRows []string
+		var funcs, types, imports, refs, callEdges, complexityRows, handlerBoundary []string
 		switch s.language {
 		case "go":
-			// Go keeps the stdlib-AST extractor (rigorous, free).
-			funcs, types, imports, refs, callEdges, complexityRows = extractGoSymbols(bodyBuf.Bytes())
-			// Registration-boundary data for the unused_exports #504 exemption
-			// (handler value-refs + their signature types). Go-only for now.
-			if boundary := goHandlerBoundary(bodyBuf.Bytes()); len(boundary) > 0 {
-				attrs["handler_boundary"] = boundary
-			}
+			// Go keeps the stdlib-AST extractor (rigorous, free). handlerBoundary
+			// carries the unused_exports #504 registration-boundary data
+			// (Go-only; nil from the tree-sitter path).
+			funcs, types, imports, refs, callEdges, complexityRows, handlerBoundary = extractGoSymbols(bodyBuf.Bytes())
 		default:
 			// Every other wired language (Python / Java / C# / PHP / Perl /
 			// R / MATLAB / Scala + Rust / TS / JS / Ruby / Swift / Kotlin /
 			// C / C++) uses the tree-sitter extractor (#365 migrated the
 			// first eight off regex). Returns nil for unwired languages —
 			// but symbolExtractorWired gates this block.
-			funcs, types, imports, refs, callEdges, complexityRows = extractTreeSitterSymbols(s.language, bodyBuf.Bytes())
+			funcs, types, imports, refs, callEdges, complexityRows, handlerBoundary = extractTreeSitterSymbols(s.language, bodyBuf.Bytes())
 		}
 		if len(funcs) > 0 {
 			attrs["functions"] = funcs
@@ -185,6 +182,11 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 		if len(callEdges) > 0 {
 			// Builder-internal (call graph #368); not a CEL variable.
 			attrs["call_edges"] = callEdges
+		}
+		if len(handlerBoundary) > 0 {
+			// Builder-internal (unused_exports #504 registration-boundary
+			// exemption); not a CEL variable.
+			attrs["handler_boundary"] = handlerBoundary
 		}
 		if len(complexityRows) > 0 {
 			// Builder-internal per-function rows (#364) for the complexity
