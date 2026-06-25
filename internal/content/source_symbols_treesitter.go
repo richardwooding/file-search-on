@@ -859,7 +859,7 @@ func tsComplexityRows(language string, tl *tsLang, tree *ts.Tree, funcSpans []ts
 	}
 	cognitive := tsCognitiveComplexity(language, tl, tree, funcSpans)
 	for i, s := range funcSpans {
-		if cognitive != nil && i < len(cognitive) {
+		if cognitive != nil && i < len(cognitive) && cognitive[i] != nil {
 			rows = append(rows, fmt.Sprintf("%s\x00%d\x00%d\x00%d\x00%d", s.name, 1+decisionCount[i], s.startLine, s.endLine, *cognitive[i]))
 		} else {
 			rows = append(rows, fmt.Sprintf("%s\x00%d\x00%d\x00%d", s.name, 1+decisionCount[i], s.startLine, s.endLine))

@@ -118,6 +118,31 @@ func TestTSCognitiveComplexity(t *testing.T) {
 			want: 6,
 		},
 		{
+			// Classic Java switch_statement (not switch_expression) must count.
+			name: "java-switch", language: "java", fn: "f",
+			src: "class C {\n" +
+				"  String f(int n) {\n" +
+				"    switch (n) {\n" +
+				"      case 1: return \"one\";\n" +
+				"      default: return \"lots\";\n" +
+				"    }\n" +
+				"  }\n" +
+				"}\n",
+			want: 1, // switch is +1, cases free
+		},
+		{
+			// JS for...of must increment + nest (regression for the missing
+			// for_of_statement node type).
+			name: "js-forof", language: "javascript", fn: "f",
+			src: "function f(xs) {\n" +
+				"  for (const x of xs) {\n" +
+				"    if (x > 0) { return x; }\n" +
+				"  }\n" +
+				"  return 0;\n" +
+				"}\n",
+			want: 3, // for-of(1) + nested if(2)
+		},
+		{
 			name: "rust-nested", language: "rust", fn: "branchy",
 			src: "fn branchy(x: i32) -> i32 {\n" +
 				"    if x > 0 {\n" +

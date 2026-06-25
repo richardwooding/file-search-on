@@ -51,17 +51,17 @@ var tsCognitiveSpecs = map[string]tsCognitiveSpec{
 		flat:    tsNodeSet("elif_clause", "else_clause"),
 	},
 	"javascript": {
-		nesting:   tsNodeSet("if_statement", "for_statement", "for_in_statement", "while_statement", "do_statement", "switch_statement", "catch_clause", "ternary_expression"),
+		nesting:   tsNodeSet("if_statement", "for_statement", "for_in_statement", "for_of_statement", "while_statement", "do_statement", "switch_statement", "catch_clause", "ternary_expression"),
 		flat:      tsNodeSet(),
 		elseField: "alternative",
 	},
 	"typescript": {
-		nesting:   tsNodeSet("if_statement", "for_statement", "for_in_statement", "while_statement", "do_statement", "switch_statement", "catch_clause", "ternary_expression"),
+		nesting:   tsNodeSet("if_statement", "for_statement", "for_in_statement", "for_of_statement", "while_statement", "do_statement", "switch_statement", "catch_clause", "ternary_expression"),
 		flat:      tsNodeSet(),
 		elseField: "alternative",
 	},
 	"java": {
-		nesting:   tsNodeSet("if_statement", "for_statement", "enhanced_for_statement", "while_statement", "do_statement", "switch_expression", "catch_clause", "ternary_expression"),
+		nesting:   tsNodeSet("if_statement", "for_statement", "enhanced_for_statement", "while_statement", "do_statement", "switch_statement", "switch_expression", "catch_clause", "ternary_expression"),
 		flat:      tsNodeSet(),
 		elseField: "alternative",
 	},
@@ -102,9 +102,11 @@ func tsCognitiveComplexity(language string, tl *tsLang, tree *ts.Tree, funcSpans
 				walk(c, idx, 0)
 				continue
 			}
+			// if-else (not switch) so the logical-operator branch computes the
+			// operator once and threads it into tsSameRunAsParent — tsBoolOp
+			// walks children + makes CGO Type calls, so it's worth not repeating.
 			t := c.Type(tl.lang)
-			switch {
-			case spec.nesting[t]:
+			if spec.nesting[t] {
 				if tsIsElseContinuation(c, t, spec, tl.lang) {
 					if spanIdx >= 0 {
 						cog[spanIdx]++ // else if: flat cost, no nesting penalty
@@ -116,27 +118,28 @@ func tsCognitiveComplexity(language string, tl *tsLang, tree *ts.Tree, funcSpans
 					}
 					walk(c, spanIdx, nesting+1)
 				}
-			case spec.flat[t]:
+			} else if spec.flat[t] {
 				if spanIdx >= 0 {
 					cog[spanIdx]++
 				}
 				walk(c, spanIdx, nesting)
-			case tsBoolOp(c, tl.lang) != "":
-				if spanIdx >= 0 && !tsSameRunAsParent(c, tl.lang) {
+			} else if op := tsBoolOp(c, tl.lang); op != "" {
+				if spanIdx >= 0 && !tsSameRunAsParent(c, op, tl.lang) {
 					cog[spanIdx]++
 				}
 				walk(c, spanIdx, nesting)
-			default:
+			} else {
 				walk(c, spanIdx, nesting)
 			}
 		}
 	}
 	walk(tree.RootNode(), -1, 0)
 
-	out := make([]*int, len(funcSpans))
+	// Point into the single cog backing array — one allocation, vs a per-span
+	// heap escape from taking &(loop-local).
+	out := make([]*int, len(cog))
 	for i := range cog {
-		v := cog[i]
-		out[i] = &v
+		out[i] = &cog[i]
 	}
 	return out
 }
@@ -187,13 +190,10 @@ func tsBoolOp(n *ts.Node, lang *ts.Language) string {
 }
 
 // tsSameRunAsParent reports whether n's immediate parent is a logical-operator
-// node with the same operator — i.e. n continues an existing run (a && b && c
-// is one run) and so must not be counted again.
-func tsSameRunAsParent(n *ts.Node, lang *ts.Language) bool {
-	op := tsBoolOp(n, lang)
-	if op == "" {
-		return false
-	}
+// node with the same operator op — i.e. n continues an existing run (a && b &&
+// c is one run) and so must not be counted again. op is the caller's already-
+// computed tsBoolOp(n) (non-empty).
+func tsSameRunAsParent(n *ts.Node, op string, lang *ts.Language) bool {
 	parent := n.Parent()
 	return parent != nil && tsBoolOp(parent, lang) == op
 }
