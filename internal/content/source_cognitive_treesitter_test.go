@@ -11,7 +11,7 @@ import (
 // whose row has no 5th field (cognitive unavailable) are omitted.
 func cognitiveByFunc(t *testing.T, language string, src string) map[string]int {
 	t.Helper()
-	_, _, _, _, _, rows := extractTreeSitterSymbols(language, []byte(src))
+	_, _, _, _, _, rows, _ := extractTreeSitterSymbols(language, []byte(src))
 	out := map[string]int{}
 	for _, r := range rows {
 		p := strings.Split(r, "\x00")

@@ -545,14 +545,18 @@ func declaredPackage(language string, src []byte) string {
 // returns the function / type / import names. Matches the signature of
 // the hand-rolled extractXxxSymbols functions. Returns all-nil when the
 // language isn't tree-sitter-backed.
-func extractTreeSitterSymbols(language string, src []byte) (functions, types, imports, references, callEdges, complexityRows []string) {
+// The trailing handlerBoundary return is always nil here — the #504
+// registration-boundary exemption is Go-only for now (it needs go/ast
+// signature inspection); kept in the signature for parity with
+// extractGoSymbols so sourcetype.go can assign both uniformly.
+func extractTreeSitterSymbols(language string, src []byte) (functions, types, imports, references, callEdges, complexityRows, handlerBoundary []string) {
 	tl := tsLangFor(language)
 	if tl == nil {
-		return nil, nil, nil, nil, nil, nil
+		return nil, nil, nil, nil, nil, nil, nil
 	}
 	tree, err := tl.pool.Parse(src)
 	if err != nil || tree == nil {
-		return nil, nil, nil, nil, nil, nil
+		return nil, nil, nil, nil, nil, nil, nil
 	}
 
 	// funcSpans (named function definitions + byte/line span) are shared
@@ -567,7 +571,7 @@ func extractTreeSitterSymbols(language string, src []byte) (functions, types, im
 	complexityRows = tsComplexityRows(language, tl, tree, funcSpans)
 
 	return dedupeStrings(functions), dedupeStrings(types), dedupeStrings(imports),
-		dedupeStrings(references), dedupeStrings(callEdges), complexityRows
+		dedupeStrings(references), dedupeStrings(callEdges), complexityRows, nil
 }
 
 // tsFunctionSpans returns the 1-based inclusive line span of every named

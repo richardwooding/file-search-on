@@ -28,9 +28,11 @@ import (
 // the stdlib-AST path for Go, tree-sitter for everything else.
 func extractSymbolsFor(language string, src []byte) (funcs, types, imports, refs, callEdges, complexityRows []string) {
 	if language == "go" {
-		return extractGoSymbols(src)
+		funcs, types, imports, refs, callEdges, complexityRows, _ = extractGoSymbols(src)
+		return
 	}
-	return extractTreeSitterSymbols(language, src)
+	funcs, types, imports, refs, callEdges, complexityRows, _ = extractTreeSitterSymbols(language, src)
+	return
 }
 
 type langBaseline struct {

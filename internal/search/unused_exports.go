@@ -116,6 +116,12 @@ type UnusedExportsResult struct {
 // (kong `…Cmd`, Go test entries) is excluded, but external consumers outside
 // the walked tree, interface satisfaction, and same-name collisions can
 // still mislead — a review list, not an auto-unexport list.
+//
+// Registration-boundary exemption (#504): an exported type used as a
+// parameter / result type of a handler that is registered as a VALUE (the
+// mcp.AddTool / HandleFunc pattern) is bound to an external generic API that
+// reflects over it, so it must stay exported and is excluded — even though
+// every textual reference to it sits inside the defining package.
 func UnusedExports(ctx context.Context, opts Options, registry *content.Registry) (*UnusedExportsResult, error) {
 	root := opts.Root
 	if root == "" && len(opts.Roots) > 0 {
@@ -150,6 +156,13 @@ func UnusedExports(ctx context.Context, opts Options, registry *content.Registry
 	defs := map[string]*defInfo{}
 	refPkgs := map[string]map[string]bool{} // symbol -> set of referencing packages
 	generated := map[string]bool{}
+	// Registration-boundary data (#504): functions passed as values (handlers)
+	// and the exported types in each function's signature. A type in the
+	// signature of a registered handler is bound to an external generic API
+	// (e.g. mcp.AddTool[In, Out] infers In/Out from the handler) and must stay
+	// exported even though every textual reference sits in its own package.
+	valueRefFuncs := map[string]bool{}      // handler names passed as call-arg values
+	sigTypesByFunc := map[string][]string{} // func name -> exported signature type names
 
 	note := func(name, kind, pkg, path, lang string) {
 		d := defs[name]
@@ -216,6 +229,30 @@ func UnusedExports(ctx context.Context, opts Options, registry *content.Registry
 				refPkgs[ref][pkg] = true
 			}
 		}
+		if boundary, ok := r.Attrs.Extra["handler_boundary"].([]string); ok {
+			for _, e := range boundary {
+				switch {
+				case strings.HasPrefix(e, "v\x00"):
+					valueRefFuncs[e[2:]] = true
+				case strings.HasPrefix(e, "s\x00"):
+					if rest := e[2:]; len(rest) > 0 {
+						if i := strings.IndexByte(rest, 0); i > 0 && i < len(rest)-1 {
+							sigTypesByFunc[rest[:i]] = append(sigTypesByFunc[rest[:i]], rest[i+1:])
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// A type in the signature of a function that is registered as a value
+	// (the AddTool / HandleFunc handler pattern) is bound to an external
+	// generic API and can't be unexported — exempt it (#504).
+	boundaryExempt := map[string]bool{}
+	for fn := range valueRefFuncs {
+		for _, t := range sigTypesByFunc[fn] {
+			boundaryExempt[t] = true
+		}
 	}
 
 	for name, d := range defs {
@@ -224,6 +261,9 @@ func UnusedExports(ctx context.Context, opts Options, registry *content.Registry
 		}
 		if isReflectionDispatchedEntry(d.kind, name, d.path, d.lang) {
 			continue // kong …Cmd, go-test entries — dispatched, not statically used
+		}
+		if d.kind == "type" && boundaryExempt[name] {
+			continue // bound to an external generic registration API (#504)
 		}
 		users := refPkgs[name]
 		if len(users) == 0 {

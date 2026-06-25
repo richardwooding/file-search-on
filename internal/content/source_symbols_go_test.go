@@ -1,6 +1,8 @@
 package content
 
 import (
+	"go/parser"
+	"go/token"
 	"reflect"
 	"slices"
 	"sort"
@@ -25,7 +27,7 @@ func ProcessOrder(id string) error {
 	return nil
 }
 `)
-	funcs, types, imports, _, _, _ := extractGoSymbols(src)
+	funcs, types, imports, _, _, _, _ := extractGoSymbols(src)
 	sort.Strings(funcs)
 	sort.Strings(types)
 	sort.Strings(imports)
@@ -50,7 +52,7 @@ import (
 	_ "embed"
 )
 `)
-	_, _, imports, _, _, _ := extractGoSymbols(src)
+	_, _, imports, _, _, _, _ := extractGoSymbols(src)
 	sort.Strings(imports)
 	want := []string{"embed", "fmt", "net/http"}
 	if !reflect.DeepEqual(imports, want) {
@@ -72,7 +74,7 @@ type Pair[A, B any] struct {
 
 func Map[T, U any](items []T, fn func(T) U) []U { return nil }
 `)
-	funcs, types, _, _, _, _ := extractGoSymbols(src)
+	funcs, types, _, _, _, _, _ := extractGoSymbols(src)
 	if !contains(funcs, "Map") {
 		t.Errorf("expected Map in functions, got %v", funcs)
 	}
@@ -98,7 +100,7 @@ func Working() {
 
 func Broken( {  // syntax error here
 `)
-	funcs, types, imports, _, _, _ := extractGoSymbols(src)
+	funcs, types, imports, _, _, _, _ := extractGoSymbols(src)
 	if !contains(imports, "fmt") {
 		t.Errorf("imports should include fmt despite parse error, got %v", imports)
 	}
@@ -111,14 +113,14 @@ func Broken( {  // syntax error here
 }
 
 func TestExtractGoSymbols_Empty(t *testing.T) {
-	funcs, types, imports, _, _, _ := extractGoSymbols([]byte{})
+	funcs, types, imports, _, _, _, _ := extractGoSymbols([]byte{})
 	if len(funcs) != 0 || len(types) != 0 || len(imports) != 0 {
 		t.Errorf("empty input should yield empty results, got %v/%v/%v", funcs, types, imports)
 	}
 }
 
 func TestExtractGoSymbols_PackageOnly(t *testing.T) {
-	funcs, types, imports, _, _, _ := extractGoSymbols([]byte("package main\n"))
+	funcs, types, imports, _, _, _, _ := extractGoSymbols([]byte("package main\n"))
 	if len(funcs) != 0 || len(types) != 0 || len(imports) != 0 {
 		t.Errorf("package-only file should yield empty results, got %v/%v/%v", funcs, types, imports)
 	}
@@ -126,6 +128,41 @@ func TestExtractGoSymbols_PackageOnly(t *testing.T) {
 
 func contains(slice []string, want string) bool {
 	return slices.Contains(slice, want)
+}
+
+// TestGoHandlerBoundary pins issue #504: the boundary extractor emits the
+// value-ref of a handler passed to a call AND the exported types in that
+// handler's signature, so unused_exports can exempt AddTool[In,Out]-bound
+// types from the package-local false positive.
+func TestGoHandlerBoundary(t *testing.T) {
+	src := `package srv
+
+import "context"
+
+type Req struct{ A int }
+type Resp struct{ B int }
+
+func register(s any) { AddTool(s, handle) }
+
+func handle(ctx context.Context, in Req) (Resp, error) { return Resp{}, nil }
+`
+	f, err := parser.ParseFile(token.NewFileSet(), "", src, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	got := goHandlerBoundary(f)
+	have := map[string]bool{}
+	for _, e := range got {
+		have[e] = true
+	}
+	for _, want := range []string{"v\x00handle", "s\x00handle\x00Req", "s\x00handle\x00Resp"} {
+		if !have[want] {
+			t.Errorf("goHandlerBoundary missing %q; got %v", want, got)
+		}
+	}
+	if have["s\x00register\x00Req"] {
+		t.Errorf("register has no Req in its signature; unexpected entry: %v", got)
+	}
 }
 
 // TestExtractGoSymbols_ValueRefs pins issue #421: a function/method used as
@@ -141,7 +178,7 @@ func register() {
 }
 func handleThing() {}
 `)
-	_, _, _, refs, edges, _ := extractGoSymbols(src)
+	_, _, _, refs, edges, _, _ := extractGoSymbols(src)
 	for _, want := range []string{"handleThing", "serveIt"} {
 		if !contains(refs, want) {
 			t.Errorf("references missing value-passed %q: %v", want, refs)
@@ -180,7 +217,7 @@ func use(c Cog) Widget {           // param + result type
 	return Widget{}
 }
 `)
-	_, _, _, refs, edges, _ := extractGoSymbols(src)
+	_, _, _, refs, edges, _, _ := extractGoSymbols(src)
 	for _, want := range []string{"Widget", "Gadget", "Sprocket", "Cog", "Embedded", "Holder"} {
 		if !contains(refs, want) {
 			t.Errorf("references missing type usage %q: %v", want, refs)
@@ -209,7 +246,7 @@ func TestExtractGoSymbols_CallEdges(t *testing.T) {
 func Alpha() { Beta(); helper.Do() }
 func Beta()  {}
 `)
-	_, _, _, refs, edges, _ := extractGoSymbols(src)
+	_, _, _, refs, edges, _, _ := extractGoSymbols(src)
 	if !contains(refs, "Beta") || !contains(refs, "Do") {
 		t.Errorf("references missing Beta/Do: %v", refs)
 	}
@@ -239,7 +276,7 @@ func Branchy(x int) {
 	}
 }
 `)
-	_, _, _, _, _, rows := extractGoSymbols(src)
+	_, _, _, _, _, rows, _ := extractGoSymbols(src)
 	cyclomatic := map[string]string{}
 	cognitive := map[string]string{}
 	for _, r := range rows {

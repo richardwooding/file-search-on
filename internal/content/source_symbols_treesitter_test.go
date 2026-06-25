@@ -139,7 +139,7 @@ int main() { return 0; }
 
 	for _, tc := range cases {
 		t.Run(tc.language, func(t *testing.T) {
-			funcs, types, imports, _, _, _ := extractTreeSitterSymbols(tc.language, []byte(tc.src))
+			funcs, types, imports, _, _, _, _ := extractTreeSitterSymbols(tc.language, []byte(tc.src))
 			checkContains(t, "functions", funcs, tc.wantFuncs)
 			checkContains(t, "type_names", types, tc.wantTypes)
 			checkContains(t, "imports", imports, tc.wantImports)
@@ -175,7 +175,7 @@ func TestExtractTreeSitterReferences(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.language, func(t *testing.T) {
-			_, _, _, refs, _, _ := extractTreeSitterSymbols(tc.language, []byte(tc.src))
+			_, _, _, refs, _, _, _ := extractTreeSitterSymbols(tc.language, []byte(tc.src))
 			checkContains(t, "references", refs, tc.wantRefs)
 		})
 	}
@@ -231,7 +231,7 @@ func build(c: Cog) -> Sprocket { let b: Bolt = make() }`,
 	}
 	for _, tc := range cases {
 		t.Run(tc.language, func(t *testing.T) {
-			_, _, _, refs, _, _ := extractTreeSitterSymbols(tc.language, []byte(tc.src))
+			_, _, _, refs, _, _, _ := extractTreeSitterSymbols(tc.language, []byte(tc.src))
 			checkContains(t, "references (type usages)", refs, tc.wantRefs)
 		})
 	}
@@ -242,7 +242,7 @@ func build(c: Cog) -> Sprocket { let b: Bolt = make() }`,
 // would self-reference and never be flagged as dead). Rust struct defined
 // and never used → must not appear in references.
 func TestExtractTreeSitterTypeRefs_NoSelfCapture(t *testing.T) {
-	_, types, _, refs, _, _ := extractTreeSitterSymbols("rust", []byte(`struct Lonely { x: i32 }`))
+	_, types, _, refs, _, _, _ := extractTreeSitterSymbols("rust", []byte(`struct Lonely { x: i32 }`))
 	if !slices.Contains(types, "Lonely") {
 		t.Fatalf("Lonely should be a defined type; got %v", types)
 	}
@@ -338,7 +338,7 @@ func TestParseTimeoutBudget(t *testing.T) {
 		t.Errorf("tsParseTimeoutMicros = %d (<1s) risks skipping healthy files", tsParseTimeoutMicros)
 	}
 	// A normal file still extracts fine under the cap.
-	funcs, _, _, _, _, _ := extractTreeSitterSymbols("swift", []byte("func greet() -> String { return \"hi\" }\n"))
+	funcs, _, _, _, _, _, _ := extractTreeSitterSymbols("swift", []byte("func greet() -> String { return \"hi\" }\n"))
 	if !slices.Contains(funcs, "greet") {
 		t.Errorf("normal swift file should still extract under the parse cap; got %v", funcs)
 	}
@@ -365,7 +365,7 @@ function d() { e(); }`, []string{"a\x00b", "a\x00c", "d\x00e"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.language, func(t *testing.T) {
-			_, _, _, _, edges, _ := extractTreeSitterSymbols(tc.language, []byte(tc.src))
+			_, _, _, _, edges, _, _ := extractTreeSitterSymbols(tc.language, []byte(tc.src))
 			checkContains(t, "call_edges", edges, tc.want)
 		})
 	}
@@ -385,7 +385,7 @@ pub fn g() {}
 	done := make(chan bool, goroutines)
 	for range goroutines {
 		go func() {
-			funcs, types, imports, _, _, _ := extractTreeSitterSymbols("rust", src)
+			funcs, types, imports, _, _, _, _ := extractTreeSitterSymbols("rust", src)
 			done <- len(funcs) == 2 && len(types) == 1 && len(imports) == 1
 		}()
 	}
@@ -397,7 +397,7 @@ pub fn g() {}
 }
 
 func TestExtractTreeSitterSymbols_UnknownLanguage(t *testing.T) {
-	f, ty, im, _, _, _ := extractTreeSitterSymbols("brainfuck", []byte("+++."))
+	f, ty, im, _, _, _, _ := extractTreeSitterSymbols("brainfuck", []byte("+++."))
 	if f != nil || ty != nil || im != nil {
 		t.Errorf("expected all-nil for unsupported language, got %v %v %v", f, ty, im)
 	}
@@ -412,7 +412,7 @@ func TestExtractTreeSitterRequireImports(t *testing.T) {
 			src := `const foo = require("./foo");
 const bar = require("bar");
 import { Baz } from "./baz";`
-			_, _, imports, _, _, _ := extractTreeSitterSymbols(lang, []byte(src))
+			_, _, imports, _, _, _, _ := extractTreeSitterSymbols(lang, []byte(src))
 			checkContains(t, "imports", imports, []string{"./foo", "bar", "./baz"})
 		})
 	}
@@ -446,7 +446,7 @@ func TestExtractTreeSitterComplexity(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.language, func(t *testing.T) {
-			_, _, _, _, _, rows := extractTreeSitterSymbols(tc.language, []byte(tc.src))
+			_, _, _, _, _, rows, _ := extractTreeSitterSymbols(tc.language, []byte(tc.src))
 			cx := ""
 			for _, r := range rows {
 				p := splitNUL(r)
