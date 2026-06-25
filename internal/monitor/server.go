@@ -156,10 +156,15 @@ func (s *Server) routes() (http.Handler, error) {
 	// they expose memory contents — hence the explicit opt-in on top of
 	// the loopback trust boundary.
 	if s.cfg.EnablePprof {
+		// These are GET-only (the static "GET /" catch-all below means a
+		// bare, method-less "/debug/pprof/" pattern would be rejected as
+		// a ServeMux conflict). pprof.Symbol is the exception: go tool
+		// pprof POSTs the address list to resolve, so it gets both verbs.
 		mux.HandleFunc("GET /debug/pprof/", pprof.Index)
 		mux.HandleFunc("GET /debug/pprof/cmdline", pprof.Cmdline)
 		mux.HandleFunc("GET /debug/pprof/profile", pprof.Profile)
 		mux.HandleFunc("GET /debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("POST /debug/pprof/symbol", pprof.Symbol)
 		mux.HandleFunc("GET /debug/pprof/trace", pprof.Trace)
 	}
 	sub, err := fs.Sub(staticFiles, "static")

@@ -176,13 +176,16 @@ func startProfiling() (stop func(), err error) {
 	}
 
 	if CLI.MemProfile != "" {
-		path := CLI.MemProfile
+		// Create the file up front so a bad path / permission error
+		// surfaces immediately rather than after the (possibly long)
+		// command has already run. The heap snapshot itself is taken in
+		// the stop closure, when live allocations are most meaningful.
+		f, ferr := os.Create(CLI.MemProfile)
+		if ferr != nil {
+			cleanup()
+			return nil, fmt.Errorf("create mem profile: %w", ferr)
+		}
 		stops = append(stops, func() {
-			f, ferr := os.Create(path)
-			if ferr != nil {
-				fmt.Fprintln(os.Stderr, "memprofile:", ferr)
-				return
-			}
 			defer func() { _ = f.Close() }()
 			runtime.GC() // materialise up-to-date live-allocation stats
 			if werr := pprof.WriteHeapProfile(f); werr != nil {
