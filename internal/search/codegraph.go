@@ -123,6 +123,14 @@ type CodeGraph struct {
 	// generated: set of file paths the detector flagged is_generated_code.
 	// Drives the generated-dominance hint (#430).
 	generated map[string]bool
+	// dispatchTargets: function names registered as a VALUE — the AddTool /
+	// HandleFunc handler pattern (the #504 "v" tag). A test exercises them
+	// through the tool, never by name, so the name-based "untested" signal is
+	// a guaranteed false positive; TestGaps excludes them (#506). Interface
+	// methods are deliberately NOT included — they're usually name-referenced
+	// in tests already, and excluding them from the denominator would flip
+	// files to fully_untested.
+	dispatchTargets map[string]bool
 }
 
 // GeneratedHint returns a nudge toward the !is_generated_code filter when
@@ -172,14 +180,15 @@ func BuildCodeGraph(ctx context.Context, opts Options, registry *content.Registr
 	results, walkErr := Walk(ctx, opts, registry)
 
 	g := &CodeGraph{
-		importedBy:   map[string]map[string]string{},
-		definedIn:    map[string][]symbolEntry{},
-		referencedBy: map[string]map[string]string{},
-		callsByName:  map[string]map[string]bool{},
-		fanOut:       map[string]fileFanOut{},
-		languages:    map[string]int64{},
-		testFiles:    map[string]bool{},
-		generated:    map[string]bool{},
+		importedBy:      map[string]map[string]string{},
+		definedIn:       map[string][]symbolEntry{},
+		referencedBy:    map[string]map[string]string{},
+		callsByName:     map[string]map[string]bool{},
+		fanOut:          map[string]fileFanOut{},
+		languages:       map[string]int64{},
+		testFiles:       map[string]bool{},
+		dispatchTargets: map[string]bool{},
+		generated:       map[string]bool{},
 	}
 	g.TotalFiles = int64(len(results))
 
@@ -270,6 +279,17 @@ func BuildCodeGraph(ctx context.Context, opts Options, registry *content.Registr
 					g.callsByName[caller] = set
 				}
 				set[callee] = true
+			}
+		}
+		if boundary, ok := r.Attrs.Extra["handler_boundary"].([]string); ok {
+			for _, e := range boundary {
+				// Only value-registered handlers (#504 "v" tag). NOT interface
+				// methods ("i"): an interface method is often name-referenced
+				// in a test (so already counted tested), and excluding it from
+				// the denominator perversely flips files to fully_untested.
+				if strings.HasPrefix(e, "v\x00") {
+					g.dispatchTargets[e[2:]] = true
+				}
 			}
 		}
 	}
@@ -699,12 +719,17 @@ type TestGap struct {
 // Restricted to languages with reference extraction (refExtractionLangs);
 // functions defined in test files are themselves excluded.
 //
+// Functions registered as a value (the AddTool / HandleFunc handler pattern)
+// are excluded (#506): a test drives them through the tool, never by name, so
+// "not referenced from a test" is a guaranteed false positive for them.
+//
 // HEURISTIC, name-based and DIRECT-reference only: a function exercised only
-// transitively (test → A → B, with B never named in a test) reads as
-// untested, and same-name collisions / reflection / table-driven dispatch
-// can mislead either way. Present as candidates — pair with a real coverage
-// profile for precision. Mirrors DeadCode's machinery (defined-but-not-
-// referenced), filtered to "not referenced *from a test*".
+// transitively (test → A → B, with B never named in a test) STILL reads as
+// untested — that class isn't statically resolvable here, so pair with a real
+// coverage profile (the coverage_gaps tool) for precision. Same-name
+// collisions / reflection / table-driven dispatch can mislead either way.
+// Mirrors DeadCode's machinery (defined-but-not-referenced), filtered to
+// "not referenced *from a test*".
 func (g *CodeGraph) TestGaps() []TestGap {
 	type fileInfo struct {
 		lang  string
@@ -728,7 +753,17 @@ func (g *CodeGraph) TestGaps() []TestGap {
 	out := make([]TestGap, 0, len(byFile))
 	for path, fi := range byFile {
 		var untested []string
+		assessable := 0
 		for _, name := range fi.funcs {
+			if g.dispatchTargets[name] {
+				// Reached only via indirect dispatch (registered handler /
+				// interface method) — a test exercises it through the tool or
+				// interface, never by name, so the name-based "untested"
+				// signal is meaningless here. Excluded from both the gap list
+				// and the function count so FullyUntested stays accurate (#506).
+				continue
+			}
+			assessable++
 			if !g.referencedFromTest(name) {
 				untested = append(untested, name)
 			}
@@ -740,10 +775,10 @@ func (g *CodeGraph) TestGaps() []TestGap {
 		out = append(out, TestGap{
 			Path:              path,
 			Language:          fi.lang,
-			FunctionCount:     len(fi.funcs),
+			FunctionCount:     assessable,
 			UntestedCount:     len(untested),
 			UntestedFunctions: untested,
-			FullyUntested:     len(untested) == len(fi.funcs),
+			FullyUntested:     len(untested) == assessable,
 		})
 	}
 
