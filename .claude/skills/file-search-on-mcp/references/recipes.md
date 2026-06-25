@@ -18,6 +18,9 @@ Copy-pasteable scenarios. Each is a single MCP call (or a tiny sequence) for a r
 - Find the function that does X (function-level semantic search)
 - AI-generated images via Content Credentials
 - Wait for the next screenshot mentioning "invoice"
+- Trace one function's call graph (callers + callees + blast radius)
+- Architecture health: coupling + circular dependencies
+- Pre-commit / PR review gate
 
 ## Top-5 longest videos
 
@@ -352,3 +355,43 @@ Cheap typo-check + "did you mean" suggestion before paying the walk setup cost. 
 ```
 
 Returns `{"ok": false, "error": "undeclared reference to 'is_markown'", "suggestion": "is_markdown"}`.
+
+## Trace one function's call graph (callers + callees + blast radius)
+
+Before refactoring a function, get the whole picture in one call — who calls it, what it calls, and the transitive caller closure — instead of three round-trips through `who_calls` / `calls` / `impact`:
+
+```json
+{
+  "name": "trace",
+  "arguments": { "symbol": "BuildCodeGraph", "impact_depth": 3, "dir": "." }
+}
+```
+
+`impact_depth: 0` (or omit) drops the closure for a cheaper one-hop answer. For just the route between two specific functions use `call_path` (`{ "from": "Run", "to": "BuildCodeGraph" }`).
+
+## Architecture health: coupling + circular dependencies
+
+`coupling` ranks first-party nodes by afferent/efferent coupling + instability (high Ca + high I = a fragile hub). `circular` surfaces import cycles (Tarjan SCCs). Both are manifest-driven and multi-language (Go / Rust / JVM / C# / Python / JS-TS / PHP) — point them at the **project root** holding the build manifest, not a subdirectory:
+
+```json
+{ "name": "coupling", "arguments": { "dir": ".", "top": 20 } }
+```
+
+```json
+{ "name": "circular", "arguments": { "dir": "." } }
+```
+
+Pair with the `hotspots` preset (complexity × churn) and the `complexity` tool (per-function cyclomatic + cognitive ranking) to decide what to refactor first.
+
+## Pre-commit / PR review gate
+
+`review` resolves the git-changed files, runs complexity / cognitive-complexity / dead-code over just them, and returns a pass/warn/fail verdict — the gate to wire into a pre-commit hook or PR check. Omit `base` for uncommitted changes vs HEAD; pass a ref for a PR-style `<base>...HEAD` diff:
+
+```json
+{
+  "name": "review",
+  "arguments": { "dir": ".", "base": "origin/main", "max_complexity": 15, "max_cognitive": 15 }
+}
+```
+
+`verdict` is `fail` if any changed function breaches a complexity threshold, `warn` if only candidate dead code was added, else `pass` (also `pass` when the diff is empty). Errors if `dir` isn't a git repo.
