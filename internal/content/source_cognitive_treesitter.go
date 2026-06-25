@@ -154,6 +154,9 @@ func tsCognitiveComplexity(language string, tl *tsLang, tree *ts.Tree, funcSpans
 					if spanIdx >= 0 {
 						cog[spanIdx]++ // else if: flat cost, no nesting penalty
 					}
+					// Tag this else-if's own else branch too, so a chain
+					// (else if … else if …) stays flat the whole way down.
+					tsTagElseIf(c, t, spec, tl.lang, elseIf)
 					walk(c, spanIdx, nesting)
 				} else {
 					if spanIdx >= 0 {

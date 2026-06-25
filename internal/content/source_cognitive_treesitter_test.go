@@ -187,6 +187,25 @@ func TestTSCognitiveComplexity(t *testing.T) {
 			want: 2,
 		},
 		{
+			// Chained else-if: each branch is flat — if + 3×else-if = 4, no
+			// nesting penalty accumulating down the chain (regression for
+			// re-tagging the else-if's own else branch).
+			name: "csharp-elseif-chain", language: "csharp", fn: "F",
+			src: "class C{\n  int F(int n){\n    if(n==1){ return 1; }\n    else if(n==2){ return 2; }\n    else if(n==3){ return 3; }\n    else if(n==4){ return 4; }\n    return 0;\n  }\n}\n",
+			want: 4,
+		},
+		{
+			// Python chained elif via distinct elif_clause nodes: if + 3×elif = 4.
+			name: "python-elif-chain", language: "python", fn: "f",
+			src: "def f(n):\n" +
+				"    if n == 1:\n        return 1\n" +
+				"    elif n == 2:\n        return 2\n" +
+				"    elif n == 3:\n        return 3\n" +
+				"    elif n == 4:\n        return 4\n" +
+				"    return 0\n",
+			want: 4,
+		},
+		{
 			name: "kotlin-nested", language: "kotlin", fn: "branchy",
 			src: "fun branchy(x: Int): Int {\n  if (x > 0) {\n    for (i in 0..x) {\n      if (i % 2 == 0) { return i }\n    }\n  }\n  return 0\n}\n",
 			want: 6,
