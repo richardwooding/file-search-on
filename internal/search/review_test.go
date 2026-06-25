@@ -78,6 +78,44 @@ func TestReview_FlagsNewComplexFunction(t *testing.T) {
 	}
 }
 
+// TestReview_FlagsCognitiveComplexity: a deeply-nested function with LOW
+// cyclomatic complexity (6 nested ifs → cyclomatic 7, under the gate) but HIGH
+// cognitive complexity (1+2+…+6 = 21, over the gate) is flagged by the
+// cognitive gate and not the cyclomatic one — proving cognitive catches what
+// cyclomatic misses.
+func TestReview_FlagsCognitiveComplexity(t *testing.T) {
+	root := initRepo(t)
+	commitAs(t, root, "go.mod", "module example.com/m\n\ngo 1.26\n", "Dev", "dev@example.com")
+	commitAs(t, root, "base.go", "package m\n\nfunc Base() int { return 0 }\n", "Dev", "dev@example.com")
+	deep := "package m\n\nfunc Deep(x int) int {\n" +
+		"\tif x > 1 {\n\t\tif x > 2 {\n\t\t\tif x > 3 {\n\t\t\t\tif x > 4 {\n\t\t\t\t\tif x > 5 {\n\t\t\t\t\t\tif x > 6 {\n\t\t\t\t\t\t\treturn x\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\treturn 0\n}\n"
+	commitAs(t, root, "deep.go", deep, "Dev", "dev@example.com")
+
+	res, err := search.Review(context.Background(), search.Options{Root: root, Workers: 1},
+		contentpkg.DefaultRegistry(), search.ReviewConfig{Base: "HEAD~1", CheckDeadCode: false})
+	if err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+	if res.Verdict != "fail" {
+		t.Fatalf("verdict = %q, want fail (findings: %+v)", res.Verdict, res.Findings)
+	}
+	var cognitive, cyclomatic bool
+	for _, f := range res.Findings {
+		switch f.Rule {
+		case "cognitive-complexity":
+			cognitive = true
+		case "complexity":
+			cyclomatic = true
+		}
+	}
+	if !cognitive {
+		t.Errorf("expected a cognitive-complexity finding for Deep; got %+v", res.Findings)
+	}
+	if cyclomatic {
+		t.Errorf("did not expect a cyclomatic complexity finding (Deep's cyclomatic is 7, under the gate): %+v", res.Findings)
+	}
+}
+
 // TestReview_PassOnCleanDiff: a changed file with only a trivial function
 // produces a pass verdict (no findings).
 func TestReview_PassOnCleanDiff(t *testing.T) {
