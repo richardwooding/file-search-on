@@ -299,6 +299,27 @@ Fingerprints cache via `--index-path` alongside the exact hash; repeat runs skip
 
 `-d <dir>` (repeatable for multi-root walks), `--exclude <glob>` (basename, repeatable), `--respect-gitignore`, `--timeout 30s` (partial results returned on expiry), `--workers N`, `--index-path <file.db>` (override the per-cwd default index — see [examples/indexing.md](./examples/indexing.md)), `--no-index` (opt out of on-disk caching for hermetic runs).
 
+### Profiling
+
+Root-level flags (work with any subcommand) capture a Go runtime profile of the run:
+
+`--cpuprofile <file>` (CPU profile, open with `go tool pprof <file>`), `--memprofile <file>` (heap profile written after the command finishes), `--trace <file>` (execution trace, open with `go tool trace <file>`). For example, profile a large walk:
+
+```sh
+file-search-on search 'is_source' -d ./big-tree --cpuprofile cpu.prof
+go tool pprof -top cpu.prof
+```
+
+For the long-running servers, `mcp` and `watch` accept `--pprof`, which mounts the live `/debug/pprof/*` endpoints on the [monitoring dashboard](#monitoring-dashboard) (loopback-only, off by default) so you can profile a running server without restarting it:
+
+```sh
+file-search-on mcp --pprof --monitor-addr :9090
+go tool pprof http://localhost:9090/debug/pprof/profile   # 30s live CPU profile
+curl -s http://localhost:9090/debug/pprof/heap            # heap snapshot
+```
+
+Release binaries are built with symbols stripped (`-s -w`), so CPU profiles carry less symbol detail there; heap and goroutine profiles are unaffected.
+
 **`.git` is always pruned** from every walk (CLI and MCP) — its objects/refs/logs are never searched or indexed. `search` and `find-matches` expose `--include-git` (CLI) / `include_git` (MCP) to walk into it; pointing `-d` directly at a `.git` directory also works (the walk root is exempt).
 
 ### Pointing at a non-default Ollama
@@ -646,6 +667,10 @@ Open the URL. Five panels:
 Each instance with a dashboard registers itself, so they're mutually discoverable. For `mcp` servers, the **`monitor_info`** tool is the entry point: it returns this server's dashboard URL + the peer list, and `monitor_info{enable:true}` **starts the dashboard on demand** (a dynamic port) even if the server was launched without a monitor flag. That makes monitoring reachable per-agent without editing every launch config.
 
 The JSON API is scriptable too: `curl -s localhost:<port>/api/cache | jq`, plus `/api/overview`, `/api/activity`, `/api/capabilities`, `/api/peers`, and `/healthz` (liveness). See [examples/monitoring.md](./examples/monitoring.md).
+
+### Live profiling
+
+Passing `--pprof` to `mcp` or `watch` mounts the Go runtime profiling endpoints (`/debug/pprof/*`) on this same dashboard, so you can profile a running server without restarting it — `go tool pprof http://localhost:<port>/debug/pprof/profile` for a live CPU profile, `/debug/pprof/heap` for the heap, `/debug/pprof/goroutine` for goroutine stacks. It's **off by default** (the endpoints expose process memory and goroutine stacks) and shares the dashboard's loopback-only trust boundary, so it's a no-op with `--no-monitor`. See the [Profiling](#profiling) section for the file-based `--cpuprofile` / `--memprofile` / `--trace` flags that work with any subcommand.
 
 ## Contributing
 
