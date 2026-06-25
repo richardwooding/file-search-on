@@ -120,6 +120,57 @@ func TestMonitor_NoMonitorFlag(t *testing.T) {
 	})
 }
 
+// TestPprofFlag confirms --pprof parses into the per-command Pprof
+// field for both mcp and watch (off by default), the opt-in that the
+// Run methods thread into monitor.Config.EnablePprof.
+func TestPprofFlag(t *testing.T) {
+	t.Parallel()
+
+	t.Run("mcp default off, --pprof on", func(t *testing.T) {
+		var cli struct {
+			MCP MCPCmd `cmd:""`
+		}
+		parser, err := kong.New(&cli)
+		if err != nil {
+			t.Fatalf("kong.New: %v", err)
+		}
+		if _, err := parser.Parse([]string{"mcp"}); err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		if cli.MCP.Pprof {
+			t.Errorf("MCPCmd.Pprof = true with no flags; want false")
+		}
+		if _, err := parser.Parse([]string{"mcp", "--pprof"}); err != nil {
+			t.Fatalf("parse --pprof: %v", err)
+		}
+		if !cli.MCP.Pprof {
+			t.Errorf("MCPCmd.Pprof = false after --pprof; want true")
+		}
+	})
+
+	t.Run("watch default off, --pprof on", func(t *testing.T) {
+		var cli struct {
+			Watch WatchCmd `cmd:""`
+		}
+		parser, err := kong.New(&cli)
+		if err != nil {
+			t.Fatalf("kong.New: %v", err)
+		}
+		if _, err := parser.Parse([]string{"watch"}); err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		if cli.Watch.Pprof {
+			t.Errorf("WatchCmd.Pprof = true with no flags; want false")
+		}
+		if _, err := parser.Parse([]string{"watch", "--pprof"}); err != nil {
+			t.Fatalf("parse --pprof: %v", err)
+		}
+		if !cli.Watch.Pprof {
+			t.Errorf("WatchCmd.Pprof = false after --pprof; want true")
+		}
+	})
+}
+
 // TestMonitorAddrWins confirms --monitor-addr always pins the
 // supplied port even when --no-monitor is also passed (explicit
 // pin > implicit opt-out).

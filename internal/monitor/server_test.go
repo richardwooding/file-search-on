@@ -105,6 +105,42 @@ func TestServer_Healthz(t *testing.T) {
 	}
 }
 
+func TestServer_Pprof(t *testing.T) {
+	// Enabled: /debug/pprof/* is mounted and serves through the full mux.
+	on := NewServer(Config{Mode: "mcp-stdio", Index: index.NewMemory(), EnablePprof: true})
+	h, err := on.routes()
+	if err != nil {
+		t.Fatalf("routes: %v", err)
+	}
+	for _, path := range []string{"/debug/pprof/", "/debug/pprof/heap?debug=1"} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusOK {
+			t.Errorf("EnablePprof=true: GET %s status = %d, want 200", path, rec.Code)
+		}
+	}
+	// Capabilities reports it.
+	if c := decode(t, on.handleCapabilities, "/api/capabilities"); c["pprof"] != true {
+		t.Errorf("capabilities pprof = %v, want true", c["pprof"])
+	}
+
+	// Disabled (default): the path falls through to the static file
+	// server, which 404s — the endpoints are not exposed.
+	off := NewServer(Config{Mode: "mcp-stdio", Index: index.NewMemory()})
+	h, err = off.routes()
+	if err != nil {
+		t.Fatalf("routes: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/debug/pprof/", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("EnablePprof=false: GET /debug/pprof/ status = %d, want 404", rec.Code)
+	}
+	if c := decode(t, off.handleCapabilities, "/api/capabilities"); c["pprof"] != false {
+		t.Errorf("capabilities pprof = %v, want false", c["pprof"])
+	}
+}
+
 func TestForceLoopback(t *testing.T) {
 	cases := map[string]string{
 		":9090":           "127.0.0.1:9090",

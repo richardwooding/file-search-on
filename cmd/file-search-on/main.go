@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime"
+	"runtime/pprof"
+	"runtime/trace"
 	"syscall"
 
 	"github.com/alecthomas/kong"
@@ -51,6 +54,15 @@ var (
 var CLI struct {
 	ProjectTypeConfig string `name:"project-type-config" help:"Path to a YAML config registering custom project types (CEL-driven or file-based indicators). Loaded LAST, after any auto-discovered configs. Loaded before any subcommand runs; the new types appear alongside built-ins in detect-project / find-projects / search results."`
 	NoConfigSearch    bool   `name:"no-config-search" help:"Skip automatic discovery of project-type configs at the standard search paths (user-wide UserConfigDir()/file-search-on/project-types.yaml and per-project ./.file-search-on/project-types.yaml). Use for hermetic invocations (tests, CI) where only the explicit --project-type-config should apply."`
+
+	// Profiling — wrap whichever subcommand runs. CPU/trace profiling
+	// spans the command; the heap profile is written after it returns.
+	// Release binaries are built with -s -w (symbols stripped), so CPU
+	// profiles carry less detail there; heap/goroutine profiles are
+	// unaffected.
+	CPUProfile string `name:"cpuprofile" placeholder:"PATH" help:"Write a CPU profile of this run to PATH (open with: go tool pprof PATH). Wraps whichever subcommand runs." type:"path"`
+	MemProfile string `name:"memprofile" placeholder:"PATH" help:"Write a heap profile to PATH after the command finishes (runtime.GC() first for accurate live counts)." type:"path"`
+	TraceProf  string `name:"trace" placeholder:"PATH" help:"Write a runtime/trace execution trace to PATH (open with: go tool trace PATH)." type:"path"`
 
 	Search             SearchCmd             `cmd:"" help:"Search for files matching a CEL expression." default:"withargs"`
 	Preset             PresetCmd             `cmd:"" name:"preset" help:"Run a pre-canned search recipe by name (recent_changes, recent_photos, old_drafts, large_files, large_binaries, suspicious_files, failed_tests, system_metadata). Without args, lists every preset. Each preset bakes a vetted CEL filter + sensible sort / limit defaults; CLI flags override per-call."`
@@ -120,6 +132,68 @@ func openIndex(path string, noIndex bool, bodyCap index.BodyCacheCap) (index.Ind
 	return resolveIndexBackend("", path, noIndex, bodyCap)
 }
 
+// startProfiling honours the root --cpuprofile / --memprofile / --trace
+// flags. CPU and trace profiling begin immediately; the returned stop
+// closure stops them and writes the heap profile. The stop closure MUST
+// be called explicitly before any os.Exit (which skips deferred funcs),
+// or the CPU/trace files will be truncated and the heap profile never
+// written.
+func startProfiling() (stop func(), err error) {
+	var stops []func()
+	cleanup := func() {
+		// LIFO so each writer is stopped before its file is closed.
+		for i := len(stops) - 1; i >= 0; i-- {
+			stops[i]()
+		}
+	}
+
+	if CLI.CPUProfile != "" {
+		f, ferr := os.Create(CLI.CPUProfile)
+		if ferr != nil {
+			cleanup()
+			return nil, fmt.Errorf("create cpu profile: %w", ferr)
+		}
+		if serr := pprof.StartCPUProfile(f); serr != nil {
+			_ = f.Close()
+			cleanup()
+			return nil, fmt.Errorf("start cpu profile: %w", serr)
+		}
+		stops = append(stops, func() { pprof.StopCPUProfile(); _ = f.Close() })
+	}
+
+	if CLI.TraceProf != "" {
+		f, ferr := os.Create(CLI.TraceProf)
+		if ferr != nil {
+			cleanup()
+			return nil, fmt.Errorf("create trace: %w", ferr)
+		}
+		if serr := trace.Start(f); serr != nil {
+			_ = f.Close()
+			cleanup()
+			return nil, fmt.Errorf("start trace: %w", serr)
+		}
+		stops = append(stops, func() { trace.Stop(); _ = f.Close() })
+	}
+
+	if CLI.MemProfile != "" {
+		path := CLI.MemProfile
+		stops = append(stops, func() {
+			f, ferr := os.Create(path)
+			if ferr != nil {
+				fmt.Fprintln(os.Stderr, "memprofile:", ferr)
+				return
+			}
+			defer func() { _ = f.Close() }()
+			runtime.GC() // materialise up-to-date live-allocation stats
+			if werr := pprof.WriteHeapProfile(f); werr != nil {
+				fmt.Fprintln(os.Stderr, "memprofile:", werr)
+			}
+		})
+	}
+
+	return cleanup, nil
+}
+
 func main() {
 	// Bridge OS signals into a cancellable ctx so subcommands shut down
 	// cleanly: HTTP server gets graceful Shutdown, walker workers exit,
@@ -161,14 +235,26 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	if err := kctx.Run(); err != nil {
+	// Start profiling (if requested) so it wraps the subcommand. The stop
+	// closure is called explicitly after Run — NOT deferred — because the
+	// error paths below os.Exit, which would skip a defer.
+	stopProfiling, err := startProfiling()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
+	}
+
+	runErr := kctx.Run()
+	stopProfiling()
+
+	if runErr != nil {
 		var ece *exitCodeError
-		if errors.As(err, &ece) {
+		if errors.As(runErr, &ece) {
 			// The subcommand has already printed its own diagnostic
 			// to stderr; surface only the exit code.
 			os.Exit(ece.code)
 		}
-		fmt.Fprintln(os.Stderr, "Error:", err)
+		fmt.Fprintln(os.Stderr, "Error:", runErr)
 		os.Exit(1)
 	}
 }

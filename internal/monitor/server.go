@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -43,6 +44,13 @@ type Config struct {
 	IndexBackend        string // "persistent" | "in-memory"
 	IndexFallbackReason string // "" | "lock_contention" | "no_index_flag"
 	BodyCacheCap        int64  // 0 → in-memory / no cap
+
+	// EnablePprof mounts the Go runtime profiling endpoints
+	// (/debug/pprof/*) on this dashboard. Off by default — an explicit
+	// operator opt-in (--pprof), because the endpoints expose process
+	// memory contents and goroutine stacks. Still loopback-only, same
+	// trust boundary as the rest of the dashboard.
+	EnablePprof bool
 
 	// Cwd is the server's working directory at start; warm endpoints
 	// default to walking it when the caller doesn't pin a dir.
@@ -138,6 +146,22 @@ func (s *Server) routes() (http.Handler, error) {
 	mux.HandleFunc("POST /api/cache/warm-bodies", s.handleWarmBodies)
 	mux.HandleFunc("POST /api/cache/warm-embeddings", s.handleWarmEmbeddings)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
+	// Go runtime profiling endpoints, opt-in via --pprof. The named
+	// pprof.* handlers are registered explicitly (NOT the blank
+	// `_ "net/http/pprof"` import, which would also pollute
+	// http.DefaultServeMux and leak the endpoints onto the MCP HTTP
+	// transport). pprof.Index dispatches the named sub-profiles
+	// (/debug/pprof/heap, /goroutine, /allocs, /block, /mutex, …)
+	// itself, so these five cover the full surface. Read-mostly, but
+	// they expose memory contents — hence the explicit opt-in on top of
+	// the loopback trust boundary.
+	if s.cfg.EnablePprof {
+		mux.HandleFunc("GET /debug/pprof/", pprof.Index)
+		mux.HandleFunc("GET /debug/pprof/cmdline", pprof.Cmdline)
+		mux.HandleFunc("GET /debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("GET /debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("GET /debug/pprof/trace", pprof.Trace)
+	}
 	sub, err := fs.Sub(staticFiles, "static")
 	if err != nil {
 		return nil, fmt.Errorf("monitor static assets: %w", err)
@@ -440,6 +464,7 @@ func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 			"model":     s.cfg.EmbedModel,
 			"reachable": s.embedderReachable(r.Context()),
 		},
+		"pprof": s.cfg.EnablePprof,
 	})
 }
 
