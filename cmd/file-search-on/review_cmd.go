@@ -23,6 +23,7 @@ type ReviewCmd struct {
 	Expr string `name:"expr" help:"CEL pre-filter for which files enter the graph. Defaults to is_source."`
 
 	MaxComplexity int  `name:"max-complexity" default:"15" help:"Cyclomatic-complexity ceiling for a function in a changed file; functions above it are a fail-level finding."`
+	MaxCognitive  int  `name:"max-cognitive" default:"15" help:"Cognitive-complexity ceiling (SonarSource, nesting-weighted) for a function in a changed file; functions above it are a fail-level finding. Only applies where cognitive complexity is computed (Go + most tree-sitter languages)."`
 	NoDeadCode    bool `name:"no-dead-code" help:"Skip the dead-code check (it adds a second graph pass)."`
 	Strict        bool `name:"strict" help:"Treat warn-level findings as failures for exit-code purposes (warn verdict also exits non-zero)."`
 
@@ -64,6 +65,7 @@ func (c *ReviewCmd) Run(ctx context.Context) error {
 	}, contentpkg.DefaultRegistry(), search.ReviewConfig{
 		Base:          c.Base,
 		MaxComplexity: c.MaxComplexity,
+		MaxCognitive:  c.MaxCognitive,
 		CheckDeadCode: !c.NoDeadCode,
 	})
 	if err != nil {

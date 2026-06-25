@@ -17,6 +17,7 @@ type ReviewInput struct {
 	codeGraphWalkInput
 	Base          string `json:"base,omitempty" jsonschema:"Git ref to diff against. Empty (default) reviews uncommitted changes vs HEAD (pre-commit). A ref (e.g. 'origin/main') reviews <base>...HEAD — the changes introduced on HEAD since its merge-base with <base> (PR gate). 'dir' is the git working directory."`
 	MaxComplexity int    `json:"max_complexity,omitempty" jsonschema:"Cyclomatic-complexity ceiling for a function in a changed file; functions above it are a fail-level finding. Defaults to 15."`
+	MaxCognitive  int    `json:"max_cognitive,omitempty" jsonschema:"Cognitive-complexity ceiling (SonarSource, nesting-weighted) for a function in a changed file; functions above it are a fail-level finding. Defaults to 15. Only applies where cognitive complexity is computed (Go + most tree-sitter languages)."`
 	SkipDeadCode  bool   `json:"skip_dead_code,omitempty" jsonschema:"When true, skip the dead-code check (it adds a second graph pass). Dead-code findings are warn-level."`
 }
 
@@ -50,6 +51,7 @@ func (h *handlers) reviewHandler(ctx context.Context, _ *mcp.CallToolRequest, in
 	res, err := search.Review(ctx, opts, content.DefaultRegistry(), search.ReviewConfig{
 		Base:          in.Base,
 		MaxComplexity: in.MaxComplexity,
+		MaxCognitive:  in.MaxCognitive,
 		CheckDeadCode: !in.SkipDeadCode,
 	})
 	if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {

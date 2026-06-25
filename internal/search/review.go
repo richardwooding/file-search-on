@@ -38,6 +38,12 @@ type ReviewConfig struct {
 	// changed file; functions above it become a "fail" finding. <= 0 uses
 	// the default (15).
 	MaxComplexity int
+	// MaxCognitive is the cognitive-complexity ceiling (SonarSource,
+	// nesting-weighted) for a function in a changed file; functions above it
+	// become a "fail" finding. <= 0 uses the default (15). Only applies where
+	// cognitive complexity is available (Go + most tree-sitter languages); a
+	// function whose language doesn't compute it is never flagged on this gate.
+	MaxCognitive int
 	// CheckDeadCode includes dead-code candidates in changed files as "warn"
 	// findings. Heuristic, so it never escalates to "fail" on its own.
 	CheckDeadCode bool
@@ -58,7 +64,10 @@ type ReviewResult struct {
 	CancellationReason string          `json:"cancellation_reason,omitempty"`
 }
 
-const defaultReviewMaxComplexity = 15
+const (
+	defaultReviewMaxComplexity = 15
+	defaultReviewMaxCognitive  = 15
+)
 
 // Review resolves the files changed in the git diff (see ReviewConfig.Base),
 // runs the per-file analyses scoped to those files, and returns the findings
@@ -68,6 +77,9 @@ const defaultReviewMaxComplexity = 15
 func Review(ctx context.Context, opts Options, registry *content.Registry, cfg ReviewConfig) (*ReviewResult, error) {
 	if cfg.MaxComplexity <= 0 {
 		cfg.MaxComplexity = defaultReviewMaxComplexity
+	}
+	if cfg.MaxCognitive <= 0 {
+		cfg.MaxCognitive = defaultReviewMaxCognitive
 	}
 	root := reviewRoot(opts)
 
@@ -111,18 +123,34 @@ func Review(ctx context.Context, opts Options, registry *content.Registry, cfg R
 	}
 	if rep != nil {
 		for _, fn := range rep.Functions {
-			if !inChanged(fn.Path) || fn.Complexity <= cfg.MaxComplexity {
+			if !inChanged(fn.Path) {
 				continue
 			}
-			out.Findings = append(out.Findings, ReviewFinding{
-				Rule:      "complexity",
-				Level:     "fail",
-				Message:   fmt.Sprintf("%s has cyclomatic complexity %d (> %d)", fn.Function, fn.Complexity, cfg.MaxComplexity),
-				Path:      fn.Path,
-				Symbol:    fn.Function,
-				StartLine: fn.StartLine,
-				EndLine:   fn.EndLine,
-			})
+			if fn.Complexity > cfg.MaxComplexity {
+				out.Findings = append(out.Findings, ReviewFinding{
+					Rule:      "complexity",
+					Level:     "fail",
+					Message:   fmt.Sprintf("%s has cyclomatic complexity %d (> %d)", fn.Function, fn.Complexity, cfg.MaxComplexity),
+					Path:      fn.Path,
+					Symbol:    fn.Function,
+					StartLine: fn.StartLine,
+					EndLine:   fn.EndLine,
+				})
+			}
+			// Cognitive complexity (nesting-weighted) — only where the language
+			// computes it (CognitiveComplexity != nil); a distinct fail signal
+			// from cyclomatic, so a function may trip both.
+			if fn.CognitiveComplexity != nil && *fn.CognitiveComplexity > cfg.MaxCognitive {
+				out.Findings = append(out.Findings, ReviewFinding{
+					Rule:      "cognitive-complexity",
+					Level:     "fail",
+					Message:   fmt.Sprintf("%s has cognitive complexity %d (> %d)", fn.Function, *fn.CognitiveComplexity, cfg.MaxCognitive),
+					Path:      fn.Path,
+					Symbol:    fn.Function,
+					StartLine: fn.StartLine,
+					EndLine:   fn.EndLine,
+				})
+			}
 		}
 	}
 
