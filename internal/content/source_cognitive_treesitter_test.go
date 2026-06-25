@@ -225,6 +225,51 @@ func TestTSCognitiveComplexity(t *testing.T) {
 			src: "<?php function f($n){\n  if($n==1){ return 1; }\n  elseif($n==2){ return 2; }\n  else { return 3; }\n  return 0;\n}\n",
 			want: 3, // php else_if_clause + else_clause are distinct flat nodes
 		},
+		{
+			name: "ruby-nested", language: "ruby", fn: "branchy",
+			src: "def branchy(x)\n  if x > 0\n    while x > 0\n      if x > 5\n        x -= 1\n      end\n    end\n  end\n  0\nend\n",
+			want: 6,
+		},
+		{
+			name: "ruby-case", language: "ruby", fn: "f",
+			src: "def f(x)\n  case x\n  when 1 then 1\n  else 0\n  end\nend\n",
+			want: 1, // case +1; when/else free (else must not double-count)
+		},
+		{
+			name: "ruby-elsif", language: "ruby", fn: "f",
+			src: "def f(n)\n  if n == 1\n    1\n  elsif n == 2\n    2\n  end\nend\n",
+			want: 2, // if(1) + elsif(1)
+		},
+		{
+			name: "scala-nested", language: "scala", fn: "branchy",
+			src: "def branchy(x: Int): Int = {\n  if (x > 0) {\n    for (i <- 0 until x) {\n      if (i % 2 == 0) return i\n    }\n  }\n  0\n}\n",
+			want: 6,
+		},
+		{
+			name: "scala-match", language: "scala", fn: "f",
+			src: "def f(x: Int): Int = {\n  x match {\n    case 1 => 1\n    case _ => 0\n  }\n}\n",
+			want: 1, // match +1; case_clauses free
+		},
+		{
+			name: "r-nested", language: "r", fn: "branchy",
+			src: "branchy <- function(x) {\n  if (x > 0) {\n    for (i in 1:x) {\n      if (i %% 2 == 0) return(i)\n    }\n  }\n  0\n}\n",
+			want: 6,
+		},
+		{
+			name: "matlab-nested", language: "matlab", fn: "branchy",
+			src: "function r = branchy(x)\n  r = 0;\n  if x > 0\n    for i = 1:x\n      if mod(i,2) == 0\n        r = i;\n      end\n    end\n  end\nend\n",
+			want: 6,
+		},
+		{
+			name: "matlab-elseif", language: "matlab", fn: "f",
+			src: "function r = f(n)\n  if n == 1\n    r = 1;\n  elseif n == 2\n    r = 2;\n  else\n    r = 3;\n  end\nend\n",
+			want: 3, // matlab elseif_clause + else_clause are distinct flat nodes
+		},
+		{
+			name: "perl-nested", language: "perl", fn: "branchy",
+			src: "sub branchy {\n  my $x = shift;\n  if ($x > 0) {\n    while ($x > 0) {\n      if ($x > 5) { $x--; }\n    }\n  }\n  return 0;\n}\n",
+			want: 6,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

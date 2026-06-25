@@ -109,6 +109,38 @@ var tsCognitiveSpecs = map[string]tsCognitiveSpec{
 		nesting: tsNodeSet("if_statement", "for_statement", "foreach_statement", "while_statement", "do_statement", "switch_statement", "catch_clause", "conditional_expression"),
 		flat:    tsNodeSet("else_if_clause", "else_clause"),
 	},
+	"ruby": {
+		// `else` is shared by if and case, so it is NOT flat (that would
+		// over-count a case/when else); only the if-specific `elsif` is. A
+		// trailing plain else then under-counts by 1 (as in the C-family).
+		// `case` is the switch container (its `when`s are free); `conditional`
+		// is the ternary.
+		nesting: tsNodeSet("if", "unless", "while", "until", "for", "case", "rescue", "conditional"),
+		flat:    tsNodeSet("elsif"),
+	},
+	"scala": {
+		// match_expression is the container (case_clauses free). Booleans are
+		// infix_expression with an operator_identifier child, which tsBoolOp
+		// doesn't read, so && / || runs aren't counted for Scala (under-count).
+		nesting:   tsNodeSet("if_expression", "for_expression", "while_expression", "match_expression", "catch_clause"),
+		ifType:    "if_expression",
+		elseField: "alternative",
+	},
+	"r": {
+		nesting:   tsNodeSet("if_statement", "for_statement", "while_statement"),
+		ifType:    "if_statement",
+		elseField: "alternative",
+	},
+	"matlab": {
+		nesting: tsNodeSet("if_statement", "for_statement", "while_statement", "switch_statement"),
+		flat:    tsNodeSet("elseif_clause", "else_clause"),
+	},
+	"perl": {
+		// if = conditional_statement, while/for = loop_statement; elsif is a
+		// distinct flat node.
+		nesting: tsNodeSet("conditional_statement", "loop_statement"),
+		flat:    tsNodeSet("elsif"),
+	},
 }
 
 // tsCognitiveComplexity computes cognitive complexity for each function span,
@@ -136,6 +168,13 @@ func tsCognitiveComplexity(language string, tl *tsLang, tree *ts.Tree, funcSpans
 		for i := 0; i < n.ChildCount(); i++ {
 			c := n.Child(i)
 			if c == nil {
+				continue
+			}
+			// Skip anonymous tokens (keywords, punctuation): they're leaves and
+			// some grammars name a keyword the same as its statement — Ruby's
+			// `if` token shares the type string with the `if` node — which would
+			// double-count. Named nodes carry all the structure we classify.
+			if !c.IsNamed() {
 				continue
 			}
 			rng := [2]uint32{c.StartByte(), c.EndByte()}
