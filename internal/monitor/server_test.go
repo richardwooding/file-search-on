@@ -119,6 +119,13 @@ func TestServer_Pprof(t *testing.T) {
 			t.Errorf("EnablePprof=true: GET %s status = %d, want 200", path, rec.Code)
 		}
 	}
+	// pprof.Symbol must accept POST — go tool pprof posts the address
+	// list to resolve. A method-routed mux would 405 it otherwise.
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/debug/pprof/symbol", nil))
+	if rec.Code != http.StatusOK {
+		t.Errorf("EnablePprof=true: POST /debug/pprof/symbol status = %d, want 200", rec.Code)
+	}
 	// Capabilities reports it.
 	if c := decode(t, on.handleCapabilities, "/api/capabilities"); c["pprof"] != true {
 		t.Errorf("capabilities pprof = %v, want true", c["pprof"])
@@ -131,7 +138,7 @@ func TestServer_Pprof(t *testing.T) {
 	if err != nil {
 		t.Fatalf("routes: %v", err)
 	}
-	rec := httptest.NewRecorder()
+	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/debug/pprof/", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("EnablePprof=false: GET /debug/pprof/ status = %d, want 404", rec.Code)
