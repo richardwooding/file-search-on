@@ -294,8 +294,13 @@ func goHandlerBoundary(f *ast.File) []string {
 			}
 			for _, m := range it.Methods.List {
 				// Method elements carry Names; embedded interfaces don't.
+				// Only exported methods matter — unused_exports judges only
+				// exported symbols — so unexported interface methods (sealed-
+				// interface markers like isNode()) are skipped.
 				for _, nm := range m.Names {
-					out = append(out, "i\x00"+nm.Name)
+					if goExportedName(nm.Name) {
+						out = append(out, "i\x00"+nm.Name)
+					}
 				}
 			}
 		}
