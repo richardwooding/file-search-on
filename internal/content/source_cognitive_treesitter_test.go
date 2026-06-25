@@ -270,6 +270,13 @@ func TestTSCognitiveComplexity(t *testing.T) {
 			src: "sub branchy {\n  my $x = shift;\n  if ($x > 0) {\n    while ($x > 0) {\n      if ($x > 5) { $x--; }\n    }\n  }\n  return 0;\n}\n",
 			want: 6,
 		},
+		{
+			// Perl elsif + else are distinct flat nodes (named `elsif` / `else`
+			// in the bundled grammar, not the *_clause forms).
+			name: "perl-elsif", language: "perl", fn: "f",
+			src: "sub f {\n  my $x = shift;\n  if ($x == 1) { return 1; }\n  elsif ($x == 2) { return 2; }\n  else { return 3; }\n}\n",
+			want: 3, // if(1) + elsif(1) + else(1)
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

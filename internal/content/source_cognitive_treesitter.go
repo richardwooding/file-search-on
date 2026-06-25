@@ -136,10 +136,13 @@ var tsCognitiveSpecs = map[string]tsCognitiveSpec{
 		flat:    tsNodeSet("elseif_clause", "else_clause"),
 	},
 	"perl": {
-		// if = conditional_statement, while/for = loop_statement; elsif is a
-		// distinct flat node.
+		// if = conditional_statement, while/for = loop_statement. The bundled
+		// tree-sitter-perl grammar names the else/elsif blocks `elsif` and
+		// `else` (verified — not the *_clause forms some upstreams use); both
+		// are distinct flat nodes, and Perl has no case/else sharing so `else`
+		// is safe to count.
 		nesting: tsNodeSet("conditional_statement", "loop_statement"),
-		flat:    tsNodeSet("elsif"),
+		flat:    tsNodeSet("elsif", "else"),
 	},
 }
 
