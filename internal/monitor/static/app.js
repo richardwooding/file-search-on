@@ -151,6 +151,24 @@ function renderCapabilities(d) {
     ? `<span class="pill pill-ok">reachable</span>`
     : `<span class="pill pill-unknown">unreachable</span>`;
 
+  // Profiling — when --pprof mounted the runtime endpoints on this
+  // dashboard, link straight to them and surface the go-tool-pprof
+  // command. Resolve via new URL against the current page so the links
+  // stay correct under a subpath / reverse proxy and regardless of a
+  // trailing slash. Otherwise nudge toward the flag.
+  const pp = (p) => new URL("debug/pprof/" + p, window.location.href).href;
+  const pprofCell = d.pprof
+    ? `<span class="pill pill-ok">enabled</span>
+       <div class="pprof-links">
+         <a href="${pp("")}" target="_blank" rel="noopener">index</a>
+         <a href="${pp("heap?debug=1")}" target="_blank" rel="noopener">heap</a>
+         <a href="${pp("goroutine?debug=1")}" target="_blank" rel="noopener">goroutines</a>
+         <a href="${pp("profile?seconds=30")}" target="_blank" rel="noopener">CPU&nbsp;(30s)</a>
+       </div>
+       <code class="pprof-cmd">go tool pprof ${pp("profile")}</code>`
+    : `<span class="pill pill-unknown">disabled</span>
+       <span class="muted">restart with <code>--pprof</code> to mount /debug/pprof/*</span>`;
+
   $("capabilities").innerHTML = `<div class="caps-grid">
     <div><h3 class="sub">Content types (${ct.total})</h3>${fams || '<div class="empty">—</div>'}</div>
     <div><h3 class="sub">Project types (${(d.project_types || []).length})</h3>${projects || '<div class="empty">—</div>'}</div>
@@ -158,6 +176,7 @@ function renderCapabilities(d) {
     <div><h3 class="sub">Embedder</h3>
       <div>${embLine} <span class="muted">${emb.model || "no model"} @ ${emb.server || "—"}</span></div>
     </div>
+    <div><h3 class="sub">Profiling</h3>${pprofCell}</div>
   </div>`;
 }
 

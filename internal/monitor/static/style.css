@@ -77,6 +77,15 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .ix-memory { color: var(--muted); }
 .ix-memory.ix-warn { color: var(--warn); }
 
+/* --- profiling (pprof) --- */
+.pprof-links { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.pprof-links a { background: var(--card); border: 1px solid var(--line); border-radius: 4px;
+  padding: 2px 8px; font-size: 12px; color: var(--accent); text-decoration: none; }
+.pprof-links a:hover { background: #2d3743; }
+.pprof-cmd { display: block; margin-top: 8px; padding: 6px 8px; background: var(--card);
+  border-radius: 4px; font-family: ui-monospace, monospace; font-size: 11px;
+  color: var(--muted); word-break: break-all; }
+
 /* --- cache browser --- */
 .cb-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
 .cb-tabs { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
