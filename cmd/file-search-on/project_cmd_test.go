@@ -154,15 +154,20 @@ func TestFindProjectsCmd_Run_SkipsGitDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if strings.Contains(out, "decoy") || strings.Contains(out, ".git") {
-		t.Errorf("project inside .git should be pruned, but appeared in output:\n%s", out)
+	var got struct {
+		Projects []struct {
+			Path string `json:"path"`
+		} `json:"projects"`
 	}
-	var got map[string]any
 	if err := json.NewDecoder(strings.NewReader(out)).Decode(&got); err != nil {
 		t.Fatalf("decode JSON: %v\nraw: %q", err, out)
 	}
-	if projects, _ := got["projects"].([]any); len(projects) != 1 {
-		t.Errorf("expected only the real project, got %d: %v", len(projects), projects)
+	// Exactly the root project — never the decoy buried under .git.
+	if len(got.Projects) != 1 {
+		t.Fatalf("expected only the real project, got %d: %+v", len(got.Projects), got.Projects)
+	}
+	if p := filepath.Clean(got.Projects[0].Path); p != filepath.Clean(tmp) {
+		t.Errorf("reported project = %q, want the root %q (a .git-buried project leaked)", p, tmp)
 	}
 }
 
