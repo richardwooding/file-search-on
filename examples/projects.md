@@ -22,6 +22,16 @@ Three surfaces:
 | `dotnet` | `*.csproj`, `*.fsproj`, `*.vbproj`, `*.sln` (any), `*.slnx` (XML solution), `*.slnf` (solution filter), `global.json`, `Directory.Build.props`, `Directory.Packages.props`, `nuget.config` |
 | `terraform` | `*.tf` |
 | `docker-compose` | `docker-compose.yml`, `docker-compose.yaml`, `compose.yml`, `compose.yaml` (any) |
+| `php` | `composer.json` |
+| `swift` | `Package.swift`, `*.podspec`, `*.xcodeproj`/`*.xcworkspace` subdir (any) |
+| `scala-sbt` | `build.sbt` |
+| `scala-mill` | `build.mill`, `build.sc` (any) |
+| `cmake` | `CMakeLists.txt` |
+| `autotools` | `configure.ac`, `configure.in`, `Makefile.am` (any) |
+| `r` | `DESCRIPTION`, `*.Rproj` (any) |
+| `zig` | `build.zig`, `build.zig.zon` (any) |
+| `perl` | `Makefile.PL`, `Build.PL`, `cpanfile`, `dist.ini` (any) |
+| `matlab` | `*.prj` |
 | `hugo` | `hugo.toml`, `hugo.yaml`, `hugo.yml` (any) |
 | `jekyll` | `_config.yml`, `_config.yaml` (any) |
 | `eleventy` | `.eleventy.js`, `eleventy.config.js`, `eleventy.config.cjs`, `eleventy.config.mjs`, `eleventy.config.ts` (any) |
@@ -224,7 +234,12 @@ project_types:
     indicators:
       - has_glob: "*.tf"
       - cel: '"main.tf" in files'   # any indicator firing counts
+  - name: xcode-app
+    indicators:
+      - has_subdir_glob: "*.xcodeproj"   # glob an immediate SUBDIR name, not a file
 ```
+
+Indicator keys: `has_file` (exact basename), `has_glob` (glob over files in the dir), `has_subdir_glob` (glob over immediate subdirectory names — e.g. a Swift app whose marker is an `App.xcodeproj/` directory), and `cel` (an expression over `files` + `subdirs`). Any one indicator firing matches the type.
 
 ```sh
 # Same YAML dropped at the user-wide path → all invocations see it
