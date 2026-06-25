@@ -219,22 +219,26 @@ func goValueRefs(f *ast.File) []string {
 	return out
 }
 
-// goHandlerBoundary extracts the data that spares registration-bound types
-// from the unused_exports "package-local" false positive (issue #504). It
-// returns two relations tag-encoded into one []string (mirroring the
-// call_edges "\x00" convention) so they ride in a single attribute:
+// goHandlerBoundary extracts the export-pinning signals that spare symbols
+// from the unused_exports "package-local" false positive. It returns three
+// relations tag-encoded into one []string (mirroring the call_edges "\x00"
+// convention) so they ride in a single attribute:
 //
 //	"v\x00<func>"           — <func> is passed as a VALUE to a call (a handler
 //	                          registered via the AddTool / HandleFunc pattern, #421).
 //	"s\x00<func>\x00<Type>" — exported <Type> appears in <func>'s signature
 //	                          (a parameter or result type).
+//	"i\x00<Method>"         — <Method> is declared on an interface (#505).
 //
-// The aggregator (search.UnusedExports) joins them: an exported type in the
-// signature of a function that is registered as a value is bound to that
-// external generic API — e.g. mcp.AddTool[In, Out] infers In/Out from the
-// handler signature — and must stay exported, so it is exempt from the
-// unexport-candidate list even though every textual reference to it sits
-// inside the defining package.
+// The aggregator (search.UnusedExports) joins them:
+//   - #504: an exported type in the signature of a function registered as a
+//     value is bound to that external generic API — e.g. mcp.AddTool[In, Out]
+//     infers In/Out from the handler signature — and must stay exported.
+//   - #505: a method whose name is declared on a first-party interface can't
+//     be unexported without breaking interface satisfaction.
+//
+// Both are exempt from the unexport-candidate list even though every textual
+// reference sits inside the defining package.
 //
 // Only EXPORTED signature types are emitted (unused_exports only judges
 // exported symbols), which bounds the output. Takes the AST already parsed by
@@ -268,6 +272,36 @@ func goHandlerBoundary(f *ast.File) []string {
 		for _, t := range dedupeStrings(sigTypes) {
 			if goExportedName(t) {
 				out = append(out, "s\x00"+fn.Name.Name+"\x00"+t)
+			}
+		}
+	}
+	// Interface method names (#505): a method that satisfies a first-party
+	// interface can't be unexported without breaking the interface, so the
+	// aggregator exempts methods whose name is declared on any interface.
+	for _, decl := range f.Decls {
+		gd, ok := decl.(*ast.GenDecl)
+		if !ok || gd.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range gd.Specs {
+			ts, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+			it, ok := ts.Type.(*ast.InterfaceType)
+			if !ok || it.Methods == nil {
+				continue
+			}
+			for _, m := range it.Methods.List {
+				// Method elements carry Names; embedded interfaces don't.
+				// Only exported methods matter — unused_exports judges only
+				// exported symbols — so unexported interface methods (sealed-
+				// interface markers like isNode()) are skipped.
+				for _, nm := range m.Names {
+					if goExportedName(nm.Name) {
+						out = append(out, "i\x00"+nm.Name)
+					}
+				}
 			}
 		}
 	}
