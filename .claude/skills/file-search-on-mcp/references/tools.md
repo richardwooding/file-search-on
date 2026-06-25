@@ -697,7 +697,7 @@ Key inputs:
 - `symbol` — exact function/method name (required).
 - `impact_depth` — 0 (default) omits the closure; N > 0 includes transitive callers up to N hops.
 
-Output: `symbol`, `defined_on` (owning types when the name is a method), `callers[]` (`{path, language}`), `callees[]` (distinct names), `impact[]` (`{symbol, depth, paths}`, only when `impact_depth > 0`), `callers_count`, `callees_count`, `total_files`.
+Output: `symbol`, `defined_on` (owning types when the name is a method), `callers[]` (`{path, language}`), `callees[]` (distinct names), `impact[]` (`{symbol, depth, paths[]}`, only when `impact_depth > 0`), `callers_count`, `callees_count`, `total_files`.
 
 Gotcha: name-based, same caveats as `who_calls` / `calls`. Use when you want the full picture of one function (who uses it AND what it depends on) without three round-trips.
 
