@@ -46,10 +46,36 @@ func TestComplexity(t *testing.T) {
 	}
 }
 
-// TestComplexity_CognitiveUnavailableForNonGo: tree-sitter languages don't
-// compute cognitive complexity yet (#485 follow-up), so the field is nil —
-// distinct from a genuine 0 — and never a misleading number.
-func TestComplexity_CognitiveUnavailableForNonGo(t *testing.T) {
+// TestComplexity_CognitiveUnavailableForUnsupportedLang: tree-sitter languages
+// without a cognitive spec yet (Ruby here; the long tail tracked in #491)
+// report cognitive as nil — distinct from a genuine 0 — never a wrong number,
+// while cyclomatic is still computed.
+func TestComplexity_CognitiveUnavailableForUnsupportedLang(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "s.rb"),
+		[]byte("def branchy(x)\n  if x > 0\n    (0...x).each do |i|\n      return i if i % 2 == 0\n    end\n  end\n  0\nend\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := search.Complexity(t.Context(), search.Options{Root: dir, Expr: `is_source && language == "ruby"`}, content.DefaultRegistry(), 50)
+	if err != nil {
+		t.Fatalf("Complexity: %v", err)
+	}
+	if len(rep.Functions) == 0 {
+		t.Fatal("no functions found for ruby fixture")
+	}
+	for _, f := range rep.Functions {
+		if f.CognitiveComplexity != nil {
+			t.Errorf("%s: cognitive=%v, want nil (unavailable for ruby)", f.Function, *f.CognitiveComplexity)
+		}
+		if f.Complexity <= 0 {
+			t.Errorf("%s: cyclomatic=%d, want > 0", f.Function, f.Complexity)
+		}
+	}
+}
+
+// TestComplexity_CognitiveForTreeSitterLang: an enabled tree-sitter language
+// (Python) now reports cognitive complexity, weighting nesting (#491).
+func TestComplexity_CognitiveForTreeSitterLang(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "s.py"),
 		[]byte("def branchy(x):\n    if x > 0:\n        for i in range(x):\n            if i % 2 == 0:\n                return i\n    return 0\n"), 0o644); err != nil {
@@ -62,13 +88,12 @@ func TestComplexity_CognitiveUnavailableForNonGo(t *testing.T) {
 	if len(rep.Functions) == 0 {
 		t.Fatal("no functions found for python fixture")
 	}
-	for _, f := range rep.Functions {
-		if f.CognitiveComplexity != nil {
-			t.Errorf("%s: cognitive=%v, want nil (unavailable for python)", f.Function, *f.CognitiveComplexity)
-		}
-		if f.Complexity <= 0 {
-			t.Errorf("%s: cyclomatic=%d, want > 0", f.Function, f.Complexity)
-		}
+	f := rep.Functions[0]
+	if f.CognitiveComplexity == nil {
+		t.Fatalf("%s: cognitive=nil, want a value (python is enabled)", f.Function)
+	}
+	if *f.CognitiveComplexity != 6 { // if(1) + for(2) + nested if(3)
+		t.Errorf("%s: cognitive=%d, want 6", f.Function, *f.CognitiveComplexity)
 	}
 }
 
