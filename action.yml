@@ -1,0 +1,236 @@
+# GitHub Marketplace action: a diff-scoped code review gate.
+#
+# Wraps `file-search-on review` — resolve the files changed in the git diff,
+# run complexity / cognitive-complexity / dead-code scoped to them, emit a
+# pass/warn/fail verdict, and surface findings as SARIF for Code Scanning.
+#
+# This is a COMPOSITE action (not a Docker action) on purpose: `review` shells
+# out to `git`, and the published OCI image's base (chainguard/static) has no
+# git/shell. So the binary is downloaded from the matching GitHub Release and
+# run on the runner host, where git + the checkout already exist.
+#
+# Requirements in the consuming workflow:
+#   - actions/checkout with `fetch-depth: 0` (the PR gate needs the merge base).
+#   - `permissions: security-events: write` when upload-sarif is true (default).
+# Supported runners: ubuntu-* and macos-* (Windows is not yet supported).
+name: "file-search-on review gate"
+description: "Diff-scoped code review gate (complexity, cognitive complexity, dead code) with SARIF output for Code Scanning."
+author: "Richard Wooding"
+branding:
+  icon: git-pull-request
+  color: blue
+
+inputs:
+  directory:
+    description: "Repository directory to review (git working dir & walk root)."
+    default: "."
+  base:
+    description: "Git ref to diff against. Empty reviews uncommitted changes vs HEAD; on pull_request events it defaults to the PR base (origin/<base_ref>). A ref like origin/main reviews <base>...HEAD."
+    default: ""
+  expr:
+    description: "CEL pre-filter for which files enter the graph. Defaults to is_source when empty."
+    default: ""
+  max-complexity:
+    description: "Cyclomatic-complexity ceiling for a function in a changed file; above it is a fail-level finding."
+    default: "15"
+  max-cognitive:
+    description: "Cognitive-complexity ceiling (SonarSource, nesting-weighted) for a function in a changed file; above it is a fail-level finding."
+    default: "15"
+  skip-dead-code:
+    description: "Skip the dead-code check (it adds a second graph pass)."
+    default: "false"
+  strict:
+    description: "Treat warn-level findings as failures for the verdict / exit code."
+    default: "false"
+  exclude:
+    description: "Newline-separated basename globs to prune from the walk."
+    default: ""
+  prune-build-artefacts:
+    description: "Prune canonical build-artefact dirs (vendor / node_modules / target / …)."
+    default: "false"
+  respect-gitignore:
+    description: "Parse a .gitignore at the walk root and skip matching paths."
+    default: "false"
+  timeout:
+    description: "Maximum duration (Go duration, e.g. 5m). On expiry the partial verdict is reported and the gate fails."
+    default: ""
+  version:
+    description: "file-search-on release to use. Empty = the action ref when it is a vX.Y.Z tag, else the latest release."
+    default: ""
+  upload-sarif:
+    description: "Upload the SARIF report to GitHub Code Scanning."
+    default: "true"
+  sarif-file:
+    description: "Path to write the SARIF report."
+    default: "file-search-on-review.sarif"
+  gate:
+    description: "Fail the action on a fail (or timeout) verdict. Set false to report-only — findings still upload as annotations."
+    default: "true"
+
+outputs:
+  verdict:
+    description: "pass | warn | fail | timeout | interrupted."
+    value: "${{ steps.review.outputs.verdict }}"
+  fail-count:
+    description: "Number of fail-level findings."
+    value: "${{ steps.review.outputs.fail_count }}"
+  warn-count:
+    description: "Number of warn-level findings."
+    value: "${{ steps.review.outputs.warn_count }}"
+  sarif-file:
+    description: "Path to the generated SARIF report."
+    value: "${{ inputs.sarif-file }}"
+
+runs:
+  using: composite
+  steps:
+    - id: install
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        ACTION_REF: ${{ github.action_ref }}
+        INPUT_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+
+        # Resolve the release tag.
+        TAG="$INPUT_VERSION"
+        if [ -z "$TAG" ]; then
+          if printf '%s' "$ACTION_REF" | grep -Eq '^v[0-9]'; then
+            TAG="$ACTION_REF"
+          else
+            TAG="latest"
+          fi
+        fi
+
+        # Map runner OS/arch to the goreleaser archive tokens.
+        case "$RUNNER_OS" in
+          Linux)  OS=linux  ;;
+          macOS)  OS=darwin ;;
+          *) echo "::error::file-search-on review gate supports ubuntu-* and macos-* runners only (got RUNNER_OS=$RUNNER_OS)."; exit 1 ;;
+        esac
+        case "$RUNNER_ARCH" in
+          X64)   ARCH=amd64 ;;
+          ARM64) ARCH=arm64 ;;
+          *) echo "::error::Unsupported RUNNER_ARCH=$RUNNER_ARCH."; exit 1 ;;
+        esac
+
+        DEST="$RUNNER_TEMP/file-search-on"
+        mkdir -p "$DEST"
+
+        # Resolve the concrete tag for `latest` so we can name the asset
+        # (archive filenames embed the version, which /latest/ doesn't expose).
+        if [ "$TAG" = "latest" ]; then
+          TAG=$(gh release view --repo richardwooding/file-search-on --json tagName -q .tagName)
+        fi
+        VER="${TAG#v}"
+        ASSET="file-search-on_${VER}_${OS}_${ARCH}.tar.gz"
+
+        echo "Downloading $ASSET (tag $TAG)…"
+        gh release download "$TAG" --repo richardwooding/file-search-on --pattern "$ASSET" --dir "$DEST"
+        tar -xzf "$DEST/$ASSET" -C "$DEST"
+        chmod +x "$DEST/file-search-on"
+        echo "$DEST" >> "$GITHUB_PATH"
+        "$DEST/file-search-on" --version || true
+
+    - id: review
+      shell: bash
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        BASE_REF: ${{ github.base_ref }}
+        INPUT_DIR: ${{ inputs.directory }}
+        INPUT_BASE: ${{ inputs.base }}
+        INPUT_EXPR: ${{ inputs.expr }}
+        INPUT_MAX_COMPLEXITY: ${{ inputs.max-complexity }}
+        INPUT_MAX_COGNITIVE: ${{ inputs.max-cognitive }}
+        INPUT_SKIP_DEAD_CODE: ${{ inputs.skip-dead-code }}
+        INPUT_STRICT: ${{ inputs.strict }}
+        INPUT_EXCLUDE: ${{ inputs.exclude }}
+        INPUT_PRUNE: ${{ inputs.prune-build-artefacts }}
+        INPUT_RESPECT_GITIGNORE: ${{ inputs.respect-gitignore }}
+        INPUT_TIMEOUT: ${{ inputs.timeout }}
+        SARIF_FILE: ${{ inputs.sarif-file }}
+      run: |
+        set -uo pipefail
+
+        # Resolve the base ref: explicit input wins; else on a PR fetch and use
+        # the PR base; else empty (uncommitted vs HEAD).
+        BASE="$INPUT_BASE"
+        if [ -z "$BASE" ] && [ "$EVENT_NAME" = "pull_request" ] && [ -n "$BASE_REF" ]; then
+          # Safety net for shallow checkouts; with fetch-depth: 0 this is a no-op.
+          git fetch --no-tags origin "$BASE_REF" >/dev/null 2>&1 || true
+          BASE="origin/$BASE_REF"
+        fi
+
+        ARGS=(review -d "$INPUT_DIR" -o sarif)
+        [ -n "$BASE" ] && ARGS+=(--base "$BASE")
+        [ -n "$INPUT_EXPR" ] && ARGS+=(--expr "$INPUT_EXPR")
+        ARGS+=(--max-complexity "$INPUT_MAX_COMPLEXITY" --max-cognitive "$INPUT_MAX_COGNITIVE")
+        [ "$INPUT_SKIP_DEAD_CODE" = "true" ] && ARGS+=(--no-dead-code)
+        [ "$INPUT_STRICT" = "true" ] && ARGS+=(--strict)
+        [ "$INPUT_PRUNE" = "true" ] && ARGS+=(--prune-build-artefacts)
+        [ "$INPUT_RESPECT_GITIGNORE" = "true" ] && ARGS+=(--respect-gitignore)
+        [ -n "$INPUT_TIMEOUT" ] && ARGS+=(--timeout "$INPUT_TIMEOUT")
+        while IFS= read -r glob; do
+          [ -n "$glob" ] && ARGS+=(--exclude "$glob")
+        done <<< "$INPUT_EXCLUDE"
+
+        echo "+ file-search-on ${ARGS[*]}"
+        file-search-on "${ARGS[@]}" > "$SARIF_FILE"
+        ec=$?
+        echo "review exit code: $ec"
+
+        # Counts come from the SARIF result levels (error=fail, warning=warn) —
+        # no second analysis pass.
+        fail_count=$(jq '[.runs[0].results[]? | select(.level=="error")] | length' "$SARIF_FILE" 2>/dev/null || echo 0)
+        warn_count=$(jq '[.runs[0].results[]? | select(.level=="warning")] | length' "$SARIF_FILE" 2>/dev/null || echo 0)
+
+        # Derive the verdict from the finding counts (matching the CLI's own
+        # logic: any fail -> fail, else any warn -> warn, else pass), so a
+        # warn verdict is reported even when --strict is off and the binary
+        # exits 0. Gating itself is left to the exit code (see the gate step):
+        # the binary already exits non-zero on fail OR strict+warn.
+        case "$ec" in
+          124) verdict=timeout ;;
+          130) verdict=interrupted ;;
+          0)   if [ "${warn_count:-0}" -gt 0 ] 2>/dev/null; then verdict=warn; else verdict=pass; fi ;;
+          1)   if [ "${fail_count:-0}" -gt 0 ] 2>/dev/null; then verdict=fail
+               elif [ "${warn_count:-0}" -gt 0 ] 2>/dev/null; then verdict=warn
+               else verdict=fail; fi ;;  # ec=1 but counts unknown (jq failed) -> fail, safe
+          *)   verdict=fail ;;
+        esac
+
+        {
+          echo "verdict=$verdict"
+          echo "fail_count=$fail_count"
+          echo "warn_count=$warn_count"
+          echo "exit_code=$ec"
+        } >> "$GITHUB_OUTPUT"
+
+        echo "### file-search-on review: \`$verdict\` ($fail_count fail, $warn_count warn)" >> "$GITHUB_STEP_SUMMARY"
+
+    - id: upload
+      if: ${{ always() && inputs.upload-sarif == 'true' }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.sarif-file }}
+        category: file-search-on-review
+
+    - id: gate
+      if: ${{ inputs.gate == 'true' }}
+      shell: bash
+      env:
+        VERDICT: ${{ steps.review.outputs.verdict }}
+        EC: ${{ steps.review.outputs.exit_code }}
+      run: |
+        # Defer to the binary's exit code, which already encodes the full
+        # gating decision: 0 = pass, 1 = fail OR (strict & warn), 124/130 =
+        # timeout/interrupted. This honours --strict without re-deriving it.
+        case "$EC" in
+          0)
+            echo "file-search-on review verdict: $VERDICT"
+            exit 0 ;;
+          *)
+            echo "::error::file-search-on review verdict: $VERDICT (exit $EC)"
+            exit 1 ;;
+        esac

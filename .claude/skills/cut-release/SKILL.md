@@ -13,6 +13,8 @@ A release publishes to three independent targets in one shot. Pushing a tag matc
 
 This skill encodes the pre-flight, the tag-and-push, the verification, and the rollback. Tag pushes are public and hard to reverse — confirm version with the user before pushing if there's any ambiguity.
 
+> **GitHub Marketplace action.** The repo-root `action.yml` (a composite "review gate" action) is published to the Marketplace. GoReleaser creates releases via the API and **cannot** tick the Marketplace checkbox, so this is a **one-time manual step** done once: on a published release, click *Edit*, check **"Publish this Action to the GitHub Marketplace"**, confirm "Everything looks good!", pick categories (**Code quality** + **Code review**), and save. After the first publish, every subsequent `v*` release automatically becomes a new Marketplace version — no per-release action needed. The action downloads the release binary matching its ref, so the action version tracks the CLI version automatically; just keep `action.yml`'s example version references roughly current.
+
 ## Quick start
 
 ```sh
