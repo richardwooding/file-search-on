@@ -639,6 +639,47 @@ For HTTP-based clients, point at `http://<host>:<port>/` after starting the serv
 
 Built on [`github.com/modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk).
 
+## GitHub Action
+
+`file-search-on` ships a composite GitHub Action that runs the [`review`](#usage) gate on
+pull requests and uploads findings to **Code Scanning** as SARIF, so over-complexity and
+dead-code show up as inline annotations on the diff.
+
+```yaml
+# .github/workflows/review.yml
+name: review
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+  security-events: write   # required for SARIF upload (Code Scanning)
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0     # required — the PR gate needs the merge base
+      - uses: richardwooding/file-search-on@v0.115.0
+        with:
+          base: origin/${{ github.base_ref }}
+          max-complexity: "15"
+          max-cognitive: "15"
+```
+
+The action downloads the matching release binary and runs it on the runner (the published
+OCI image can't run `review`, which shells out to `git`). The job fails on a `fail` verdict;
+set `gate: false` for report-only mode (findings still upload as annotations).
+
+Key inputs: `base`, `max-complexity`, `max-cognitive`, `skip-dead-code`, `strict`, `expr`,
+`exclude`, `prune-build-artefacts`, `timeout`, `version` (which release to use; defaults to
+the action ref or `latest`), `upload-sarif`, `gate`. Outputs: `verdict`, `fail-count`,
+`warn-count`, `sarif-file`. See [`action.yml`](action.yml) for the full list and
+[`examples/ci-review-gate.md`](examples/ci-review-gate.md) for more recipes.
+
+> Supported runners: `ubuntu-*` and `macos-*`. Windows is not yet supported.
+
 ## Monitoring dashboard
 
 Both long-running modes (`mcp` and `watch`) expose a read-only monitoring dashboard. Since v0.65.0 it's **on by default** on a dynamic OS-assigned localhost port — many concurrent stdio agents each get their own dashboard without colliding. The server binds **127.0.0.1 only** (the host part of any address is ignored — only the port is used), needs no auth, and adds no dependencies — the UI is a single embedded page that polls a small JSON API.
