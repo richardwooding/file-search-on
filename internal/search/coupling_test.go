@@ -650,6 +650,29 @@ func TestCoupling_PerlPackages(t *testing.T) {
 	assertABCGraph(t, root, "Demo::App", "Demo::Svc", "Demo::Util")
 }
 
+// TestCoupling_RubyGem pins the #519 Ruby ecosystem: a Gemfile gem, directory
+// nodes, resolving both `require "lib-path"` (load-path) and `require_relative`
+// to first-party files. lib/a → lib/b (require_relative) + lib/c (require);
+// lib/b → lib/c; lib/c → ∅. `require "json"` (stdlib) backs no first-party file
+// and must NOT create an edge.
+func TestCoupling_RubyGem(t *testing.T) {
+	root := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "Gemfile"), "source 'https://rubygems.org'\ngemspec\n")
+	mk := func(sub, body string) {
+		d := filepath.Join(root, "lib", sub)
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mustWriteFile(t, filepath.Join(d, "mod.rb"), body)
+	}
+	// a uses require_relative for the b edge and load-path require for the c
+	// edge — exercising both resolution paths; require "json" is external.
+	mk("a", "require 'json'\nrequire_relative '../b/mod'\nrequire 'c/mod'\nmodule A; end\n")
+	mk("b", "require 'c/mod'\nmodule B; end\n")
+	mk("c", "module C; end\n")
+	assertABCGraph(t, root, "lib/a", "lib/b", "lib/c")
+}
+
 // assertABCGraph checks the canonical a→b, a→c; b→c; c→∅ coupling shape used
 // by several per-language tests: a={Ca:0,Ce:2,I:1}, b={1,1,0.5}, c={2,0,0}.
 func assertABCGraph(t *testing.T, root, a, b, c string) {
