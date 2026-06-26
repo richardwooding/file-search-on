@@ -658,7 +658,7 @@ jobs:
   review:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0     # required — the PR gate needs the merge base
       - uses: richardwooding/file-search-on@v0.115.0
