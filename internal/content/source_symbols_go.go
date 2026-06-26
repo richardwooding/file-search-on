@@ -229,6 +229,9 @@ func goValueRefs(f *ast.File) []string {
 //	"s\x00<func>\x00<Type>" — exported <Type> appears in <func>'s signature
 //	                          (a parameter or result type).
 //	"i\x00<Method>"         — <Method> is declared on an interface (#505).
+//	"p\x00external_test"    — this file is an external test package
+//	                          (`package <pkg>_test`); its references are
+//	                          cross-boundary (#511).
 //
 // The aggregator (search.UnusedExports) joins them:
 //   - #504: an exported type in the signature of a function registered as a
@@ -250,6 +253,14 @@ func goHandlerBoundary(f *ast.File) []string {
 		return nil
 	}
 	var out []string
+	// External test package marker (#511): a `package <pkg>_test` file
+	// IMPORTS the package under test, so a reference it makes to an exported
+	// symbol is cross-boundary — exactly why that symbol is exported. The
+	// aggregator attributes such references under a distinct package key so
+	// the symbol isn't reported as a unexport candidate.
+	if f.Name != nil && strings.HasSuffix(f.Name.Name, "_test") {
+		out = append(out, "p\x00external_test")
+	}
 	for _, name := range goValueRefs(f) {
 		out = append(out, "v\x00"+name)
 	}

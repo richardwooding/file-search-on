@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -192,6 +193,16 @@ func UnusedExports(ctx context.Context, opts Options, registry *content.Registry
 		if !ok {
 			continue
 		}
+		// External test packages (`package <pkg>_test`) import the package
+		// under test, so their references are cross-boundary — attribute defs
+		// AND refs from such a file under a distinct key so a symbol they use
+		// isn't seen as package-local (#511). Marker emitted by the Go
+		// extractor in handler_boundary.
+		boundary, _ := r.Attrs.Extra["handler_boundary"].([]string)
+		effPkg := pkg
+		if slices.Contains(boundary, "p\x00external_test") {
+			effPkg = pkg + "\x00test"
+		}
 		if gen, _ := r.Attrs.Extra["is_generated_code"].(bool); gen {
 			generated[r.Path] = true
 		}
@@ -215,14 +226,14 @@ func UnusedExports(ctx context.Context, opts Options, registry *content.Registry
 		if funcs, ok := r.Attrs.Extra["functions"].([]string); ok {
 			for _, fn := range funcs {
 				if isExported(fn) {
-					note(fn, "function", pkg, r.Path, lang)
+					note(fn, "function", effPkg, r.Path, lang)
 				}
 			}
 		}
 		if types, ok := r.Attrs.Extra["type_names"].([]string); ok {
 			for _, t := range types {
 				if isExported(t) {
-					note(t, "type", pkg, r.Path, lang)
+					note(t, "type", effPkg, r.Path, lang)
 				}
 			}
 		}
@@ -231,23 +242,21 @@ func UnusedExports(ctx context.Context, opts Options, registry *content.Registry
 				if refPkgs[ref] == nil {
 					refPkgs[ref] = map[string]bool{}
 				}
-				refPkgs[ref][pkg] = true
+				refPkgs[ref][effPkg] = true
 			}
 		}
-		if boundary, ok := r.Attrs.Extra["handler_boundary"].([]string); ok {
-			for _, e := range boundary {
-				switch {
-				case strings.HasPrefix(e, "v\x00"):
-					valueRefFuncs[e[2:]] = true
-				case strings.HasPrefix(e, "s\x00"):
-					if rest := e[2:]; len(rest) > 0 {
-						if i := strings.IndexByte(rest, 0); i > 0 && i < len(rest)-1 {
-							sigTypesByFunc[rest[:i]] = append(sigTypesByFunc[rest[:i]], rest[i+1:])
-						}
+		for _, e := range boundary {
+			switch {
+			case strings.HasPrefix(e, "v\x00"):
+				valueRefFuncs[e[2:]] = true
+			case strings.HasPrefix(e, "s\x00"):
+				if rest := e[2:]; len(rest) > 0 {
+					if i := strings.IndexByte(rest, 0); i > 0 && i < len(rest)-1 {
+						sigTypesByFunc[rest[:i]] = append(sigTypesByFunc[rest[:i]], rest[i+1:])
 					}
-				case strings.HasPrefix(e, "i\x00"):
-					interfaceMethods[e[2:]] = true
 				}
+			case strings.HasPrefix(e, "i\x00"):
+				interfaceMethods[e[2:]] = true
 			}
 		}
 	}
