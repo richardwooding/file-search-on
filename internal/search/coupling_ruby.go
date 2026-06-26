@@ -84,7 +84,9 @@ func (a *rubyCouplingAdapter) node(path string, _ map[string]any) string {
 // (no matching first-party file). Tries the load-path form first (require
 // "gem/x"), then the file-relative form (require_relative "x" against fromNode).
 func (a *rubyCouplingAdapter) firstPartyImport(imp, fromNode string, _ map[string]bool) (string, bool) {
-	imp = strings.TrimSpace(imp)
+	// Trim an explicit .rb — `require "foo.rb"` is valid Ruby and must resolve
+	// the same as `require "foo"` (stems are stored without the extension).
+	imp = strings.TrimSuffix(strings.TrimSpace(imp), ".rb")
 	// (a) load-path require: the import string IS the stem.
 	if dn, ok := a.stems[filepath.ToSlash(imp)]; ok {
 		return dn, true

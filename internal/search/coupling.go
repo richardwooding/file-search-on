@@ -156,12 +156,26 @@ func hasAnyFile(dir string, names ...string) bool {
 	return false
 }
 
-// hasGlobMatch reports whether dir contains at least one entry matching the
-// shell pattern (e.g. "*.gemspec"). Used for ecosystems whose manifest has a
-// project-specific name rather than a fixed one.
+// hasGlobMatch reports whether dir contains at least one regular-file entry
+// whose basename matches the shell pattern (e.g. "*.gemspec"). Used for
+// ecosystems whose manifest has a project-specific name. Matches basenames via
+// filepath.Match rather than filepath.Glob(join(dir, pattern)) so glob
+// metacharacters in the dir path itself (e.g. a "foo[bar]" directory) can't
+// break detection — same hazard isCSharpRoot avoids.
 func hasGlobMatch(dir, pattern string) bool {
-	m, err := filepath.Glob(filepath.Join(dir, pattern))
-	return err == nil && len(m) > 0
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if ok, _ := filepath.Match(pattern, e.Name()); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // isCSharpRoot reports whether dir looks like a C# / .NET project root: a
