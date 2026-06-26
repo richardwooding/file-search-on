@@ -87,18 +87,23 @@ func (a *cppCouplingAdapter) firstPartyImport(imp, fromNode string, _ map[string
 		base = ""
 	}
 	try := func(prefix string) (string, bool) {
-		resolved := filepath.ToSlash(filepath.Clean(filepath.Join(filepath.FromSlash(prefix), filepath.FromSlash(imp))))
+		// filepath.Join already cleans the path and normalises separators.
+		resolved := filepath.ToSlash(filepath.Join(prefix, imp))
 		if resolved == ".." || strings.HasPrefix(resolved, "../") {
 			return "", false
 		}
 		dn, ok := a.files[resolved]
 		return dn, ok
 	}
-	// Includer-relative first (`#include "sibling.h"`), then the -I roots.
+	// Includer-relative first (`#include "sibling.h"`), then the -I roots
+	// (skipping base if it's already among them, e.g. a root-level file).
 	if dn, ok := try(base); ok {
 		return dn, true
 	}
 	for _, r := range a.includeRoots {
+		if r == base {
+			continue
+		}
 		if dn, ok := try(r); ok {
 			return dn, true
 		}
