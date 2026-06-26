@@ -96,7 +96,7 @@ func couplingAdapterFor(root string) couplingAdapter {
 	case hasAnyFile(root,
 		"cpanfile", "Makefile.PL", "Build.PL", // CPAN / ExtUtils::MakeMaker / Module::Build
 		"dist.ini",                       // Dist::Zilla
-		"META.json", "META.yml", "MYMETA.json"): // CPAN dist metadata
+		"META.json", "META.yml", "MYMETA.json", "MYMETA.yml"): // CPAN dist metadata
 		// Perl `package Foo::Bar;` — "::"-separated, same declared-package
 		// model as the JVM family. Checked before the Python / JS manifests
 		// (a Perl dist may ship a Build.PL alongside other tooling).
