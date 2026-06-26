@@ -69,7 +69,8 @@ type couplingAdapter interface {
 // Mill ⇒ JVM Java/Kotlin/Scala (packages), a .sln / .csproj / props ⇒ C#
 // (namespaces), a Python manifest ⇒ Python (packages), package.json /
 // tsconfig.json ⇒ JS/TS (directory modules), a Perl dist manifest (cpanfile /
-// Makefile.PL / dist.ini) ⇒ Perl (::-separated packages) (#467). Falls back to the Go
+// Makefile.PL / dist.ini) ⇒ Perl (::-separated packages), a Gemfile / *.gemspec ⇒
+// Ruby (directory modules) (#467). Falls back to the Go
 // adapter, whose prepare reports ok=false when there is no go.mod — yielding
 // an empty report, the historical behaviour.
 func couplingAdapterFor(root string) couplingAdapter {
@@ -101,6 +102,10 @@ func couplingAdapterFor(root string) couplingAdapter {
 		// model as the JVM family. Checked before the Python / JS manifests
 		// (a Perl dist may ship a Build.PL alongside other tooling).
 		return &packageDeclAdapter{langs: []string{"perl"}, sep: "::"}
+	case fileExists(filepath.Join(root, "Gemfile")) || hasGlobMatch(root, "*.gemspec"):
+		// Ruby gem — directory-module model (no file-level package, like JS/TS),
+		// resolving require / require_relative to first-party files (#519).
+		return &rubyCouplingAdapter{}
 	case hasAnyFile(root, "pyproject.toml", "setup.py", "setup.cfg", "Pipfile", "requirements.txt", "tox.ini"):
 		return &pythonCouplingAdapter{}
 	case hasAnyFile(root, "package.json", "tsconfig.json"):
@@ -145,6 +150,28 @@ func dirExists(path string) bool {
 func hasAnyFile(dir string, names ...string) bool {
 	for _, n := range names {
 		if fileExists(filepath.Join(dir, n)) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasGlobMatch reports whether dir contains at least one regular-file entry
+// whose basename matches the shell pattern (e.g. "*.gemspec"). Used for
+// ecosystems whose manifest has a project-specific name. Matches basenames via
+// filepath.Match rather than filepath.Glob(join(dir, pattern)) so glob
+// metacharacters in the dir path itself (e.g. a "foo[bar]" directory) can't
+// break detection — same hazard isCSharpRoot avoids.
+func hasGlobMatch(dir, pattern string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if ok, _ := filepath.Match(pattern, e.Name()); ok {
 			return true
 		}
 	}
