@@ -334,7 +334,9 @@ func goExportedSignatureTypes(fn *ast.FuncDecl) []string {
 			continue
 		}
 		for _, field := range fl.List {
-			collectTypeIdents(field.Type, &sigTypes)
+			if field != nil {
+				collectTypeIdents(field.Type, &sigTypes)
+			}
 		}
 	}
 	var out []string
@@ -389,8 +391,11 @@ func goExportedMethodNames(it *ast.InterfaceType) []string {
 	}
 	var out []string
 	for _, m := range it.Methods.List {
+		if m == nil {
+			continue
+		}
 		for _, nm := range m.Names {
-			if goExportedName(nm.Name) {
+			if nm != nil && goExportedName(nm.Name) {
 				out = append(out, nm.Name)
 			}
 		}
