@@ -68,46 +68,80 @@ func extractGoSymbols(src []byte) (functions, types, imports, references, callEd
 	for _, decl := range f.Decls {
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
-			if d.Name != nil {
-				functions = append(functions, d.Name.Name)
-				if d.Body != nil {
-					for _, callee := range goCallees(d.Body) {
-						callEdges = append(callEdges, d.Name.Name+"\x00"+callee)
-					}
-					cx := goComplexity(d.Body)
-					cog := goCognitiveComplexity(d)
-					start := fset.Position(d.Pos()).Line
-					end := fset.Position(d.End()).Line
-					complexityRows = append(complexityRows,
-						fmt.Sprintf("%s\x00%d\x00%d\x00%d\x00%d", d.Name.Name, cx, start, end, cog))
-				}
+			name, edges, row := goFuncDeclSymbols(d, fset)
+			if name != "" {
+				functions = append(functions, name)
+			}
+			callEdges = append(callEdges, edges...)
+			if row != "" {
+				complexityRows = append(complexityRows, row)
 			}
 		case *ast.GenDecl:
-			for _, spec := range d.Specs {
-				switch s := spec.(type) {
-				case *ast.TypeSpec:
-					if s.Name != nil {
-						types = append(types, s.Name.Name)
-					}
-				case *ast.ImportSpec:
-					if s.Path != nil {
-						imports = append(imports, strings.Trim(s.Path.Value, `"`))
-					}
-				}
-			}
+			t, imp := goGenDeclSymbols(d)
+			types = append(types, t...)
+			imports = append(imports, imp...)
 		}
 	}
 	references = append(references, goValueRefs(f)...)
+	references = append(references, goCallRefs(f)...)
+	references = append(references, goTypeRefs(f)...)
+	return functions, types, imports, dedupeStrings(references), dedupeStrings(callEdges), complexityRows, goHandlerBoundary(f)
+}
+
+// goFuncDeclSymbols returns a FuncDecl's name, its call edges
+// ("name\x00callee"), and its complexity row (issue #364, #485). name is empty
+// for an unnamed decl; edges/row are empty for a body-less decl (external or
+// forward declaration).
+func goFuncDeclSymbols(d *ast.FuncDecl, fset *token.FileSet) (name string, callEdges []string, complexityRow string) {
+	if d.Name == nil {
+		return "", nil, ""
+	}
+	name = d.Name.Name
+	if d.Body == nil {
+		return name, nil, ""
+	}
+	for _, callee := range goCallees(d.Body) {
+		callEdges = append(callEdges, name+"\x00"+callee)
+	}
+	cx := goComplexity(d.Body)
+	cog := goCognitiveComplexity(d)
+	start := fset.Position(d.Pos()).Line
+	end := fset.Position(d.End()).Line
+	complexityRow = fmt.Sprintf("%s\x00%d\x00%d\x00%d\x00%d", name, cx, start, end, cog)
+	return name, callEdges, complexityRow
+}
+
+// goGenDeclSymbols returns the type names and import paths declared by a
+// GenDecl (a `type (...)` or `import (...)` group, or their single-spec forms).
+func goGenDeclSymbols(d *ast.GenDecl) (types, imports []string) {
+	for _, spec := range d.Specs {
+		switch s := spec.(type) {
+		case *ast.TypeSpec:
+			if s.Name != nil {
+				types = append(types, s.Name.Name)
+			}
+		case *ast.ImportSpec:
+			if s.Path != nil {
+				imports = append(imports, strings.Trim(s.Path.Value, `"`))
+			}
+		}
+	}
+	return types, imports
+}
+
+// goCallRefs returns the bare callee name of every call site in the file
+// (`foo()` → "foo"; `pkg.Foo()` / `x.Method()` → "Foo" / "Method"; #363).
+func goCallRefs(f *ast.File) []string {
+	var out []string
 	ast.Inspect(f, func(n ast.Node) bool {
 		if call, ok := n.(*ast.CallExpr); ok {
 			if name := goCallee(call); name != "" {
-				references = append(references, name)
+				out = append(out, name)
 			}
 		}
 		return true
 	})
-	references = append(references, goTypeRefs(f)...)
-	return functions, types, imports, dedupeStrings(references), dedupeStrings(callEdges), complexityRows, goHandlerBoundary(f)
+	return out
 }
 
 // goPredeclared is the set of Go predeclared type names. They appear in
@@ -158,6 +192,12 @@ func goTypeRefs(f *ast.File) []string {
 // func type literals add nothing themselves — their members are visited as
 // *ast.Field nodes by the caller's ast.Inspect.
 func collectTypeIdents(expr ast.Expr, out *[]string) {
+	// Leaf names go straight to out; composite types contribute their child
+	// type expressions, which are walked in source order by the single
+	// recursion below (preserving the original pre-order: X before Index, Key
+	// before Value, etc.). Struct / interface / func type literals contribute
+	// no children here — their members are visited as *ast.Field by the caller.
+	var children []ast.Expr
 	switch t := expr.(type) {
 	case *ast.Ident:
 		if !goPredeclared[t.Name] {
@@ -168,26 +208,24 @@ func collectTypeIdents(expr ast.Expr, out *[]string) {
 			*out = append(*out, t.Sel.Name)
 		}
 	case *ast.StarExpr:
-		collectTypeIdents(t.X, out)
+		children = []ast.Expr{t.X}
 	case *ast.ArrayType:
-		collectTypeIdents(t.Elt, out)
+		children = []ast.Expr{t.Elt}
 	case *ast.Ellipsis:
-		collectTypeIdents(t.Elt, out)
+		children = []ast.Expr{t.Elt}
 	case *ast.MapType:
-		collectTypeIdents(t.Key, out)
-		collectTypeIdents(t.Value, out)
+		children = []ast.Expr{t.Key, t.Value}
 	case *ast.ChanType:
-		collectTypeIdents(t.Value, out)
+		children = []ast.Expr{t.Value}
 	case *ast.ParenExpr:
-		collectTypeIdents(t.X, out)
+		children = []ast.Expr{t.X}
 	case *ast.IndexExpr: // generic instantiation Foo[T]
-		collectTypeIdents(t.X, out)
-		collectTypeIdents(t.Index, out)
+		children = []ast.Expr{t.X, t.Index}
 	case *ast.IndexListExpr: // Foo[T, U]
-		collectTypeIdents(t.X, out)
-		for _, idx := range t.Indices {
-			collectTypeIdents(idx, out)
-		}
+		children = append([]ast.Expr{t.X}, t.Indices...)
+	}
+	for _, child := range children {
+		collectTypeIdents(child, out)
 	}
 }
 
@@ -264,59 +302,100 @@ func goHandlerBoundary(f *ast.File) []string {
 	for _, name := range goValueRefs(f) {
 		out = append(out, "v\x00"+name)
 	}
+	out = append(out, goSignatureTypeSignals(f)...)
+	out = append(out, goInterfaceMethodSignals(f)...)
+	return dedupeStrings(out)
+}
+
+// goSignatureTypeSignals emits "s\x00<func>\x00<Type>" for each EXPORTED type
+// named in a function's parameter or result list (#504). The aggregator pins
+// such types as exported because an external generic API (e.g.
+// mcp.AddTool[In, Out]) infers them from the handler signature.
+func goSignatureTypeSignals(f *ast.File) []string {
+	var out []string
 	for _, decl := range f.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if !ok || fn.Name == nil || fn.Type == nil {
 			continue
 		}
-		var sigTypes []string
-		if fn.Type.Params != nil {
-			for _, p := range fn.Type.Params.List {
-				collectTypeIdents(p.Type, &sigTypes)
-			}
-		}
-		if fn.Type.Results != nil {
-			for _, r := range fn.Type.Results.List {
-				collectTypeIdents(r.Type, &sigTypes)
-			}
-		}
-		for _, t := range dedupeStrings(sigTypes) {
-			if goExportedName(t) {
-				out = append(out, "s\x00"+fn.Name.Name+"\x00"+t)
-			}
+		for _, t := range goExportedSignatureTypes(fn) {
+			out = append(out, "s\x00"+fn.Name.Name+"\x00"+t)
 		}
 	}
-	// Interface method names (#505): a method that satisfies a first-party
-	// interface can't be unexported without breaking the interface, so the
-	// aggregator exempts methods whose name is declared on any interface.
+	return out
+}
+
+// goExportedSignatureTypes returns the deduped exported type names appearing
+// in fn's parameters and results, in source order (params before results).
+func goExportedSignatureTypes(fn *ast.FuncDecl) []string {
+	var sigTypes []string
+	for _, fl := range []*ast.FieldList{fn.Type.Params, fn.Type.Results} {
+		if fl == nil {
+			continue
+		}
+		for _, field := range fl.List {
+			collectTypeIdents(field.Type, &sigTypes)
+		}
+	}
+	var out []string
+	for _, t := range dedupeStrings(sigTypes) {
+		if goExportedName(t) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// goInterfaceMethodSignals emits "i\x00<Method>" for each exported method name
+// declared on a first-party interface (#505): such a method can't be
+// unexported without breaking interface satisfaction.
+func goInterfaceMethodSignals(f *ast.File) []string {
+	var out []string
 	for _, decl := range f.Decls {
 		gd, ok := decl.(*ast.GenDecl)
 		if !ok || gd.Tok != token.TYPE {
 			continue
 		}
 		for _, spec := range gd.Specs {
-			ts, ok := spec.(*ast.TypeSpec)
-			if !ok {
-				continue
-			}
-			it, ok := ts.Type.(*ast.InterfaceType)
-			if !ok || it.Methods == nil {
-				continue
-			}
-			for _, m := range it.Methods.List {
-				// Method elements carry Names; embedded interfaces don't.
-				// Only exported methods matter — unused_exports judges only
-				// exported symbols — so unexported interface methods (sealed-
-				// interface markers like isNode()) are skipped.
-				for _, nm := range m.Names {
-					if goExportedName(nm.Name) {
-						out = append(out, "i\x00"+nm.Name)
-					}
-				}
+			for _, nm := range goExportedMethodNames(interfaceType(spec)) {
+				out = append(out, "i\x00"+nm)
 			}
 		}
 	}
-	return dedupeStrings(out)
+	return out
+}
+
+// interfaceType returns the *ast.InterfaceType a type spec defines (with a
+// non-nil method list), or nil for any other spec.
+func interfaceType(spec ast.Spec) *ast.InterfaceType {
+	ts, ok := spec.(*ast.TypeSpec)
+	if !ok {
+		return nil
+	}
+	it, ok := ts.Type.(*ast.InterfaceType)
+	if !ok || it.Methods == nil {
+		return nil
+	}
+	return it
+}
+
+// goExportedMethodNames returns the exported method names declared directly on
+// it (embedded interfaces carry no Names and contribute nothing). Unexported
+// methods — sealed-interface markers like isNode() — are skipped because
+// unused_exports judges only exported symbols. A nil interface yields nil.
+func goExportedMethodNames(it *ast.InterfaceType) []string {
+	if it == nil {
+		return nil
+	}
+	var out []string
+	for _, m := range it.Methods.List {
+		for _, nm := range m.Names {
+			if goExportedName(nm.Name) {
+				out = append(out, nm.Name)
+			}
+		}
+	}
+	return out
 }
 
 // goFunctionSpans returns the 1-based inclusive line span of every top-level
