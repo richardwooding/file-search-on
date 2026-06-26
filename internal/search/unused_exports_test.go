@@ -128,6 +128,42 @@ func TestUnusedExports_InterfaceMethod(t *testing.T) {
 	}
 }
 
+// TestUnusedExports_ExternalTestPackage pins issue #511: a symbol referenced
+// from an EXTERNAL test package (`package <pkg>_test`) is exported precisely so
+// that test can import + call it — a cross-boundary use, so it must NOT be
+// reported. A symbol referenced only from an INTERNAL test (`package <pkg>`)
+// stays flagged (an internal test doesn't justify keeping it exported).
+func TestUnusedExports_ExternalTestPackage(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWriteFile(t, filepath.Join(root, "go.mod"), "module example.com/m\n\ngo 1.21\n")
+	mustWriteFile(t, filepath.Join(root, "pkg", "lib.go"),
+		"package pkg\n\nfunc ExternalOnly() {}\nfunc InternalOnly() {}\n")
+	// External test package — imports the package and calls ExternalOnly.
+	mustWriteFile(t, filepath.Join(root, "pkg", "ext_test.go"),
+		"package pkg_test\n\nimport (\n\t\"testing\"\n\t\"example.com/m/pkg\"\n)\n\nfunc TestExt(t *testing.T) { pkg.ExternalOnly() }\n")
+	// Internal test package — calls InternalOnly from inside the package.
+	mustWriteFile(t, filepath.Join(root, "pkg", "int_test.go"),
+		"package pkg\n\nimport \"testing\"\n\nfunc TestInt(t *testing.T) { InternalOnly() }\n")
+
+	res, err := search.UnusedExports(context.Background(), search.Options{Root: root, Expr: "is_source"}, contentpkg.DefaultRegistry())
+	if err != nil {
+		t.Fatalf("UnusedExports: %v", err)
+	}
+	got := map[string]bool{}
+	for _, c := range res.Candidates {
+		got[c.Symbol] = true
+	}
+	if got["ExternalOnly"] {
+		t.Errorf("ExternalOnly is used from an external test package — must be exempt (#511): %+v", res.Candidates)
+	}
+	if !got["InternalOnly"] {
+		t.Errorf("InternalOnly is used only from an internal test — must stay flagged: %+v", res.Candidates)
+	}
+}
+
 // TestUnusedExports_TypeScript pins Phase B keyword-visibility + file-as-
 // module: an `export`ed function used only within its own file is a
 // candidate; one imported and used from another file is not; a non-exported

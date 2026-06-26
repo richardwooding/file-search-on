@@ -172,6 +172,32 @@ func handle(ctx context.Context, in Req) (Resp, error) { return Resp{}, nil }
 	if have["s\x00register\x00Req"] {
 		t.Errorf("register has no Req in its signature; unexpected entry: %v", got)
 	}
+	// srv is not an external test package — no "p" marker.
+	if have["p\x00external_test"] {
+		t.Errorf("non-test package srv should not carry the external_test marker: %v", got)
+	}
+}
+
+// TestGoHandlerBoundary_ExternalTestMarker pins issue #511: a file whose
+// package clause ends in _test (an external test package) emits the
+// external_test marker so unused_exports attributes its references as
+// cross-boundary.
+func TestGoHandlerBoundary_ExternalTestMarker(t *testing.T) {
+	ext := "package srv_test\n\nimport \"testing\"\n\nfunc TestX(t *testing.T) {}\n"
+	f, err := parser.ParseFile(token.NewFileSet(), "", ext, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	got := goHandlerBoundary(f)
+	found := false
+	for _, e := range got {
+		if e == "p\x00external_test" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("external test package srv_test should emit the external_test marker; got %v", got)
+	}
 }
 
 // TestExtractGoSymbols_ValueRefs pins issue #421: a function/method used as
