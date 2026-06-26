@@ -8,6 +8,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	codemetrics "github.com/richardwooding/go-codemetrics"
 )
 
 // goExportedName reports whether name's first rune is upper-case — Go's
@@ -103,8 +105,8 @@ func goFuncDeclSymbols(d *ast.FuncDecl, fset *token.FileSet) (name string, callE
 	for _, callee := range goCallees(d.Body) {
 		callEdges = append(callEdges, name+"\x00"+callee)
 	}
-	cx := goComplexity(d.Body)
-	cog := goCognitiveComplexity(d)
+	cx := codemetrics.Cyclomatic(d.Body)
+	cog := codemetrics.Cognitive(d)
 	start := fset.Position(d.Pos()).Line
 	end := fset.Position(d.End()).Line
 	complexityRow = fmt.Sprintf("%s\x00%d\x00%d\x00%d\x00%d", name, cx, start, end, cog)
@@ -471,25 +473,6 @@ func goReceiverType(expr ast.Expr) string {
 		return goReceiverType(t.X)
 	}
 	return ""
-}
-
-// goComplexity returns the cyclomatic complexity of a function body —
-// gocyclo's definition: 1 + one per branch point (if / for / range /
-// case / comm-clause / && / ||).
-func goComplexity(body *ast.BlockStmt) int {
-	cx := 1
-	ast.Inspect(body, func(n ast.Node) bool {
-		switch x := n.(type) {
-		case *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt, *ast.CaseClause, *ast.CommClause:
-			cx++
-		case *ast.BinaryExpr:
-			if x.Op == token.LAND || x.Op == token.LOR {
-				cx++
-			}
-		}
-		return true
-	})
-	return cx
 }
 
 // goCallee returns the bare callee name of a call expression, or "" for

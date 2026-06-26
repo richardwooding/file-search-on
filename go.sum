@@ -113,6 +113,8 @@ github.com/richardwooding/fingerprint v0.1.0 h1:Dch6OdHUboH4PKOaMiwe4Xqbfk/rxQfd
 github.com/richardwooding/fingerprint v0.1.0/go.mod h1:VYCbaXMrpgHewwYnv8GfQoEEcnQwsKFtDlH5bTI00w0=
 github.com/richardwooding/gitmeta v0.1.0 h1:TOf6P+dzcFh5fFbDwJrJFVUGPzbwqyg76wRosuYrlBA=
 github.com/richardwooding/gitmeta v0.1.0/go.mod h1:arft+ynVGxEeeRnQMnosIvlfsaxEAaHoBYh1U7Nq1n0=
+github.com/richardwooding/go-codemetrics v0.2.0 h1:N77+QQRq5+R55tAIO3y7O2fj8t+op99Zz6fGk1Pus2I=
+github.com/richardwooding/go-codemetrics v0.2.0/go.mod h1:Gr1yP7cQjg/Q1wP9kjZGDDm+8iBCTbk7GXDnKaQBdnk=
 github.com/richardwooding/ollamaembed v0.1.0 h1:N5bx4v7IxnOa+Rw4/ROlkQS2LjQCPnAiuPP7Xr1OpS0=
 github.com/richardwooding/ollamaembed v0.1.0/go.mod h1:rj/euwbkM8dcad6EMzp5bshVy+GVdu5JEojbFTFNQhY=
 github.com/richardwooding/projectdetect v0.4.0 h1:v6ZTF/r0BD/s7Cw2WW+B6zVhM4YGLiBl1l5lbTdLtrE=
