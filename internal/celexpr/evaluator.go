@@ -434,6 +434,164 @@ func BuildAttributes(ctx context.Context, fsys fs.FS, fsPath, displayPath string
 // FileAttributes built from the live os.Stat result. On miss the regular
 // extraction path runs and the result is asynchronously enqueued for
 // storage.
+// attrBuild carries the per-file context shared by BuildAttributesWith and its
+// enrichment helpers — the inputs that don't change once stat + symlink/time
+// probes have run. cacheKey is NOT a field: it can be cleared mid-build (skip
+// profile, parse error), so it's passed explicitly to each helper.
+type attrBuild struct {
+	ctx         context.Context
+	fsys        fs.FS
+	fsPath      string
+	displayPath string
+	info        fs.FileInfo
+	sym         symlinkInfo
+	ftimes      fileTimesInfo
+	registry    *content.Registry
+	opts        BuildOptions
+}
+
+// enrichCacheHit applies the per-walk, never-cached enrichments to a record
+// assembled from an attribute-cache hit: on-demand body, OCR, verified C2PA,
+// project context, hashes, perceptual hash, known-hash status, semantic
+// similarity, BM25 carrier, disguise, xattrs, git metadata, file times and
+// symlink info. Mirrors the cache-miss tail but reads the cached entry for the
+// hash/phash/similarity/disguise fields. Behaviour extracted verbatim from
+// BuildAttributesWith (no logic change).
+func (b *attrBuild) enrichCacheHit(attrs *FileAttributes, cacheKey string, cached *index.Entry) {
+	opts := b.opts
+	if opts.IncludeBody && canExtractBody(cached.ContentType) {
+		body := lookupOrExtractBody(b.ctx, b.fsys, b.fsPath, b.displayPath, cacheKey, b.info, cached.ContentType, opts)
+		if body != "" {
+			if attrs.Extra == nil {
+				attrs.Extra = content.Attributes{}
+			}
+			attrs.Extra["body"] = body
+		}
+	}
+	if opts.OCRImages && strings.HasPrefix(cached.ContentType, "image/") {
+		if attrs.Extra == nil {
+			attrs.Extra = content.Attributes{}
+		}
+		runImageOCR(b.ctx, b.displayPath, cacheKey, b.info, attrs.Extra, opts)
+	}
+	if opts.VerifyC2PA && strings.HasPrefix(cached.ContentType, "image/") {
+		if v, ok := content.ValidateImageC2PA(b.ctx, b.fsys, b.fsPath, cached.ContentType); ok {
+			if attrs.Extra == nil {
+				attrs.Extra = content.Attributes{}
+			}
+			maps.Copy(attrs.Extra, v)
+		}
+	}
+	if opts.ProjectResolver != nil {
+		attrs.Extra = applyProjectContext(attrs.Extra, opts.ProjectResolver, b.displayPath)
+	}
+	if opts.ComputeHashes {
+		populateHashes(b.ctx, b.displayPath, cacheKey, b.info, cached, attrs, opts.Index)
+	}
+	if opts.WithPHash {
+		if attrs.Extra == nil {
+			attrs.Extra = content.Attributes{}
+		}
+		populatePHash(b.ctx, b.fsys, b.fsPath, b.displayPath, cacheKey, cached.ContentType, b.info, cached, attrs.Extra, opts.Index)
+	}
+	if opts.Allowlist != nil || opts.Denylist != nil {
+		applyKnownStatus(attrs, opts)
+	}
+	if opts.Embedder != nil && len(opts.SemanticQueryEmbedding) > 0 {
+		populateSimilarity(b.ctx, b.fsys, b.fsPath, b.displayPath, cacheKey, b.info, cached, attrs, opts)
+	}
+	if len(opts.KeywordQuery) > 0 {
+		populateBM25Doc(b.ctx, b.fsys, b.fsPath, b.displayPath, cacheKey, b.info, cached.ContentType, attrs, opts)
+	}
+	if opts.CheckDisguised {
+		if cached.DisguiseChecked {
+			applyDisguise(attrs, cached.MagicContentType, cached.ExtensionContentType)
+		} else {
+			magicCT, extCT := redetectDisguise(b.fsys, b.fsPath, b.registry)
+			applyDisguise(attrs, magicCT, extCT)
+			// Backfill cache with the disguise fields so the next walk can
+			// serve from cache.
+			updated := *cached
+			updated.MagicContentType = magicCT
+			updated.ExtensionContentType = extCT
+			updated.DisguiseChecked = true
+			_ = opts.Index.Put(cacheKey, &updated)
+		}
+	}
+	if opts.ReadExtendedAttributes {
+		applyXattrs(attrs, b.displayPath)
+	}
+	if opts.GitCache != nil {
+		applyGitMeta(attrs, b.displayPath, opts.GitCache)
+	}
+	applyFileTimes(attrs, b.ftimes)
+	applySymlinkInfo(attrs, b.sym)
+}
+
+// enrichCacheMiss applies the post-parse enrichments to a freshly-built record
+// on the cache-miss path: hashes, perceptual hash, known-hash status, semantic
+// similarity, BM25 carrier, disguise, xattrs, git metadata, file times and
+// symlink info. The hash/phash/similarity helpers stamp their fields onto the
+// shared cacheEntry (re-Put inside them) so the next walk hits. Behaviour
+// extracted verbatim from BuildAttributesWith (no logic change).
+func (b *attrBuild) enrichCacheMiss(attrs *FileAttributes, cacheKey string, cacheEntry *index.Entry, contentTypeName, magicCT, extCT string) {
+	opts := b.opts
+	if opts.ComputeHashes {
+		populateHashes(b.ctx, b.displayPath, cacheKey, b.info, cacheEntry, attrs, opts.Index)
+	}
+	if opts.WithPHash {
+		if attrs.Extra == nil {
+			attrs.Extra = content.Attributes{}
+		}
+		populatePHash(b.ctx, b.fsys, b.fsPath, b.displayPath, cacheKey, contentTypeName, b.info, cacheEntry, attrs.Extra, opts.Index)
+	}
+	if opts.Allowlist != nil || opts.Denylist != nil {
+		applyKnownStatus(attrs, opts)
+	}
+	if opts.Embedder != nil && len(opts.SemanticQueryEmbedding) > 0 {
+		populateSimilarity(b.ctx, b.fsys, b.fsPath, b.displayPath, cacheKey, b.info, cacheEntry, attrs, opts)
+	}
+	if len(opts.KeywordQuery) > 0 {
+		populateBM25Doc(b.ctx, b.fsys, b.fsPath, b.displayPath, cacheKey, b.info, contentTypeName, attrs, opts)
+	}
+	if opts.CheckDisguised {
+		applyDisguise(attrs, magicCT, extCT)
+	}
+	if opts.ReadExtendedAttributes {
+		applyXattrs(attrs, b.displayPath)
+	}
+	if opts.GitCache != nil {
+		applyGitMeta(attrs, b.displayPath, opts.GitCache)
+	}
+	applyFileTimes(attrs, b.ftimes)
+	applySymlinkInfo(attrs, b.sym)
+}
+
+// applyProjectContext resolves the nearest enclosing project for displayPath
+// and stamps project_types / project_type / is_static_site onto extra,
+// returning it (allocating when a project matched and extra was nil). Never
+// cached — "containing project" is a directory-tree property, not a per-file
+// one. Shared by the cache-hit and cache-miss paths.
+func applyProjectContext(extra content.Attributes, resolver *projectdetect.ProjectResolver, displayPath string) content.Attributes {
+	matches := resolver.Resolve(displayPath)
+	if len(matches) == 0 {
+		return extra
+	}
+	if extra == nil {
+		extra = content.Attributes{}
+	}
+	names := make([]string, len(matches))
+	for i, m := range matches {
+		names[i] = m.Type
+	}
+	extra["project_types"] = names
+	extra["project_type"] = names[0]
+	if anyStaticSite(names) {
+		extra["is_static_site"] = true
+	}
+	return extra
+}
+
 func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath string, registry *content.Registry, opts BuildOptions) (*FileAttributes, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -487,6 +645,13 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	ext := strings.ToLower(filepath.Ext(name))
 	dir := filepath.Dir(displayPath)
 
+	// Shared context for the enrichment helpers. cacheKey is threaded
+	// separately (it can be cleared mid-build).
+	b := &attrBuild{
+		ctx: ctx, fsys: fsys, fsPath: fsPath, displayPath: displayPath,
+		info: info, sym: sym, ftimes: ftimes, registry: registry, opts: opts,
+	}
+
 	// Cache-key conversion: keys are absolute, OS-native paths so two
 	// runs that walk the same physical tree under different roots
 	// (./docs vs /home/u/proj/docs) hit the same entry. Non-absolute
@@ -510,124 +675,10 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	if opts.Index != nil && cacheKey != "" && !useLstatInfo {
 		if cached, ok := opts.Index.Lookup(cacheKey, info.Size(), info.ModTime()); ok {
 			attrs := assembleFromCache(name, displayPath, dir, ext, info, cached)
-			// Body lives in the dedicated bodies_v1 bucket — independent
-			// of the attribute cache so eviction and per-bucket caps
-			// can be tuned separately. Consult the body cache first;
-			// on miss, re-extract and async-Put so subsequent calls hit.
-			if opts.IncludeBody && canExtractBody(cached.ContentType) {
-				body := lookupOrExtractBody(ctx, fsys, fsPath, displayPath, cacheKey, info, cached.ContentType, opts)
-				if body != "" {
-					if attrs.Extra == nil {
-						attrs.Extra = content.Attributes{}
-					}
-					attrs.Extra["body"] = body
-				}
-			}
-			// Image OCR on cache hit: cached.Extra carries OCR extras
-			// from the prior walk's runImageOCR call (attrs_v1). The
-			// bodies_v1 cache carries the OCR text. runImageOCR's
-			// internal cache-hit path returns immediately — no helper
-			// invocation needed unless the previous walk didn't run
-			// OCR (e.g. user just added --ocr).
-			if opts.OCRImages && strings.HasPrefix(cached.ContentType, "image/") {
-				if attrs.Extra == nil {
-					attrs.Extra = content.Attributes{}
-				}
-				runImageOCR(ctx, displayPath, cacheKey, info, attrs.Extra, opts)
-			}
-			// Verified C2PA (#441). Recomputed on every walk — never
-			// cached (validity is clock-dependent), so the cache hit on
-			// the unverified attrs above doesn't carry these.
-			if opts.VerifyC2PA && strings.HasPrefix(cached.ContentType, "image/") {
-				if v, ok := content.ValidateImageC2PA(ctx, fsys, fsPath, cached.ContentType); ok {
-					if attrs.Extra == nil {
-						attrs.Extra = content.Attributes{}
-					}
-					maps.Copy(attrs.Extra, v)
-				}
-			}
-			// Same project-context wiring as the cache-miss path —
-			// the index doesn't (and shouldn't) cache project context.
-			if opts.ProjectResolver != nil {
-				if matches := opts.ProjectResolver.Resolve(displayPath); len(matches) > 0 {
-					if attrs.Extra == nil {
-						attrs.Extra = content.Attributes{}
-					}
-					names := make([]string, len(matches))
-					for i, m := range matches {
-						names[i] = m.Type
-					}
-					attrs.Extra["project_types"] = names
-					attrs.Extra["project_type"] = names[0]
-					if anyStaticSite(names) {
-						attrs.Extra["is_static_site"] = true
-					}
-				}
-			}
-			// Hash trio (PR #143). On cache hit we reuse cached.MD5 /
-			// SHA1 / Hash when all three are populated; otherwise
-			// compute and re-Put so the next call is free.
-			if opts.ComputeHashes {
-				populateHashes(ctx, displayPath, cacheKey, info, cached, attrs, opts.Index)
-			}
-			// Perceptual image hash (issue #208). Only fires on
-			// image/* content types; cache-aware on cached.PHash.
-			if opts.WithPHash {
-				if attrs.Extra == nil {
-					attrs.Extra = content.Attributes{}
-				}
-				populatePHash(ctx, fsys, fsPath, displayPath, cacheKey, cached.ContentType, info, cached, attrs.Extra, opts.Index)
-			}
-			// Hash-allowlist / -denylist membership (PR #146).
-			// Membership depends on the loaded sets, not (size, mtime),
-			// so we never cache the resulting flags — just re-check.
-			if opts.Allowlist != nil || opts.Denylist != nil {
-				applyKnownStatus(attrs, opts)
-			}
-			// Semantic similarity (issue #151). Cache-aware via
-			// cached.Vector; on miss, embed via opts.Embedder.
-			if opts.Embedder != nil && len(opts.SemanticQueryEmbedding) > 0 {
-				populateSimilarity(ctx, fsys, fsPath, displayPath, cacheKey, info, cached, attrs, opts)
-			}
-			// BM25 keyword carrier data (issue #335). Captured per file;
-			// scored by the buffered post-pass.
-			if len(opts.KeywordQuery) > 0 {
-				populateBM25Doc(ctx, fsys, fsPath, displayPath, cacheKey, info, cached.ContentType, attrs, opts)
-			}
-			// Disguise check (PR #145). Reuse cached.MagicContentType /
-			// ExtensionContentType when DisguiseChecked is true (older
-			// entries lack the marker, in which case we re-detect).
-			if opts.CheckDisguised {
-				if cached.DisguiseChecked {
-					applyDisguise(attrs, cached.MagicContentType, cached.ExtensionContentType)
-				} else {
-					magicCT, extCT := redetectDisguise(fsys, fsPath, registry)
-					applyDisguise(attrs, magicCT, extCT)
-					// Backfill cache with the disguise fields so the
-					// next walk can serve from cache.
-					updated := *cached
-					updated.MagicContentType = magicCT
-					updated.ExtensionContentType = extCT
-					updated.DisguiseChecked = true
-					_ = opts.Index.Put(cacheKey, &updated)
-				}
-			}
-			// xattr re-read on cache hit. xattrs can change between
-			// walks (user re-tags, OS sets quarantine on first run)
-			// independently of (size, mtime), so we don't cache them
-			// — re-read on every walk when opted in. Issue #193.
-			if opts.ReadExtendedAttributes {
-				applyXattrs(attrs, displayPath)
-			}
-			// Git metadata is per-walk state (the cache is built once
-			// at walk start) and is not stored in the (size, mtime)
-			// cache because HEAD changes invalidate it. Re-apply on
-			// every cache hit. Issue #271.
-			if opts.GitCache != nil {
-				applyGitMeta(attrs, displayPath, opts.GitCache)
-			}
-			applyFileTimes(attrs, ftimes)
-			applySymlinkInfo(attrs, sym)
+			// Apply the per-walk, never-cached enrichments (body / OCR /
+			// C2PA / project / hashes / phash / known-status / similarity /
+			// BM25 / disguise / xattr / git / times / symlink).
+			b.enrichCacheHit(attrs, cacheKey, cached)
 			return attrs, nil
 		}
 	}
@@ -711,80 +762,7 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 			default:
 				extra = a
 			}
-			// Curated SQLite app-name lookup (issue #177). Lives here
-			// rather than inside ContentType.Attributes because the
-			// path-based registry dimensions (PathContains: "Chrome",
-			// "/Library/Keychains/", …) need the absolute displayPath,
-			// while ContentType.Attributes is handed only the fs.FS-
-			// relative fsPath. Caching is automatic because the
-			// enriched `extra` is what gets Put into the index below.
-			if contentTypeName == "database/sqlite" {
-				if name := content.LookupSQLiteAppName(extra, displayPath); name != "" {
-					if extra == nil {
-						extra = content.Attributes{}
-					}
-					extra["sqlite_application_name"] = name
-				}
-			}
-			// Path-based plist_kind override (issue #185). Mirrors the
-			// SQLite hook above for the same reason — directory-anchored
-			// signals (`/LaunchAgents/`, `/LaunchDaemons/`,
-			// `/Preferences/`) are invisible to ContentType.Attributes
-			// when the search root is narrower than the relevant
-			// directory. Path-based kinds beat the content-based kinds
-			// that parsePlist set: a plist under LaunchAgents/ IS a
-			// LaunchAgent regardless of what its content claims.
-			if contentTypeName == "system/plist" {
-				if kind := content.LookupPlistKindFromPath(displayPath); kind != "" {
-					if extra == nil {
-						extra = content.Attributes{}
-					}
-					extra["plist_kind"] = kind
-				}
-			}
-			// Browser-vendor lookup for bookmark files (issue #188).
-			// Same architecture as the two hooks above — Chromium and
-			// Safari forks share the file format; only the absolute
-			// path tells us which browser owns the file.
-			if contentTypeName == "browser/bookmarks-chromium" ||
-				contentTypeName == "browser/bookmarks-safari" {
-				if vendor := content.LookupBrowserVendor(displayPath); vendor != "" {
-					if extra == nil {
-						extra = content.Attributes{}
-					}
-					extra["browser_vendor"] = vendor
-				}
-			}
-			// Apple Live Photo pairing (issue #194). HEIC still +
-			// sibling MOV share the same basename; one extra os.Stat
-			// per HEIC / MOV file confirms the pair. Same path-based
-			// architecture as the three hooks above. Cache caveat:
-			// like the others, the lookup result is cached against
-			// THIS file's (size, mtime) — deleting the sibling later
-			// won't invalidate the cached `is_live_photo` flag until
-			// this file itself changes. Accepted trade-off matching
-			// the existing precedent.
-			if contentTypeName == "image/heic" {
-				if sib, sz, ok := content.FindLivePhotoVideo(displayPath); ok {
-					if extra == nil {
-						extra = content.Attributes{}
-					}
-					extra["is_live_photo"] = true
-					extra["live_photo_video_path"] = sib
-					extra["live_photo_video_size"] = sz
-				}
-			} else if contentTypeName == "video/quicktime" && content.IsLivePhotoVideoExt(displayPath) {
-				// `.mov` detects as video/quicktime (per videotype.go).
-				// The IsLivePhotoVideoExt gate guards against future
-				// expansions of the quicktime ext set away from .mov.
-				if sib, ok := content.FindLivePhotoImage(displayPath); ok {
-					if extra == nil {
-						extra = content.Attributes{}
-					}
-					extra["is_live_photo_video"] = true
-					extra["live_photo_image_path"] = sib
-				}
-			}
+			extra = applyPathBasedContentHooks(contentTypeName, displayPath, extra)
 		}
 	}
 
@@ -866,20 +844,7 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	// per-file one, and would invalidate every time a project root
 	// is added or removed elsewhere.
 	if opts.ProjectResolver != nil {
-		if matches := opts.ProjectResolver.Resolve(displayPath); len(matches) > 0 {
-			if extra == nil {
-				extra = content.Attributes{}
-			}
-			names := make([]string, len(matches))
-			for i, m := range matches {
-				names[i] = m.Type
-			}
-			extra["project_types"] = names
-			extra["project_type"] = names[0]
-			if anyStaticSite(names) {
-				extra["is_static_site"] = true
-			}
-		}
+		extra = applyProjectContext(extra, opts.ProjectResolver, displayPath)
 	}
 
 	attrs := &FileAttributes{
@@ -893,41 +858,62 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 		Extra:       extra,
 	}
 	setTypeFlags(attrs, contentTypeName)
-	// Hash trio (PR #143). Cache-miss path: no cached entry to consult,
-	// so populateHashes always computes when ComputeHashes is set. The
-	// fresh values flow back into the cache so subsequent walks hit.
-	if opts.ComputeHashes {
-		populateHashes(ctx, displayPath, cacheKey, info, cacheEntry, attrs, opts.Index)
-	}
-	// Perceptual image hash (issue #208). Cache-miss path: compute
-	// + Put back. Gated to image/* content types inside populatePHash.
-	if opts.WithPHash {
-		if attrs.Extra == nil {
-			attrs.Extra = content.Attributes{}
-		}
-		populatePHash(ctx, fsys, fsPath, displayPath, cacheKey, contentTypeName, info, cacheEntry, attrs.Extra, opts.Index)
-	}
-	if opts.Allowlist != nil || opts.Denylist != nil {
-		applyKnownStatus(attrs, opts)
-	}
-	if opts.Embedder != nil && len(opts.SemanticQueryEmbedding) > 0 {
-		populateSimilarity(ctx, fsys, fsPath, displayPath, cacheKey, info, cacheEntry, attrs, opts)
-	}
-	if len(opts.KeywordQuery) > 0 {
-		populateBM25Doc(ctx, fsys, fsPath, displayPath, cacheKey, info, contentTypeName, attrs, opts)
-	}
-	if opts.CheckDisguised {
-		applyDisguise(attrs, magicCT, extCT)
-	}
-	if opts.ReadExtendedAttributes {
-		applyXattrs(attrs, displayPath)
-	}
-	if opts.GitCache != nil {
-		applyGitMeta(attrs, displayPath, opts.GitCache)
-	}
-	applyFileTimes(attrs, ftimes)
-	applySymlinkInfo(attrs, sym)
+	// Post-parse enrichments (hashes / phash / known-status / similarity /
+	// BM25 / disguise / xattr / git / times / symlink). The cacheEntry is
+	// the shared entry the hash/phash/similarity helpers re-Put.
+	b.enrichCacheMiss(attrs, cacheKey, cacheEntry, contentTypeName, magicCT, extCT)
 	return attrs, nil
+}
+
+// applyPathBasedContentHooks enriches extra with attributes that depend on the
+// absolute displayPath rather than the fs.FS-relative bytes ContentType.Attributes
+// sees: the SQLite curated app name (#177), the path-anchored plist kind (#185),
+// the browser vendor for bookmark files (#188), and Apple Live Photo pairing
+// (#194). Each fires only for its content type; directory-anchored signals
+// (`/LaunchAgents/`, `/Library/Keychains/`, …) are invisible to
+// ContentType.Attributes when the search root is narrower than the relevant
+// directory. Returns extra, allocating it the first time a hook fires on a nil
+// map. Caching is automatic — the enriched extra is what gets Put below; the
+// per-file (size, mtime) cache caveat (a deleted Live Photo sibling won't
+// invalidate the flag until this file changes) matches the existing precedent.
+func applyPathBasedContentHooks(contentTypeName, displayPath string, extra content.Attributes) content.Attributes {
+	set := func(k string, v any) {
+		if extra == nil {
+			extra = content.Attributes{}
+		}
+		extra[k] = v
+	}
+	switch contentTypeName {
+	case "database/sqlite":
+		if name := content.LookupSQLiteAppName(extra, displayPath); name != "" {
+			set("sqlite_application_name", name)
+		}
+	case "system/plist":
+		if kind := content.LookupPlistKindFromPath(displayPath); kind != "" {
+			set("plist_kind", kind)
+		}
+	case "browser/bookmarks-chromium", "browser/bookmarks-safari":
+		if vendor := content.LookupBrowserVendor(displayPath); vendor != "" {
+			set("browser_vendor", vendor)
+		}
+	case "image/heic":
+		if sib, sz, ok := content.FindLivePhotoVideo(displayPath); ok {
+			set("is_live_photo", true)
+			set("live_photo_video_path", sib)
+			set("live_photo_video_size", sz)
+		}
+	case "video/quicktime":
+		// `.mov` detects as video/quicktime (per videotype.go). The
+		// IsLivePhotoVideoExt gate guards against future expansions of the
+		// quicktime ext set away from .mov.
+		if content.IsLivePhotoVideoExt(displayPath) {
+			if sib, ok := content.FindLivePhotoImage(displayPath); ok {
+				set("is_live_photo_video", true)
+				set("live_photo_image_path", sib)
+			}
+		}
+	}
+	return extra
 }
 
 // matchesAttributeSkipPrefix reports whether contentTypeName starts
