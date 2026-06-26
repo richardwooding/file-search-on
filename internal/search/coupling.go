@@ -70,7 +70,8 @@ type couplingAdapter interface {
 // (namespaces), a Python manifest ⇒ Python (packages), package.json /
 // tsconfig.json ⇒ JS/TS (directory modules), a Perl dist manifest (cpanfile /
 // Makefile.PL / dist.ini) ⇒ Perl (::-separated packages), a Gemfile / *.gemspec ⇒
-// Ruby (directory modules) (#467). Falls back to the Go
+// Ruby (directory modules), a CMakeLists.txt / configure.ac / meson.build ⇒ C/C++
+// (#include-graph directory modules) (#467). Falls back to the Go
 // adapter, whose prepare reports ok=false when there is no go.mod — yielding
 // an empty report, the historical behaviour.
 func couplingAdapterFor(root string) couplingAdapter {
@@ -110,6 +111,12 @@ func couplingAdapterFor(root string) couplingAdapter {
 		return &pythonCouplingAdapter{}
 	case hasAnyFile(root, "package.json", "tsconfig.json"):
 		return &jstsCouplingAdapter{}
+	case hasAnyFile(root, "CMakeLists.txt", "configure.ac", "configure.in", "meson.build", "Makefile.am", "GNUmakefile"):
+		// C / C++ #include graph — directory modules (#521). Checked last and
+		// keyed on a *strong* build signal (CMake / autotools / meson, not a
+		// bare Makefile, which many ecosystems carry) so a C-extension Python
+		// project or a Go repo with a Makefile graphs its own language first.
+		return &cppCouplingAdapter{}
 	default:
 		return &goCouplingAdapter{}
 	}

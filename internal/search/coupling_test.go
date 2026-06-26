@@ -673,6 +673,27 @@ func TestCoupling_RubyGem(t *testing.T) {
 	assertABCGraph(t, root, "lib/a", "lib/b", "lib/c")
 }
 
+// TestCoupling_CIncludeGraph pins the #521 C/C++ ecosystem: a CMake project,
+// directory nodes, resolving #include to first-party files via the includer's
+// dir (file-relative) and the include/ root. include/a → include/b (a "../b/b.h"
+// file-relative include) + include/c (a "c/c.h" include-root include); include/b
+// → include/c. `#include <stdio.h>` (system) backs no first-party file → no edge.
+func TestCoupling_CIncludeGraph(t *testing.T) {
+	root := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "CMakeLists.txt"), "project(demo)\n")
+	mk := func(sub, body string) {
+		d := filepath.Join(root, "include", sub)
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mustWriteFile(t, filepath.Join(d, sub+".h"), body)
+	}
+	mk("a", "#include \"../b/b.h\"\n#include \"c/c.h\"\n#include <stdio.h>\nint a(void);\n")
+	mk("b", "#include \"c/c.h\"\nint b(void);\n")
+	mk("c", "int c(void);\n")
+	assertABCGraph(t, root, "include/a", "include/b", "include/c")
+}
+
 // assertABCGraph checks the canonical a→b, a→c; b→c; c→∅ coupling shape used
 // by several per-language tests: a={Ca:0,Ce:2,I:1}, b={1,1,0.5}, c={2,0,0}.
 func assertABCGraph(t *testing.T, root, a, b, c string) {
