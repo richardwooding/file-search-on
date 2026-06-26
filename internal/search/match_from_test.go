@@ -54,7 +54,7 @@ func TestMatchFrom_ScienceAttrs(t *testing.T) {
 	if m.VOTableVersion != "1.4" || m.TableCount != 2 || m.TotalRows != 500 {
 		t.Errorf("votable fields wrong: %+v", m)
 	}
-	if len(m.FieldNames) != 3 || m.FieldNames[0] != "ra" {
+	if len(m.FieldNames) != 3 || m.FieldNames[0] != "ra" || m.FieldNames[1] != "dec" || m.FieldNames[2] != "mag" {
 		t.Errorf("FieldNames = %v, want [ra dec mag]", m.FieldNames)
 	}
 }
@@ -97,8 +97,8 @@ func TestMatchFrom_FontAttrs(t *testing.T) {
 	if m.FontUnitsPerEm != 2048 || m.FontGlyphCount != 2548 || m.FontAxisCount != 2 {
 		t.Errorf("font int fields wrong: UnitsPerEm=%d GlyphCount=%d AxisCount=%d", m.FontUnitsPerEm, m.FontGlyphCount, m.FontAxisCount)
 	}
-	if len(m.FontUnicodeRanges) != 2 {
-		t.Errorf("FontUnicodeRanges = %v, want 2 entries", m.FontUnicodeRanges)
+	if len(m.FontUnicodeRanges) != 2 || m.FontUnicodeRanges[0] != "Basic Latin" || m.FontUnicodeRanges[1] != "Latin-1 Supplement" {
+		t.Errorf("FontUnicodeRanges = %v, want [Basic Latin, Latin-1 Supplement]", m.FontUnicodeRanges)
 	}
 }
 
