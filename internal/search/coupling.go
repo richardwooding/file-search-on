@@ -68,7 +68,8 @@ type couplingAdapter interface {
 // go.mod ⇒ Go (packages), Cargo.toml ⇒ Rust (crates), Maven / Gradle / sbt /
 // Mill ⇒ JVM Java/Kotlin/Scala (packages), a .sln / .csproj / props ⇒ C#
 // (namespaces), a Python manifest ⇒ Python (packages), package.json /
-// tsconfig.json ⇒ JS/TS (directory modules) (#467). Falls back to the Go
+// tsconfig.json ⇒ JS/TS (directory modules), a Perl dist manifest (cpanfile /
+// Makefile.PL / dist.ini) ⇒ Perl (::-separated packages) (#467). Falls back to the Go
 // adapter, whose prepare reports ok=false when there is no go.mod — yielding
 // an empty report, the historical behaviour.
 func couplingAdapterFor(root string) couplingAdapter {
@@ -92,6 +93,14 @@ func couplingAdapterFor(root string) couplingAdapter {
 		// before package.json so a PHP app with a frontend build (Laravel,
 		// Symfony) graphs its PHP backend rather than its JS assets.
 		return &packageDeclAdapter{langs: []string{"php"}, sep: "\\"}
+	case hasAnyFile(root,
+		"cpanfile", "Makefile.PL", "Build.PL", // CPAN / ExtUtils::MakeMaker / Module::Build
+		"dist.ini",                       // Dist::Zilla
+		"META.json", "META.yml", "MYMETA.json"): // CPAN dist metadata
+		// Perl `package Foo::Bar;` — "::"-separated, same declared-package
+		// model as the JVM family. Checked before the Python / JS manifests
+		// (a Perl dist may ship a Build.PL alongside other tooling).
+		return &packageDeclAdapter{langs: []string{"perl"}, sep: "::"}
 	case hasAnyFile(root, "pyproject.toml", "setup.py", "setup.cfg", "Pipfile", "requirements.txt", "tox.ini"):
 		return &pythonCouplingAdapter{}
 	case hasAnyFile(root, "package.json", "tsconfig.json"):

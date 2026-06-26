@@ -355,6 +355,11 @@ var tsPackageQuery = map[string]string{
 	// PHP `namespace App\Services;` — backslash-separated (the coupling
 	// adapter uses "\\" as the separator for PHP nodes/imports).
 	"php": `(namespace_definition name: (namespace_name) @package)`,
+	// Perl `package Foo::Bar;` (and the block form `package Foo::Bar { … }`).
+	// `::`-separated (the coupling adapter uses "::" for Perl nodes/imports).
+	// The module name is a (package) node — the same (package_statement
+	// (package)) shape the Perl def query already captures as a type.
+	"perl": `(package_statement (package) @package)`,
 }
 
 // tsRelativeImportQuery captures relative imports — kept separate from the

@@ -630,6 +630,26 @@ func TestCoupling_PHPNamespaces(t *testing.T) {
 	assertABCGraph(t, root, "Demo\\App", "Demo\\Svc", "Demo\\Util")
 }
 
+// TestCoupling_PerlPackages pins the #467 Perl ecosystem: a Makefile.PL dist
+// with `package Foo::Bar;` declarations (::-separated) graphs like the JVM
+// family. Demo::App → Demo::Svc, Demo::Util (strict / Carp are external pragmas
+// / CPAN modules, not first-party nodes); Demo::Svc → Demo::Util.
+func TestCoupling_PerlPackages(t *testing.T) {
+	root := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "Makefile.PL"), "use ExtUtils::MakeMaker;\nWriteMakefile(NAME => 'Demo');\n")
+	mk := func(name, body string) {
+		d := filepath.Join(root, "lib", "Demo")
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mustWriteFile(t, filepath.Join(d, name), body)
+	}
+	mk("App.pm", "package Demo::App;\nuse strict;\nuse Demo::Svc;\nuse Demo::Util;\nuse Carp;\n1;\n")
+	mk("Svc.pm", "package Demo::Svc;\nuse Demo::Util;\n1;\n")
+	mk("Util.pm", "package Demo::Util;\n1;\n")
+	assertABCGraph(t, root, "Demo::App", "Demo::Svc", "Demo::Util")
+}
+
 // assertABCGraph checks the canonical a→b, a→c; b→c; c→∅ coupling shape used
 // by several per-language tests: a={Ca:0,Ce:2,I:1}, b={1,1,0.5}, c={2,0,0}.
 func assertABCGraph(t *testing.T, root, a, b, c string) {
