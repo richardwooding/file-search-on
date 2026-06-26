@@ -474,6 +474,292 @@ func Walk(ctx context.Context, opts Options, registry *content.Registry) ([]Resu
 // Cancellation propagates to three sites: the producer (fs.WalkDir
 // callback), each worker's receive on the jobs channel, and the
 // per-file ContentType.Attributes calls inside BuildAttributes.
+// walkRootSpec is one resolved walk root: its fs.FS, exclude matcher, and the
+// optional per-root project resolver + git metadata cache (projects and git
+// history don't span roots).
+type walkRootSpec struct {
+	root     string
+	fsys     fs.FS
+	exc      *excluder
+	resolver *projectdetect.ProjectResolver
+	gitCache *gitmeta.Cache
+}
+
+// walkJob is one file queued for a worker. It carries its own fsys + root so
+// workers know which filesystem to read (multi-root walks have a different
+// fs.FS per match); resolver / gitCache are per-root for the same reason.
+type walkJob struct {
+	fsys        fs.FS
+	fsPath      string
+	displayPath string
+	resolver    *projectdetect.ProjectResolver
+	gitCache    *gitmeta.Cache
+}
+
+// buildWalkSpecs resolves the root(s) to walk into per-root specs. opts.Roots
+// takes precedence (multi-root: a per-root os.DirFS + excluder so each root's
+// .gitignore is honoured independently); otherwise opts.Root / opts.FS define a
+// single root. Extracted verbatim from WalkStream (no behaviour change).
+func buildWalkSpecs(ctx context.Context, opts Options) []walkRootSpec {
+	makeResolver := func(r string) *projectdetect.ProjectResolver {
+		if !opts.ResolveProjects {
+			return nil
+		}
+		return projectdetect.NewResolver(r, nil)
+	}
+	// makeGitCache resolves a *gitmeta.Cache for root when WithGit is set —
+	// from opts.GitCachePool when present (shared, HEAD-aware; the MCP path),
+	// else a fresh gitmeta.New per walk (CLI / tests). Returns nil for
+	// non-git trees / missing-git / build errors — the walk proceeds with
+	// empty git_* attributes.
+	makeGitCache := func(r string) *gitmeta.Cache {
+		if !opts.WithGit {
+			return nil
+		}
+		if opts.GitCachePool != nil {
+			c, err := opts.GitCachePool.Get(ctx, r)
+			if err != nil {
+				return nil
+			}
+			return c
+		}
+		c, err := gitmeta.New(ctx, r)
+		if err != nil {
+			return nil
+		}
+		return c
+	}
+	// excludesFor returns the user's --exclude list plus any project-aware
+	// build-artefact excludes from r's subtree. No-op (returns opts.Excludes)
+	// when PruneBuildArtefacts is off; pre-walk errors are swallowed so a
+	// broken filesystem doesn't hard-fail the search.
+	excludesFor := func(r string) []string {
+		if !opts.PruneBuildArtefacts {
+			return opts.Excludes
+		}
+		extra, err := projectdetect.CollectBuildExcludesWithOptions(ctx, r, projectdetect.FindOptions{Excludes: opts.Excludes})
+		if err != nil || len(extra) == 0 {
+			return opts.Excludes
+		}
+		merged := make([]string, 0, len(opts.Excludes)+len(extra))
+		merged = append(merged, opts.Excludes...)
+		merged = append(merged, extra...)
+		return merged
+	}
+
+	var specs []walkRootSpec
+	if len(opts.Roots) > 0 {
+		for _, r := range opts.Roots {
+			rfs := os.DirFS(r)
+			specs = append(specs, walkRootSpec{
+				root:     r,
+				fsys:     rfs,
+				exc:      newExcluder(rfs, excludesFor(r), opts.RespectGitignore, opts.IncludeGitDir),
+				resolver: makeResolver(r),
+				gitCache: makeGitCache(r),
+			})
+		}
+		return specs
+	}
+	fsys := opts.FS
+	root := opts.Root
+	if fsys == nil {
+		if root == "" {
+			root = "."
+		}
+		fsys = os.DirFS(root)
+	}
+	return append(specs, walkRootSpec{
+		root:     root,
+		fsys:     fsys,
+		exc:      newExcluder(fsys, excludesFor(root), opts.RespectGitignore, opts.IncludeGitDir),
+		resolver: makeResolver(root),
+		gitCache: makeGitCache(root),
+	})
+}
+
+// jobProcessor holds the per-walk config a worker needs to turn a walkJob into
+// a Result: the compiled CEL filter + optional rank, BM25 state, the
+// profile-driven skip-prefix list, the keyword terms, and the build options.
+type jobProcessor struct {
+	evaluator     *celexpr.Evaluator
+	rankEvaluator *celexpr.RankEvaluator
+	bm25Active    bool
+	keywordTerms  []string
+	skipPrefixes  []string
+	registry      *content.Registry
+	opts          Options
+}
+
+// process builds attributes for one job, applies the CEL filter, and on a match
+// assembles the Result (attrs / rank / snippet). Returns emit=false to skip the
+// file and stop=true when the build was cancelled mid-flight (the worker should
+// exit). It deliberately does NOT send on the output channel — the worker owns
+// the ctx-checked send, preserving the cancellation contract. Extracted from
+// WalkStream's worker loop (no behaviour change).
+func (p *jobProcessor) process(ctx context.Context, j walkJob) (r Result, emit, stop bool) {
+	attrs, err := celexpr.BuildAttributesWith(ctx, j.fsys, j.fsPath, j.displayPath, p.registry, celexpr.BuildOptions{
+		Index:                  p.opts.Index,
+		IncludeBody:            p.opts.IncludeBody,
+		BodyMaxBytes:           p.opts.BodyMaxBytes,
+		ProjectResolver:        j.resolver,
+		SkipAttributesParse:    p.opts.SkipAttributesParse,
+		SkipAttributesPrefixes: p.skipPrefixes,
+		ComputeHashes:          p.opts.ComputeHashes,
+		CheckDisguised:         p.opts.CheckDisguised,
+		ReadExtendedAttributes: p.opts.ReadExtendedAttributes,
+		Allowlist:              p.opts.Allowlist,
+		Denylist:               p.opts.Denylist,
+		Embedder:               p.opts.Embedder,
+		SemanticQueryEmbedding: p.opts.SemanticQueryEmbedding,
+		EmbedInputMaxBytes:     p.opts.EmbedInputMaxBytes,
+		KeywordQuery:           p.keywordTerms,
+		OCRImages:              p.opts.OCRImages,
+		OCRTimeout:             p.opts.OCRTimeout,
+		VerifyC2PA:             p.opts.VerifyC2PA,
+		WithPHash:              p.opts.WithPHash,
+		GitCache:               j.gitCache,
+	})
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return Result{}, false, true
+	}
+	if err != nil {
+		return Result{}, false, false
+	}
+	match, err := p.evaluator.Evaluate(attrs)
+	if err != nil || !match {
+		return Result{}, false, false
+	}
+	r = Result{
+		Path:        j.displayPath,
+		ContentType: attrs.ContentType,
+		Size:        attrs.Size,
+	}
+	if p.opts.IncludeAttributes {
+		r.Attrs = attrs
+	}
+	// Rank evaluation — per file, after the filter passed. Errors zero the
+	// rank rather than dropping the file. Skipped when BM25 is active: bm25
+	// isn't known until the buffered post-pass (FinalizeBM25).
+	if p.rankEvaluator != nil && !p.bm25Active {
+		if v, err := p.rankEvaluator.Eval(attrs); err == nil {
+			r.Rank = v
+		}
+	}
+	// Snippets are only meaningful for text content types; readSnippet
+	// returns "" on a missing / unscannable file.
+	if p.opts.IncludeSnippet && isTextContentType(attrs.ContentType) {
+		s, _ := readSnippet(ctx, j.fsys, j.fsPath, p.opts.SnippetLines)
+		r.Snippet = s
+	}
+	return r, true, false
+}
+
+// walkProducer feeds the shared jobs channel from each root's fs.WalkDir. It
+// holds only the channel + opts; per-root state arrives via walkRootSpec.
+type walkProducer struct {
+	jobs chan<- walkJob
+	opts Options
+}
+
+// specialFileMode is the set of irregular file modes the walk skips — opening
+// an unconnected FIFO blocks on the writer, and detection has nothing useful
+// to say about sockets / devices. Regular files have Type()==0.
+const specialFileMode = fs.ModeNamedPipe | fs.ModeSocket | fs.ModeDevice | fs.ModeCharDevice | fs.ModeIrregular
+
+// walkRoot walks one root via fs.WalkDir, queueing each non-excluded regular
+// file (and, with FollowSymlinks, descending symlink-to-dir targets). Honours
+// ctx at the channel send. Extracted from WalkStream (no behaviour change).
+func (wp *walkProducer) walkRoot(ctx context.Context, spec walkRootSpec) error {
+	return fs.WalkDir(spec.fsys, ".", func(fsPath string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		// Honour excludes before anything else; matched dirs prune the subtree.
+		if fsPath != "." && spec.exc.Match(fsPath, d.IsDir()) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if d.Type()&specialFileMode != 0 {
+			return nil
+		}
+		// FollowSymlinks: a symlink-to-dir recurses into the resolved target,
+		// queued under the original symlink-anchored path. Symlinks-to-files
+		// fall through to the regular queue (fs.Stat already follows them).
+		if wp.opts.FollowSymlinks && spec.root != "" {
+			osPath := filepath.Join(spec.root, filepath.FromSlash(fsPath))
+			if walked, werr := wp.walkSymlinkDir(ctx, spec, fsPath, osPath); walked {
+				return werr
+			}
+		}
+		// User-facing path: OS-native join with the match's root. In-memory
+		// FS tests with no root see fs-style paths in Result.Path.
+		displayPath := fsPath
+		if spec.root != "" {
+			displayPath = filepath.Join(spec.root, filepath.FromSlash(fsPath))
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case wp.jobs <- walkJob{fsys: spec.fsys, fsPath: fsPath, displayPath: displayPath, resolver: spec.resolver, gitCache: spec.gitCache}:
+		}
+		return nil
+	})
+}
+
+// walkSymlinkDir is the FollowSymlinks=true descent: when osPath is a
+// symlink-to-dir, walk the resolved target and queue each file under the
+// original symlink-anchored path. handled=true means walkRoot should skip its
+// normal queue step. Loop detection is deliberately omitted — issue #128
+// relies on the OS to surface ELOOP through Go's WalkDir. Extracted from
+// WalkStream (no behaviour change).
+func (wp *walkProducer) walkSymlinkDir(ctx context.Context, spec walkRootSpec, fsPath, osPath string) (handled bool, err error) {
+	lstatInfo, lerr := os.Lstat(osPath)
+	if lerr != nil || lstatInfo.Mode()&os.ModeSymlink == 0 {
+		return false, nil
+	}
+	statInfo, terr := os.Stat(osPath)
+	if terr != nil || !statInfo.IsDir() {
+		return false, nil
+	}
+	target, eerr := filepath.EvalSymlinks(osPath)
+	if eerr != nil || target == "" {
+		return false, nil
+	}
+	subFsys := os.DirFS(target)
+	werr := fs.WalkDir(subFsys, ".", func(subPath string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil || subPath == "." {
+			return nil
+		}
+		virtualFSPath := filepath.ToSlash(filepath.Join(filepath.FromSlash(fsPath), filepath.FromSlash(subPath)))
+		if spec.exc.Match(virtualFSPath, d.IsDir()) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if d.Type()&specialFileMode != 0 {
+			return nil
+		}
+		displayPath := filepath.Join(spec.root, filepath.FromSlash(fsPath), filepath.FromSlash(subPath))
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case wp.jobs <- walkJob{fsys: subFsys, fsPath: subPath, displayPath: displayPath, resolver: spec.resolver, gitCache: spec.gitCache}:
+		}
+		return nil
+	})
+	return true, werr
+}
+
 func WalkStream(ctx context.Context, opts Options, registry *content.Registry, out chan<- Result) error {
 	defer close(out)
 
@@ -509,121 +795,24 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 		opts.IncludeAttributes = true
 	}
 
-	// Resolve which root(s) we're walking. opts.Roots takes
-	// precedence; falling back to opts.Root preserves the
-	// single-root (and opts.FS-override) test path.
-	type rootSpec struct {
-		root     string
-		fsys     fs.FS
-		exc      *excluder
-		resolver *projectdetect.ProjectResolver
-		gitCache *gitmeta.Cache
-	}
-	var specs []rootSpec
-	makeResolver := func(r string) *projectdetect.ProjectResolver {
-		if !opts.ResolveProjects {
-			return nil
-		}
-		return projectdetect.NewResolver(r, nil)
-	}
-	// makeGitCache resolves a *gitmeta.Cache for root when WithGit
-	// is set. When opts.GitCachePool is also set (the MCP server
-	// path), the pool returns a shared cache that survives across
-	// walks and refreshes on HEAD change. When the pool is nil
-	// (CLI one-shot, tests), the walker builds a fresh cache per
-	// walk via gitmeta.New. Either path returns nil for non-git
-	// trees / missing-git / build errors — the walk proceeds with
-	// empty git_* attributes.
-	makeGitCache := func(r string) *gitmeta.Cache {
-		if !opts.WithGit {
-			return nil
-		}
-		if opts.GitCachePool != nil {
-			c, err := opts.GitCachePool.Get(ctx, r)
-			if err != nil {
-				return nil
-			}
-			return c
-		}
-		c, err := gitmeta.New(ctx, r)
-		if err != nil {
-			return nil
-		}
-		return c
-	}
-	// excludesFor returns the user's --exclude list plus any
-	// project-aware build-artefact excludes collected from r's
-	// subtree. When PruneBuildArtefacts is off this is a no-op
-	// returning opts.Excludes as-is. Errors from the pre-walk are
-	// swallowed: a broken filesystem during pre-walk shouldn't
-	// hard-fail the search; we just skip the auto-prune.
-	excludesFor := func(r string) []string {
-		if !opts.PruneBuildArtefacts {
-			return opts.Excludes
-		}
-		// Thread the user's excludes into the build-artefact pre-walk so it
-		// prunes the same basenames the main walk does (projectdetect v0.4.0
-		// also skips .git/.hg/.svn by default) instead of descending them just
-		// to discover build-excludes.
-		extra, err := projectdetect.CollectBuildExcludesWithOptions(ctx, r, projectdetect.FindOptions{Excludes: opts.Excludes})
-		if err != nil || len(extra) == 0 {
-			return opts.Excludes
-		}
-		merged := make([]string, 0, len(opts.Excludes)+len(extra))
-		merged = append(merged, opts.Excludes...)
-		merged = append(merged, extra...)
-		return merged
-	}
-	if len(opts.Roots) > 0 {
-		// Multi-root: ignore opts.FS (it can't represent multiple
-		// roots) and build a per-root os.DirFS + excluder so each
-		// root's .gitignore is honoured independently.
-		for _, r := range opts.Roots {
-			rfs := os.DirFS(r)
-			specs = append(specs, rootSpec{
-				root:     r,
-				fsys:     rfs,
-				exc:      newExcluder(rfs, excludesFor(r), opts.RespectGitignore, opts.IncludeGitDir),
-				resolver: makeResolver(r),
-				gitCache: makeGitCache(r),
-			})
-		}
-	} else {
-		fsys := opts.FS
-		root := opts.Root
-		if fsys == nil {
-			if root == "" {
-				root = "."
-			}
-			fsys = os.DirFS(root)
-		}
-		specs = append(specs, rootSpec{
-			root:     root,
-			fsys:     fsys,
-			exc:      newExcluder(fsys, excludesFor(root), opts.RespectGitignore, opts.IncludeGitDir),
-			resolver: makeResolver(root),
-			gitCache: makeGitCache(root),
-		})
-	}
+	// Resolve which root(s) we're walking into per-root specs.
+	specs := buildWalkSpecs(ctx, opts)
 
-	// Jobs carry their own fsys + root so workers know which
-	// filesystem to read from (multi-root walks have different
-	// fs.FS per match). Resolver is per-root for the same reason —
-	// projects don't span roots.
-	type job struct {
-		fsys        fs.FS
-		fsPath      string
-		displayPath string
-		resolver    *projectdetect.ProjectResolver
-		gitCache    *gitmeta.Cache
-	}
-	jobs := make(chan job, opts.Workers*2)
+	jobs := make(chan walkJob, opts.Workers*2)
 	var wg sync.WaitGroup
 
-	// Resolve the profile-driven skip-prefix list once per walk; nil
-	// when opts.Profile is empty / unrecognised (full parse, today's
-	// default). Issue #284.
-	skipAttrsPrefixes := skipPrefixesForProfile(opts.Profile)
+	// proc turns each queued job into a Result (build → filter → rank →
+	// snippet). The profile-driven skip-prefix list (#284) is resolved once
+	// here; nil when opts.Profile is empty / unrecognised (full parse).
+	proc := &jobProcessor{
+		evaluator:     evaluator,
+		rankEvaluator: rankEvaluator,
+		bm25Active:    bm25Active,
+		keywordTerms:  keywordTerms,
+		skipPrefixes:  skipPrefixesForProfile(opts.Profile),
+		registry:      registry,
+		opts:          opts,
+	}
 
 	for range opts.Workers {
 		wg.Go(func() {
@@ -635,65 +824,12 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 					if !ok {
 						return
 					}
-					attrs, err := celexpr.BuildAttributesWith(ctx, j.fsys, j.fsPath, j.displayPath, registry, celexpr.BuildOptions{
-						Index:                  opts.Index,
-						IncludeBody:            opts.IncludeBody,
-						BodyMaxBytes:           opts.BodyMaxBytes,
-						ProjectResolver:        j.resolver,
-						SkipAttributesParse:    opts.SkipAttributesParse,
-						SkipAttributesPrefixes: skipAttrsPrefixes,
-						ComputeHashes:          opts.ComputeHashes,
-						CheckDisguised:         opts.CheckDisguised,
-						ReadExtendedAttributes: opts.ReadExtendedAttributes,
-						Allowlist:              opts.Allowlist,
-						Denylist:               opts.Denylist,
-						Embedder:               opts.Embedder,
-						SemanticQueryEmbedding: opts.SemanticQueryEmbedding,
-						EmbedInputMaxBytes:     opts.EmbedInputMaxBytes,
-						KeywordQuery:           keywordTerms,
-						OCRImages:              opts.OCRImages,
-						OCRTimeout:             opts.OCRTimeout,
-						VerifyC2PA:             opts.VerifyC2PA,
-						WithPHash:              opts.WithPHash,
-						GitCache:               j.gitCache,
-					})
-					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					r, emit, stop := proc.process(ctx, j)
+					if stop {
 						return
 					}
-					if err != nil {
+					if !emit {
 						continue
-					}
-					match, err := evaluator.Evaluate(attrs)
-					if err != nil || !match {
-						continue
-					}
-					r := Result{
-						Path:        j.displayPath,
-						ContentType: attrs.ContentType,
-						Size:        attrs.Size,
-					}
-					if opts.IncludeAttributes {
-						r.Attrs = attrs
-					}
-					// Rank evaluation — per file, after the filter
-					// passed. Errors zero the rank rather than dropping
-					// the file (partial data beats missing matches).
-					// Skipped when BM25 is active: bm25 isn't known until
-					// the buffered post-pass, so a rank that may reference
-					// it is evaluated there instead (FinalizeBM25).
-					if rankEvaluator != nil && !bm25Active {
-						if v, err := rankEvaluator.Eval(attrs); err == nil {
-							r.Rank = v
-						}
-					}
-					// Snippets are only meaningful for text content
-					// types — readSnippet returns ("", nil) on a
-					// missing file or unscannable input, so a binary
-					// match passes through with Snippet="" and the
-					// caller can treat absence as "not text".
-					if opts.IncludeSnippet && isTextContentType(attrs.ContentType) {
-						s, _ := readSnippet(ctx, j.fsys, j.fsPath, opts.SnippetLines)
-						r.Snippet = s
 					}
 					select {
 					case <-ctx.Done():
@@ -705,123 +841,13 @@ func WalkStream(ctx context.Context, opts Options, registry *content.Registry, o
 		})
 	}
 
-	// walkSymlinkDir is the FollowSymlinks=true descent. When entry
-	// at osPath is a symlink-to-dir, walks the resolved target and
-	// queues each file under the original symlink-anchored path.
-	// handled=true means the caller should skip its normal queue
-	// step. Closure (not package-level fn) because jobs / rootSpec
-	// types are declared inline inside WalkStream. Loop detection
-	// is deliberately not done — per issue #128 we rely on the OS
-	// to surface ELOOP through Go's WalkDir.
-	walkSymlinkDir := func(spec rootSpec, fsPath, osPath string) (handled bool, err error) {
-		lstatInfo, lerr := os.Lstat(osPath)
-		if lerr != nil || lstatInfo.Mode()&os.ModeSymlink == 0 {
-			return false, nil
-		}
-		statInfo, terr := os.Stat(osPath)
-		if terr != nil || !statInfo.IsDir() {
-			return false, nil
-		}
-		target, eerr := filepath.EvalSymlinks(osPath)
-		if eerr != nil || target == "" {
-			return false, nil
-		}
-		subFsys := os.DirFS(target)
-		werr := fs.WalkDir(subFsys, ".", func(subPath string, d fs.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return nil
-			}
-			if subPath == "." {
-				return nil
-			}
-			virtualFSPath := filepath.ToSlash(filepath.Join(filepath.FromSlash(fsPath), filepath.FromSlash(subPath)))
-			if spec.exc.Match(virtualFSPath, d.IsDir()) {
-				if d.IsDir() {
-					return fs.SkipDir
-				}
-				return nil
-			}
-			if d.IsDir() {
-				return nil
-			}
-			// Same special-file guard as the primary walk path —
-			// FIFOs / sockets / devices can hang on open.
-			if typ := d.Type(); typ&(fs.ModeNamedPipe|fs.ModeSocket|fs.ModeDevice|fs.ModeCharDevice|fs.ModeIrregular) != 0 {
-				return nil
-			}
-			displayPath := filepath.Join(spec.root, filepath.FromSlash(fsPath), filepath.FromSlash(subPath))
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case jobs <- job{fsys: subFsys, fsPath: subPath, displayPath: displayPath, resolver: spec.resolver, gitCache: spec.gitCache}:
-			}
-			return nil
-		})
-		return true, werr
-	}
-
-	// Producer: iterate each root through fs.WalkDir, feeding the
-	// shared jobs channel. Errors across roots are concatenated so
-	// the caller sees them all (rather than just the first); the
-	// post-loop ctx.Err() sweep covers worker-side cancellation.
+	// Producer: iterate each root through fs.WalkDir, feeding the shared
+	// jobs channel. Errors across roots are concatenated so the caller sees
+	// them all; the post-loop ctx.Err() sweep covers worker-side cancellation.
+	prod := &walkProducer{jobs: jobs, opts: opts}
 	var walkErrs []error
 	for _, spec := range specs {
-		err := fs.WalkDir(spec.fsys, ".", func(fsPath string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return nil
-			}
-			// Honour excludes before anything else. Matched directories
-			// return fs.SkipDir so their subtree is pruned.
-			if fsPath != "." && spec.exc.Match(fsPath, d.IsDir()) {
-				if d.IsDir() {
-					return fs.SkipDir
-				}
-				return nil
-			}
-			if d.IsDir() {
-				return nil
-			}
-
-			// Skip special files — FIFOs / sockets / character / block
-			// devices / irregular. Opening an unconnected FIFO blocks
-			// indefinitely under O_RDONLY (waiting for the writer side
-			// to open), and content detection has nothing meaningful to
-			// say about a socket. Symlinks fall through to the next
-			// branch which handles them explicitly. Regular files have
-			// d.Type() == 0 so they pass the mask check.
-			if typ := d.Type(); typ&(fs.ModeNamedPipe|fs.ModeSocket|fs.ModeDevice|fs.ModeCharDevice|fs.ModeIrregular) != 0 {
-				return nil
-			}
-
-			// FollowSymlinks: when the entry is a symlink-to-dir,
-			// recurse into the resolved target instead of queueing
-			// the symlink as a single leaf. Path rewriting keeps
-			// search results anchored under the original symlink so
-			// users see the "user-facing" location rather than the
-			// resolved target. Symlinks-to-files fall through to the
-			// regular queue path — fs.Stat already follows them.
-			if opts.FollowSymlinks && spec.root != "" {
-				osPath := filepath.Join(spec.root, filepath.FromSlash(fsPath))
-				if walked, werr := walkSymlinkDir(spec, fsPath, osPath); walked {
-					return werr
-				}
-			}
-
-			// User-facing path: OS-native join with the root the
-			// match came from. Tests that pass an in-memory FS
-			// without a root see fs-style paths in Result.Path.
-			displayPath := fsPath
-			if spec.root != "" {
-				displayPath = filepath.Join(spec.root, filepath.FromSlash(fsPath))
-			}
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case jobs <- job{fsys: spec.fsys, fsPath: fsPath, displayPath: displayPath, resolver: spec.resolver, gitCache: spec.gitCache}:
-			}
-			return nil
-		})
-		if err != nil {
+		if err := prod.walkRoot(ctx, spec); err != nil {
 			walkErrs = append(walkErrs, err)
 		}
 		if ctx.Err() != nil {
