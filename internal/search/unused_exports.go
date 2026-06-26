@@ -127,6 +127,55 @@ type UnusedExportsResult struct {
 // Interface-satisfaction exemption (#505): a method whose name is declared on
 // a first-party interface can't be unexported without breaking the interface,
 // so such methods are excluded too (name-based; same caveats).
+// exportedChecker returns a predicate reporting whether a symbol name is
+// exported in a file: keyword-visibility languages carry the public subset in
+// the `exported_symbols` attribute; name-convention languages (Go / Python)
+// derive it from the name.
+func exportedChecker(extra map[string]any, lang string) func(string) bool {
+	if expAttr, ok := extra["exported_symbols"].([]string); ok {
+		expSet := make(map[string]bool, len(expAttr))
+		for _, e := range expAttr {
+			expSet[e] = true
+		}
+		return func(name string) bool { return expSet[name] }
+	}
+	return func(name string) bool { return exportedInLang(name, lang) }
+}
+
+// decodeBoundarySignals folds one file's handler_boundary tags into the
+// export-pinning maps: "v" handler value-refs (#504), "s" handler signature
+// types (#504), "i" interface methods (#505). The "p" external-test marker
+// (#511) is handled by the caller (it affects package-key attribution).
+func decodeBoundarySignals(boundary []string, valueRefFuncs, interfaceMethods map[string]bool, sigTypesByFunc map[string][]string) {
+	for _, e := range boundary {
+		switch {
+		case strings.HasPrefix(e, "v\x00"):
+			valueRefFuncs[e[2:]] = true
+		case strings.HasPrefix(e, "s\x00"):
+			if rest := e[2:]; len(rest) > 0 {
+				if i := strings.IndexByte(rest, 0); i > 0 && i < len(rest)-1 {
+					sigTypesByFunc[rest[:i]] = append(sigTypesByFunc[rest[:i]], rest[i+1:])
+				}
+			}
+		case strings.HasPrefix(e, "i\x00"):
+			interfaceMethods[e[2:]] = true
+		}
+	}
+}
+
+// boundaryExemptTypes is the set of exported types that can't be unexported
+// because they're bound to an external generic registration API (#504): the
+// signature types of every function registered as a value.
+func boundaryExemptTypes(valueRefFuncs map[string]bool, sigTypesByFunc map[string][]string) map[string]bool {
+	exempt := map[string]bool{}
+	for fn := range valueRefFuncs {
+		for _, t := range sigTypesByFunc[fn] {
+			exempt[t] = true
+		}
+	}
+	return exempt
+}
+
 func UnusedExports(ctx context.Context, opts Options, registry *content.Registry) (*UnusedExportsResult, error) {
 	root := opts.Root
 	if root == "" && len(opts.Roots) > 0 {
@@ -206,23 +255,7 @@ func UnusedExports(ctx context.Context, opts Options, registry *content.Registry
 		if gen, _ := r.Attrs.Extra["is_generated_code"].(bool); gen {
 			generated[r.Path] = true
 		}
-		// Visibility: keyword-visibility languages carry the public subset
-		// in the `exported_symbols` attribute; name-convention languages
-		// (Go / Python) derive it from the name.
-		expAttr, hasExp := r.Attrs.Extra["exported_symbols"].([]string)
-		var expSet map[string]bool
-		if hasExp {
-			expSet = make(map[string]bool, len(expAttr))
-			for _, e := range expAttr {
-				expSet[e] = true
-			}
-		}
-		isExported := func(name string) bool {
-			if hasExp {
-				return expSet[name]
-			}
-			return exportedInLang(name, lang)
-		}
+		isExported := exportedChecker(r.Attrs.Extra, lang)
 		if funcs, ok := r.Attrs.Extra["functions"].([]string); ok {
 			for _, fn := range funcs {
 				if isExported(fn) {
@@ -245,31 +278,12 @@ func UnusedExports(ctx context.Context, opts Options, registry *content.Registry
 				refPkgs[ref][effPkg] = true
 			}
 		}
-		for _, e := range boundary {
-			switch {
-			case strings.HasPrefix(e, "v\x00"):
-				valueRefFuncs[e[2:]] = true
-			case strings.HasPrefix(e, "s\x00"):
-				if rest := e[2:]; len(rest) > 0 {
-					if i := strings.IndexByte(rest, 0); i > 0 && i < len(rest)-1 {
-						sigTypesByFunc[rest[:i]] = append(sigTypesByFunc[rest[:i]], rest[i+1:])
-					}
-				}
-			case strings.HasPrefix(e, "i\x00"):
-				interfaceMethods[e[2:]] = true
-			}
-		}
+		decodeBoundarySignals(boundary, valueRefFuncs, interfaceMethods, sigTypesByFunc)
 	}
 
-	// A type in the signature of a function that is registered as a value
-	// (the AddTool / HandleFunc handler pattern) is bound to an external
-	// generic API and can't be unexported — exempt it (#504).
-	boundaryExempt := map[string]bool{}
-	for fn := range valueRefFuncs {
-		for _, t := range sigTypesByFunc[fn] {
-			boundaryExempt[t] = true
-		}
-	}
+	// Types bound to an external generic registration API (#504) can't be
+	// unexported — exempt them.
+	boundaryExempt := boundaryExemptTypes(valueRefFuncs, sigTypesByFunc)
 
 	for name, d := range defs {
 		if d.multi {
