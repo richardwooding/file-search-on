@@ -185,11 +185,18 @@ runs:
         fail_count=$(jq '[.runs[0].results[]? | select(.level=="error")] | length' "$SARIF_FILE" 2>/dev/null || echo 0)
         warn_count=$(jq '[.runs[0].results[]? | select(.level=="warning")] | length' "$SARIF_FILE" 2>/dev/null || echo 0)
 
+        # Derive the verdict from the finding counts (matching the CLI's own
+        # logic: any fail -> fail, else any warn -> warn, else pass), so a
+        # warn verdict is reported even when --strict is off and the binary
+        # exits 0. Gating itself is left to the exit code (see the gate step):
+        # the binary already exits non-zero on fail OR strict+warn.
         case "$ec" in
-          0)   verdict=pass ;;
-          1)   if [ "$INPUT_STRICT" = "true" ] && [ "$fail_count" = "0" ]; then verdict=warn; else verdict=fail; fi ;;
           124) verdict=timeout ;;
           130) verdict=interrupted ;;
+          0)   if [ "${warn_count:-0}" -gt 0 ] 2>/dev/null; then verdict=warn; else verdict=pass; fi ;;
+          1)   if [ "${fail_count:-0}" -gt 0 ] 2>/dev/null; then verdict=fail
+               elif [ "${warn_count:-0}" -gt 0 ] 2>/dev/null; then verdict=warn
+               else verdict=fail; fi ;;  # ec=1 but counts unknown (jq failed) -> fail, safe
           *)   verdict=fail ;;
         esac
 
@@ -214,12 +221,16 @@ runs:
       shell: bash
       env:
         VERDICT: ${{ steps.review.outputs.verdict }}
+        EC: ${{ steps.review.outputs.exit_code }}
       run: |
-        case "$VERDICT" in
-          fail|timeout|interrupted)
-            echo "::error::file-search-on review verdict: $VERDICT"
-            exit 1 ;;
-          *)
+        # Defer to the binary's exit code, which already encodes the full
+        # gating decision: 0 = pass, 1 = fail OR (strict & warn), 124/130 =
+        # timeout/interrupted. This honours --strict without re-deriving it.
+        case "$EC" in
+          0)
             echo "file-search-on review verdict: $VERDICT"
             exit 0 ;;
+          *)
+            echo "::error::file-search-on review verdict: $VERDICT (exit $EC)"
+            exit 1 ;;
         esac
