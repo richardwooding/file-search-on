@@ -439,7 +439,6 @@ func BuildAttributes(ctx context.Context, fsys fs.FS, fsPath, displayPath string
 // probes have run. cacheKey is NOT a field: it can be cleared mid-build (skip
 // profile, parse error), so it's passed explicitly to each helper.
 type attrBuild struct {
-	ctx         context.Context
 	fsys        fs.FS
 	fsPath      string
 	displayPath string
@@ -457,10 +456,10 @@ type attrBuild struct {
 // symlink info. Mirrors the cache-miss tail but reads the cached entry for the
 // hash/phash/similarity/disguise fields. Behaviour extracted verbatim from
 // BuildAttributesWith (no logic change).
-func (b *attrBuild) enrichCacheHit(attrs *FileAttributes, cacheKey string, cached *index.Entry) {
+func (b *attrBuild) enrichCacheHit(ctx context.Context, attrs *FileAttributes, cacheKey string, cached *index.Entry) {
 	opts := b.opts
 	if opts.IncludeBody && canExtractBody(cached.ContentType) {
-		body := lookupOrExtractBody(b.ctx, b.fsys, b.fsPath, b.displayPath, cacheKey, b.info, cached.ContentType, opts)
+		body := lookupOrExtractBody(ctx, b.fsys, b.fsPath, b.displayPath, cacheKey, b.info, cached.ContentType, opts)
 		if body != "" {
 			if attrs.Extra == nil {
 				attrs.Extra = content.Attributes{}
@@ -472,10 +471,10 @@ func (b *attrBuild) enrichCacheHit(attrs *FileAttributes, cacheKey string, cache
 		if attrs.Extra == nil {
 			attrs.Extra = content.Attributes{}
 		}
-		runImageOCR(b.ctx, b.displayPath, cacheKey, b.info, attrs.Extra, opts)
+		runImageOCR(ctx, b.displayPath, cacheKey, b.info, attrs.Extra, opts)
 	}
 	if opts.VerifyC2PA && strings.HasPrefix(cached.ContentType, "image/") {
-		if v, ok := content.ValidateImageC2PA(b.ctx, b.fsys, b.fsPath, cached.ContentType); ok {
+		if v, ok := content.ValidateImageC2PA(ctx, b.fsys, b.fsPath, cached.ContentType); ok {
 			if attrs.Extra == nil {
 				attrs.Extra = content.Attributes{}
 			}
@@ -486,22 +485,22 @@ func (b *attrBuild) enrichCacheHit(attrs *FileAttributes, cacheKey string, cache
 		attrs.Extra = applyProjectContext(attrs.Extra, opts.ProjectResolver, b.displayPath)
 	}
 	if opts.ComputeHashes {
-		populateHashes(b.ctx, b.displayPath, cacheKey, b.info, cached, attrs, opts.Index)
+		populateHashes(ctx, b.displayPath, cacheKey, b.info, cached, attrs, opts.Index)
 	}
 	if opts.WithPHash {
 		if attrs.Extra == nil {
 			attrs.Extra = content.Attributes{}
 		}
-		populatePHash(b.ctx, b.fsys, b.fsPath, b.displayPath, cacheKey, cached.ContentType, b.info, cached, attrs.Extra, opts.Index)
+		populatePHash(ctx, b.fsys, b.fsPath, b.displayPath, cacheKey, cached.ContentType, b.info, cached, attrs.Extra, opts.Index)
 	}
 	if opts.Allowlist != nil || opts.Denylist != nil {
 		applyKnownStatus(attrs, opts)
 	}
 	if opts.Embedder != nil && len(opts.SemanticQueryEmbedding) > 0 {
-		populateSimilarity(b.ctx, b.fsys, b.fsPath, b.displayPath, cacheKey, b.info, cached, attrs, opts)
+		populateSimilarity(ctx, b.fsys, b.fsPath, b.displayPath, cacheKey, b.info, cached, attrs, opts)
 	}
 	if len(opts.KeywordQuery) > 0 {
-		populateBM25Doc(b.ctx, b.fsys, b.fsPath, b.displayPath, cacheKey, b.info, cached.ContentType, attrs, opts)
+		populateBM25Doc(ctx, b.fsys, b.fsPath, b.displayPath, cacheKey, b.info, cached.ContentType, attrs, opts)
 	}
 	if opts.CheckDisguised {
 		if cached.DisguiseChecked {
@@ -534,25 +533,25 @@ func (b *attrBuild) enrichCacheHit(attrs *FileAttributes, cacheKey string, cache
 // symlink info. The hash/phash/similarity helpers stamp their fields onto the
 // shared cacheEntry (re-Put inside them) so the next walk hits. Behaviour
 // extracted verbatim from BuildAttributesWith (no logic change).
-func (b *attrBuild) enrichCacheMiss(attrs *FileAttributes, cacheKey string, cacheEntry *index.Entry, contentTypeName, magicCT, extCT string) {
+func (b *attrBuild) enrichCacheMiss(ctx context.Context, attrs *FileAttributes, cacheKey string, cacheEntry *index.Entry, contentTypeName, magicCT, extCT string) {
 	opts := b.opts
 	if opts.ComputeHashes {
-		populateHashes(b.ctx, b.displayPath, cacheKey, b.info, cacheEntry, attrs, opts.Index)
+		populateHashes(ctx, b.displayPath, cacheKey, b.info, cacheEntry, attrs, opts.Index)
 	}
 	if opts.WithPHash {
 		if attrs.Extra == nil {
 			attrs.Extra = content.Attributes{}
 		}
-		populatePHash(b.ctx, b.fsys, b.fsPath, b.displayPath, cacheKey, contentTypeName, b.info, cacheEntry, attrs.Extra, opts.Index)
+		populatePHash(ctx, b.fsys, b.fsPath, b.displayPath, cacheKey, contentTypeName, b.info, cacheEntry, attrs.Extra, opts.Index)
 	}
 	if opts.Allowlist != nil || opts.Denylist != nil {
 		applyKnownStatus(attrs, opts)
 	}
 	if opts.Embedder != nil && len(opts.SemanticQueryEmbedding) > 0 {
-		populateSimilarity(b.ctx, b.fsys, b.fsPath, b.displayPath, cacheKey, b.info, cacheEntry, attrs, opts)
+		populateSimilarity(ctx, b.fsys, b.fsPath, b.displayPath, cacheKey, b.info, cacheEntry, attrs, opts)
 	}
 	if len(opts.KeywordQuery) > 0 {
-		populateBM25Doc(b.ctx, b.fsys, b.fsPath, b.displayPath, cacheKey, b.info, contentTypeName, attrs, opts)
+		populateBM25Doc(ctx, b.fsys, b.fsPath, b.displayPath, cacheKey, b.info, contentTypeName, attrs, opts)
 	}
 	if opts.CheckDisguised {
 		applyDisguise(attrs, magicCT, extCT)
@@ -648,7 +647,7 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	// Shared context for the enrichment helpers. cacheKey is threaded
 	// separately (it can be cleared mid-build).
 	b := &attrBuild{
-		ctx: ctx, fsys: fsys, fsPath: fsPath, displayPath: displayPath,
+		fsys: fsys, fsPath: fsPath, displayPath: displayPath,
 		info: info, sym: sym, ftimes: ftimes, registry: registry, opts: opts,
 	}
 
@@ -678,7 +677,7 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 			// Apply the per-walk, never-cached enrichments (body / OCR /
 			// C2PA / project / hashes / phash / known-status / similarity /
 			// BM25 / disguise / xattr / git / times / symlink).
-			b.enrichCacheHit(attrs, cacheKey, cached)
+			b.enrichCacheHit(ctx, attrs, cacheKey, cached)
 			return attrs, nil
 		}
 	}
@@ -861,7 +860,7 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	// Post-parse enrichments (hashes / phash / known-status / similarity /
 	// BM25 / disguise / xattr / git / times / symlink). The cacheEntry is
 	// the shared entry the hash/phash/similarity helpers re-Put.
-	b.enrichCacheMiss(attrs, cacheKey, cacheEntry, contentTypeName, magicCT, extCT)
+	b.enrichCacheMiss(ctx, attrs, cacheKey, cacheEntry, contentTypeName, magicCT, extCT)
 	return attrs, nil
 }
 
