@@ -22,6 +22,7 @@ require (
 	github.com/richardwooding/gitmeta v0.1.0
 	github.com/richardwooding/go-codemetrics v0.4.0
 	github.com/richardwooding/go-coupling v0.1.0
+	github.com/richardwooding/go-sarif v0.1.0
 	github.com/richardwooding/ollamaembed v0.1.0
 	github.com/richardwooding/projectdetect v0.4.0
 	github.com/richardwooding/treesitter-symbols v0.3.0
