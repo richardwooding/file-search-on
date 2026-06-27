@@ -6,7 +6,7 @@ import (
 	"go/token"
 	"sort"
 
-	ts "github.com/odvcencio/gotreesitter"
+	tssymbols "github.com/richardwooding/treesitter-symbols"
 )
 
 // ReferenceSite is one occurrence of a symbol reference within a file, at a
@@ -114,29 +114,14 @@ func goReferenceLines(src []byte, symbol string) []ReferenceSite {
 }
 
 func tsReferenceLines(language string, src []byte, symbol string) []ReferenceSite {
-	tl := tsLangFor(language)
-	if tl == nil {
+	sites := tssymbols.ReferenceSites(language, src, symbol)
+	if len(sites) == 0 {
 		return nil
 	}
-	tree, err := tl.pool.Parse(src)
-	if err != nil || tree == nil {
-		return nil
+	out := make([]ReferenceSite, 0, len(sites))
+	for _, s := range sites {
+		out = append(out, ReferenceSite{Line: s.Line, Kind: s.Kind})
 	}
-	var out []ReferenceSite
-	collect := func(q *ts.Query, capName, kind string) {
-		if q == nil {
-			return
-		}
-		for _, m := range q.Execute(tree) {
-			for _, c := range m.Captures {
-				if c.Name == capName && c.Text(src) == symbol {
-					out = append(out, ReferenceSite{Line: int(c.Node.StartPoint().Row) + 1, Kind: kind})
-				}
-			}
-		}
-	}
-	collect(tl.refQuery, "reference", "call")
-	collect(tl.typeRefQuery, "typeref", "type")
 	return dedupeSites(out)
 }
 

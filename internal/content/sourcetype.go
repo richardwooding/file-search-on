@@ -6,6 +6,8 @@ import (
 	"context"
 	"io/fs"
 	"strings"
+
+	tssymbols "github.com/richardwooding/treesitter-symbols"
 )
 
 // symbolCaptureCap bounds how much of a source file's body the
@@ -152,21 +154,40 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 		attrs["is_generated_code"] = true
 	}
 	if bodyBuf != nil && bodyBuf.Len() > 0 {
-		var funcs, types, imports, refs, callEdges, complexityRows, handlerBoundary []string
-		switch s.language {
-		case "go":
+		var (
+			funcs, types, imports, refs []string
+			callEdges, handlerBoundary  []string
+			complexityRows, owners      []string
+			pkg                         string
+			relImports, exported        []string
+		)
+		if s.language == "go" {
 			// Go keeps the stdlib-AST extractor (rigorous, free). handlerBoundary
 			// carries the unused_exports #504 registration-boundary data
-			// (Go-only; nil from the tree-sitter path).
+			// (Go-only). Package is implied by directory and the exported set is
+			// derived by name in the consumer, so neither is emitted here.
 			funcs, types, imports, refs, callEdges, complexityRows, handlerBoundary = extractGoSymbols(bodyBuf.Bytes())
-		default:
-			// Every other wired language (Python / Java / C# / PHP / Perl /
-			// R / MATLAB / Scala + Rust / TS / JS / Ruby / Swift / Kotlin /
-			// C / C++) uses the tree-sitter extractor (#365 migrated the
-			// first eight off regex). Returns nil for unwired languages —
-			// but symbolExtractorWired gates this block.
-			funcs, types, imports, refs, callEdges, complexityRows, handlerBoundary = extractTreeSitterSymbols(s.language, bodyBuf.Bytes())
+			owners = goMethodOwners(bodyBuf.Bytes())
+		} else {
+			// Every other wired language uses treesitter-symbols (#540): ONE
+			// tree-sitter parse yields symbols, call edges, method owners,
+			// package, relative imports, the exported set, and per-function
+			// complexity (cyclomatic + cognitive, via go-codemetrics over the
+			// same parse). Returns a zero value for unwired languages — but
+			// symbolExtractorWired gates this block.
+			sym, _ := tssymbols.Extract(s.language, bodyBuf.Bytes())
+			funcs = sym.Functions
+			types = sym.Types
+			imports = sym.Imports
+			refs = sym.References
+			callEdges = callEdgeStrings(sym.CallEdges)
+			complexityRows = complexityRowStrings(sym.FunctionSpans)
+			owners = methodOwnerStrings(sym.MethodOwners)
+			pkg = sym.Package
+			relImports = sym.RelativeImports
+			exported = sym.Exported
 		}
+
 		if len(funcs) > 0 {
 			attrs["functions"] = funcs
 		}
@@ -195,53 +216,26 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 			attrs["max_complexity"] = maxComplexityOf(complexityRows)
 		}
 		// method_owners (builder-internal, #445): "method\x00owner" pairs so
-		// the code graph can disambiguate same-named methods on different
-		// types (find_definition / who_calls / dead_code report the owning
-		// type). Go via stdlib AST; the class-based tree-sitter languages
-		// via tsMethodOwners (parent-walk to the enclosing type).
-		var owners []string
-		if s.language == "go" {
-			owners = goMethodOwners(bodyBuf.Bytes())
-		} else {
-			owners = tsMethodOwners(s.language, bodyBuf.Bytes())
-		}
+		// the code graph can disambiguate same-named methods on different types.
 		if len(owners) > 0 {
 			attrs["method_owners"] = owners
 		}
 		// package (builder-internal, #467): the file's declared package /
-		// namespace — the node unit for package-level coupling (Java today).
-		// Empty for Go (package implied by directory) and languages with no
-		// package concept; computed only when a package query exists, so
-		// non-package languages pay no parse.
-		if pkg := declaredPackage(s.language, bodyBuf.Bytes()); pkg != "" {
+		// namespace — the node unit for package-level coupling. Empty for Go
+		// (package implied by directory) and languages with no package concept.
+		if pkg != "" {
 			attrs["package"] = pkg
 		}
-		// relative_imports (builder-internal, #467): relative imports with
-		// their leading dots preserved, kept separate from `imports` so that
-		// attribute stays free of dotted-relative strings. Python today; the
-		// coupling adapter resolves them against the file's own package.
-		if rel := relativeImports(s.language, bodyBuf.Bytes()); len(rel) > 0 {
-			attrs["relative_imports"] = rel
+		// relative_imports (builder-internal, #467): relative imports with their
+		// leading dots preserved, kept separate from `imports`. Python today.
+		if len(relImports) > 0 {
+			attrs["relative_imports"] = relImports
 		}
-		// exported_symbols (builder-internal, #409): the public subset of
-		// defs for keyword-visibility languages, consumed by unused_exports.
-		// Positive-keyword languages (Rust pub, TS/JS export, Java/C# public)
-		// capture the public defs directly; default-public languages
-		// (Kotlin / Scala) capture the NON-public defs and subtract them
-		// from funcs+types. Go/Python derive visibility by name in the
-		// consumer, so they need no query and no extra parse here.
-		switch {
-		case tsHasExportedQuery(s.language):
-			if exp := tsExportedSymbols(s.language, bodyBuf.Bytes()); len(exp) > 0 {
-				attrs["exported_symbols"] = exp
-			}
-		case tsHasNonExportedQuery(s.language):
-			all := make([]string, 0, len(funcs)+len(types))
-			all = append(all, funcs...)
-			all = append(all, types...)
-			if exp := subtractStrings(all, tsNonExportedSymbols(s.language, bodyBuf.Bytes())); len(exp) > 0 {
-				attrs["exported_symbols"] = exp
-			}
+		// exported_symbols (builder-internal, #409): the public subset of defs,
+		// consumed by unused_exports. Computed by treesitter-symbols per the
+		// language's visibility rule (keyword / default-public / Python `_`).
+		if len(exported) > 0 {
+			attrs["exported_symbols"] = exported
 		}
 	}
 	return attrs, nil
@@ -252,9 +246,8 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 // buffer for languages that won't use it.
 func symbolExtractorWired(language string) bool {
 	switch language {
-	// Go uses the stdlib-AST extractor; the rest use tree-sitter
-	// (extractTreeSitterSymbols via the switch default). #365 migrated
-	// python/java/csharp/php/perl/r/matlab/scala off regex onto tree-sitter.
+	// Go uses the stdlib-AST extractor; the rest use treesitter-symbols
+	// (#540). Must match treesitter-symbols' supported language set.
 	case "go",
 		"python", "java", "csharp", "php", "perl", "r", "matlab", "scala",
 		"rust", "typescript", "javascript", "ruby", "swift", "kotlin", "c", "cpp":
