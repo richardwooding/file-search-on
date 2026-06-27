@@ -9,7 +9,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/richardwooding/file-search-on/internal/content"
 )
@@ -47,6 +49,16 @@ type ReviewConfig struct {
 	// CheckDeadCode includes dead-code candidates in changed files as "warn"
 	// findings. Heuristic, so it never escalates to "fail" on its own.
 	CheckDeadCode bool
+	// BaselineOnly restricts the complexity / cognitive-complexity gate to
+	// findings that are NEW or WORSENED relative to the base ref — a function
+	// whose metric is unchanged (or lower) than its baseline value is not
+	// flagged, even if it's over the ceiling. This stops a PR that merely
+	// touches a file with pre-existing debt from being blocked on code it
+	// didn't change (issue #538). The baseline is the same content the diff is
+	// taken against: HEAD when Base is empty, else the merge-base of Base and
+	// HEAD. Off by default (every over-ceiling function in a changed file is
+	// flagged). Dead-code (warn-level) is unaffected.
+	BaselineOnly bool
 }
 
 // ReviewResult is the verdict + findings for a diff-scoped review. Verdict is
@@ -83,7 +95,7 @@ func Review(ctx context.Context, opts Options, registry *content.Registry, cfg R
 	}
 	root := reviewRoot(opts)
 
-	changedAbs, changedRel, err := changedFiles(ctx, root, cfg.Base)
+	changedAbs, changedRel, toplevel, err := changedFiles(ctx, root, cfg.Base)
 	if err != nil {
 		// Can't resolve the changed set: treat a cancellation/timeout as a
 		// (clean) partial result so the caller's gate maps it to the usual
@@ -107,13 +119,49 @@ func Review(ctx context.Context, opts Options, registry *content.Registry, cfg R
 	// path repeats across its symbols, so caching collapses EvalSymlinks
 	// (physical disk I/O) to one call per distinct path.
 	resolved := map[string]string{}
-	inChanged := func(p string) bool {
+	canon := func(p string) string {
 		c, ok := resolved[p]
 		if !ok {
 			c = absClean(p)
 			resolved[p] = c
 		}
-		return changedAbs[c]
+		return c
+	}
+	inChanged := func(p string) bool { return changedAbs[canon(p)] }
+
+	// Baseline mode (#538): build the per-file, per-symbol complexity at the
+	// base ref so the gate can suppress findings that are pre-existing and not
+	// worsened. Keyed by absClean path (matching changedAbs). A nil/partial map
+	// (e.g. baseRef unresolvable) safely degrades to flagging everything.
+	var baseline map[string]map[string]metricPair
+	if cfg.BaselineOnly {
+		if baseRef, berr := reviewBaseRef(ctx, root, cfg.Base); berr == nil {
+			baseline = baselineComplexity(ctx, root, toplevel, baseRef, changedRel, registry)
+		}
+	}
+	// suppressed reports whether a metric finding is pre-existing and not
+	// worsened vs the baseline (so baseline mode drops it). Always false when
+	// not in baseline mode.
+	suppressed := func(path, symbol string, value int, cognitive bool) bool {
+		if baseline == nil {
+			return false
+		}
+		m := baseline[canon(path)]
+		if m == nil {
+			return false // file absent at base (newly added) → finding is new
+		}
+		prev, ok := m[symbol]
+		if !ok {
+			return false // symbol new at base → finding is new
+		}
+		base := prev.cyclomatic
+		if cognitive {
+			base = prev.cognitive
+		}
+		if base < 0 {
+			return false // baseline metric unavailable → don't suppress
+		}
+		return value <= base // unchanged or improved → suppress
 	}
 
 	// Complexity: every function, then filter to changed files over the gate.
@@ -126,7 +174,7 @@ func Review(ctx context.Context, opts Options, registry *content.Registry, cfg R
 			if !inChanged(fn.Path) {
 				continue
 			}
-			if fn.Complexity > cfg.MaxComplexity {
+			if fn.Complexity > cfg.MaxComplexity && !suppressed(fn.Path, fn.Function, fn.Complexity, false) {
 				out.Findings = append(out.Findings, ReviewFinding{
 					Rule:      "complexity",
 					Level:     "fail",
@@ -140,7 +188,8 @@ func Review(ctx context.Context, opts Options, registry *content.Registry, cfg R
 			// Cognitive complexity (nesting-weighted) — only where the language
 			// computes it (CognitiveComplexity != nil); a distinct fail signal
 			// from cyclomatic, so a function may trip both.
-			if fn.CognitiveComplexity != nil && *fn.CognitiveComplexity > cfg.MaxCognitive {
+			if fn.CognitiveComplexity != nil && *fn.CognitiveComplexity > cfg.MaxCognitive &&
+				!suppressed(fn.Path, fn.Function, *fn.CognitiveComplexity, true) {
 				out.Findings = append(out.Findings, ReviewFinding{
 					Rule:      "cognitive-complexity",
 					Level:     "fail",
@@ -278,10 +327,10 @@ func absClean(p string) string {
 // ReviewConfig.Base for the semantics). It returns a set of absolute cleaned
 // paths (for matching) and the sorted repo-relative paths (for reporting).
 // Deleted paths are dropped — they can't carry a current finding.
-func changedFiles(ctx context.Context, dir, base string) (map[string]bool, []string, error) {
+func changedFiles(ctx context.Context, dir, base string) (map[string]bool, []string, string, error) {
 	top, err := gitOutput(ctx, dir, "rev-parse", "--show-toplevel")
 	if err != nil {
-		return nil, nil, fmt.Errorf("not a git repository (or git unavailable) at %q: %w", dir, err)
+		return nil, nil, "", fmt.Errorf("not a git repository (or git unavailable) at %q: %w", dir, err)
 	}
 	toplevel := strings.TrimSpace(top)
 
@@ -297,7 +346,7 @@ func changedFiles(ctx context.Context, dir, base string) (map[string]bool, []str
 	args = append(args, "--", ".")
 	rawList, err := gitOutput(ctx, dir, args...)
 	if err != nil {
-		return nil, nil, fmt.Errorf("git diff failed: %w", err)
+		return nil, nil, "", fmt.Errorf("git diff failed: %w", err)
 	}
 
 	abs := map[string]bool{}
@@ -313,7 +362,114 @@ func changedFiles(ctx context.Context, dir, base string) (map[string]bool, []str
 		abs[absClean(filepath.Join(toplevel, filepath.FromSlash(line)))] = true
 	}
 	sort.Strings(rel)
-	return abs, rel, nil
+	return abs, rel, toplevel, nil
+}
+
+// metricPair is a function's cyclomatic + cognitive complexity at the baseline.
+// cognitive is -1 when the language doesn't compute it.
+type metricPair struct {
+	cyclomatic int
+	cognitive  int
+}
+
+// reviewBaseRef resolves the git ref whose content is the baseline for the
+// diff: HEAD when base is empty (uncommitted vs HEAD), else the merge-base of
+// base and HEAD (matching the `base...HEAD` three-dot diff the gate uses).
+func reviewBaseRef(ctx context.Context, dir, base string) (string, error) {
+	if base == "" {
+		return "HEAD", nil
+	}
+	mb, err := gitOutput(ctx, dir, "merge-base", base, "HEAD")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(mb), nil
+}
+
+// baselineComplexity returns, for each changed file, the per-symbol complexity
+// at baseRef, keyed by absClean(toplevel/rel) to match the changed-set keys. It
+// reuses the production extractor on the base content (via a single-file fs.FS),
+// so baseline metrics are computed identically to HEAD. Files absent at baseRef
+// (newly added) get no entry — their findings then count as new.
+func baselineComplexity(ctx context.Context, dir, toplevel, baseRef string, changedRel []string, registry *content.Registry) map[string]map[string]metricPair {
+	out := make(map[string]map[string]metricPair, len(changedRel))
+	for _, rel := range changedRel {
+		data, err := gitShowFile(ctx, dir, baseRef, rel)
+		if err != nil {
+			continue // not present at baseRef → no baseline (treated as new)
+		}
+		name := filepath.Base(rel)
+		fsys := content.NewSingleFileFS(name, data, time.Time{}, 0)
+		ct := registry.Detect(fsys, name)
+		if ct == nil {
+			continue
+		}
+		attrs, aerr := ct.Attributes(ctx, fsys, name)
+		if aerr != nil || attrs == nil {
+			continue
+		}
+		rows, _ := attrs["complexity_rows"].([]string)
+		if len(rows) == 0 {
+			continue
+		}
+		m := make(map[string]metricPair, len(rows))
+		for _, r := range rows {
+			sym, mp, ok := parseComplexityRow(r)
+			if !ok {
+				continue
+			}
+			// Same-named functions in one file collapse to the most lenient
+			// (max) baseline, so a finding is only "worsened" if it exceeds
+			// every prior namesake — avoiding false positives on overloads.
+			if prev, exists := m[sym]; exists {
+				if prev.cyclomatic > mp.cyclomatic {
+					mp.cyclomatic = prev.cyclomatic
+				}
+				if prev.cognitive > mp.cognitive {
+					mp.cognitive = prev.cognitive
+				}
+			}
+			m[sym] = mp
+		}
+		out[absClean(filepath.Join(toplevel, filepath.FromSlash(rel)))] = m
+	}
+	return out
+}
+
+// parseComplexityRow parses a builder-internal complexity row
+// "name\x00cyclomatic\x00startLine\x00endLine[\x00cognitive]" into its symbol
+// and metrics. cognitive is -1 when the row has no cognitive field.
+func parseComplexityRow(r string) (string, metricPair, bool) {
+	p := strings.Split(r, "\x00")
+	if len(p) < 2 {
+		return "", metricPair{}, false
+	}
+	cyc, err := strconv.Atoi(p[1])
+	if err != nil {
+		return "", metricPair{}, false
+	}
+	mp := metricPair{cyclomatic: cyc, cognitive: -1}
+	if len(p) >= 5 {
+		if cog, e := strconv.Atoi(p[4]); e == nil {
+			mp.cognitive = cog
+		}
+	}
+	return p[0], mp, true
+}
+
+// gitShowFile returns the content of relpath (repo-root-relative) at ref via
+// `git show <ref>:<relpath>`. An error (e.g. the path didn't exist at ref)
+// means no baseline for that file.
+func gitShowFile(ctx context.Context, dir, ref, relpath string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "git", "show", ref+":"+filepath.ToSlash(relpath))
+	cmd.Dir = dir
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, err
+	}
+	return stdout.Bytes(), nil
 }
 
 // gitOutput runs `git <args...>` in dir and returns stdout. The context bounds

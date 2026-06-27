@@ -59,6 +59,26 @@ Two requirements are easy to miss:
           prune-build-artefacts: "true"
 ```
 
+## Baseline mode — don't block on pre-existing debt
+
+The gate is diff-scoped at *file* granularity: by default it flags every over-threshold
+function in a changed file, so a PR that merely touches a complex file is blocked on code
+it didn't change. Set `baseline: true` to fail only on complexity that is **new or worsened**
+versus the base ref — a function whose cyclomatic/cognitive value is unchanged (or lower)
+than its baseline is left alone, even if it's over the ceiling.
+
+```yaml
+      - uses: richardwooding/file-search-on@v0.116.0
+        with:
+          base: origin/${{ github.base_ref }}
+          baseline: "true"   # only NEW or WORSENED complexity fails the gate
+```
+
+The baseline is the same content the diff is taken against (the merge-base of `base` and
+`HEAD`). New files and worsened functions still fail; pre-existing debt in touched files
+does not. The same flag is `--baseline` on the CLI and `baseline: true` on the MCP `review`
+tool.
+
 ## Report-only mode
 
 To surface annotations without blocking the merge, set `gate: false`. The SARIF still

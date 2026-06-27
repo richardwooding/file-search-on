@@ -19,6 +19,7 @@ type ReviewInput struct {
 	MaxComplexity int    `json:"max_complexity,omitempty" jsonschema:"Cyclomatic-complexity ceiling for a function in a changed file; functions above it are a fail-level finding. Defaults to 15."`
 	MaxCognitive  int    `json:"max_cognitive,omitempty" jsonschema:"Cognitive-complexity ceiling (SonarSource, nesting-weighted) for a function in a changed file; functions above it are a fail-level finding. Defaults to 15. Only applies where cognitive complexity is computed (Go + most tree-sitter languages)."`
 	SkipDeadCode  bool   `json:"skip_dead_code,omitempty" jsonschema:"When true, skip the dead-code check (it adds a second graph pass). Dead-code findings are warn-level."`
+	Baseline      bool   `json:"baseline,omitempty" jsonschema:"When true, only fail on complexity/cognitive findings that are NEW or WORSENED versus the base ref — pre-existing debt in a touched file is not flagged, so a PR isn't blocked on code it didn't change."`
 }
 
 // ReviewOutput is the diff-scoped review verdict + findings.
@@ -53,6 +54,7 @@ func (h *handlers) reviewHandler(ctx context.Context, _ *mcp.CallToolRequest, in
 		MaxComplexity: in.MaxComplexity,
 		MaxCognitive:  in.MaxCognitive,
 		CheckDeadCode: !in.SkipDeadCode,
+		BaselineOnly:  in.Baseline,
 	})
 	if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 		return nil, ReviewOutput{}, fmt.Errorf("review: %w", err)

@@ -39,6 +39,9 @@ inputs:
   skip-dead-code:
     description: "Skip the dead-code check (it adds a second graph pass)."
     default: "false"
+  baseline:
+    description: "Only fail on complexity/cognitive findings new or worsened vs the base ref — don't block a PR on pre-existing debt in files it merely touched."
+    default: "false"
   strict:
     description: "Treat warn-level findings as failures for the verdict / exit code."
     default: "false"
@@ -144,6 +147,7 @@ runs:
         INPUT_MAX_COMPLEXITY: ${{ inputs.max-complexity }}
         INPUT_MAX_COGNITIVE: ${{ inputs.max-cognitive }}
         INPUT_SKIP_DEAD_CODE: ${{ inputs.skip-dead-code }}
+        INPUT_BASELINE: ${{ inputs.baseline }}
         INPUT_STRICT: ${{ inputs.strict }}
         INPUT_EXCLUDE: ${{ inputs.exclude }}
         INPUT_PRUNE: ${{ inputs.prune-build-artefacts }}
@@ -167,6 +171,7 @@ runs:
         [ -n "$INPUT_EXPR" ] && ARGS+=(--expr "$INPUT_EXPR")
         ARGS+=(--max-complexity "$INPUT_MAX_COMPLEXITY" --max-cognitive "$INPUT_MAX_COGNITIVE")
         [ "$INPUT_SKIP_DEAD_CODE" = "true" ] && ARGS+=(--no-dead-code)
+        [ "$INPUT_BASELINE" = "true" ] && ARGS+=(--baseline)
         [ "$INPUT_STRICT" = "true" ] && ARGS+=(--strict)
         [ "$INPUT_PRUNE" = "true" ] && ARGS+=(--prune-build-artefacts)
         [ "$INPUT_RESPECT_GITIGNORE" = "true" ] && ARGS+=(--respect-gitignore)

@@ -25,6 +25,7 @@ type ReviewCmd struct {
 	MaxComplexity int  `name:"max-complexity" default:"15" help:"Cyclomatic-complexity ceiling for a function in a changed file; functions above it are a fail-level finding."`
 	MaxCognitive  int  `name:"max-cognitive" default:"15" help:"Cognitive-complexity ceiling (SonarSource, nesting-weighted) for a function in a changed file; functions above it are a fail-level finding. Only applies where cognitive complexity is computed (Go + most tree-sitter languages)."`
 	NoDeadCode    bool `name:"no-dead-code" help:"Skip the dead-code check (it adds a second graph pass)."`
+	Baseline      bool `name:"baseline" help:"Only fail on complexity/cognitive findings that are NEW or WORSENED versus the base ref — pre-existing debt in a touched file is not flagged. Lets a PR touch a complex file without being blocked on code it didn't change (#538)."`
 	Strict        bool `name:"strict" help:"Treat warn-level findings as failures for exit-code purposes (warn verdict also exits non-zero)."`
 
 	Workers             int           `short:"w" help:"Parallel workers. 0 = runtime.NumCPU()." default:"0"`
@@ -67,6 +68,7 @@ func (c *ReviewCmd) Run(ctx context.Context) error {
 		MaxComplexity: c.MaxComplexity,
 		MaxCognitive:  c.MaxCognitive,
 		CheckDeadCode: !c.NoDeadCode,
+		BaselineOnly:  c.Baseline,
 	})
 	if err != nil {
 		return fmt.Errorf("review failed: %w", err)

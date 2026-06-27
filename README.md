@@ -672,10 +672,12 @@ The action downloads the matching release binary and runs it on the runner (the 
 OCI image can't run `review`, which shells out to `git`). The job fails on a `fail` verdict;
 set `gate: false` for report-only mode (findings still upload as annotations).
 
-Key inputs: `base`, `max-complexity`, `max-cognitive`, `skip-dead-code`, `strict`, `expr`,
-`exclude`, `prune-build-artefacts`, `timeout`, `version` (which release to use; defaults to
-the action ref or `latest`), `upload-sarif`, `gate`. Outputs: `verdict`, `fail-count`,
-`warn-count`, `sarif-file`. See [`action.yml`](action.yml) for the full list and
+Key inputs: `base`, `max-complexity`, `max-cognitive`, `skip-dead-code`,
+`baseline` (only fail on complexity new/worsened vs the base — don't block on pre-existing
+debt in touched files), `strict`, `expr`, `exclude`, `prune-build-artefacts`, `timeout`,
+`version` (which release to use; defaults to the action ref or `latest`), `upload-sarif`,
+`gate`. Outputs: `verdict`, `fail-count`, `warn-count`, `sarif-file`. See
+[`action.yml`](action.yml) for the full list and
 [`examples/ci-review-gate.md`](examples/ci-review-gate.md) for more recipes.
 
 > Supported runners: `ubuntu-*` and `macos-*`. Windows is not yet supported.
