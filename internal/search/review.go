@@ -128,24 +128,65 @@ func Review(ctx context.Context, opts Options, registry *content.Registry, cfg R
 		return c
 	}
 	inChanged := func(p string) bool { return changedAbs[canon(p)] }
+	suppressed := baselineSuppressor(ctx, root, toplevel, cfg, changedRel, registry, canon)
 
-	// Baseline mode (#538): build the per-file, per-symbol complexity at the
-	// base ref so the gate can suppress findings that are pre-existing and not
-	// worsened. Keyed by absClean path (matching changedAbs). A nil/partial map
-	// (e.g. baseRef unresolvable) safely degrades to flagging everything.
-	var baseline map[string]map[string]metricPair
-	if cfg.BaselineOnly {
-		if baseRef, berr := reviewBaseRef(ctx, root, cfg.Base); berr == nil {
-			baseline = baselineComplexity(ctx, root, toplevel, baseRef, changedRel, registry)
-		}
+	// Complexity: every function, then filter to changed files over the gate.
+	rep, cErr := Complexity(ctx, opts, registry, 1<<30)
+	if cErr != nil && !isReviewCancel(cErr) {
+		return nil, fmt.Errorf("complexity analysis: %w", cErr)
 	}
-	// suppressed reports whether a metric finding is pre-existing and not
-	// worsened vs the baseline (so baseline mode drops it). Always false when
-	// not in baseline mode.
-	suppressed := func(path, symbol string, value int, cognitive bool) bool {
-		if baseline == nil {
-			return false
-		}
+	appendComplexityFindings(out, rep, cfg, inChanged, suppressed)
+
+	if err := runDeadCode(ctx, opts, registry, cfg, out, inChanged); err != nil {
+		return nil, err
+	}
+
+	surfaceCancellation(out, ctx, rep)
+	finalizeReview(out)
+	return out, nil
+}
+
+// runDeadCode appends warn-level dead-code findings for changed files, unless
+// cancellation is already in flight (a partial graph yields false positives).
+// A genuine (non-cancellation) graph error is returned.
+func runDeadCode(ctx context.Context, opts Options, registry *content.Registry, cfg ReviewConfig, out *ReviewResult, inChanged func(string) bool) error {
+	if !cfg.CheckDeadCode || cancelReason(ctx) != "" {
+		return nil
+	}
+	g, gErr := BuildCodeGraph(ctx, opts, registry)
+	if gErr != nil && !isReviewCancel(gErr) {
+		return fmt.Errorf("dead-code analysis: %w", gErr)
+	}
+	appendDeadCodeFindings(out, g, inChanged)
+	return nil
+}
+
+// surfaceCancellation marks the result as partial when the context was
+// cancelled, or when the complexity pass reported its own cancellation.
+func surfaceCancellation(out *ReviewResult, ctx context.Context, rep *ComplexityReport) {
+	if reason := cancelReason(ctx); reason != "" {
+		out.Cancelled = true
+		out.CancellationReason = reason
+	} else if rep != nil && rep.Cancelled {
+		out.Cancelled = true
+		out.CancellationReason = rep.CancellationReason
+	}
+}
+
+// baselineSuppressor returns the predicate appendComplexityFindings uses to
+// drop pre-existing-and-not-worsened complexity findings in baseline mode
+// (#538). When cfg.BaselineOnly is off it returns a predicate that suppresses
+// nothing. The baseline is built once here (keyed by absClean path via canon);
+// an unresolvable base ref degrades safely to flagging everything.
+func baselineSuppressor(ctx context.Context, root, toplevel string, cfg ReviewConfig, changedRel []string, registry *content.Registry, canon func(string) string) func(path, symbol string, value int, cognitive bool) bool {
+	if !cfg.BaselineOnly {
+		return func(string, string, int, bool) bool { return false }
+	}
+	var baseline map[string]map[string]metricPair
+	if baseRef, err := reviewBaseRef(ctx, root, cfg.Base); err == nil {
+		baseline = baselineComplexity(ctx, root, toplevel, baseRef, changedRel, registry)
+	}
+	return func(path, symbol string, value int, cognitive bool) bool {
 		m := baseline[canon(path)]
 		if m == nil {
 			return false // file absent at base (newly added) → finding is new
@@ -163,85 +204,68 @@ func Review(ctx context.Context, opts Options, registry *content.Registry, cfg R
 		}
 		return value <= base // unchanged or improved → suppress
 	}
+}
 
-	// Complexity: every function, then filter to changed files over the gate.
-	rep, cErr := Complexity(ctx, opts, registry, 1<<30)
-	if cErr != nil && !isReviewCancel(cErr) {
-		return nil, fmt.Errorf("complexity analysis: %w", cErr)
+// appendComplexityFindings adds fail-level cyclomatic + cognitive findings for
+// every changed-file function over the configured ceilings, skipping any the
+// baseline suppressor marks as pre-existing-and-not-worsened (#538). Cognitive
+// is only checked where the language computes it (a distinct signal from
+// cyclomatic, so a function may trip both).
+func appendComplexityFindings(out *ReviewResult, rep *ComplexityReport, cfg ReviewConfig, inChanged func(string) bool, suppressed func(path, symbol string, value int, cognitive bool) bool) {
+	if rep == nil {
+		return
 	}
-	if rep != nil {
-		for _, fn := range rep.Functions {
-			if !inChanged(fn.Path) {
-				continue
-			}
-			if fn.Complexity > cfg.MaxComplexity && !suppressed(fn.Path, fn.Function, fn.Complexity, false) {
-				out.Findings = append(out.Findings, ReviewFinding{
-					Rule:      "complexity",
-					Level:     "fail",
-					Message:   fmt.Sprintf("%s has cyclomatic complexity %d (> %d)", fn.Function, fn.Complexity, cfg.MaxComplexity),
-					Path:      fn.Path,
-					Symbol:    fn.Function,
-					StartLine: fn.StartLine,
-					EndLine:   fn.EndLine,
-				})
-			}
-			// Cognitive complexity (nesting-weighted) — only where the language
-			// computes it (CognitiveComplexity != nil); a distinct fail signal
-			// from cyclomatic, so a function may trip both.
-			if fn.CognitiveComplexity != nil && *fn.CognitiveComplexity > cfg.MaxCognitive &&
-				!suppressed(fn.Path, fn.Function, *fn.CognitiveComplexity, true) {
-				out.Findings = append(out.Findings, ReviewFinding{
-					Rule:      "cognitive-complexity",
-					Level:     "fail",
-					Message:   fmt.Sprintf("%s has cognitive complexity %d (> %d)", fn.Function, *fn.CognitiveComplexity, cfg.MaxCognitive),
-					Path:      fn.Path,
-					Symbol:    fn.Function,
-					StartLine: fn.StartLine,
-					EndLine:   fn.EndLine,
-				})
-			}
+	for _, fn := range rep.Functions {
+		if !inChanged(fn.Path) {
+			continue
+		}
+		if fn.Complexity > cfg.MaxComplexity && !suppressed(fn.Path, fn.Function, fn.Complexity, false) {
+			out.Findings = append(out.Findings, ReviewFinding{
+				Rule:      "complexity",
+				Level:     "fail",
+				Message:   fmt.Sprintf("%s has cyclomatic complexity %d (> %d)", fn.Function, fn.Complexity, cfg.MaxComplexity),
+				Path:      fn.Path,
+				Symbol:    fn.Function,
+				StartLine: fn.StartLine,
+				EndLine:   fn.EndLine,
+			})
+		}
+		if fn.CognitiveComplexity != nil && *fn.CognitiveComplexity > cfg.MaxCognitive &&
+			!suppressed(fn.Path, fn.Function, *fn.CognitiveComplexity, true) {
+			out.Findings = append(out.Findings, ReviewFinding{
+				Rule:      "cognitive-complexity",
+				Level:     "fail",
+				Message:   fmt.Sprintf("%s has cognitive complexity %d (> %d)", fn.Function, *fn.CognitiveComplexity, cfg.MaxCognitive),
+				Path:      fn.Path,
+				Symbol:    fn.Function,
+				StartLine: fn.StartLine,
+				EndLine:   fn.EndLine,
+			})
 		}
 	}
+}
 
-	// Dead code: candidates in changed files, as warn-level findings. Skipped
-	// once cancellation is in flight — a partial graph yields false positives.
-	if cfg.CheckDeadCode && cancelReason(ctx) == "" {
-		g, gErr := BuildCodeGraph(ctx, opts, registry)
-		if gErr != nil && !isReviewCancel(gErr) {
-			return nil, fmt.Errorf("dead-code analysis: %w", gErr)
-		}
-		if g != nil {
-			for _, d := range g.DeadCode() {
-				if !inChanged(d.Path) {
-					continue
-				}
-				name := d.Symbol
-				if d.Owner != "" {
-					name = d.Owner + "." + d.Symbol
-				}
-				out.Findings = append(out.Findings, ReviewFinding{
-					Rule:    "dead-code",
-					Level:   "warn",
-					Message: fmt.Sprintf("%s %q is never referenced (candidate dead code)", d.Kind, name),
-					Path:    d.Path,
-					Symbol:  name,
-				})
-			}
-		}
+// appendDeadCodeFindings adds warn-level dead-code candidates in changed files.
+func appendDeadCodeFindings(out *ReviewResult, g *CodeGraph, inChanged func(string) bool) {
+	if g == nil {
+		return
 	}
-
-	// Surface a cancellation that landed during either analysis phase, so the
-	// caller knows the verdict is over a partial set.
-	if reason := cancelReason(ctx); reason != "" {
-		out.Cancelled = true
-		out.CancellationReason = reason
-	} else if rep != nil && rep.Cancelled {
-		out.Cancelled = true
-		out.CancellationReason = rep.CancellationReason
+	for _, d := range g.DeadCode() {
+		if !inChanged(d.Path) {
+			continue
+		}
+		name := d.Symbol
+		if d.Owner != "" {
+			name = d.Owner + "." + d.Symbol
+		}
+		out.Findings = append(out.Findings, ReviewFinding{
+			Rule:    "dead-code",
+			Level:   "warn",
+			Message: fmt.Sprintf("%s %q is never referenced (candidate dead code)", d.Kind, name),
+			Path:    d.Path,
+			Symbol:  name,
+		})
 	}
-
-	finalizeReview(out)
-	return out, nil
 }
 
 // cancelReason maps a cancelled context to the reason vocabulary the CLI gate
@@ -394,46 +418,59 @@ func reviewBaseRef(ctx context.Context, dir, base string) (string, error) {
 func baselineComplexity(ctx context.Context, dir, toplevel, baseRef string, changedRel []string, registry *content.Registry) map[string]map[string]metricPair {
 	out := make(map[string]map[string]metricPair, len(changedRel))
 	for _, rel := range changedRel {
-		data, err := gitShowFile(ctx, dir, baseRef, rel)
-		if err != nil {
-			continue // not present at baseRef → no baseline (treated as new)
+		if m := baselineFileComplexity(ctx, dir, baseRef, rel, registry); m != nil {
+			out[absClean(filepath.Join(toplevel, filepath.FromSlash(rel)))] = m
 		}
-		name := filepath.Base(rel)
-		fsys := content.NewSingleFileFS(name, data, time.Time{}, 0)
-		ct := registry.Detect(fsys, name)
-		if ct == nil {
-			continue
-		}
-		attrs, aerr := ct.Attributes(ctx, fsys, name)
-		if aerr != nil || attrs == nil {
-			continue
-		}
-		rows, _ := attrs["complexity_rows"].([]string)
-		if len(rows) == 0 {
-			continue
-		}
-		m := make(map[string]metricPair, len(rows))
-		for _, r := range rows {
-			sym, mp, ok := parseComplexityRow(r)
-			if !ok {
-				continue
-			}
-			// Same-named functions in one file collapse to the most lenient
-			// (max) baseline, so a finding is only "worsened" if it exceeds
-			// every prior namesake — avoiding false positives on overloads.
-			if prev, exists := m[sym]; exists {
-				if prev.cyclomatic > mp.cyclomatic {
-					mp.cyclomatic = prev.cyclomatic
-				}
-				if prev.cognitive > mp.cognitive {
-					mp.cognitive = prev.cognitive
-				}
-			}
-			m[sym] = mp
-		}
-		out[absClean(filepath.Join(toplevel, filepath.FromSlash(rel)))] = m
 	}
 	return out
+}
+
+// baselineFileComplexity returns the per-symbol complexity of one file at
+// baseRef, or nil when the file is absent at baseRef or carries no source
+// symbols. It runs the production extractor on the base content via a
+// single-file fs.FS so metrics match HEAD's exactly.
+func baselineFileComplexity(ctx context.Context, dir, baseRef, rel string, registry *content.Registry) map[string]metricPair {
+	data, err := gitShowFile(ctx, dir, baseRef, rel)
+	if err != nil {
+		return nil // not present at baseRef → no baseline (treated as new)
+	}
+	name := filepath.Base(rel)
+	fsys := content.NewSingleFileFS(name, data, time.Time{}, 0)
+	ct := registry.Detect(fsys, name)
+	if ct == nil {
+		return nil
+	}
+	attrs, aerr := ct.Attributes(ctx, fsys, name)
+	if aerr != nil || attrs == nil {
+		return nil
+	}
+	rows, _ := attrs["complexity_rows"].([]string)
+	if len(rows) == 0 {
+		return nil
+	}
+	m := make(map[string]metricPair, len(rows))
+	for _, r := range rows {
+		if sym, mp, ok := parseComplexityRow(r); ok {
+			mergeMaxMetric(m, sym, mp)
+		}
+	}
+	return m
+}
+
+// mergeMaxMetric records mp for sym, keeping the per-metric maximum when sym is
+// already present. Same-named functions in one file thus collapse to the most
+// lenient baseline, so a finding is only "worsened" if it exceeds every prior
+// namesake — avoiding false positives on overloads / same-named methods.
+func mergeMaxMetric(m map[string]metricPair, sym string, mp metricPair) {
+	if prev, exists := m[sym]; exists {
+		if prev.cyclomatic > mp.cyclomatic {
+			mp.cyclomatic = prev.cyclomatic
+		}
+		if prev.cognitive > mp.cognitive {
+			mp.cognitive = prev.cognitive
+		}
+	}
+	m[sym] = mp
 }
 
 // parseComplexityRow parses a builder-internal complexity row
