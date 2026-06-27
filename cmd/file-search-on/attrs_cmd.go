@@ -8,9 +8,9 @@ import (
 
 	"github.com/richardwooding/file-search-on/internal/celexpr"
 	contentpkg "github.com/richardwooding/file-search-on/internal/content"
-	"github.com/richardwooding/file-search-on/internal/hashset"
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/file-search-on/internal/search"
+	hashset "github.com/richardwooding/go-hashset"
 )
 
 type AttrsCmd struct {

@@ -15,7 +15,7 @@ import (
 	"github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/ollamaembed"
 	"github.com/richardwooding/gitmeta"
-	"github.com/richardwooding/file-search-on/internal/hashset"
+	hashset "github.com/richardwooding/go-hashset"
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/projectdetect"
 )
