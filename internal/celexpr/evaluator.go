@@ -14,7 +14,7 @@ import (
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/richardwooding/file-search-on/internal/content"
-	"github.com/richardwooding/file-search-on/internal/hashset"
+	hashset "github.com/richardwooding/go-hashset"
 	"github.com/richardwooding/file-search-on/internal/index"
 	"github.com/richardwooding/projectdetect"
 	"github.com/richardwooding/gitmeta"

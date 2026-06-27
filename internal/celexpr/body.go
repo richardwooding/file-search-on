@@ -15,7 +15,7 @@ import (
 	"github.com/richardwooding/file-search-on/internal/cryptohash"
 	"github.com/richardwooding/ollamaembed"
 	"github.com/richardwooding/fingerprint"
-	"github.com/richardwooding/file-search-on/internal/hashset"
+	hashset "github.com/richardwooding/go-hashset"
 	"github.com/richardwooding/file-search-on/internal/index"
 )
 

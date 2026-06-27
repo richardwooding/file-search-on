@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/richardwooding/file-search-on/internal/hashset"
+	hashset "github.com/richardwooding/go-hashset"
 )
 
 // HashSetCmd is the `hash-set` subcommand surface — a small group

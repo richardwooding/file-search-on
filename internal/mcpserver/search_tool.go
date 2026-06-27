@@ -12,7 +12,7 @@ import (
 
 	"github.com/richardwooding/file-search-on/internal/celexpr"
 	"github.com/richardwooding/file-search-on/internal/content"
-	"github.com/richardwooding/file-search-on/internal/hashset"
+	hashset "github.com/richardwooding/go-hashset"
 	"github.com/richardwooding/file-search-on/internal/search"
 )
 

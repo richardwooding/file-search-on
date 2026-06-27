@@ -117,6 +117,8 @@ github.com/richardwooding/go-codemetrics v0.4.0 h1:8bICtkXW9Q5v3V+awehWVIYGeSJbq
 github.com/richardwooding/go-codemetrics v0.4.0/go.mod h1:KZdI1YYNUKqdVr0kmiEmY5nHiFBu+r6h4rIxbNY9p8o=
 github.com/richardwooding/go-coupling v0.1.0 h1:lW5gI3C0xyR9d83wpvjlr7YvK4X+KiTWsMWVwYqxEYA=
 github.com/richardwooding/go-coupling v0.1.0/go.mod h1:Ygz2/NnbEEFLe50QPpe8TsmNQy7Az+FwzyMi8sOwzPo=
+github.com/richardwooding/go-hashset v0.1.0 h1:K0lWQ4Vh8xM9Y5bnTC/fXK3TU6KLeZMB923daCZC9dw=
+github.com/richardwooding/go-hashset v0.1.0/go.mod h1:yZWu/7SPaBzXb6pppHzyJC4m0tt2KyvsT38OEz1CvaA=
 github.com/richardwooding/go-sarif v0.1.0 h1:X2jTcuJOhx0X6Lhjgzh/sD2/yyjCg6Ezxi0XQb8UuoM=
 github.com/richardwooding/go-sarif v0.1.0/go.mod h1:/2nRnE2KzhHfKY3PL+kHFBzonbomfW2PAkGKMIFhBYY=
 github.com/richardwooding/ollamaembed v0.1.0 h1:N5bx4v7IxnOa+Rw4/ROlkQS2LjQCPnAiuPP7Xr1OpS0=
