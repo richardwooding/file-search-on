@@ -3,14 +3,18 @@ package main
 import (
 	"os"
 
-	"github.com/richardwooding/file-search-on/internal/sarif"
+	sarif "github.com/richardwooding/go-sarif"
 )
 
 // writeSARIF emits a SARIF 2.1.0 document for one analysis rule + its results
 // to stdout, stamped with the binary version. The analysis commands build
 // their []sarif.Result and call this for the `--output sarif` format (#483).
 func writeSARIF(rule sarif.Rule, results []sarif.Result) error {
-	return sarif.Write(os.Stdout, version, []sarif.Rule{rule}, results)
+	return sarif.Write(os.Stdout, sarif.Tool{
+		Name:           "file-search-on",
+		Version:        version,
+		InformationURI: "https://github.com/richardwooding/file-search-on",
+	}, []sarif.Rule{rule}, results)
 }
 
 // truncateForMessage caps a one-line SARIF message so a long matched line

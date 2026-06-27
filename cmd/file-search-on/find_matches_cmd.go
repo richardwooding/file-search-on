@@ -10,8 +10,8 @@ import (
 
 	contentpkg "github.com/richardwooding/file-search-on/internal/content"
 	"github.com/richardwooding/file-search-on/internal/index"
-	"github.com/richardwooding/file-search-on/internal/sarif"
 	"github.com/richardwooding/file-search-on/internal/search"
+	sarif "github.com/richardwooding/go-sarif"
 )
 
 type FindMatchesCmd struct {
