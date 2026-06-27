@@ -234,3 +234,78 @@ func TestReview_NonGitDirErrors(t *testing.T) {
 		t.Fatal("expected an error for a non-git directory")
 	}
 }
+
+// branchyN returns a Go file with one function `name` of cyclomatic complexity
+// ~n+1 (n if-branches), for modelling baseline vs worsened complexity.
+func branchyN(pkg, name string, n int) string {
+	var b strings.Builder
+	b.WriteString("package " + pkg + "\n\nfunc " + name + "(x int) int {\n\tr := 0\n")
+	for i := 1; i <= n; i++ {
+		b.WriteString("\tif x > ")
+		b.WriteByte(byte('0' + i%10))
+		b.WriteString(" {\n\t\tr++\n\t}\n")
+	}
+	b.WriteString("\treturn r\n}\n")
+	return b.String()
+}
+
+// TestReview_Baseline checks the #538 baseline-aware gate: pre-existing
+// over-threshold complexity in a touched file is suppressed, while NEW and
+// WORSENED complexity still fails.
+func TestReview_Baseline(t *testing.T) {
+	root := initRepo(t)
+	commitAs(t, root, "go.mod", "module example.com/m\n\ngo 1.26\n", "Dev", "dev@example.com")
+	// Commit 1: a pre-existing complex function (cyclomatic ~21, over the gate).
+	commitAs(t, root, "hot.go", branchyN("m", "Hot", 20), "Dev", "dev@example.com")
+	// Commit 2: touch the same file (append a trivial function) WITHOUT changing Hot.
+	commitAs(t, root, "hot.go", branchyN("m", "Hot", 20)+"\nfunc Added() int { return 1 }\n", "Dev", "dev@example.com")
+
+	reg := contentpkg.DefaultRegistry()
+	opts := search.Options{Root: root, Workers: 1}
+
+	// Default mode: Hot is over the ceiling in a changed file → fail.
+	res, err := search.Review(context.Background(), opts, reg, search.ReviewConfig{Base: "HEAD~1"})
+	if err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+	if res.Verdict != "fail" {
+		t.Fatalf("default mode verdict = %q, want fail (%+v)", res.Verdict, res.Findings)
+	}
+
+	// Baseline mode: Hot is pre-existing and unchanged → suppressed → pass.
+	res, err = search.Review(context.Background(), opts, reg, search.ReviewConfig{Base: "HEAD~1", BaselineOnly: true})
+	if err != nil {
+		t.Fatalf("Review(baseline): %v", err)
+	}
+	if res.Verdict != "pass" {
+		t.Fatalf("baseline mode verdict = %q, want pass (Hot is pre-existing, unchanged); findings: %+v", res.Verdict, res.Findings)
+	}
+
+	// Commit 3: WORSEN Hot (more branches) → baseline mode must flag it.
+	commitAs(t, root, "hot.go", branchyN("m", "Hot", 30), "Dev", "dev@example.com")
+	res, err = search.Review(context.Background(), opts, reg, search.ReviewConfig{Base: "HEAD~1", BaselineOnly: true})
+	if err != nil {
+		t.Fatalf("Review(worsened): %v", err)
+	}
+	if res.Verdict != "fail" {
+		t.Fatalf("baseline mode verdict = %q, want fail (Hot worsened); findings: %+v", res.Verdict, res.Findings)
+	}
+}
+
+// TestReview_BaselineFlagsNewFile: a newly added file with a complex function
+// has no baseline, so baseline mode still flags it.
+func TestReview_BaselineFlagsNewFile(t *testing.T) {
+	root := initRepo(t)
+	commitAs(t, root, "go.mod", "module example.com/m\n\ngo 1.26\n", "Dev", "dev@example.com")
+	commitAs(t, root, "simple.go", "package m\n\nfunc Simple() int { return 1 }\n", "Dev", "dev@example.com")
+	commitAs(t, root, "newhot.go", branchyN("m", "NewHot", 20), "Dev", "dev@example.com")
+
+	res, err := search.Review(context.Background(), search.Options{Root: root, Workers: 1},
+		contentpkg.DefaultRegistry(), search.ReviewConfig{Base: "HEAD~1", BaselineOnly: true})
+	if err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+	if res.Verdict != "fail" {
+		t.Fatalf("verdict = %q, want fail (new file's complex func has no baseline); %+v", res.Verdict, res.Findings)
+	}
+}

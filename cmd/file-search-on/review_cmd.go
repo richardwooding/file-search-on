@@ -25,6 +25,7 @@ type ReviewCmd struct {
 	MaxComplexity int  `name:"max-complexity" default:"15" help:"Cyclomatic-complexity ceiling for a function in a changed file; functions above it are a fail-level finding."`
 	MaxCognitive  int  `name:"max-cognitive" default:"15" help:"Cognitive-complexity ceiling (SonarSource, nesting-weighted) for a function in a changed file; functions above it are a fail-level finding. Only applies where cognitive complexity is computed (Go + most tree-sitter languages)."`
 	NoDeadCode    bool `name:"no-dead-code" help:"Skip the dead-code check (it adds a second graph pass)."`
+	Baseline      bool `name:"baseline" help:"Only fail on complexity/cognitive findings that are NEW or WORSENED versus the base ref — pre-existing debt in a touched file is not flagged. Lets a PR touch a complex file without being blocked on code it didn't change (#538)."`
 	Strict        bool `name:"strict" help:"Treat warn-level findings as failures for exit-code purposes (warn verdict also exits non-zero)."`
 
 	Workers             int           `short:"w" help:"Parallel workers. 0 = runtime.NumCPU()." default:"0"`
@@ -67,16 +68,37 @@ func (c *ReviewCmd) Run(ctx context.Context) error {
 		MaxComplexity: c.MaxComplexity,
 		MaxCognitive:  c.MaxCognitive,
 		CheckDeadCode: !c.NoDeadCode,
+		BaselineOnly:  c.Baseline,
 	})
 	if err != nil {
 		return fmt.Errorf("review failed: %w", err)
 	}
 
-	switch c.Output {
-	case "json":
-		if jerr := writeJSON(os.Stdout, res); jerr != nil {
-			return jerr
+	if rerr := renderReview(c.Output, res); rerr != nil {
+		return rerr
+	}
+
+	if res.Cancelled {
+		fmt.Fprintln(os.Stderr, "review interrupted; verdict above may be incomplete")
+		if res.CancellationReason == "timeout" {
+			return &exitCodeError{code: 124, msg: "timeout"}
 		}
+		return &exitCodeError{code: 130, msg: "interrupted"}
+	}
+
+	// Gate: fail always exits non-zero; warn exits non-zero only under --strict.
+	if res.Verdict == "fail" || (c.Strict && res.Verdict == "warn") {
+		return &exitCodeError{code: 1, msg: res.Verdict}
+	}
+	return nil
+}
+
+// renderReview writes the review result in the requested output format
+// (json | sarif | table).
+func renderReview(format string, res *search.ReviewResult) error {
+	switch format {
+	case "json":
+		return writeJSON(os.Stdout, res)
 	case "sarif":
 		results := make([]sarif.Result, 0, len(res.Findings))
 		for _, f := range res.Findings {
@@ -93,26 +115,11 @@ func (c *ReviewCmd) Run(ctx context.Context) error {
 				EndLine:   f.EndLine,
 			})
 		}
-		if werr := writeSARIF(sarif.Rule{ID: "review", Name: "Review", Description: "Diff-scoped review findings"}, results); werr != nil {
-			return werr
-		}
+		return writeSARIF(sarif.Rule{ID: "review", Name: "Review", Description: "Diff-scoped review findings"}, results)
 	default:
 		printReviewTable(os.Stdout, res)
+		return nil
 	}
-
-	if res.Cancelled {
-		fmt.Fprintln(os.Stderr, "review interrupted; verdict above may be incomplete")
-		if res.CancellationReason == "timeout" {
-			return &exitCodeError{code: 124, msg: "timeout"}
-		}
-		return &exitCodeError{code: 130, msg: "interrupted"}
-	}
-
-	// Gate: fail always exits non-zero; warn exits non-zero only under --strict.
-	if res.Verdict == "fail" || (c.Strict && res.Verdict == "warn") {
-		return &exitCodeError{code: 1, msg: res.Verdict}
-	}
-	return nil
 }
 
 func printReviewTable(w io.Writer, res *search.ReviewResult) {
