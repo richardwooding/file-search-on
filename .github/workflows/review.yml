@@ -22,3 +22,6 @@ jobs:
         uses: ./
         with:
           base: origin/${{ github.base_ref }}
+          # Only fail on complexity new or worsened vs the base — don't block a
+          # PR on pre-existing debt in files it merely touched (#538).
+          baseline: "true"
