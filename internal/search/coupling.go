@@ -3,16 +3,16 @@ package search
 import (
 	"context"
 	"errors"
-	"os"
 	"path/filepath"
-	"sort"
 	"strings"
+
+	coupling "github.com/richardwooding/go-coupling"
 
 	"github.com/richardwooding/file-search-on/internal/content"
 )
 
-// PackageCoupling is the afferent/efferent coupling profile of one
-// first-party package (Robert C. Martin's metrics).
+// PackageCoupling is the afferent/efferent coupling profile of one first-party
+// package (Robert C. Martin's metrics).
 type PackageCoupling struct {
 	Package     string  `json:"package"`     // import path
 	Afferent    int     `json:"afferent"`    // Ca: distinct first-party packages that import this one
@@ -28,258 +28,24 @@ type CouplingResult struct {
 	CancellationReason string            `json:"cancellation_reason,omitempty"`
 }
 
-// couplingAdapter encapsulates the per-language pieces the coupling metric
-// needs; the graph math (Ca/Ce/I + ranking, in Coupling) is entirely
-// language-agnostic. Adapters are stateful — prepare resolves and caches
-// the first-party scope, then node/firstPartyImport consult it. Each
-// ecosystem differs in two ways Go happens to make trivial (issue #467):
-//
-//  1. the first-party boundary — Go: the go.mod module path; Rust: the set
-//     of workspace member crate names; Java/C#: the set of packages /
-//     namespaces the repo's own files declare (passed to firstPartyImport as
-//     `nodes`), and
-//  2. mapping a file to a "node" — Go: package = import path = module +
-//     directory; Rust: crate, by nearest-ancestor manifest; Java/C#: the
-//     file's declared package / namespace, read from its attributes.
-type couplingAdapter interface {
-	// matchesLanguage reports whether a file's `language` attribute is one
-	// this adapter analyses. Most adapters match a single language; the
-	// JS/TS adapter spans both "javascript" and "typescript".
-	matchesLanguage(lang string) bool
-	// prepare resolves the first-party scope rooted at root, caches any
-	// per-language state on the adapter, and returns the report identity
-	// (CouplingResult.Module) plus whether anything is analysable. ok=false
-	// ⇒ Coupling returns an empty report without walking.
-	prepare(root string) (module string, ok bool)
-	// node maps a source file to its node id, or "" to skip the file. extra
-	// is the file's FileAttributes.Extra (Java reads its declared package
-	// from it; Go/Rust derive the node from the path alone).
-	node(path string, extra map[string]any) string
-	// firstPartyImport reports whether import string imp (from a file whose
-	// node is fromNode) targets a first-party node, and if so returns that
-	// node id. nodes is the set of every node the repo's own files occupy —
-	// the first-party boundary for adapters (Java) that derive it from the
-	// tree rather than a manifest; manifest-based adapters (Go/Rust) ignore
-	// it. Returns ok=false for external dependencies.
-	firstPartyImport(imp, fromNode string, nodes map[string]bool) (node string, ok bool)
-}
-
-// couplingAdapterFor selects the adapter for a tree by its build manifest:
-// go.mod ⇒ Go (packages), Cargo.toml ⇒ Rust (crates), Maven / Gradle / sbt /
-// Mill ⇒ JVM Java/Kotlin/Scala (packages), a .sln / .csproj / props ⇒ C#
-// (namespaces), a Python manifest ⇒ Python (packages), package.json /
-// tsconfig.json ⇒ JS/TS (directory modules), a Perl dist manifest (cpanfile /
-// Makefile.PL / dist.ini) ⇒ Perl (::-separated packages), a Gemfile / *.gemspec ⇒
-// Ruby (directory modules), a CMakeLists.txt / configure.ac / meson.build ⇒ C/C++
-// (#include-graph directory modules) (#467). Falls back to the Go
-// adapter, whose prepare reports ok=false when there is no go.mod — yielding
-// an empty report, the historical behaviour.
-func couplingAdapterFor(root string) couplingAdapter {
-	switch {
-	case fileExists(filepath.Join(root, "go.mod")):
-		return &goCouplingAdapter{}
-	case fileExists(filepath.Join(root, "Cargo.toml")):
-		return &rustCouplingAdapter{}
-	case hasAnyFile(root,
-		"pom.xml",                                                                    // Maven
-		"build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts", // Gradle
-		"build.sbt",               // sbt
-		"build.sc", "build.mill"): // Mill
-		// JVM family — Java / Kotlin / Scala share the `package com.foo.bar`
-		// model and dotted imports, so one adapter graphs a mixed project.
-		return &packageDeclAdapter{langs: []string{"java", "kotlin", "scala"}, sep: "."}
-	case isCSharpRoot(root):
-		return &packageDeclAdapter{langs: []string{"csharp"}, sep: "."}
-	case fileExists(filepath.Join(root, "composer.json")):
-		// PHP namespaces use a backslash separator (App\Services). Checked
-		// before package.json so a PHP app with a frontend build (Laravel,
-		// Symfony) graphs its PHP backend rather than its JS assets.
-		return &packageDeclAdapter{langs: []string{"php"}, sep: "\\"}
-	case hasAnyFile(root,
-		"cpanfile", "Makefile.PL", "Build.PL", // CPAN / ExtUtils::MakeMaker / Module::Build
-		"dist.ini",                       // Dist::Zilla
-		"META.json", "META.yml", "MYMETA.json", "MYMETA.yml"): // CPAN dist metadata
-		// Perl `package Foo::Bar;` — "::"-separated, same declared-package
-		// model as the JVM family. Checked before the Python / JS manifests
-		// (a Perl dist may ship a Build.PL alongside other tooling).
-		return &packageDeclAdapter{langs: []string{"perl"}, sep: "::"}
-	case fileExists(filepath.Join(root, "Gemfile")) || hasGlobMatch(root, "*.gemspec"):
-		// Ruby gem — directory-module model (no file-level package, like JS/TS),
-		// resolving require / require_relative to first-party files (#519).
-		return &rubyCouplingAdapter{}
-	case hasAnyFile(root, "pyproject.toml", "setup.py", "setup.cfg", "Pipfile", "requirements.txt", "tox.ini"):
-		return &pythonCouplingAdapter{}
-	case hasAnyFile(root, "package.json", "tsconfig.json"):
-		return &jstsCouplingAdapter{}
-	case hasAnyFile(root, "CMakeLists.txt", "configure.ac", "configure.in", "meson.build", "Makefile.am", "GNUmakefile"):
-		// C / C++ #include graph — directory modules (#521). Checked last and
-		// keyed on a *strong* build signal (CMake / autotools / meson, not a
-		// bare Makefile, which many ecosystems carry) so a C-extension Python
-		// project or a Go repo with a Makefile graphs its own language first.
-		return &cppCouplingAdapter{}
-	default:
-		return &goCouplingAdapter{}
-	}
-}
-
-// longestPackagePrefix resolves an import string to the first-party node that
-// owns it: the longest prefix of the FQN (split on sep — "." for Java / C# /
-// Kotlin / Scala / Python, "\\" for PHP) that is a declared node. Correct
-// because a symbol lives in exactly one package, so its package is the
-// longest declared-package prefix of its FQN; covers plain, static, and
-// wildcard (trailing ".*") import forms.
-func longestPackagePrefix(imp string, nodes map[string]bool, sep string) (string, bool) {
-	p := strings.TrimSuffix(strings.TrimSpace(imp), ".*")
-	// A PHP FQN may be written fully-qualified with a leading backslash
-	// (\App\Services\Foo); declared namespace nodes never have one, so trim it.
-	// No-op for dot-separated languages (their imports don't start with ".").
-	p = strings.TrimPrefix(p, sep)
-	for p != "" {
-		if nodes[p] {
-			return p, true
-		}
-		i := strings.LastIndex(p, sep)
-		if i <= 0 {
-			break
-		}
-		p = p[:i]
-	}
-	return "", false
-}
-
-// dirExists reports whether path exists and is a directory.
-func dirExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
-}
-
-// hasAnyFile reports whether any of names exists as a regular file in dir.
-func hasAnyFile(dir string, names ...string) bool {
-	for _, n := range names {
-		if fileExists(filepath.Join(dir, n)) {
-			return true
-		}
-	}
-	return false
-}
-
-// hasGlobMatch reports whether dir contains at least one regular-file entry
-// whose basename matches the shell pattern (e.g. "*.gemspec"). Used for
-// ecosystems whose manifest has a project-specific name. Matches basenames via
-// filepath.Match rather than filepath.Glob(join(dir, pattern)) so glob
-// metacharacters in the dir path itself (e.g. a "foo[bar]" directory) can't
-// break detection — same hazard isCSharpRoot avoids.
-func hasGlobMatch(dir, pattern string) bool {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return false
-	}
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		if ok, _ := filepath.Match(pattern, e.Name()); ok {
-			return true
-		}
-	}
-	return false
-}
-
-// isCSharpRoot reports whether dir looks like a C# / .NET project root: a
-// solution or project file, or a modern SDK-style root marker. C# has no
-// single canonical root manifest (unlike go.mod / Cargo.toml / pom.xml), so
-// the .sln / .csproj files are the strongest signal. Solutions commonly live
-// one level down (e.g. a Src/ directory holds the .sln/.csproj while the repo
-// root has none), so the root's immediate subdirectories are checked too —
-// node resolution is namespace-based (root-independent), so walking from dir
-// still yields the right graph either way.
-//
-// dir is read once here (for both its own markers and its subdir list), then
-// each candidate subdir is read once — no per-marker globbing.
-func isCSharpRoot(dir string) bool {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return false
-	}
-	var subdirs []string
-	for _, e := range entries {
-		if e.IsDir() {
-			if !skipCargoDir(e.Name()) {
-				subdirs = append(subdirs, e.Name())
-			}
-			continue
-		}
-		if isCSharpMarkerFile(e.Name()) {
-			return true
-		}
-	}
-	for _, sd := range subdirs {
-		if csharpMarkersIn(filepath.Join(dir, sd)) {
-			return true
-		}
-	}
-	return false
-}
-
-// csharpMarkersIn reports whether dir directly contains a C# / .NET project
-// marker, in a single directory read.
-func csharpMarkersIn(dir string) bool {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return false
-	}
-	for _, e := range entries {
-		if !e.IsDir() && isCSharpMarkerFile(e.Name()) {
-			return true
-		}
-	}
-	return false
-}
-
-// isCSharpMarkerFile reports whether a filename is a C# / .NET project marker:
-// an SDK-style root file or a solution (.sln / .slnx, the VS 17.10+ XML
-// format) / project (.csproj) file. Matching on the name (not a joined path)
-// is immune to glob metacharacters in the directory path itself.
-func isCSharpMarkerFile(name string) bool {
-	switch name {
-	case "Directory.Build.props", "Directory.Packages.props", "global.json":
-		return true
-	}
-	switch filepath.Ext(name) {
-	case ".sln", ".slnx", ".csproj":
-		return true
-	}
-	return false
-}
-
-// fileExists reports whether path exists and is a regular file.
-func fileExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.Mode().IsRegular()
-}
-
-// importGraph is the directed first-party import graph shared by Coupling and
-// Cycles. efferent[P] is the set of first-party nodes P imports; afferent is
-// its reverse. Every node (a source file's node OR an import target) is a key
-// in both maps. module is the project identity; analysable is false when the
-// root carries no recognised build manifest (an empty graph). cancelled /
-// reason carry the partial-result contract on ctx cancellation.
+// importGraph wraps the github.com/richardwooding/go-coupling first-party import
+// graph together with the walk's cancellation state. The multi-language adapters
+// + graph math live in that module (extracted from this package, #532); this
+// file's job is to feed it the per-file attributes the walk already extracts.
 type importGraph struct {
-	module     string
-	efferent   map[string]map[string]bool
-	afferent   map[string]map[string]bool
-	analysable bool
-	cancelled  bool
-	reason     string
+	module    string
+	graph     *coupling.Graph
+	cancelled bool
+	reason    string
 }
 
-// buildImportGraph selects the language adapter by the build manifest at
-// opts.Root, walks the tree, and constructs the directed first-party import
-// graph. The first-party boundary and file/import → node mappings come from
-// the couplingAdapter (go.mod ⇒ Go packages, Cargo.toml ⇒ Rust crates, plus
-// JVM / C# / Python / JS-TS / PHP, #467). On ctx cancellation it returns the
-// partial graph with cancelled set and a nil error; other walk errors are
-// returned alongside the partial graph.
+// buildImportGraph walks opts.Root, collects each source file's
+// (language, imports, relative_imports, package) attributes into the input
+// go-coupling needs, and builds the directed first-party import graph. The
+// ecosystem (Go / Rust / JVM / C# / PHP / Perl / Python / JS-TS / C-C++) is
+// detected by go-coupling from the build manifest at the root. On ctx
+// cancellation it returns the partial graph with cancelled set and a nil error;
+// other walk errors are returned alongside the partial graph.
 func buildImportGraph(ctx context.Context, opts Options, registry *content.Registry) (*importGraph, error) {
 	root := opts.Root
 	if root == "" && len(opts.Roots) > 0 {
@@ -288,18 +54,6 @@ func buildImportGraph(ctx context.Context, opts Options, registry *content.Regis
 	if root == "" {
 		root = "."
 	}
-
-	g := &importGraph{
-		efferent: map[string]map[string]bool{},
-		afferent: map[string]map[string]bool{},
-	}
-	adapter := couplingAdapterFor(root)
-	unit, ok := adapter.prepare(root)
-	g.module = unit
-	if !ok {
-		return g, nil // nothing first-party to resolve at root
-	}
-	g.analysable = true
 
 	opts.IncludeAttributes = true
 	opts.Sort = ""
@@ -311,166 +65,74 @@ func buildImportGraph(ctx context.Context, opts Options, registry *content.Regis
 
 	results, walkErr := Walk(ctx, opts, registry)
 
-	ensure := func(m map[string]map[string]bool, k string) map[string]bool {
-		if m[k] == nil {
-			m[k] = map[string]bool{}
-		}
-		return m[k]
-	}
-	touch := func(node string) {
-		ensure(g.efferent, node)
-		ensure(g.afferent, node)
-	}
-
-	// fileNode caches each result's node so pass 2 doesn't recompute it; nodes
-	// is the first-party boundary for adapters that derive it from the tree.
-	fileNode := make([]string, len(results))
-	nodes := map[string]bool{}
-
-	// addImportEdges records every first-party node→node edge from one file's
-	// import list. Defined once (loop-invariant capture, incl. the nodes map)
-	// so pass 2 can apply it to both `imports` and `relative_imports` without
-	// a per-file slice allocation.
-	addImportEdges := func(node string, imports []string) {
-		for _, imp := range imports {
-			target, ok := adapter.firstPartyImport(imp, node, nodes)
-			if !ok || target == node {
-				continue
-			}
-			touch(target)
-			g.efferent[node][target] = true
-			g.afferent[target][node] = true
-		}
-	}
-
-	// Pass 1: map each first-party file to its node and collect the node set.
-	for i, r := range results {
+	files := make([]coupling.File, 0, len(results))
+	for _, r := range results {
 		if r.Attrs == nil {
 			continue
 		}
-		if lang, _ := r.Attrs.Extra["language"].(string); !adapter.matchesLanguage(lang) {
-			continue
-		}
-		node := adapter.node(r.Path, r.Attrs.Extra)
-		if node == "" {
-			continue
-		}
-		fileNode[i] = node
-		nodes[node] = true
-		touch(node)
+		lang, _ := r.Attrs.Extra["language"].(string)
+		imports, _ := r.Attrs.Extra["imports"].([]string)
+		relImports, _ := r.Attrs.Extra["relative_imports"].([]string)
+		pkg, _ := r.Attrs.Extra["package"].(string)
+		files = append(files, coupling.File{
+			Path:            r.Path,
+			Language:        lang,
+			Imports:         imports,
+			RelativeImports: relImports,
+			Package:         pkg,
+		})
 	}
 
-	// Pass 2: resolve each file's imports to first-party nodes and record the
-	// node→node edges.
-	for i, r := range results {
-		node := fileNode[i]
-		if node == "" {
-			continue
-		}
-		imports, _ := r.Attrs.Extra["imports"].([]string)
-		addImportEdges(node, imports)
-		// relative_imports is populated only for languages whose imports are
-		// dotted-relative (Python); empty elsewhere, so this is a no-op for
-		// other adapters. Kept separate from `imports` to leave that shared
-		// attribute free of leading-dot strings.
-		relImports, _ := r.Attrs.Extra["relative_imports"].([]string)
-		addImportEdges(node, relImports)
-	}
+	g := coupling.Build(root, files)
+	ig := &importGraph{module: g.Module(), graph: g}
 
 	if walkErr != nil {
 		switch {
 		case errors.Is(walkErr, context.Canceled):
-			g.cancelled, g.reason = true, "client_cancel"
-			return g, nil
+			ig.cancelled, ig.reason = true, "client_cancel"
+			return ig, nil
 		case errors.Is(walkErr, context.DeadlineExceeded):
-			g.cancelled, g.reason = true, "timeout"
-			return g, nil
+			ig.cancelled, ig.reason = true, "timeout"
+			return ig, nil
 		}
-		return g, walkErr
+		return ig, walkErr
 	}
-	return g, nil
+	return ig, nil
 }
 
 // Coupling computes per-package afferent (Ca) / efferent (Ce) coupling and
-// instability (I = Ce/(Ca+Ce)) over the first-party packages under the
-// project root (issue #410). It counts distinct package→package import edges
-// where the imported path is first-party. Packages are ranked most-depended-
-// upon first (high Ca), then most unstable (high I) — the "fragile hub" seams
-// a refactor is riskiest near.
-//
-// The graph math here is language-agnostic; the first-party boundary and the
-// file/import → node mappings come from a couplingAdapter selected by the
-// build manifest at opts.Root (#467). An empty report (Module == "") is
-// returned when the root carries no recognised manifest.
+// instability (I = Ce/(Ca+Ce)) over the first-party packages under the project
+// root (issue #410). Packages are ranked most-depended-upon first (high Ca),
+// then most unstable (high I) — the "fragile hub" seams a refactor is riskiest
+// near. The multi-language graph is built by go-coupling (#532); an empty
+// report (Module == "") is returned when the root carries no recognised
+// manifest.
 func Coupling(ctx context.Context, opts Options, top int, registry *content.Registry) (*CouplingResult, error) {
-	g, err := buildImportGraph(ctx, opts, registry)
+	ig, err := buildImportGraph(ctx, opts, registry)
 	res := &CouplingResult{
-		Module:             g.module,
+		Module:             ig.module,
 		Packages:           []PackageCoupling{},
-		Cancelled:          g.cancelled,
-		CancellationReason: g.reason,
+		Cancelled:          ig.cancelled,
+		CancellationReason: ig.reason,
 	}
-
-	for node := range g.efferent {
-		ca, ce := len(g.afferent[node]), len(g.efferent[node])
-		inst := 0.0
-		if ca+ce > 0 {
-			inst = float64(ce) / float64(ca+ce)
-		}
+	for _, c := range ig.graph.Coupling() {
 		res.Packages = append(res.Packages, PackageCoupling{
-			Package:     node,
-			Afferent:    ca,
-			Efferent:    ce,
-			Instability: inst,
+			Package:     c.Package,
+			Afferent:    c.Afferent,
+			Efferent:    c.Efferent,
+			Instability: c.Instability,
 		})
 	}
-
-	sort.Slice(res.Packages, func(i, j int) bool {
-		a, b := res.Packages[i], res.Packages[j]
-		if a.Afferent != b.Afferent {
-			return a.Afferent > b.Afferent
-		}
-		if a.Instability != b.Instability {
-			return a.Instability > b.Instability
-		}
-		return a.Package < b.Package
-	})
 	if top > 0 && len(res.Packages) > top {
 		res.Packages = res.Packages[:top]
 	}
 	return res, err
 }
 
-// goCouplingAdapter resolves Go packages: the first-party boundary is the
-// go.mod module path and a package node is module + the file's directory.
-type goCouplingAdapter struct {
-	root   string
-	module string
-}
-
-func (a *goCouplingAdapter) matchesLanguage(lang string) bool { return lang == "go" }
-
-func (a *goCouplingAdapter) prepare(root string) (string, bool) {
-	a.root = root
-	a.module = moduledPath(root)
-	return a.module, a.module != ""
-}
-
-func (a *goCouplingAdapter) node(path string, _ map[string]any) string {
-	return goPackageImportPath(a.root, path, a.module)
-}
-
-func (a *goCouplingAdapter) firstPartyImport(imp, _ string, _ map[string]bool) (string, bool) {
-	if isFirstParty(imp, a.module) {
-		return imp, true // a Go import string IS the package path; boundary is the go.mod prefix
-	}
-	return "", false
-}
-
 // goPackageImportPath maps a Go file's disk path to its package import path
 // (module + the file's directory relative to root). Files directly in the
-// module root resolve to the module path itself. Returns "" when the file
-// sits outside root.
+// module root resolve to the module path itself. Returns "" when the file sits
+// outside root. Shared with unused_exports.go.
 func goPackageImportPath(root, path, module string) string {
 	rel, err := filepath.Rel(root, filepath.Dir(path))
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
@@ -481,10 +143,4 @@ func goPackageImportPath(root, path, module string) string {
 		return module
 	}
 	return module + "/" + rel
-}
-
-// isFirstParty reports whether an import path belongs to the module (the
-// module path itself or a subpackage of it).
-func isFirstParty(imp, module string) bool {
-	return imp == module || strings.HasPrefix(imp, module+"/")
 }

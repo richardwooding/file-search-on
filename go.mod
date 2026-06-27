@@ -22,6 +22,7 @@ require (
 	github.com/richardwooding/fingerprint v0.1.0
 	github.com/richardwooding/gitmeta v0.1.0
 	github.com/richardwooding/go-codemetrics v0.2.0
+	github.com/richardwooding/go-coupling v0.1.0
 	github.com/richardwooding/ollamaembed v0.1.0
 	github.com/richardwooding/projectdetect v0.4.0
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
