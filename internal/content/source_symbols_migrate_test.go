@@ -1,6 +1,9 @@
 package content
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 // TestMigratedLanguages checks tree-sitter extraction parity for the 8
 // languages migrated off regex (#365): functions, type_names, imports,
@@ -66,10 +69,10 @@ func TestMigratedLanguages(t *testing.T) {
 			wantRefs:    []string{"helper"},
 		},
 		{
-			language:    "matlab",
-			src:         "function greet(x)\n  helper(x);\nend\nfunction other()\nend\n",
-			wantFuncs:   []string{"greet", "other"},
-			wantRefs:    []string{"helper"},
+			language:  "matlab",
+			src:       "function greet(x)\n  helper(x);\nend\nfunction other()\nend\n",
+			wantFuncs: []string{"greet", "other"},
+			wantRefs:  []string{"helper"},
 		},
 		{
 			language:    "scala",
@@ -83,11 +86,23 @@ func TestMigratedLanguages(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.language, func(t *testing.T) {
-			funcs, types, imports, refs, _, _, _ := extractTreeSitterSymbols(tc.language, []byte(tc.src))
+			funcs, types, imports, refs, _, _ := extractSymbolsFor(tc.language, []byte(tc.src))
 			checkContains(t, "functions", funcs, tc.wantFuncs)
 			checkContains(t, "type_names", types, tc.wantTypes)
 			checkContains(t, "imports", imports, tc.wantImports)
 			checkContains(t, "references", refs, tc.wantRefs)
 		})
+	}
+}
+
+// checkContains fails the test unless every want is present in got (membership;
+// got may legitimately contain more).
+func checkContains(t *testing.T, label string, got, want []string) {
+	t.Helper()
+	for _, w := range want {
+		found := slices.Contains(got, w)
+		if !found {
+			t.Errorf("%s: missing %q; got %v", label, w, got)
+		}
 	}
 }

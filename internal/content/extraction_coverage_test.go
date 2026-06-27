@@ -4,6 +4,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	tssymbols "github.com/richardwooding/treesitter-symbols"
 )
 
 // This file is the cross-language symbol-extraction fidelity benchmark
@@ -25,14 +27,16 @@ import (
 //     caught too.
 
 // extractSymbolsFor dispatches to the same extractor sourcetype.go uses:
-// the stdlib-AST path for Go, tree-sitter for everything else.
+// the stdlib-AST path for Go, treesitter-symbols for everything else (#540),
+// packed into the same builder-internal forms the attribute pipeline produces.
 func extractSymbolsFor(language string, src []byte) (funcs, types, imports, refs, callEdges, complexityRows []string) {
 	if language == "go" {
 		funcs, types, imports, refs, callEdges, complexityRows, _ = extractGoSymbols(src)
 		return
 	}
-	funcs, types, imports, refs, callEdges, complexityRows, _ = extractTreeSitterSymbols(language, src)
-	return
+	sym, _ := tssymbols.Extract(language, src)
+	return sym.Functions, sym.Types, sym.Imports, sym.References,
+		callEdgeStrings(sym.CallEdges), complexityRowStrings(sym.FunctionSpans)
 }
 
 type langBaseline struct {

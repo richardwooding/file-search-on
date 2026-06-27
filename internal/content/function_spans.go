@@ -1,6 +1,10 @@
 package content
 
-import "strings"
+import (
+	"strings"
+
+	tssymbols "github.com/richardwooding/treesitter-symbols"
+)
 
 // FunctionSpan is a top-level function / method definition's name and 1-based
 // inclusive line range. Used for function-level semantic chunking (issue
@@ -15,8 +19,8 @@ type FunctionSpan struct {
 // FunctionSpans returns the function / method spans for a source content type
 // (e.g. "source/go", "source/rust"). Returns nil when the type isn't a wired
 // source language or nothing parses — callers fall back to byte-window
-// chunking. Reuses the same extractors as symbol extraction: the stdlib
-// go/ast for Go, tree-sitter for every other wired language.
+// chunking. Go uses the stdlib go/ast; every other wired language uses
+// treesitter-symbols (#540).
 func FunctionSpans(contentTypeName string, src []byte) []FunctionSpan {
 	language, ok := strings.CutPrefix(contentTypeName, "source/")
 	if !ok || !symbolExtractorWired(language) {
@@ -25,5 +29,13 @@ func FunctionSpans(contentTypeName string, src []byte) []FunctionSpan {
 	if language == "go" {
 		return goFunctionSpans(src)
 	}
-	return tsFunctionSpans(language, src)
+	sym, err := tssymbols.Extract(language, src)
+	if err != nil || len(sym.FunctionSpans) == 0 {
+		return nil
+	}
+	out := make([]FunctionSpan, 0, len(sym.FunctionSpans))
+	for _, fs := range sym.FunctionSpans {
+		out = append(out, FunctionSpan{Name: fs.Name, StartLine: fs.StartLine, EndLine: fs.EndLine})
+	}
+	return out
 }
