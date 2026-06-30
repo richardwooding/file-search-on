@@ -32,3 +32,8 @@ updates:
       - dependencies
       - github-actions
     open-pull-requests-limit: 3
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
