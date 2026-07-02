@@ -45,9 +45,8 @@ type langBaseline struct {
 	// working baseline, not aspirations — raise them as fidelity improves;
 	// a drop below them is a regression.
 	minFuncs      int
-	minRefs       int   // call-site references; 0 = not asserted (see notes)
+	minRefs       int   // call-site references; 0 = not asserted
 	minComplexity int64 // max per-function complexity; 0 = not asserted
-	note          string
 }
 
 // Each snippet defines two functions (a calls helper), a type, an import,
