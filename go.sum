@@ -93,8 +93,8 @@ github.com/muesli/termenv v0.16.0 h1:S5AlUN9dENB57rsbnkPyfdGuWIlkmzJjbFf0Tf5FWUc
 github.com/muesli/termenv v0.16.0/go.mod h1:ZRfOIKPFDYQoDFF4Olj7/QJbW60Ol/kL1pU3VfY/Cnk=
 github.com/ncruces/go-strftime v1.0.0 h1:HMFp8mLCTPp341M/ZnA4qaf7ZlsbTc+miZjCLOFAw7w=
 github.com/ncruces/go-strftime v1.0.0/go.mod h1:Fwc5htZGVVkseilnfgOVb9mKy6w1naJmn9CehxcKcls=
-github.com/odvcencio/gotreesitter v0.20.6 h1:tGq0vJwlpprxf5/2cfSVSo58dtvAj6/3Y39CjXtohbY=
-github.com/odvcencio/gotreesitter v0.20.6/go.mod h1:hBVkghd0paaYAVwd2087vfwdeU984bQbMo9LvpE0moo=
+github.com/odvcencio/gotreesitter v0.20.8 h1:mY3v0ZtV0UktysT65LZs2U4CUUNRmoxCufZV2mC0o8g=
+github.com/odvcencio/gotreesitter v0.20.8/go.mod h1:hBVkghd0paaYAVwd2087vfwdeU984bQbMo9LvpE0moo=
 github.com/pelletier/go-toml/v2 v2.4.2 h1:M2fKKbmyvI+hGId/D0W64qDBMVhJnNR10O5gIbMc//Q=
 github.com/pelletier/go-toml/v2 v2.4.2/go.mod h1:2gIqNv+qfxSVS7cM2xJQKtLSTLUE9V8t9Stt+h56mCY=
 github.com/philhofer/fwd v1.2.0 h1:e6DnBTl7vGY+Gz322/ASL4Gyp1FspeMvx1RNDoToZuM=
@@ -113,10 +113,10 @@ github.com/richardwooding/fingerprint v0.1.0 h1:Dch6OdHUboH4PKOaMiwe4Xqbfk/rxQfd
 github.com/richardwooding/fingerprint v0.1.0/go.mod h1:VYCbaXMrpgHewwYnv8GfQoEEcnQwsKFtDlH5bTI00w0=
 github.com/richardwooding/gitmeta v0.1.0 h1:TOf6P+dzcFh5fFbDwJrJFVUGPzbwqyg76wRosuYrlBA=
 github.com/richardwooding/gitmeta v0.1.0/go.mod h1:arft+ynVGxEeeRnQMnosIvlfsaxEAaHoBYh1U7Nq1n0=
-github.com/richardwooding/go-codemetrics v0.4.1 h1:2z88lFNvxVizGfk63Lh+xZDBPdSuaSn0HYEDomfZ0Wc=
-github.com/richardwooding/go-codemetrics v0.4.1/go.mod h1:1DOnaQkAKjuHI1fZulOpZbPDXHb6W0tEX6L/8U8X3ZY=
-github.com/richardwooding/go-coupling v0.1.0 h1:lW5gI3C0xyR9d83wpvjlr7YvK4X+KiTWsMWVwYqxEYA=
-github.com/richardwooding/go-coupling v0.1.0/go.mod h1:Ygz2/NnbEEFLe50QPpe8TsmNQy7Az+FwzyMi8sOwzPo=
+github.com/richardwooding/go-codemetrics v0.5.0 h1:ERJK3wIiwX24Cil907jxIzzhDF+mYawxZxZA0aScoW4=
+github.com/richardwooding/go-codemetrics v0.5.0/go.mod h1:Ksq2R1eiDi1KxFbgzJV8wQzlil5z1OI/1uLp45C7nhU=
+github.com/richardwooding/go-coupling v0.2.0 h1:fihwSYWgqXW/HInhNTQgZuQQHQf9vyRoZlS4MNiEJ1U=
+github.com/richardwooding/go-coupling v0.2.0/go.mod h1:Ygz2/NnbEEFLe50QPpe8TsmNQy7Az+FwzyMi8sOwzPo=
 github.com/richardwooding/go-hashset v0.1.0 h1:K0lWQ4Vh8xM9Y5bnTC/fXK3TU6KLeZMB923daCZC9dw=
 github.com/richardwooding/go-hashset v0.1.0/go.mod h1:yZWu/7SPaBzXb6pppHzyJC4m0tt2KyvsT38OEz1CvaA=
 github.com/richardwooding/go-sarif v0.1.0 h1:X2jTcuJOhx0X6Lhjgzh/sD2/yyjCg6Ezxi0XQb8UuoM=
@@ -125,8 +125,8 @@ github.com/richardwooding/ollamaembed v0.1.0 h1:N5bx4v7IxnOa+Rw4/ROlkQS2LjQCPnAi
 github.com/richardwooding/ollamaembed v0.1.0/go.mod h1:rj/euwbkM8dcad6EMzp5bshVy+GVdu5JEojbFTFNQhY=
 github.com/richardwooding/projectdetect v0.4.0 h1:v6ZTF/r0BD/s7Cw2WW+B6zVhM4YGLiBl1l5lbTdLtrE=
 github.com/richardwooding/projectdetect v0.4.0/go.mod h1:+49ozT8n9+Hsu93/nb7wKclou9qLpEtqLeqefrR4bEg=
-github.com/richardwooding/treesitter-symbols v0.3.1 h1:yazWZMPMVlUVUTa4p+KXykL7Z/AQlMZOlBXj1oIZZhU=
-github.com/richardwooding/treesitter-symbols v0.3.1/go.mod h1:xEpXx5CGg2dJhY1hEQ4rlHugczdAhiYMo2lB/+RPsBo=
+github.com/richardwooding/treesitter-symbols v0.4.0 h1:AO7TnqdAVMuHL5UVbpEAuJrWsuZRMqMRt5LXaGdK4xQ=
+github.com/richardwooding/treesitter-symbols v0.4.0/go.mod h1:qpZU1Vo9D8VLkqI3Pe6l8OIr1WRSV9efqrtmpvb86jU=
 github.com/rivo/uniseg v0.4.7 h1:WUdvkW8uEhrYfLC4ZzdpI2ztxP1I582+49Oc5Mq64VQ=
 github.com/rivo/uniseg v0.4.7/go.mod h1:FN3SvrM+Zdj16jyLfmOkMNblXMcoc8DfTHruCPUcx88=
 github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06 h1:OkMGxebDjyw0ULyrTYWeN0UNCCkmCWfjPnIA2W6oviI=

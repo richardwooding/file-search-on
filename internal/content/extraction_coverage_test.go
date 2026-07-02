@@ -45,9 +45,8 @@ type langBaseline struct {
 	// working baseline, not aspirations — raise them as fidelity improves;
 	// a drop below them is a regression.
 	minFuncs      int
-	minRefs       int   // call-site references; 0 = not asserted (see notes)
+	minRefs       int   // call-site references; 0 = not asserted
 	minComplexity int64 // max per-function complexity; 0 = not asserted
-	note          string
 }
 
 // Each snippet defines two functions (a calls helper), a type, an import,
@@ -69,10 +68,10 @@ var langBaselines = map[string]langBaseline{
 	// Ruby: block `if` (not the postfix modifier form, which the decision
 	// query doesn't count) so complexity exercises a decision point.
 	"ruby": {src: "require \"json\"\nclass T\n  def a(x)\n    if x > 0\n      helper\n    end\n    x\n  end\n  def helper; end\nend\n", minFuncs: 2, minRefs: 1, minComplexity: 2},
-	// Swift: comparison operators in an if/while condition of a
-	// parameterized function fail to parse (#449), so the branch uses a
-	// bool parameter — which the grammar handles — to exercise complexity.
-	"swift":  {src: "import Foundation\nclass T {}\nfunc a(flag: Bool) -> Int { if flag { helper() }; return 0 }\nfunc helper() {}\n", minFuncs: 2, minRefs: 1, minComplexity: 2, note: "comparison-in-condition gap tracked in #449"},
+	// Swift: a comparison operator in a parameterized function's if condition
+	// now parses (#449, fixed by gotreesitter v0.20.7 via v0.20.8), so the
+	// branch exercises the real comparison-in-condition path.
+	"swift":  {src: "import Foundation\nclass T {}\nfunc a(x: Int) -> Int { if x > 0 { helper() }; return 0 }\nfunc helper() {}\n", minFuncs: 2, minRefs: 1, minComplexity: 2},
 	"kotlin": {src: "import kotlin.math.abs\nclass T\nfun a(x: Int): Int { if (x > 0) { helper() }; return x }\nfun helper() {}\n", minFuncs: 2, minRefs: 1, minComplexity: 2},
 	"c":      {src: "#include <stdio.h>\nstruct T {};\nint a(int x){ if(x>0){ helper(); } return x; }\nvoid helper(){}\n", minFuncs: 2, minRefs: 1, minComplexity: 2},
 	"cpp":    {src: "#include <vector>\nstruct T {};\nint a(int x){ if(x>0){ helper(); } return x; }\nvoid helper(){}\n", minFuncs: 2, minRefs: 1, minComplexity: 2},

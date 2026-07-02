@@ -67,8 +67,9 @@ func Complexity(ctx context.Context, opts Options, registry *content.Registry, t
 		rows, _ := r.Attrs.Extra["complexity_rows"].([]string)
 		for _, row := range rows {
 			// "func\x00complexity\x00startLine\x00endLine[\x00cognitive]"
-			// The 5th cognitive field is Go-only (#485); 4-field rows from the
-			// tree-sitter extractor leave CognitiveComplexity nil.
+			// The optional 5th cognitive field is present for Go and every
+			// tree-sitter language with a cognitive spec; a 4-field row (a
+			// language without a spec) leaves CognitiveComplexity nil.
 			p := strings.SplitN(row, "\x00", 5)
 			if len(p) < 4 {
 				continue

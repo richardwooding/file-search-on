@@ -46,14 +46,14 @@ func TestComplexity(t *testing.T) {
 	}
 }
 
-// TestComplexity_CognitiveUnavailableForUnsupportedLang: a tree-sitter language
-// without a cognitive spec (Swift — the last one, tracked in #491) reports
-// cognitive as nil — distinct from a genuine 0 — never a wrong number, while
-// cyclomatic is still computed.
-func TestComplexity_CognitiveUnavailableForUnsupportedLang(t *testing.T) {
+// TestComplexity_CognitiveForSwift: Swift gained a cognitive spec once
+// gotreesitter v0.20.7 fixed the else-if mis-parse (#491). A single-if function
+// reports cognitive 1, and an else-if chain charges the flat continuation cost
+// (if + else-if = 2) rather than a nested-if penalty.
+func TestComplexity_CognitiveForSwift(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "s.swift"),
-		[]byte("func branchy(x: Int) -> Int {\n  if x > 0 {\n    return x\n  }\n  return 0\n}\n"), 0o644); err != nil {
+		[]byte("func branchy(x: Int) -> Int {\n  if x > 0 {\n    return x\n  } else if x < 0 {\n    return -x\n  }\n  return 0\n}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	rep, err := search.Complexity(t.Context(), search.Options{Root: dir, Expr: `is_source && language == "swift"`}, content.DefaultRegistry(), 50)
@@ -61,11 +61,15 @@ func TestComplexity_CognitiveUnavailableForUnsupportedLang(t *testing.T) {
 		t.Fatalf("Complexity: %v", err)
 	}
 	if len(rep.Functions) == 0 {
-		t.Skip("no functions extracted from the swift fixture (grammar variance)")
+		t.Fatal("no functions extracted from the swift fixture (regression: gotreesitter else-if mis-parse)")
 	}
 	for _, f := range rep.Functions {
-		if f.CognitiveComplexity != nil {
-			t.Errorf("%s: cognitive=%v, want nil (unavailable for swift)", f.Function, *f.CognitiveComplexity)
+		if f.CognitiveComplexity == nil {
+			t.Errorf("%s: cognitive=nil, want a value (swift is now supported)", f.Function)
+			continue
+		}
+		if *f.CognitiveComplexity != 2 {
+			t.Errorf("%s: cognitive=%d, want 2 (if + else-if)", f.Function, *f.CognitiveComplexity)
 		}
 	}
 }

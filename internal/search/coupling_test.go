@@ -130,6 +130,67 @@ func TestCoupling_RustWorkspace(t *testing.T) {
 	}
 }
 
+// TestCoupling_SwiftModules checks module-level coupling for a multi-target
+// SwiftPM package (#520): nodes are targets, Foundation is external, and
+// import MyLib.Sub resolves to the leading module.
+func TestCoupling_SwiftModules(t *testing.T) {
+	root := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "Package.swift"),
+		"// swift-tools-version:5.9\nimport PackageDescription\n"+
+			"let package = Package(name: \"App\", targets: [\n"+
+			"  .executableTarget(name: \"App\", dependencies: [\"Svc\", \"Util\"]),\n"+
+			"  .target(name: \"Svc\", dependencies: [\"Util\"]),\n"+
+			"  .target(name: \"Util\"),\n"+
+			"])\n")
+	for _, m := range []string{"App", "Svc", "Util"} {
+		if err := os.MkdirAll(filepath.Join(root, "Sources", m), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// App → Svc, App → Util (and Foundation, which must NOT count); Svc → Util
+	// (via a submodule import); Util → nothing.
+	mustWriteFile(t, filepath.Join(root, "Sources", "App", "main.swift"),
+		"import Svc\nimport Util\nimport Foundation\n\nfunc run() { hello(); world() }\n")
+	mustWriteFile(t, filepath.Join(root, "Sources", "Svc", "Svc.swift"),
+		"import Util.Networking\n\nfunc hello() { world() }\n")
+	mustWriteFile(t, filepath.Join(root, "Sources", "Util", "Util.swift"),
+		"func world() {}\n")
+
+	res, err := search.Coupling(context.Background(), search.Options{Root: root, Workers: 1}, 0, contentpkg.DefaultRegistry())
+	if err != nil {
+		t.Fatalf("Coupling: %v", err)
+	}
+	if res.Module == "" {
+		t.Fatalf("expected non-empty SwiftPM package identity")
+	}
+	got := map[string]search.PackageCoupling{}
+	for _, p := range res.Packages {
+		got[p.Package] = p
+	}
+	want := map[string]struct {
+		ca, ce int
+		i      float64
+	}{
+		"App":  {0, 2, 1.0},
+		"Svc":  {1, 1, 0.5},
+		"Util": {2, 0, 0.0},
+	}
+	for mod, w := range want {
+		p, ok := got[mod]
+		if !ok {
+			t.Errorf("missing module %s in %+v", mod, res.Packages)
+			continue
+		}
+		if p.Afferent != w.ca || p.Efferent != w.ce || p.Instability != w.i {
+			t.Errorf("%s = {Ca:%d Ce:%d I:%.2f}, want {Ca:%d Ce:%d I:%.2f}",
+				mod, p.Afferent, p.Efferent, p.Instability, w.ca, w.ce, w.i)
+		}
+	}
+	if _, ok := got["Foundation"]; ok {
+		t.Error("external module Foundation leaked into the module set")
+	}
+}
+
 // TestCoupling_RustHyphenName checks a hyphenated Cargo package name
 // (`data-store`) is matched against its underscore import form (`data_store`).
 func TestCoupling_RustHyphenName(t *testing.T) {
