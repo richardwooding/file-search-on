@@ -811,7 +811,7 @@ Key inputs:
 
 Output: `functions[]` (`{path, function, complexity, cognitive_complexity, start_line, end_line, lines}`, sorted by complexity desc), `total_functions`.
 
-Gotcha: `complexity` is gocyclo-style (1 + branch points). `cognitive_complexity` is the SonarSource nesting-weighted metric — it weights deeply-nested control flow more heavily than flat sequences, tracking how hard code is to UNDERSTAND rather than how many paths it has; present for Go (precise) + every tree-sitter language except Swift (omitted there, #491). Coverage = Go + the tree-sitter languages (Perl / R under-count, sparser decision queries). Directional for *ranking* hotspots — the exact number depends on per-grammar node coverage, not a certified metric. For a file-level filter use the search tool's `max_complexity` attribute; this is the per-function drill-down.
+Gotcha: `complexity` is gocyclo-style (1 + branch points). `cognitive_complexity` is the SonarSource nesting-weighted metric — it weights deeply-nested control flow more heavily than flat sequences, tracking how hard code is to UNDERSTAND rather than how many paths it has; present for Go (precise) + every tree-sitter language (Swift included since #491), omitted only for a language with no cognitive spec. Coverage = Go + the tree-sitter languages (Perl / R under-count, sparser decision queries). Directional for *ranking* hotspots — the exact number depends on per-grammar node coverage, not a certified metric. For a file-level filter use the search tool's `max_complexity` attribute; this is the per-function drill-down.
 
 ```json
 { "name": "complexity", "arguments": { "expr": "is_source && language == \"go\"", "top": 20, "dir": "." } }
