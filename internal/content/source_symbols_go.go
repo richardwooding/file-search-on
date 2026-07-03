@@ -9,7 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	codemetrics "github.com/richardwooding/codemetrics"
+	"github.com/richardwooding/codemetrics"
 )
 
 // goExportedName reports whether name's first rune is upper-case — Go's
