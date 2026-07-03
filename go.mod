@@ -26,7 +26,7 @@ require (
 	github.com/richardwooding/go-sarif v0.1.0
 	github.com/richardwooding/ollamaembed v0.1.0
 	github.com/richardwooding/projectdetect v0.5.0
-	github.com/richardwooding/treesitter-symbols v0.4.1
+	github.com/richardwooding/treesitter-symbols v0.5.0
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
 	go.etcd.io/bbolt v1.5.0
 	golang.org/x/image v0.43.0
@@ -67,7 +67,6 @@ require (
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/richardwooding/go-codemetrics v0.5.1 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
