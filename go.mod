@@ -18,14 +18,14 @@ require (
 	github.com/pelletier/go-toml/v2 v2.4.2
 	github.com/richardwooding/bm25 v0.1.0
 	github.com/richardwooding/c2pa v0.2.0
+	github.com/richardwooding/codemetrics v0.8.0
 	github.com/richardwooding/fingerprint v0.1.0
 	github.com/richardwooding/gitmeta v0.1.0
-	github.com/richardwooding/go-codemetrics v0.5.1
 	github.com/richardwooding/go-coupling v0.2.0
 	github.com/richardwooding/go-hashset v0.1.0
 	github.com/richardwooding/go-sarif v0.1.0
 	github.com/richardwooding/ollamaembed v0.1.0
-	github.com/richardwooding/projectdetect v0.4.0
+	github.com/richardwooding/projectdetect v0.5.0
 	github.com/richardwooding/treesitter-symbols v0.4.1
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
 	go.etcd.io/bbolt v1.5.0
@@ -55,7 +55,6 @@ require (
 	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/kr/text v0.2.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
@@ -68,6 +67,7 @@ require (
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+	github.com/richardwooding/go-codemetrics v0.5.1 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect

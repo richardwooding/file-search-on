@@ -34,7 +34,6 @@ github.com/clipperhouse/stringish v0.1.1 h1:+NSqMOr3GR6k1FdRhhnXrLfztGzuG+VuFDfa
 github.com/clipperhouse/stringish v0.1.1/go.mod h1:v/WhFtE1q0ovMta2+m+UbpZ+2/HEXNWYXQgCt4hdOzA=
 github.com/clipperhouse/uax29/v2 v2.5.0 h1:x7T0T4eTHDONxFJsL94uKNKPHrclyFI0lm7+w94cO8U=
 github.com/clipperhouse/uax29/v2 v2.5.0/go.mod h1:Wn1g7MK6OoeDT0vL+Q0SQLDz/KpfsVRgg6W7ihQeh4g=
-github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
@@ -109,6 +108,8 @@ github.com/richardwooding/bm25 v0.1.0 h1:+LtY1wrEln6i1Abp4OEBgSHL3Q7DPQGTRuJwsoe
 github.com/richardwooding/bm25 v0.1.0/go.mod h1:HpvUZKKKAnhQonRU6FWJiAWuw0Wn1bISvKyYFMj8DjY=
 github.com/richardwooding/c2pa v0.2.0 h1:GJ8GuYW0p6ZtnMbdVGhShT5BcMbwdMHNZd3yhUdssGg=
 github.com/richardwooding/c2pa v0.2.0/go.mod h1:hwm73tcBNm4aUzF6TM/FQNm8gMrom17sct+iRSEWV2M=
+github.com/richardwooding/codemetrics v0.8.0 h1:NsXkOASDYNyU00+bAm8ULuAqufIaEPiKfpy+QJZKlGI=
+github.com/richardwooding/codemetrics v0.8.0/go.mod h1:WxygoJaCGCiXaR8vEVMP6/F4vEgluk55nlGiL+6COmM=
 github.com/richardwooding/fingerprint v0.1.0 h1:Dch6OdHUboH4PKOaMiwe4Xqbfk/rxQfdhdTctzkKfMc=
 github.com/richardwooding/fingerprint v0.1.0/go.mod h1:VYCbaXMrpgHewwYnv8GfQoEEcnQwsKFtDlH5bTI00w0=
 github.com/richardwooding/gitmeta v0.1.0 h1:TOf6P+dzcFh5fFbDwJrJFVUGPzbwqyg76wRosuYrlBA=
@@ -123,8 +124,8 @@ github.com/richardwooding/go-sarif v0.1.0 h1:X2jTcuJOhx0X6Lhjgzh/sD2/yyjCg6Ezxi0
 github.com/richardwooding/go-sarif v0.1.0/go.mod h1:/2nRnE2KzhHfKY3PL+kHFBzonbomfW2PAkGKMIFhBYY=
 github.com/richardwooding/ollamaembed v0.1.0 h1:N5bx4v7IxnOa+Rw4/ROlkQS2LjQCPnAiuPP7Xr1OpS0=
 github.com/richardwooding/ollamaembed v0.1.0/go.mod h1:rj/euwbkM8dcad6EMzp5bshVy+GVdu5JEojbFTFNQhY=
-github.com/richardwooding/projectdetect v0.4.0 h1:v6ZTF/r0BD/s7Cw2WW+B6zVhM4YGLiBl1l5lbTdLtrE=
-github.com/richardwooding/projectdetect v0.4.0/go.mod h1:+49ozT8n9+Hsu93/nb7wKclou9qLpEtqLeqefrR4bEg=
+github.com/richardwooding/projectdetect v0.5.0 h1:MUdkdrD0my5erAizjlQNKKPYWZAgRMgqUUz6LPhRSqM=
+github.com/richardwooding/projectdetect v0.5.0/go.mod h1:+49ozT8n9+Hsu93/nb7wKclou9qLpEtqLeqefrR4bEg=
 github.com/richardwooding/treesitter-symbols v0.4.1 h1:hVQLxPaEyy2J+NNNQ3BpgHfUFZenPDvWNvK45XgqELg=
 github.com/richardwooding/treesitter-symbols v0.4.1/go.mod h1:6ZKf6IglnUiropUPW5LmlvU0Uye8OLsmHc9qmKulKOE=
 github.com/rivo/uniseg v0.4.7 h1:WUdvkW8uEhrYfLC4ZzdpI2ztxP1I582+49Oc5Mq64VQ=
