@@ -76,7 +76,8 @@ func methodOwnerStrings(owners []tssymbols.MethodOwner) []string {
 // complexityRowStrings packs treesitter-symbols function spans into the
 // builder-internal per-function rows (#364, #485):
 // "name\x00complexity\x00startLine\x00endLine[\x00cognitive]". The trailing
-// cognitive field is emitted only when available (nil for Swift).
+// cognitive field is emitted only when available (Swift included since #491;
+// nil only for a language with no cognitive spec).
 func complexityRowStrings(spans []tssymbols.FunctionSpan) []string {
 	if len(spans) == 0 {
 		return nil
