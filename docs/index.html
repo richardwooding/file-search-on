@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>file-search-on — content-type aware file search with CEL</title>
+<meta name="description" content="Search 74 file formats by their typed content attributes with the full Common Expression Language — page counts, EXIF, audio tags, code symbols, binary entitlements and more. A CLI and a Claude Code MCP server. Pure Go, no CGO.">
+<meta name="theme-color" content="#0d1117">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' rx='6' fill='%23161b22'/><rect x='5' y='12' width='3.5' height='7' rx='1' fill='%23a371f7'/><rect x='10.25' y='8' width='3.5' height='11' rx='1' fill='%23bd93ff'/><rect x='15.5' y='4' width='3.5' height='15' rx='1' fill='%23d2b3ff'/></svg>">
+<meta property="og:type" content="website">
+<meta property="og:title" content="file-search-on — content-type aware file search with CEL">
+<meta property="og:description" content="Query 74 file formats by their typed content attributes with the full Common Expression Language — from the CLI or as a Claude Code MCP server. Pure Go, no CGO.">
+<meta property="og:url" content="https://richardwooding.github.io/file-search-on/">
+<meta property="og:site_name" content="Richard Wooding">
+<meta property="og:image" content="https://richardwooding.github.io/file-search-on/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="file-search-on">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="file-search-on — content-type aware file search with CEL">
+<meta name="twitter:description" content="Query 74 file formats by their typed content attributes with the full Common Expression Language — CLI + Claude Code MCP server.">
+<meta name="twitter:image" content="https://richardwooding.github.io/file-search-on/og.png">
+<link rel="canonical" href="https://richardwooding.github.io/file-search-on/">
+<script>try{var t=localStorage.getItem("gl-theme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<link rel="stylesheet" href="gloam.css">
+</head>
+<body class="gl">
+<a class="gl-skip" href="#main">Skip to content</a>
+
+<header class="gl-nav">
+  <div class="gl-wrap">
+    <span class="gl-brand">
+      <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
+        <rect width="24" height="24" rx="6" fill="var(--gl-panel-2)"/>
+        <rect x="5" y="12" width="3.5" height="7" rx="1" fill="var(--gl-accent)"/>
+        <rect x="10.25" y="8" width="3.5" height="11" rx="1" fill="var(--gl-accent-2)"/>
+        <rect x="15.5" y="4" width="3.5" height="15" rx="1" fill="#d2b3ff"/>
+      </svg>
+      file-search-on
+    </span>
+    <button class="gl-nav-toggle" aria-label="Toggle navigation" data-gl-nav-toggle="nav" aria-expanded="false">☰</button>
+    <nav id="nav">
+      <a href="#families">Formats</a>
+      <a href="#cel">CEL</a>
+      <a href="#mcp">MCP</a>
+      <a href="#install">Install</a>
+      <button class="gl-theme-toggle" data-gl-theme-toggle aria-label="Toggle color theme" aria-pressed="true">
+        <svg class="gl-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        <svg class="gl-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></svg>
+      </button>
+      <a class="gl-btn ghost" href="https://github.com/richardwooding/file-search-on">GitHub ★</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <section class="gl-hero">
+    <div class="gl-wrap gl-hero-grid">
+      <div>
+        <p class="gl-eyebrow">CEL-powered · 74 formats · CLI + MCP</p>
+        <h1>Stop grepping by name. <span class="gl-grad">Ask what files are.</span></h1>
+        <p class="sub"><code>file-search-on</code> walks a directory tree and returns files matching a <strong>CEL</strong> expression evaluated over each file's <strong>content-type-specific attributes</strong> — page counts, EXIF, audio tags, code symbols, binary entitlements — across <strong>74 formats</strong>. One binary: a standalone CLI <em>and</em> a Claude Code MCP server.</p>
+        <div class="gl-cta">
+          <a class="gl-btn primary" href="#install">Install</a>
+          <a class="gl-btn ghost" href="https://github.com/richardwooding/file-search-on">View on GitHub</a>
+        </div>
+        <div class="gl-badges" role="tablist" aria-label="Pick a content family to see a query">
+          <button class="gl-lang" role="tab" data-fam="documents" aria-selected="true">Documents</button>
+          <button class="gl-lang" role="tab" data-fam="images" aria-selected="false">Images</button>
+          <button class="gl-lang" role="tab" data-fam="audio" aria-selected="false">Audio</button>
+          <button class="gl-lang" role="tab" data-fam="video" aria-selected="false">Video</button>
+          <button class="gl-lang" role="tab" data-fam="code" aria-selected="false">Code</button>
+          <button class="gl-lang" role="tab" data-fam="science" aria-selected="false">Science</button>
+          <button class="gl-lang" role="tab" data-fam="fuzzy" aria-selected="false">Fuzzy</button>
+        </div>
+        <p class="gl-hint">↑ Click a family. MIT · pure Go, no CGO · <a href="https://richardwooding.github.io/">part of the portfolio</a></p>
+      </div>
+      <div class="gl-term">
+        <div class="bar">
+          <span class="dot" style="background:#ff5f56"></span>
+          <span class="dot" style="background:#ffbd2e"></span>
+          <span class="dot" style="background:#27c93f"></span>
+          <span class="t" id="term-title">file-search-on — documents</span>
+        </div>
+<pre id="termout" aria-live="polite" aria-label="Example file-search-on query"></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="gl-section" id="what">
+    <div class="gl-wrap">
+      <p class="gl-eyebrow">the idea</p>
+      <h2>Every file already knows what it is.</h2>
+      <p class="gl-lede" style="margin-top:14px">Name and mtime are the least interesting things about a file. <code>file-search-on</code> detects each file's content type — extension first, magic-byte fallback — extracts the attributes that type actually has, and lets you query them with the full Common Expression Language. A PDF has a <code>page_count</code>; a photo has <code>iso</code> and <code>gps_lat</code>; a Go file has <code>functions</code> and <code>max_complexity</code>; a Mach-O binary has <code>entitlements</code>. Ask across all of them in one expression.</p>
+      <div class="gl-grid feat" style="margin-top:32px">
+        <div class="gl-card"><div class="gl-stat">74</div><p style="margin-top:6px">file formats, extension-first with magic-byte fallback — a new format is one registration call.</p></div>
+        <div class="gl-card"><div class="gl-stat">43</div><p style="margin-top:6px">MCP tools exposed to Claude Code — search, code-graph, duplicates, complexity, coupling &amp; more.</p></div>
+        <div class="gl-card"><div class="gl-stat">28</div><p style="margin-top:6px">source languages parsed for symbols &amp; complexity — Go via stdlib AST, the rest via tree-sitter.</p></div>
+        <div class="gl-card"><div class="gl-stat">0</div><p style="margin-top:6px">CGO dependencies. Pure Go — cross-compiles cleanly to six release targets, no decoders to link.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="gl-section" id="families">
+    <div class="gl-wrap">
+      <p class="gl-eyebrow">content-type families</p>
+      <h2>Typed attributes, format by format.</h2>
+      <p class="gl-lede" style="margin-top:14px">Thirteen core families plus a long tail of specialised formats — each with its own metadata extractor and type predicates (<code>is_pdf</code>, <code>is_raw_photo</code>, <code>is_variable_font</code>…) that light up automatically.</p>
+      <div class="gl-grid feat" style="margin-top:32px">
+        <div class="gl-card"><h3>📄 Documents &amp; markup</h3><p>PDF, EPUB, Markdown, HTML, XML — <code>title</code>, <code>author</code>, <code>language</code>, <code>page_count</code>, <code>word_count</code>, front-matter as top-level CEL vars.</p></div>
+        <div class="gl-card"><h3>🖼 Images &amp; RAW</h3><p>JPEG · PNG · HEIC · Canon/Nikon/Sony/Adobe RAW. EXIF <code>camera</code>, <code>lens</code>, <code>gps_lat</code>, <code>iso</code>, <code>taken_at</code> — plus Apple Live Photo pairing.</p></div>
+        <div class="gl-card"><h3>🎵 Audio</h3><p>MP3 · M4A · FLAC · OGG · WAV — <code>artist</code>, <code>album</code>, <code>year</code>, <code>genre</code>, <code>duration</code>, <code>bitrate</code>, <code>sample_rate</code>, ReplayGain.</p></div>
+        <div class="gl-card"><h3>🎬 Video</h3><p>MP4 · MOV · MKV · WebM · AVI — <code>video_codec</code>, <code>video_width/height</code>, <code>frame_rate</code>, HDR / colour-space, <code>duration</code>, subtitles.</p></div>
+        <div class="gl-card"><h3>💻 Source code — 28 languages</h3><p><code>functions</code>, <code>imports</code>, <code>references</code>, <code>loc</code>, <code>max_complexity</code>. Go via stdlib AST; 15+ more via embedded tree-sitter.</p></div>
+        <div class="gl-card"><h3>⚙ Compiled binaries</h3><p>ELF · Mach-O · PE — <code>architectures</code>, <code>is_stripped</code>, code-signature <code>codesign_team_id</code>, and parsed <code>entitlements</code>.</p></div>
+        <div class="gl-card"><h3>🔭 Science data</h3><p>FITS · VOTable · HDF5 · NASA PDS3/PDS4 · CDF — <code>telescope</code>, <code>instrument</code>, <code>mission_name</code>, <code>ra</code>/<code>dec</code>, <code>exptime</code>.</p></div>
+        <div class="gl-card"><h3>🗄 Databases</h3><p>SQLite v3 + WAL/SHM + FTS3/4/5 body extraction — <code>sqlite_page_count</code>, <code>sqlite_fts_table_names</code>, schema version.</p></div>
+        <div class="gl-card"><h3>🔤 Fonts</h3><p>TTF · OTF · TTC · WOFF/WOFF2 (brotli) — <code>font_family</code>, <code>font_weight</code>, variable-font <code>font_axes</code>, <code>font_license</code>, PANOSE.</p></div>
+        <div class="gl-card"><h3>🧊 3D models</h3><p>STL · Wavefront OBJ · glTF 2.0 — <code>vertex_count</code>, <code>face_count</code>, <code>has_normals</code>, <code>materials</code>, <code>bounding_box</code>.</p></div>
+        <div class="gl-card"><h3>💬 Chat exports</h3><p>Slack · Discord · Signal — detected by JSON shape, not name. <code>chat_message_count</code>, <code>chat_participants</code>, date range; <code>--body</code> greps the transcript.</p></div>
+        <div class="gl-card"><h3>📦 Archives, packages &amp; more</h3><p>ZIP/TAR, .deb/.rpm/.pkg, disk images, notebooks, email, plists, bookmarks, VM bytecode — all with typed attributes.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="gl-section" id="cel">
+    <div class="gl-wrap">
+      <p class="gl-eyebrow">the query language</p>
+      <h2>CEL — plus fuzzy, phonetic &amp; geographic.</h2>
+      <p class="gl-lede" style="margin-top:14px">The full Common Expression Language — comparisons, <code>&amp;&amp;</code>/<code>||</code>, string functions, list membership, timestamp arithmetic — over structural attributes. Built-in <code>levenshtein</code>, <code>soundex</code>, <code>ngram_similarity</code>, and <code>point_in_polygon</code> make typos and "sounds-like" spellings no longer fatal.</p>
+      <div class="gl-split" style="margin-top:26px">
+        <pre class="gl-code"><span class="c"># structural attributes</span>
+<span class="k">is_pdf</span> && page_count > <span class="s">10</span> && author == <span class="s">"Jane Doe"</span>
+<span class="k">is_image</span> && gps_lat > <span class="s">51.4</span> && gps_lat < <span class="s">51.6</span>
+<span class="k">is_video</span> && video_height >= <span class="s">2160</span>
+<span class="k">is_markdown</span> && <span class="s">"longread"</span> in tags && word_count > <span class="s">1000</span></pre>
+        <pre class="gl-code"><span class="c"># typo-tolerant / phonetic / geo</span>
+<span class="k">is_audio</span> && levenshtein(artist, <span class="s">"Radiohead"</span>) <= <span class="s">2</span>
+<span class="k">is_image</span> && soundex(camera_make) == soundex(<span class="s">"Nikon"</span>)
+<span class="k">is_markdown</span> && ngram_similarity(title, <span class="s">"k8s"</span>, <span class="s">2</span>) > <span class="s">0.6</span>
+<span class="k">is_image</span> && point_in_polygon(gps_lat, gps_lng, city)</pre>
+      </div>
+      <p class="gl-hint" style="margin-top:18px">Output as <code>bare</code> paths, <code>default</code>, <code>verbose</code>, NDJSON (<code>json</code>), or a Go <code>text/template</code>. <code>validate</code> compile-checks an expression for CI gates.</p>
+    </div>
+  </section>
+
+  <section class="gl-section" id="mcp">
+    <div class="gl-wrap">
+      <p class="gl-eyebrow">mcp server mode</p>
+      <h2>Hand your files to Claude Code.</h2>
+      <p class="gl-lede" style="margin-top:14px">The same binary doubles as a <a href="https://modelcontextprotocol.io">Model Context Protocol</a> server (stdio, HTTP, or SSE) exposing <strong>43 tools</strong>. Ask in natural language — <em>"find every PDF over 10 pages I haven't opened this year"</em>, <em>"which Go files have the highest churn?"</em>, <em>"who calls this function?"</em> — and Claude drives the tools behind the scenes.</p>
+      <div class="gl-install" style="margin-top:26px">
+        <div class="gl-snip">
+          <span class="lbl">add</span>
+          <code id="m1">claude mcp add file-search-on -- file-search-on mcp</code>
+          <button class="gl-copy" data-gl-copy="m1">Copy</button>
+        </div>
+        <div class="gl-snip">
+          <span class="lbl">user scope</span>
+          <code id="m2">claude mcp add -s user file-search-on -- file-search-on mcp</code>
+          <button class="gl-copy" data-gl-copy="m2">Copy</button>
+        </div>
+      </div>
+      <p class="gl-lede" style="margin-top:24px">Beyond search, the MCP surface includes a cross-file <strong>code graph</strong>:</p>
+      <ul class="gl-badges" aria-label="Code-graph tools" style="margin-top:14px">
+        <li class="gl-lang">find_definition</li>
+        <li class="gl-lang">references</li>
+        <li class="gl-lang">who_calls</li>
+        <li class="gl-lang">calls</li>
+        <li class="gl-lang">call_path</li>
+        <li class="gl-lang">impact</li>
+        <li class="gl-lang">imported_by</li>
+        <li class="gl-lang">dead_code</li>
+        <li class="gl-lang">unused_exports</li>
+        <li class="gl-lang">complexity</li>
+        <li class="gl-lang">coupling</li>
+        <li class="gl-lang">circular</li>
+        <li class="gl-lang">test_gaps</li>
+        <li class="gl-lang">churn_owners</li>
+        <li class="gl-lang">find_duplicates</li>
+        <li class="gl-lang">search_semantic</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="gl-section" id="install">
+    <div class="gl-wrap">
+      <p class="gl-eyebrow">install</p>
+      <h2>One binary, six targets.</h2>
+      <div class="gl-install" style="margin-top:26px">
+        <div class="gl-snip">
+          <span class="lbl">brew</span>
+          <code id="i1">brew install richardwooding/tap/file-search-on</code>
+          <button class="gl-copy" data-gl-copy="i1">Copy</button>
+        </div>
+        <div class="gl-snip">
+          <span class="lbl">docker</span>
+          <code id="i2">docker run --rm -v "$PWD:/work" ghcr.io/richardwooding/file-search-on:latest 'is_markdown &amp;&amp; draft' -d /work</code>
+          <button class="gl-copy" data-gl-copy="i2">Copy</button>
+        </div>
+        <div class="gl-snip">
+          <span class="lbl">go</span>
+          <code id="i3">go install github.com/richardwooding/file-search-on/cmd/file-search-on@latest</code>
+          <button class="gl-copy" data-gl-copy="i3">Copy</button>
+        </div>
+        <div class="gl-snip">
+          <span class="lbl">run</span>
+          <code id="i4">file-search-on 'is_pdf &amp;&amp; page_count > 10' -d ~/Documents</code>
+          <button class="gl-copy" data-gl-copy="i4">Copy</button>
+        </div>
+      </div>
+      <p class="gl-hint">macOS / Linux / Windows on amd64 + arm64. Pre-built archives (with <code>checksums.txt</code>) on every <a href="https://github.com/richardwooding/file-search-on/releases">release</a>. Homebrew cask published to <a href="https://github.com/richardwooding/homebrew-tap">richardwooding/homebrew-tap</a>.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="gl-footer">
+  <div class="gl-wrap">
+    <span class="gl-brand" style="font-size:.98rem">file-search-on · MIT · <span data-gl-year></span></span>
+    <nav class="gl-fnav">
+      <a href="https://github.com/richardwooding/file-search-on">GitHub</a>
+      <a href="https://github.com/richardwooding/file-search-on/tree/main/examples">Examples</a>
+      <a href="https://github.com/richardwooding/file-search-on/releases">Releases</a>
+      <a href="https://richardwooding.github.io/">Portfolio</a>
+    </nav>
+  </div>
+</footer>
+
+<script src="gloam.js" defer></script>
+<script>
+  // Per-family hero examples. rows: [path, meta]
+  var EX = {
+    documents: {label:'documents', expr:"is_pdf && page_count > 10 && author == \"Jane Doe\"", dir:'~/Documents', rows:[
+      ['thesis/final.pdf','page_count=214  author="Jane Doe"'],
+      ['reports/2025-Q2.pdf','page_count=38  author="Jane Doe"']]},
+    images: {label:'images', expr:"is_image && iso > 1600 && gps_lat > 51.4", dir:'~/Pictures', rows:[
+      ['trip/IMG_2043.heic','iso=2000  camera="Apple iPhone 15 Pro"'],
+      ['trip/DSC0192.arw','iso=3200  raw_vendor="sony"']]},
+    audio: {label:'audio', expr:"is_audio && artist == \"Radiohead\" && year < 2000", dir:'~/Music', rows:[
+      ['OK Computer/06 Karma Police.flac','year=1997  bitrate=1006k'],
+      ['The Bends/04 Fake Plastic Trees.flac','year=1995  bitrate=988k']]},
+    video: {label:'video', expr:"is_video && video_height >= 2160 && video_codec == \"h265\"", dir:'~/Movies', rows:[
+      ['drone/coast-4k.mkv','3840x2160  h265  duration=7m12s'],
+      ['family/reunion.mov','3840x2160  h265  hdr=true']]},
+    code: {label:'code', expr:"is_source && language == \"go\" && max_complexity > 20", dir:'.', rows:[
+      ['internal/walk/walk.go','max_complexity=31  loc=402'],
+      ['internal/cel/compile.go','max_complexity=24  loc=288']]},
+    science: {label:'science', expr:"is_fits && telescope == \"HST\" && exptime > 1000", dir:'~/astro', rows:[
+      ['ngc5457/f814w.fits','instrument="WFC3"  exptime=1200  ra=210.8'],
+      ['m31/halpha.fits','instrument="ACS"  exptime=1500  ra=10.6']]},
+    fuzzy: {label:'fuzzy', expr:"is_audio && levenshtein(artist, \"Radiohead\") <= 2", dir:'~/Music', rows:[
+      ['ripped/track01.mp3','artist="Radiohad"  (typo, matched)'],
+      ['ripped/track07.mp3','artist="Radiohea"  (typo, matched)']]}
+  };
+  var termOut = document.getElementById('termout');
+  var termTitle = document.getElementById('term-title');
+  function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function pad(s,n){ s=String(s); while(s.length<n){ s+=' '; } return s; }
+  function render(fam){
+    var e = EX[fam]; if(!e || !termOut){ return; }
+    var out = '<span class="pr">$</span> <span class="cmd">file-search-on \'' + esc(e.expr) + '\' -d ' + e.dir + '</span>\n';
+    e.rows.forEach(function(r){
+      out += '<span class="loc">' + esc(pad(r[0], 40)) + '</span><span class="n">' + esc(r[1]) + '</span>\n';
+    });
+    out += '<span class="ok">' + e.rows.length + ' files</span>';
+    termOut.innerHTML = out;
+    termTitle.textContent = 'file-search-on — ' + e.label;
+  }
+  document.querySelectorAll('.gl-lang[data-fam]').forEach(function(pill){
+    pill.addEventListener('click', function(){
+      document.querySelectorAll('.gl-lang[data-fam]').forEach(function(p){ p.setAttribute('aria-selected','false'); });
+      pill.setAttribute('aria-selected','true');
+      render(pill.dataset.fam);
+    });
+  });
+  var sel = document.querySelector('.gl-lang[data-fam][aria-selected="true"]');
+  render(sel && sel.dataset ? sel.dataset.fam : 'documents');
+</script>
+</body>
+</html>
