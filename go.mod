@@ -12,27 +12,27 @@ require (
 	github.com/djherbis/times v1.6.0
 	github.com/evanoberholster/imagemeta v1.0.0
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/google/cel-go v0.28.1
+	github.com/google/cel-go v0.29.2
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
 	github.com/modelcontextprotocol/go-sdk v1.6.1
-	github.com/pelletier/go-toml/v2 v2.4.2
+	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/richardwooding/bm25 v0.1.0
 	github.com/richardwooding/c2pa v0.2.0
-	github.com/richardwooding/codemetrics v0.8.0
+	github.com/richardwooding/codemetrics v0.12.0
 	github.com/richardwooding/fingerprint v0.1.0
 	github.com/richardwooding/gitmeta v0.1.0
-	github.com/richardwooding/go-coupling v0.2.0
+	github.com/richardwooding/go-coupling v0.3.0
 	github.com/richardwooding/go-hashset v0.1.0
 	github.com/richardwooding/go-sarif v0.1.0
 	github.com/richardwooding/ollamaembed v0.1.0
-	github.com/richardwooding/projectdetect v0.5.0
-	github.com/richardwooding/treesitter-symbols v0.5.0
+	github.com/richardwooding/projectdetect v0.6.0
+	github.com/richardwooding/treesitter-symbols v0.6.0
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
 	go.etcd.io/bbolt v1.5.0
-	golang.org/x/image v0.43.0
-	golang.org/x/mod v0.37.0
-	golang.org/x/sys v0.46.0
-	golang.org/x/tools v0.47.0
+	golang.org/x/image v0.44.0
+	golang.org/x/mod v0.38.0
+	golang.org/x/sys v0.47.0
+	golang.org/x/tools v0.48.0
 	gopkg.in/yaml.v3 v3.0.1
 	howett.net/plist v1.0.1
 	modernc.org/sqlite v1.53.0
@@ -63,7 +63,7 @@ require (
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
-	github.com/odvcencio/gotreesitter v0.20.9 // indirect
+	github.com/odvcencio/gotreesitter v0.22.5 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
@@ -79,8 +79,8 @@ require (
 	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/exp v0.0.0-20240823005443-9b4947da3948 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
-	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/text v0.38.0 // indirect
+	golang.org/x/sync v0.22.0 // indirect
+	golang.org/x/text v0.40.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240826202546-f6391c0de4c7 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240826202546-f6391c0de4c7 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
