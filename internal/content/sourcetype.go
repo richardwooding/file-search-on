@@ -172,7 +172,7 @@ func (s *sourceType) Attributes(ctx context.Context, fsys fs.FS, p string) (Attr
 			// Every other wired language uses treesitter-symbols (#540): ONE
 			// tree-sitter parse yields symbols, call edges, method owners,
 			// package, relative imports, the exported set, and per-function
-			// complexity (cyclomatic + cognitive, via go-codemetrics over the
+			// complexity (cyclomatic + cognitive, via codemetrics over the
 			// same parse). Returns a zero value for unwired languages — but
 			// symbolExtractorWired gates this block.
 			sym, _ := tssymbols.Extract(s.language, bodyBuf.Bytes())
