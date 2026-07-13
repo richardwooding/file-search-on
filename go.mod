@@ -21,7 +21,7 @@ require (
 	github.com/richardwooding/codemetrics v0.12.0
 	github.com/richardwooding/fingerprint v0.1.0
 	github.com/richardwooding/gitmeta v0.1.0
-	github.com/richardwooding/go-coupling v0.3.0
+	github.com/richardwooding/go-coupling v0.3.1
 	github.com/richardwooding/go-hashset v0.1.0
 	github.com/richardwooding/go-sarif v0.1.0
 	github.com/richardwooding/ollamaembed v0.1.0
