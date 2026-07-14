@@ -114,8 +114,8 @@ github.com/richardwooding/fingerprint v0.1.0 h1:Dch6OdHUboH4PKOaMiwe4Xqbfk/rxQfd
 github.com/richardwooding/fingerprint v0.1.0/go.mod h1:VYCbaXMrpgHewwYnv8GfQoEEcnQwsKFtDlH5bTI00w0=
 github.com/richardwooding/gitmeta v0.1.0 h1:TOf6P+dzcFh5fFbDwJrJFVUGPzbwqyg76wRosuYrlBA=
 github.com/richardwooding/gitmeta v0.1.0/go.mod h1:arft+ynVGxEeeRnQMnosIvlfsaxEAaHoBYh1U7Nq1n0=
-github.com/richardwooding/go-coupling v0.3.0 h1:UNprYcitu3tW9H6+9o1Ia5CJvgbPFU1ylaV0b20CtJc=
-github.com/richardwooding/go-coupling v0.3.0/go.mod h1:Ygz2/NnbEEFLe50QPpe8TsmNQy7Az+FwzyMi8sOwzPo=
+github.com/richardwooding/go-coupling v0.3.1 h1:jflrO9oI41Saz+2/HzkPaqX2OzUO26itR8mvEJ/LLQA=
+github.com/richardwooding/go-coupling v0.3.1/go.mod h1:41E2Baf3SEzOPLO4/r20qfdLdmAmlJllllUMpRi5t5s=
 github.com/richardwooding/go-hashset v0.1.0 h1:K0lWQ4Vh8xM9Y5bnTC/fXK3TU6KLeZMB923daCZC9dw=
 github.com/richardwooding/go-hashset v0.1.0/go.mod h1:yZWu/7SPaBzXb6pppHzyJC4m0tt2KyvsT38OEz1CvaA=
 github.com/richardwooding/go-sarif v0.1.0 h1:X2jTcuJOhx0X6Lhjgzh/sD2/yyjCg6Ezxi0XQb8UuoM=
