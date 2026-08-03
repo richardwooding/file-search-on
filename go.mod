@@ -14,7 +14,7 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/google/cel-go v0.30.0
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
-	github.com/modelcontextprotocol/go-sdk v1.6.1
+	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/richardwooding/bm25 v0.1.0
 	github.com/richardwooding/c2pa v0.3.0
@@ -35,7 +35,7 @@ require (
 	golang.org/x/tools v0.48.0
 	gopkg.in/yaml.v3 v3.0.1
 	howett.net/plist v1.0.1
-	modernc.org/sqlite v1.54.0
+	modernc.org/sqlite v1.55.0
 )
 
 require (
@@ -81,6 +81,7 @@ require (
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
+	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240826202546-f6391c0de4c7 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240826202546-f6391c0de4c7 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
