@@ -3,7 +3,7 @@ module github.com/richardwooding/file-search-on
 go 1.26.2
 
 require (
-	github.com/alecthomas/kong v1.16.0
+	github.com/alecthomas/kong v1.16.1
 	github.com/andybalholm/brotli v1.2.2
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
@@ -12,7 +12,7 @@ require (
 	github.com/djherbis/times v1.6.0
 	github.com/evanoberholster/imagemeta v1.0.0
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/google/cel-go v0.30.0
+	github.com/google/cel-go v0.31.0
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/pelletier/go-toml/v2 v2.4.3
@@ -29,10 +29,10 @@ require (
 	github.com/richardwooding/treesitter-symbols v0.6.5
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
 	go.etcd.io/bbolt v1.5.0
-	golang.org/x/image v0.44.0
-	golang.org/x/mod v0.38.0
+	golang.org/x/image v0.45.0
+	golang.org/x/mod v0.40.0
 	golang.org/x/sys v0.47.0
-	golang.org/x/tools v0.48.0
+	golang.org/x/tools v0.49.0
 	gopkg.in/yaml.v3 v3.0.1
 	howett.net/plist v1.0.1
 	modernc.org/sqlite v1.56.0
@@ -80,7 +80,7 @@ require (
 	golang.org/x/exp v0.0.0-20240823005443-9b4947da3948 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/text v0.40.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240826202546-f6391c0de4c7 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240826202546-f6391c0de4c7 // indirect
