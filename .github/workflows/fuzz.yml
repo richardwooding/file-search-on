@@ -157,14 +157,28 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Fuzz ${{ matrix.target.name }}
+        id: fuzz
+        # A slow shared runner can make Go's fuzz engine miss its own
+        # -fuzztime deadline and FAIL with "context deadline exceeded"
+        # even though no input misbehaved (observed 2026-08-17 on
+        # ReadVHDXMetadata: the "failing" input replayed in 0.00s). So
+        # don't fail the job here; the next step replays whatever Go
+        # wrote to testdata/fuzz/ and only a reproducible failure is
+        # allowed to fail the job.
+        continue-on-error: true
         run: |
           go test \
             -run='^$' \
             -fuzz=${{ matrix.target.func }} \
             -fuzztime=${{ github.event.inputs.fuzztime || '5m' }} \
             ${{ matrix.target.pkg }}
+      - name: Verify failure reproduces
+        if: steps.fuzz.outcome == 'failure'
+        run: |
+          echo "Fuzzing failed; replaying seed + written corpus to check reproducibility"
+          go test -run=${{ matrix.target.func }} -v ${{ matrix.target.pkg }}
       - name: Upload crash corpus on failure
-        if: failure()
+        if: failure() || steps.fuzz.outcome == 'failure'
         uses: actions/upload-artifact@v7
         with:
           # Go writes failing seeds to testdata/fuzz/<FuzzName>/.
