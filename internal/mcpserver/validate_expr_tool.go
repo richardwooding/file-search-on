@@ -32,7 +32,7 @@ type ValidateExprOutput struct {
 func (h *handlers) validateExprHandler(_ context.Context, _ *mcp.CallToolRequest, in ValidateExprInput) (*mcp.CallToolResult, ValidateExprOutput, error) {
 	res := celexpr.ValidateExpr(in.Expr)
 	return nil, ValidateExprOutput{
-		CommonOutput:        CommonOutput{ServerVersion: h.version},
+		ServerVersion:       h.version,
 		OK:                  res.OK,
 		Error:               res.Error,
 		ReferencedVariables: res.ReferencedVariables,

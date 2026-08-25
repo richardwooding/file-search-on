@@ -54,7 +54,7 @@ type MonitorInfoOutput struct {
 }
 
 func (h *handlers) monitorInfoHandler(_ context.Context, _ *mcp.CallToolRequest, in MonitorInfoInput) (*mcp.CallToolResult, MonitorInfoOutput, error) {
-	out := MonitorInfoOutput{CommonOutput: CommonOutput{ServerVersion: h.version}}
+	out := MonitorInfoOutput{ServerVersion: h.version}
 
 	if h.monitorCtl == nil {
 		out.Note = "monitoring is not available for this server; relaunch with --monitor (dynamic port) or --monitor-addr :PORT"

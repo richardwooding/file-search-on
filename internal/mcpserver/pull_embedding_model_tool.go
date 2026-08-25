@@ -49,9 +49,9 @@ func (h *handlers) pullEmbeddingModelHandler(ctx context.Context, _ *mcp.CallToo
 		server = h.defaultEmbeddingServer
 	}
 	out := PullEmbeddingModelOutput{
-		CommonOutput: CommonOutput{ServerVersion: h.version},
-		Name:         in.Name,
-		Server:       server,
+		ServerVersion: h.version,
+		Name:          in.Name,
+		Server:        server,
 	}
 
 	oll := ollamaembed.NewOllama(server, "")

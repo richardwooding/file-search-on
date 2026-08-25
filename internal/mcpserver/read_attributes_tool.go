@@ -10,16 +10,16 @@ import (
 
 	"github.com/richardwooding/file-search-on/internal/celexpr"
 	"github.com/richardwooding/file-search-on/internal/content"
-	hashset "github.com/richardwooding/go-hashset"
 	"github.com/richardwooding/file-search-on/internal/search"
+	hashset "github.com/richardwooding/go-hashset"
 )
 
 // ReadAttributesInput is the JSON-schema input for the `read_attributes`
 // tool. Path can be absolute or relative to the server's working
 // directory; agents should prefer absolute paths.
 type ReadAttributesInput struct {
-	Path          string   `json:"path" jsonschema:"Filesystem path of a single file to extract attributes from. Absolute paths are preferred; relative paths resolve against the server's working directory."`
-	Fields        []string `json:"fields,omitempty" jsonschema:"Project the response to only the listed attribute names — saves tokens when only a few attributes matter. 'path', 'content_type', and 'size' are always included regardless. Empty / omitted returns every populated attribute. Same field-name vocabulary as the search tool's 'fields' input; unknown names error at request validation time."`
+	Path              string   `json:"path" jsonschema:"Filesystem path of a single file to extract attributes from. Absolute paths are preferred; relative paths resolve against the server's working directory."`
+	Fields            []string `json:"fields,omitempty" jsonschema:"Project the response to only the listed attribute names — saves tokens when only a few attributes matter. 'path', 'content_type', and 'size' are always included regardless. Empty / omitted returns every populated attribute. Same field-name vocabulary as the search tool's 'fields' input; unknown names error at request validation time."`
 	ComputeHashes     bool     `json:"compute_hashes,omitempty" jsonschema:"When true, populate md5 / sha1 / sha256 on the response. All three compute in one io.MultiWriter pass and cache alongside (size, mtime). Off by default — reads the file in full."`
 	CheckDisguised    bool     `json:"check_disguised,omitempty" jsonschema:"When true, populate magic_content_type / extension_content_type / is_disguised on the response. is_disguised fires when bytes disagree with the extension. One extra 512-byte file read."`
 	WithXattrs        bool     `json:"with_xattrs,omitempty" jsonschema:"When true, populate the xattr family — xattr_keys, xattr_count, is_xattr_rich, is_quarantined, quarantine_agent / source_url / referrer_url / download_date / user_approved, finder_tags, finder_color, has_finder_comment. Darwin-only; non-Darwin builds silently leave these empty. Two extra syscalls per request."`
@@ -103,7 +103,7 @@ func (h *handlers) readAttributesHandler(ctx context.Context, _ *mcp.CallToolReq
 	}
 
 	attrs, err := celexpr.BuildAttributesWith(ctx, os.DirFS(dir), base, abs, content.DefaultRegistry(), celexpr.BuildOptions{
-		Index:          h.idx,
+		Index:                  h.idx,
 		ComputeHashes:          in.ComputeHashes,
 		CheckDisguised:         in.CheckDisguised,
 		ReadExtendedAttributes: in.WithXattrs,
@@ -120,7 +120,7 @@ func (h *handlers) readAttributesHandler(ctx context.Context, _ *mcp.CallToolReq
 		Attrs:       attrs,
 	})
 	return nil, ReadAttributesOutput{
-		CommonOutput: CommonOutput{ServerVersion: h.version},
-		Match:        search.ProjectMatch(m, in.Fields),
+		ServerVersion: h.version,
+		Match:         search.ProjectMatch(m, in.Fields),
 	}, nil
 }

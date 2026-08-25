@@ -23,9 +23,9 @@ type ResolveProjectForPathInput struct {
 // ships docker-compose.yml hits both).
 type ResolveProjectForPathOutput struct {
 	CommonOutput
-	Path         string              `json:"path"`
-	ProjectRoot  string              `json:"project_root"`
-	ProjectTypes []string            `json:"project_types"`
+	Path         string                `json:"path"`
+	ProjectRoot  string                `json:"project_root"`
+	ProjectTypes []string              `json:"project_types"`
 	Indicators   []projectdetect.Match `json:"indicators,omitempty"`
 }
 
@@ -56,9 +56,9 @@ func (h *handlers) resolveProjectForPathHandler(ctx context.Context, _ *mcp.Call
 
 	root, matches := projectdetect.ResolveForPath(abs, nil)
 	out := ResolveProjectForPathOutput{
-		CommonOutput: CommonOutput{ServerVersion: h.version},
-		Path:         abs,
-		ProjectRoot:  root,
+		ServerVersion: h.version,
+		Path:          abs,
+		ProjectRoot:   root,
 	}
 	if len(matches) > 0 {
 		types := make([]string, len(matches))

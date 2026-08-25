@@ -82,7 +82,7 @@ func (h *handlers) listAttributesHandler(_ context.Context, _ *mcp.CallToolReque
 	contentTypes := contentTypeDocs()
 
 	out := ListAttributesOutput{
-		CommonOutput: CommonOutput{ServerVersion: h.version},
+		ServerVersion: h.version,
 	}
 
 	// Names mode: lookup across every section.

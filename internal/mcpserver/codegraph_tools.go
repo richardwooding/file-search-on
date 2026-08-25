@@ -121,8 +121,8 @@ func (h *handlers) importedByHandler(ctx context.Context, _ *mcp.CallToolRequest
 		TotalFiles:         g.TotalFiles,
 		Cancelled:          g.Cancelled,
 		CancellationReason: g.CancellationReason,
-	}
-	out.ServerVersion = h.version
+
+		ServerVersion: h.version}
 	return nil, out, nil
 }
 
@@ -181,8 +181,8 @@ func (h *handlers) findDefinitionHandler(ctx context.Context, _ *mcp.CallToolReq
 		TotalFiles:         g.TotalFiles,
 		Cancelled:          g.Cancelled,
 		CancellationReason: g.CancellationReason,
-	}
-	out.ServerVersion = h.version
+
+		ServerVersion: h.version}
 	return nil, out, nil
 }
 
@@ -220,8 +220,8 @@ func (h *handlers) codeGraphHandler(ctx context.Context, _ *mcp.CallToolRequest,
 		Overview:           g.Overview(in.Top),
 		Cancelled:          g.Cancelled,
 		CancellationReason: g.CancellationReason,
-	}
-	out.ServerVersion = h.version
+
+		ServerVersion: h.version}
 	return nil, out, nil
 }
 
@@ -289,8 +289,8 @@ func (h *handlers) whoCallsHandler(ctx context.Context, _ *mcp.CallToolRequest, 
 		TotalFiles:         g.TotalFiles,
 		Cancelled:          g.Cancelled,
 		CancellationReason: g.CancellationReason,
-	}
-	out.ServerVersion = h.version
+
+		ServerVersion: h.version}
 	return nil, out, nil
 }
 
@@ -362,8 +362,8 @@ func (h *handlers) deadCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, 
 		TotalFiles:         g.TotalFiles,
 		Cancelled:          g.Cancelled,
 		CancellationReason: g.CancellationReason,
-	}
-	out.ServerVersion = h.version
+
+		ServerVersion: h.version}
 	return nil, out, nil
 }
 
@@ -435,8 +435,8 @@ func (h *handlers) impactHandler(ctx context.Context, _ *mcp.CallToolRequest, in
 		TotalFiles:         g.TotalFiles,
 		Cancelled:          g.Cancelled,
 		CancellationReason: g.CancellationReason,
-	}
-	out.ServerVersion = h.version
+
+		ServerVersion: h.version}
 	return nil, out, nil
 }
 
@@ -537,8 +537,8 @@ func (h *handlers) testGapsHandler(ctx context.Context, _ *mcp.CallToolRequest, 
 		TotalFiles:         g.TotalFiles,
 		Cancelled:          g.Cancelled,
 		CancellationReason: g.CancellationReason,
-	}
-	out.ServerVersion = h.version
+
+		ServerVersion: h.version}
 	return nil, out, nil
 }
 
@@ -584,7 +584,7 @@ func (h *handlers) callsHandler(ctx context.Context, _ *mcp.CallToolRequest, in 
 		TotalFiles:         g.TotalFiles,
 		Cancelled:          g.Cancelled,
 		CancellationReason: g.CancellationReason,
-	}
-	out.ServerVersion = h.version
+
+		ServerVersion: h.version}
 	return nil, out, nil
 }

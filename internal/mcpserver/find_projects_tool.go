@@ -28,10 +28,10 @@ type FindProjectsInput struct {
 type FindProjectsOutput struct {
 	CommonOutput
 	Projects           []projectdetect.FoundProject `json:"projects"`
-	Count              int                        `json:"count"`
-	Cancelled          bool                       `json:"cancelled,omitempty"`
-	CancellationReason string                     `json:"cancellation_reason,omitempty"`
-	ElapsedSeconds     float64                    `json:"elapsed_seconds,omitempty"`
+	Count              int                          `json:"count"`
+	Cancelled          bool                         `json:"cancelled,omitempty"`
+	CancellationReason string                       `json:"cancellation_reason,omitempty"`
+	ElapsedSeconds     float64                      `json:"elapsed_seconds,omitempty"`
 }
 
 func (h *handlers) findProjectsHandler(ctx context.Context, _ *mcp.CallToolRequest, in FindProjectsInput) (*mcp.CallToolResult, FindProjectsOutput, error) {
@@ -73,7 +73,7 @@ func (h *handlers) findProjectsHandler(ctx context.Context, _ *mcp.CallToolReque
 		return nil, FindProjectsOutput{}, fmt.Errorf("find_projects: %w", err)
 	}
 	out := FindProjectsOutput{
-		CommonOutput:       CommonOutput{ServerVersion: h.version},
+		ServerVersion:      h.version,
 		Projects:           res.Projects,
 		Count:              res.Count,
 		Cancelled:          res.Cancelled,

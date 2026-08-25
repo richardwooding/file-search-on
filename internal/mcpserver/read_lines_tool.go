@@ -64,12 +64,12 @@ func (h *handlers) readLinesHandler(ctx context.Context, _ *mcp.CallToolRequest,
 		return nil, ReadLinesOutput{}, fmt.Errorf("read lines: %w", err)
 	}
 	return nil, ReadLinesOutput{
-		CommonOutput: CommonOutput{ServerVersion: h.version},
-		Path:         abs,
-		StartLine:    res.StartLine,
-		EndLine:      res.EndLine,
-		TotalLines:   res.TotalLines,
-		Lines:        res.Lines,
-		Truncated:    res.Truncated,
+		ServerVersion: h.version,
+		Path:          abs,
+		StartLine:     res.StartLine,
+		EndLine:       res.EndLine,
+		TotalLines:    res.TotalLines,
+		Lines:         res.Lines,
+		Truncated:     res.Truncated,
 	}, nil
 }

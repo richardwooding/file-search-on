@@ -63,7 +63,7 @@ func (h *handlers) coverageGapsHandler(ctx context.Context, _ *mcp.CallToolReque
 		Threshold:     res.Threshold,
 		Gaps:          res.Gaps,
 		Count:         res.Count,
-	}
-	out.ServerVersion = h.version
+
+		ServerVersion: h.version}
 	return nil, out, nil
 }

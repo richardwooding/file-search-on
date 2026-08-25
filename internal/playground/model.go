@@ -129,9 +129,9 @@ func newModel(ctx context.Context, o RunOptions) model {
 	ti.SetValue(o.Initial)
 	ti.CursorEnd()
 
-	m := model{ctx: ctx, opts: o, input: ti, finalExpr: o.Initial, width: 80, height: 24}
-	m.semantic = o.Embedder != nil
-	m.attrs = viewport.New(0, 0)
+	m := model{ctx: ctx, opts: o, input: ti, finalExpr: o.Initial, width: 80, height: 24,
+		semantic: o.Embedder != nil,
+		attrs:    viewport.New(0, 0)}
 
 	if m.semantic {
 		sem := textinput.New()

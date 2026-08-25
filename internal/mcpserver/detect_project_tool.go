@@ -20,8 +20,8 @@ type DetectProjectInput struct {
 // (e.g. a Go module with docker-compose.yml hits both).
 type DetectProjectOutput struct {
 	CommonOutput
-	Path         string              `json:"path"`
-	ProjectTypes []string            `json:"project_types"`
+	Path         string                `json:"path"`
+	ProjectTypes []string              `json:"project_types"`
 	Indicators   []projectdetect.Match `json:"indicators"`
 }
 
@@ -54,9 +54,9 @@ func (h *handlers) detectProjectHandler(ctx context.Context, _ *mcp.CallToolRequ
 		types[i] = m.Type
 	}
 	return nil, DetectProjectOutput{
-		CommonOutput: CommonOutput{ServerVersion: h.version},
-		Path:         abs,
-		ProjectTypes: types,
-		Indicators:   matches,
+		ServerVersion: h.version,
+		Path:          abs,
+		ProjectTypes:  types,
+		Indicators:    matches,
 	}, nil
 }

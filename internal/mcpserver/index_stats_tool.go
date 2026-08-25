@@ -51,25 +51,25 @@ type IndexStatsOutput struct {
 
 func (h *handlers) indexStatsHandler(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, IndexStatsOutput, error) {
 	if h.idx == nil {
-		return nil, IndexStatsOutput{CommonOutput: CommonOutput{ServerVersion: h.version}}, nil
+		return nil, IndexStatsOutput{ServerVersion: h.version}, nil
 	}
 	st := h.idx.Stats()
 	ws := h.indexWatch.Snapshot() // nil-safe: zeros when no watcher wired
 	return nil, IndexStatsOutput{
-		CommonOutput:  CommonOutput{ServerVersion: h.version},
-		Hits:          st.Hits,
-		Misses:        st.Misses,
-		Puts:          st.Puts,
-		Stales:        st.Stales,
-		Errors:        st.Errors,
-		EntryOversize: st.EntryOversize,
-		BodyHits:      st.BodyHits,
-		BodyMisses:    st.BodyMisses,
-		BodyPuts:      st.BodyPuts,
-		BodyStales:    st.BodyStales,
-		BodyEvictions: st.BodyEvictions,
-		BodyOversize:  st.BodyOversize,
-		BodyErrors:    st.BodyErrors,
+		ServerVersion:        h.version,
+		Hits:                 st.Hits,
+		Misses:               st.Misses,
+		Puts:                 st.Puts,
+		Stales:               st.Stales,
+		Errors:               st.Errors,
+		EntryOversize:        st.EntryOversize,
+		BodyHits:             st.BodyHits,
+		BodyMisses:           st.BodyMisses,
+		BodyPuts:             st.BodyPuts,
+		BodyStales:           st.BodyStales,
+		BodyEvictions:        st.BodyEvictions,
+		BodyOversize:         st.BodyOversize,
+		BodyErrors:           st.BodyErrors,
 		EmbedHits:            st.EmbedHits,
 		EmbedMisses:          st.EmbedMisses,
 		EmbedPuts:            st.EmbedPuts,

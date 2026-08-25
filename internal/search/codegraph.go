@@ -5,6 +5,7 @@ import (
 	"errors"
 	"maps"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -577,8 +578,8 @@ func (g *CodeGraph) CallPath(from, to string, maxDepth int) []CallPathStep {
 		}
 	}
 	steps := make([]CallPathStep, 0, len(rev))
-	for i := len(rev) - 1; i >= 0; i-- {
-		steps = append(steps, CallPathStep{Symbol: rev[i], Paths: definingPaths(g.definedIn[rev[i]])})
+	for _, r := range slices.Backward(rev) {
+		steps = append(steps, CallPathStep{Symbol: r, Paths: definingPaths(g.definedIn[r])})
 	}
 	return steps
 }

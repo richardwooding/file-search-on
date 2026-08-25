@@ -44,8 +44,8 @@ type QueryPresetInput struct {
 func (h *handlers) listPresetsHandler(_ context.Context, _ *mcp.CallToolRequest, _ ListPresetsInput) (*mcp.CallToolResult, ListPresetsOutput, error) {
 	all := search.Presets()
 	out := ListPresetsOutput{
-		CommonOutput: CommonOutput{ServerVersion: h.version},
-		Presets:      make([]PresetSummary, 0, len(all)),
+		ServerVersion: h.version,
+		Presets:       make([]PresetSummary, 0, len(all)),
 	}
 	for _, p := range all {
 		out.Presets = append(out.Presets, PresetSummary{Name: p.Name, Description: p.Description})

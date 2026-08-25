@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"runtime/trace"
+	"slices"
 	"syscall"
 
 	"github.com/alecthomas/kong"
@@ -86,7 +87,7 @@ var CLI struct {
 	Impact             ImpactCmd             `cmd:"" name:"impact" help:"Transitive reverse-dependency closure for a function — every function that (in)directly calls it, the blast radius of changing it. Extends who-calls (one hop) to the full closure with depth. e.g. impact BuildCodeGraph."`
 	CallPath           CallPathCmd           `cmd:"" name:"call-path" help:"Show the shortest call path from one function to another — HOW A reaches B through the call graph (the route, where impact gives the closure). e.g. call-path Run BuildCodeGraph."`
 	Trace              TraceCmd              `cmd:"" name:"trace" help:"Both directions of a symbol's call graph in one view — its callers (who-calls) and callees (calls), optionally plus the transitive caller closure (--impact-depth). e.g. trace ServeHTTP."`
-	References          ReferencesCmd         `cmd:"" name:"references" help:"Find every usage of a symbol with file + line — calls, type usages, and Go value-passing — the IDE 'find references' primitive (complement to find-definition). e.g. references BuildCodeGraph --kind type."`
+	References         ReferencesCmd         `cmd:"" name:"references" help:"Find every usage of a symbol with file + line — calls, type usages, and Go value-passing — the IDE 'find references' primitive (complement to find-definition). e.g. references BuildCodeGraph --kind type."`
 	Complexity         ComplexityCmd         `cmd:"" name:"complexity" help:"List functions ranked by cyclomatic complexity (worst-first) — find maintenance hotspots. Go + tree-sitter languages. e.g. complexity 'is_source && language==\"go\"' --top 20."`
 	Diff               DiffCmd               `cmd:"" name:"diff" help:"Cross-tree set operations by sha256 content hash — what's in tree A but not B, the intersection, drift between same-named files, etc. Read-only discovery; never mutates either tree. e.g. diff ~/Pictures /Volumes/Backup/Pictures --op a-minus-b."`
 	APIDiff            APIDiffCmd            `cmd:"" name:"api-diff" help:"Detect breaking changes to the exported public API surface between two trees — removed exported functions/types (breaking) vs added. A release gate. e.g. api-diff ./v1 ./v2 --expr 'is_source && language==\"go\"'."`
@@ -142,8 +143,8 @@ func startProfiling() (stop func(), err error) {
 	var stops []func()
 	cleanup := func() {
 		// LIFO so each writer is stopped before its file is closed.
-		for i := len(stops) - 1; i >= 0; i-- {
-			stops[i]()
+		for _, stop := range slices.Backward(stops) {
+			stop()
 		}
 	}
 
@@ -251,8 +252,7 @@ func main() {
 	stopProfiling()
 
 	if runErr != nil {
-		var ece *exitCodeError
-		if errors.As(runErr, &ece) {
+		if ece, ok := errors.AsType[*exitCodeError](runErr); ok {
 			// The subcommand has already printed its own diagnostic
 			// to stderr; surface only the exit code.
 			os.Exit(ece.code)

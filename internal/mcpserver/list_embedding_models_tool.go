@@ -61,10 +61,10 @@ func (h *handlers) listEmbeddingModelsHandler(ctx context.Context, _ *mcp.CallTo
 	}
 
 	out := ListEmbeddingModelsOutput{
-		CommonOutput: CommonOutput{ServerVersion: h.version},
-		Server:       server,
-		Local:        []LocalModelOut{},
-		Catalog:      make([]CatalogOut, 0, len(ollamaembed.Catalog)),
+		ServerVersion: h.version,
+		Server:        server,
+		Local:         []LocalModelOut{},
+		Catalog:       make([]CatalogOut, 0, len(ollamaembed.Catalog)),
 	}
 
 	oll := ollamaembed.NewOllama(server, "")
