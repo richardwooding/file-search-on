@@ -4,7 +4,7 @@ go 1.27.0
 
 require (
 	github.com/alecthomas/kong v1.16.1
-	github.com/andybalholm/brotli v1.2.2
+	github.com/andybalholm/brotli v1.2.3
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
@@ -17,7 +17,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/richardwooding/bm25 v0.1.0
-	github.com/richardwooding/c2pa v0.3.0
+	github.com/richardwooding/c2pa v0.5.0
 	github.com/richardwooding/codemetrics v0.12.7
 	github.com/richardwooding/fingerprint v0.1.0
 	github.com/richardwooding/gitmeta v0.1.0
