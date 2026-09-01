@@ -19,8 +19,19 @@ func c2paContainer(name string) (c2pa.Container, bool) {
 		return c2pa.JPEG, true
 	case "image/png":
 		return c2pa.PNG, true
-	case "image/heic", "video/mp4", "video/quicktime":
+	case "image/heic", "video/mp4", "video/quicktime", "audio/mp4":
 		return c2pa.BMFF, true
+	case "image/webp", "audio/wav", "video/x-msvideo":
+		return c2pa.RIFF, true
+	// DNG is TIFF, so it carries the manifest in the same IFD tag.
+	case "image/tiff", "image/raw-dng":
+		return c2pa.TIFF, true
+	case "image/gif":
+		return c2pa.GIF, true
+	case "audio/mpeg":
+		return c2pa.MP3, true
+	case "image/svg+xml":
+		return c2pa.SVG, true
 	case "pdf":
 		return c2pa.PDF, true
 	}

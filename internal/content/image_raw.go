@@ -67,6 +67,11 @@ func (r *rawImageType) Attributes(ctx context.Context, fsys fs.FS, path string) 
 	}
 	defer func() { _ = closer() }()
 	extractImageEXIF(rs, attrs)
+	// DNG is TIFF, so it can carry a manifest; the other raw formats map to no
+	// container and c2paContainer declines them.
+	if container, ok := c2paContainer(r.name); ok {
+		readC2PA(ctx, container, rs, attrs)
+	}
 	return attrs, nil
 }
 

@@ -106,8 +106,8 @@ github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec h1:W09IVJc94
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec/go.mod h1:qqbHyh8v60DhA7CoWK5oRCqLrMHRGoxYCSS9EjAz6Eo=
 github.com/richardwooding/bm25 v0.1.0 h1:+LtY1wrEln6i1Abp4OEBgSHL3Q7DPQGTRuJwsoeVAfc=
 github.com/richardwooding/bm25 v0.1.0/go.mod h1:HpvUZKKKAnhQonRU6FWJiAWuw0Wn1bISvKyYFMj8DjY=
-github.com/richardwooding/c2pa v0.6.0 h1:NoolPh1iLkdhUGk0sXub3+2FPcS4OEexRbxByJMrbAI=
-github.com/richardwooding/c2pa v0.6.0/go.mod h1:hwm73tcBNm4aUzF6TM/FQNm8gMrom17sct+iRSEWV2M=
+github.com/richardwooding/c2pa v0.7.0 h1:wKqWK9aNZksgFUwenf9oTRp1ydaRNyRt/Fn4u+M8qOg=
+github.com/richardwooding/c2pa v0.7.0/go.mod h1:hwm73tcBNm4aUzF6TM/FQNm8gMrom17sct+iRSEWV2M=
 github.com/richardwooding/codemetrics v0.12.7 h1:kS7zCeOFG1DdOuR7aU0+pXZLpihDg/nAiC8Jw/fttkg=
 github.com/richardwooding/codemetrics v0.12.7/go.mod h1:q/HUjzORy7H3iHsRUyYGKndh/lMQthORhw0Cx8YVGgY=
 github.com/richardwooding/fingerprint v0.1.0 h1:Dch6OdHUboH4PKOaMiwe4Xqbfk/rxQfdhdTctzkKfMc=

@@ -125,6 +125,10 @@ func (a *audioType) Attributes(ctx context.Context, fsys fs.FS, path string) (At
 			attrs["nominal_bitrate"] = info.NominalBitrate
 		}
 	}
+	// C2PA / Content Credentials — WAV rides RIFF, MP3 an ID3 GEOB frame, M4A BMFF.
+	if container, ok := c2paContainer(a.name); ok {
+		readC2PA(ctx, container, rs, attrs)
+	}
 	return attrs, nil
 }
 
