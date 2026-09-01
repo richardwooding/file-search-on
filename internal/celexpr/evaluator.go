@@ -385,8 +385,8 @@ type BuildOptions struct {
 	OCRTimeout time.Duration
 
 	// VerifyC2PA, when true, runs full C2PA / Content Credentials
-	// verification (content.ValidateImageC2PA → c2pa.Validate) over
-	// image/* files and surfaces the VERIFIED attributes c2pa_valid /
+	// verification (content.ValidateC2PA → c2pa.Validate) over every
+	// container that carries one and surfaces the VERIFIED attributes c2pa_valid /
 	// c2pa_verified_signer / c2pa_verified_signed_at /
 	// c2pa_validation_status — the authenticated counterpart to the fast,
 	// unverified c2pa_* attributes that always populate via c2pa.Read.
@@ -473,8 +473,8 @@ func (b *attrBuild) enrichCacheHit(ctx context.Context, attrs *FileAttributes, c
 		}
 		runImageOCR(ctx, b.displayPath, cacheKey, b.info, attrs.Extra, opts)
 	}
-	if opts.VerifyC2PA && strings.HasPrefix(cached.ContentType, "image/") {
-		if v, ok := content.ValidateImageC2PA(ctx, b.fsys, b.fsPath, cached.ContentType); ok {
+	if opts.VerifyC2PA {
+		if v, ok := content.ValidateC2PA(ctx, b.fsys, b.fsPath, cached.ContentType); ok {
 			if attrs.Extra == nil {
 				attrs.Extra = content.Attributes{}
 			}
@@ -829,8 +829,8 @@ func BuildAttributesWith(ctx context.Context, fsys fs.FS, fsPath, displayPath st
 	// Verified C2PA (#441). Added AFTER the cache Put above, so the
 	// clock-dependent verified result never enters the (size, mtime)
 	// attribute cache — recomputed each walk when the flag is set.
-	if opts.VerifyC2PA && strings.HasPrefix(contentTypeName, "image/") {
-		if v, ok := content.ValidateImageC2PA(ctx, fsys, fsPath, contentTypeName); ok {
+	if opts.VerifyC2PA {
+		if v, ok := content.ValidateC2PA(ctx, fsys, fsPath, contentTypeName); ok {
 			if extra == nil {
 				extra = content.Attributes{}
 			}

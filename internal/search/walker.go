@@ -134,7 +134,7 @@ type Options struct {
 	OCRImages bool
 
 	// VerifyC2PA, when true, runs full C2PA / Content Credentials
-	// verification over image/* files and surfaces the verified
+	// verification over every container that carries one and surfaces the verified
 	// c2pa_valid / c2pa_verified_signer / c2pa_verified_signed_at /
 	// c2pa_validation_status attributes (the authenticated counterpart
 	// to the always-on, unverified c2pa_* attributes). Off by default —

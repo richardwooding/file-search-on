@@ -111,6 +111,11 @@ func (v *videoType) Attributes(ctx context.Context, fsys fs.FS, path string) (At
 	if len(info.SubtitleLanguages) > 0 {
 		attrs["subtitle_languages"] = info.SubtitleLanguages
 	}
+	// C2PA / Content Credentials — MP4 and MOV carry a manifest in the BMFF
+	// uuid box, same as HEIC.
+	if container, ok := c2paContainer(v.name); ok {
+		readC2PA(ctx, container, rs, attrs)
+	}
 	return attrs, nil
 }
 

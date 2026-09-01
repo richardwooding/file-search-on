@@ -72,6 +72,13 @@ func (p *pdfType) Attributes(ctx context.Context, fsys fs.FS, path string) (Attr
 		attrs["language"] = lang
 	}
 
+	// C2PA / Content Credentials — the manifest store rides as an embedded
+	// file the document catalog associates, not as PDF metadata, so it comes
+	// from the raw bytes rather than the parsed document above.
+	if container, ok := c2paContainer(p.Name()); ok {
+		readC2PA(ctx, container, io.NewSectionReader(ra, 0, size), attrs)
+	}
+
 	return attrs, nil
 }
 
