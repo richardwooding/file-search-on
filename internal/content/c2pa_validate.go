@@ -2,7 +2,6 @@ package content
 
 import (
 	"context"
-	"crypto/x509"
 	"io"
 	"io/fs"
 
@@ -106,7 +105,12 @@ func ValidateC2PA(ctx context.Context, fsys fs.FS, path, contentType string) (At
 	}
 
 	attrs := Attributes{"c2pa_valid": r.Valid}
-	if signer := verifiedSignerName(r.SignerChain); signer != "" {
+	// VerifiedSigner is empty unless the identity was actually proven, which is
+	// what this attribute has always claimed to mean. Deriving it from
+	// SignerChain instead reported the signer of a manifest that failed its
+	// trust check, and — before the library scoped the chain to the active
+	// manifest — sometimes an ingredient's signer rather than the asset's.
+	if signer := r.VerifiedSigner(); signer != "" {
 		attrs["c2pa_verified_signer"] = signer
 	}
 	if !r.SignedAt.IsZero() {
@@ -116,22 +120,4 @@ func ValidateC2PA(ctx context.Context, fsys fs.FS, path, contentType string) (At
 		attrs["c2pa_validation_status"] = string(f.Code)
 	}
 	return attrs, true
-}
-
-// verifiedSignerName derives a human-readable signer identity from the
-// verified COSE signer certificate chain (leaf first): the leaf's Subject
-// Common Name, falling back to its first Organization. Empty when the chain
-// is absent or carries neither.
-func verifiedSignerName(chain []*x509.Certificate) string {
-	if len(chain) == 0 || chain[0] == nil {
-		return ""
-	}
-	leaf := chain[0]
-	if leaf.Subject.CommonName != "" {
-		return leaf.Subject.CommonName
-	}
-	if len(leaf.Subject.Organization) > 0 {
-		return leaf.Subject.Organization[0]
-	}
-	return ""
 }

@@ -17,7 +17,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/richardwooding/bm25 v0.1.0
-	github.com/richardwooding/c2pa v0.7.0
+	github.com/richardwooding/c2pa v0.8.0
 	github.com/richardwooding/codemetrics v0.12.7
 	github.com/richardwooding/fingerprint v0.1.0
 	github.com/richardwooding/gitmeta v0.1.0

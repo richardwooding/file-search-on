@@ -38,3 +38,24 @@ func TestValidateC2PA_NoManifest(t *testing.T) {
 		t.Error("ValidateC2PA: ok=true for an unsupported container (image/gif)")
 	}
 }
+
+// TestValidateC2PA_VerifiedSignerNeedsProof pins what the attribute promises.
+// The fixture's signer is "C2PA Signer", a test certificate absent from the
+// embedded trust list, so the chain is PRESENT but does not verify. Deriving
+// the name from the presented chain — as this did — published an unproven
+// identity under a name that says "verified".
+func TestValidateC2PA_VerifiedSignerNeedsProof(t *testing.T) {
+	attrs, ok := ValidateC2PA(context.Background(), os.DirFS("testdata/fixtures"), "c2pa_signed.jpg", "image/jpeg")
+	if !ok {
+		t.Fatal("ValidateC2PA: ok=false for a fixture with a C2PA manifest")
+	}
+	if valid, _ := attrs["c2pa_valid"].(bool); valid {
+		t.Skip("fixture now validates against the embedded trust list; this case no longer applies")
+	}
+	if signer, present := attrs["c2pa_verified_signer"]; present {
+		t.Errorf("c2pa_verified_signer = %q for a chain that did not validate; it must be absent", signer)
+	}
+	if claimed, _ := attrs["c2pa_signed_by"]; claimed != nil {
+		t.Errorf("the unverified claim belongs on the Read path, not here: %v", claimed)
+	}
+}
