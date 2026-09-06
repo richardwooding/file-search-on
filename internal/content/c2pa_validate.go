@@ -49,6 +49,7 @@ func readC2PA(ctx context.Context, container c2pa.Container, rs io.ReadSeeker, a
 		return
 	}
 	attrs["is_c2pa"] = true
+	attrs["c2pa_attribution"] = string(c.Attribution)
 	if c.ClaimGenerator != "" {
 		attrs["c2pa_claim_generator"] = c.ClaimGenerator
 	}
@@ -61,7 +62,13 @@ func readC2PA(ctx context.Context, container c2pa.Container, rs io.ReadSeeker, a
 	if c.AIGenerated {
 		attrs["c2pa_ai_generated"] = true
 	}
-	if c.SignedBy != "" {
+	// A manifest the file merely CARRIES — a PDF object-level manifest over an
+	// embedded image, or one nothing associates — is not a claim about this
+	// file, and its signer is not this file's signer. Indexing it as
+	// c2pa_signed_by would make `c2pa_signed_by.contains("Adobe")` match a
+	// document Adobe never signed, which is the one thing this attribute is
+	// asked for. c2pa_attribution says why it is absent.
+	if c.SignedBy != "" && c.Attribution == c2pa.AttributionAsset {
 		attrs["c2pa_signed_by"] = c.SignedBy
 	}
 	if !c.SignedAt.IsZero() {
@@ -105,12 +112,17 @@ func ValidateC2PA(ctx context.Context, fsys fs.FS, path, contentType string) (At
 	}
 
 	attrs := Attributes{"c2pa_valid": r.Valid}
+	attrs["c2pa_attribution"] = string(r.Info.Attribution)
 	// VerifiedSigner is empty unless the identity was actually proven, which is
 	// what this attribute has always claimed to mean. Deriving it from
 	// SignerChain instead reported the signer of a manifest that failed its
 	// trust check, and — before the library scoped the chain to the active
 	// manifest — sometimes an ingredient's signer rather than the asset's.
-	if signer := r.VerifiedSigner(); signer != "" {
+	// Same rule as c2pa_signed_by above, and it matters more here: the verified
+	// signer is the attribute a caller trusts. VerifiedSigner() proves who
+	// signed the MANIFEST, which for an embedded or unplaced one is not who
+	// signed the file.
+	if signer := r.VerifiedSigner(); signer != "" && r.Info.Attribution == c2pa.AttributionAsset {
 		attrs["c2pa_verified_signer"] = signer
 	}
 	if !r.SignedAt.IsZero() {
