@@ -100,7 +100,7 @@ brew install richardwooding/tap/file-search-on
 
 The cask is published from this repo on every tagged release to [`richardwooding/homebrew-tap`](https://github.com/richardwooding/homebrew-tap).
 
-> **macOS note:** the binary isn't signed with an Apple Developer ID (yet — happy to accept a sponsor!). The Homebrew cask's post-install hook strips the quarantine xattr automatically. If macOS still blocks it on first run:
+> **macOS note:** the binary isn't signed with an Apple Developer ID yet — the $99/yr Apple Developer membership that would fix it, for every release of every project, is the [current sponsorship goal](https://github.com/sponsors/richardwooding). The Homebrew cask's post-install hook strips the quarantine xattr automatically. If macOS still blocks it on first run:
 >
 > ```sh
 > sudo xattr -dr com.apple.quarantine $(brew --prefix)/bin/file-search-on
@@ -744,6 +744,12 @@ The repo also ships with [`.claude/skills/`](./.claude/skills/) — step-by-step
 ### Releases
 
 Tag-driven via GoReleaser v2 + ko. Pushing `vX.Y.Z` to `main` triggers six platform archives, an OCI image at `ghcr.io/richardwooding/file-search-on:X.Y.Z`, and an auto-commit to the Homebrew tap. Full pipeline documented in [CLAUDE.md § Releases](./CLAUDE.md#releases).
+
+## Sponsor
+
+If this saves you time, you can [sponsor its maintenance](https://github.com/sponsors/richardwooding).
+Sponsorship pays for the unglamorous half — triage, dependency bumps, release plumbing — and is
+never a condition of getting help here.
 
 ## License
 
