@@ -365,6 +365,7 @@ var zeroDefaults = map[string]any{
 	"c2pa_verified_signer":    "",
 	"c2pa_verified_signed_at": time.Time{},
 	"c2pa_validation_status":  "",
+	"c2pa_bound":              "",
 	"camera_make":             "",
 	"camera_model":            "",
 	"lens":                    "",
