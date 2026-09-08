@@ -388,7 +388,7 @@ type BuildOptions struct {
 	// verification (content.ValidateC2PA → c2pa.Validate) over every
 	// container that carries one and surfaces the VERIFIED attributes c2pa_valid /
 	// c2pa_verified_signer / c2pa_verified_signed_at /
-	// c2pa_validation_status — the authenticated counterpart to the fast,
+	// c2pa_validation_status / c2pa_bound — the authenticated counterpart to the fast,
 	// unverified c2pa_* attributes that always populate via c2pa.Read.
 	// Off by default: validation does real cryptographic work, unlike the
 	// header read. The result is never cached (it is clock-dependent — a

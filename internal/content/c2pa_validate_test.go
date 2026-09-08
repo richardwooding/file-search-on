@@ -29,6 +29,32 @@ func TestValidateC2PA(t *testing.T) {
 	if valid && status != "" {
 		t.Errorf("c2pa_valid is true but a failure status is set: %q", status)
 	}
+	// c2pa_bound answers a different question, and on this fixture the two
+	// disagree: the signer is untrusted (c2pa_valid false) while the bytes are
+	// the ones the manifest signed. A filter that reads validity as "the file is
+	// intact", or a mismatch as "untrusted", gets both cases wrong.
+	if bound, _ := attrs["c2pa_bound"].(string); bound != "verified" {
+		t.Errorf("c2pa_bound = %q, want verified (the fixture's hard binding holds)", bound)
+	}
+}
+
+// TestValidateC2PA_BoundIsAlwaysPopulated pins that the attribute is present
+// for every validated file, including one whose binding could not be checked —
+// "" would be indistinguishable from verification being switched off.
+func TestValidateC2PA_BoundIsAlwaysPopulated(t *testing.T) {
+	attrs, ok := ValidateC2PA(context.Background(), os.DirFS("testdata/fixtures"), "c2pa_signed.jpg", "image/jpeg")
+	if !ok {
+		t.Fatal("ValidateC2PA: ok=false for a fixture with a C2PA manifest")
+	}
+	bound, present := attrs["c2pa_bound"].(string)
+	if !present || bound == "" {
+		t.Fatalf("c2pa_bound missing or empty: %v", attrs["c2pa_bound"])
+	}
+	switch bound {
+	case "verified", "failed", "unevaluated", "none":
+	default:
+		t.Errorf("c2pa_bound = %q, not one of the four states", bound)
+	}
 }
 
 // TestValidateC2PA_NoManifest confirms a plain image (no C2PA manifest)

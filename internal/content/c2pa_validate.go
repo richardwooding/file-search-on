@@ -79,7 +79,7 @@ func readC2PA(ctx context.Context, container c2pa.Container, rs io.ReadSeeker, a
 // ValidateC2PA runs the full pure-Go C2PA / Content Credentials
 // verification (c2pa.Validate) over a file and returns the VERIFIED
 // attributes: c2pa_valid, c2pa_verified_signer, c2pa_verified_signed_at,
-// c2pa_validation_status. ok is false when the content type carries no C2PA
+// c2pa_validation_status, c2pa_bound. ok is false when the content type carries no C2PA
 // container we read (see c2paContainer) or the file has no manifest — in which
 // case the caller leaves the verified attributes at their zero values.
 //
@@ -131,5 +131,13 @@ func ValidateC2PA(ctx context.Context, fsys fs.FS, path, contentType string) (At
 	if f := r.FirstFailure(); f != nil {
 		attrs["c2pa_validation_status"] = string(f.Code)
 	}
+	// What the hard binding proved about THESE bytes, which c2pa_valid does not
+	// say: an object-level PDF manifest (c2pa_attribution "embedded") is valid
+	// with nothing hashed against the document, and so is a fragmented video
+	// indexed without its fragments. The library records the state where the
+	// decision is made — it is not derivable from the status codes, since an
+	// update manifest's binding statuses carry the PARENT manifest's label and
+	// general.unsupported is used for several unrelated things.
+	attrs["c2pa_bound"] = r.Binding.String()
 	return attrs, true
 }

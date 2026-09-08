@@ -408,6 +408,7 @@ func New(expr string) (*Evaluator, error) {
 		cel.Variable("c2pa_verified_signer", cel.StringType),
 		cel.Variable("c2pa_verified_signed_at", cel.TimestampType),
 		cel.Variable("c2pa_validation_status", cel.StringType),
+		cel.Variable("c2pa_bound", cel.StringType),
 		cel.Variable("camera_make", cel.StringType),
 		cel.Variable("camera_model", cel.StringType),
 		cel.Variable("lens", cel.StringType),
