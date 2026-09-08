@@ -83,3 +83,24 @@ For projects using GoReleaser / release-please / semantic-release, the changelog
 - A "how to test" prompt.
 
 Templates that are too long get ignored. Aim for a screen of content per template.
+
+## FUNDING.yml — configure it once, not per repo
+
+GitHub reads `.github/FUNDING.yml` (or `FUNDING.yml`, or `docs/FUNDING.yml`) from the default branch
+and renders a **Sponsor** button. What is easy to miss: a public `<owner>/.github` repository supplies
+a **default** for every repo of that account that has no file of its own — personal accounts included,
+not just organisations. So the funding config belongs in one place, and the audit reports an absent
+local file as satisfied when that default exists.
+
+Precedence is replacement, not merge: a repo-level file wins outright. That is what lets a fork keep
+advertising its *upstream* maintainer while every other repo inherits yours — and it means a per-repo
+copy is only correct when the target genuinely differs.
+
+Two traps:
+
+- **Placeholder keys render live broken buttons.** The template that circulates with every platform
+  commented out is fine; an *uncommented* key with no value, or a `custom:` URL that has gone stale,
+  gives visitors a button that leads nowhere.
+- **There is no "no button" key.** Suppressing the inherited default on one repo means giving it a
+  file with no valid keys — worth doing on an untouched fork, where the account default would
+  otherwise ask for money on someone else's code.
