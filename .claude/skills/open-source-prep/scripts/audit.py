@@ -45,7 +45,8 @@ ROOT_FILES = [
 GITHUB_FILES = [
     (".github/PULL_REQUEST_TEMPLATE.md", "PR template", "github-ux"),
     (".github/dependabot.yml", "dependabot config", "github-ux"),
-    (".github/FUNDING.yml", "FUNDING.yml", "github-ux"),
+    # FUNDING.yml is checked separately (check_funding): unlike the others it has
+    # an account-level fallback, so "absent here" does not mean "absent".
 ]
 
 # Directories under .github/ — at least one file inside.
@@ -209,6 +210,46 @@ def check_github_ux(repo: Path) -> list[Finding]:
     return findings
 
 
+def check_funding(repo: Path) -> list[Finding]:
+    """Funding config, honouring the account-level default.
+
+    GitHub falls back to a public `<owner>/.github` repo for any repo without its
+    own FUNDING.yml, so a missing local file is usually the CORRECT state — the
+    default is one place to change instead of one per repo. Reporting it as a gap
+    invites someone to "fix" it by committing the same line everywhere, which is
+    the inconsistency the default exists to prevent.
+    """
+    for path in (".github/FUNDING.yml", "FUNDING.yml", "docs/FUNDING.yml"):
+        if file_exists(repo, path):
+            return [Finding("FUNDING.yml", "ok", detail=f"repo-level ({path}) — overrides any account default",
+                            severity="github-ux")]
+
+    rc, _, _ = run(["gh", "auth", "status"], cwd=repo)
+    if rc != 0:
+        return [Finding("FUNDING.yml", "warn",
+                        detail="no repo-level file; cannot check the account default without `gh`",
+                        severity="github-ux")]
+    rc, out, _ = run(["gh", "repo", "view", "--json", "owner"], cwd=repo)
+    owner = ""
+    if rc == 0:
+        try:
+            owner = ((json.loads(out).get("owner") or {}).get("login") or "").strip()
+        except json.JSONDecodeError:
+            owner = ""
+    if not owner:
+        return [Finding("FUNDING.yml", "warn",
+                        detail="no repo-level file; could not determine the owner to check for a default",
+                        severity="github-ux")]
+    rc, _, _ = run(["gh", "api", f"repos/{owner}/.github/contents/.github/FUNDING.yml"], cwd=repo)
+    if rc == 0:
+        return [Finding("FUNDING.yml", "ok",
+                        detail=f"inherited from {owner}/.github — do NOT add a per-repo copy",
+                        severity="github-ux")]
+    return [Finding("FUNDING.yml", "missing",
+                    detail=f"add .github/FUNDING.yml here, or once for every repo in {owner}/.github",
+                    severity="github-ux")]
+
+
 def run(cmd: list[str], cwd: Path | None = None) -> tuple[int, str, str]:
     try:
         result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=False)
@@ -362,6 +403,7 @@ def main(argv: list[str]) -> int:
     findings += check_readme(repo)
     findings += check_root_files(repo)
     findings += check_github_ux(repo)
+    findings += check_funding(repo)
     findings += check_repo_metadata(repo)
     findings += secret_scan(repo)
     emit_report(repo, findings)

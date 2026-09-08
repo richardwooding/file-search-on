@@ -27,7 +27,8 @@ cp .claude/skills/open-source-prep/templates/CONTRIBUTING.md.tmpl <repo-root>/CO
 | **Legal** | `LICENSE` / `LICENSE.md` present + SPDX detection |
 | **Discoverability** | `README.md` exists, has install + usage sections, has license / build / version badges |
 | **Community** | `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `CHANGELOG.md` |
-| **GitHub UX** | `.github/ISSUE_TEMPLATE/`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/dependabot.yml`, `.github/FUNDING.yml`, `.github/workflows/*.yml` |
+| **GitHub UX** | `.github/ISSUE_TEMPLATE/`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/dependabot.yml`, `.github/workflows/*.yml` |
+| **Funding** | `FUNDING.yml` — repo-level, **or inherited** from a public `<owner>/.github` repo. A repo-level file overrides the default outright; there is no merge, so a per-repo copy is only right when a repo needs a *different* target. An absent local file with a default present is reported as satisfied, not as a gap. |
 | **Hygiene** | `.gitignore`, `.editorconfig`, `.gitattributes` |
 | **Repo metadata** | `gh repo view` — description, homepage, topics, archived, has_issues |
 | **Secret scan** | git history grep for `.env`, `*.pem`, `*.key`, `credentials.json`, `id_rsa`, common API-key patterns |
