@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"io/fs"
+	"sort"
 
 	"github.com/richardwooding/c2pa"
 )
@@ -139,5 +140,57 @@ func ValidateC2PA(ctx context.Context, fsys fs.FS, path, contentType string) (At
 	// update manifest's binding statuses carry the PARENT manifest's label and
 	// general.unsupported is used for several unrelated things.
 	attrs["c2pa_bound"] = r.Binding.String()
+	addIdentityAttrs(attrs, r)
 	return attrs, true
+}
+
+// addIdentityAttrs records what the active manifest's CAWG identity assertions
+// say — named actors who signed over the content with their own credentials.
+//
+// What is indexed is deliberately narrow: how many, whether any validated,
+// whether any was PROVEN, and the roles and credential kinds. NOT the names.
+// An identity's name is unproven until a trust anchor vouches for it (and this
+// call configures none, so it never is), and CAWG says an identity assertion
+// "shall not be construed to convey either attribution or ownership" — so
+// making unproven personal names searchable would build exactly the claim the
+// spec rules out. Roles and sig types carry the useful search without it:
+// `c2pa_identity_trusted`, or `'cawg.creator' in c2pa_identity_roles`.
+//
+// Gated on AttributionAsset for the same reason c2pa_verified_signer is: an
+// identity in a manifest the file merely CARRIES vouches for that carried
+// resource, not for this file.
+func addIdentityAttrs(attrs Attributes, r c2pa.ValidationResult) {
+	if len(r.Identities) == 0 || r.Info.Attribution != c2pa.AttributionAsset {
+		return
+	}
+	attrs["c2pa_identity_count"] = int64(len(r.Identities))
+
+	var anyValid, anyTrusted bool
+	roles := map[string]bool{}
+	sigTypes := map[string]bool{}
+	for _, id := range r.Identities {
+		anyValid = anyValid || id.Valid
+		anyTrusted = anyTrusted || id.Trusted
+		for _, role := range id.Roles {
+			roles[role] = true
+		}
+		if id.SigType != "" {
+			sigTypes[id.SigType] = true
+		}
+	}
+	attrs["c2pa_identity_valid"] = anyValid
+	attrs["c2pa_identity_trusted"] = anyTrusted
+	attrs["c2pa_identity_roles"] = sortedKeys(roles)
+	attrs["c2pa_identity_sig_types"] = sortedKeys(sigTypes)
+}
+
+// sortedKeys returns a set's members sorted, the house shape for a list
+// attribute so a query sees a stable order.
+func sortedKeys(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
