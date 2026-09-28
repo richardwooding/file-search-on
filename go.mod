@@ -4,13 +4,13 @@ go 1.27.0
 
 require (
 	github.com/alecthomas/kong v1.16.1
-	github.com/andybalholm/brotli v1.2.4
+	github.com/andybalholm/brotli v1.2.5
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
 	github.com/djherbis/times v1.6.0
-	github.com/evanoberholster/imagemeta v1.0.0
+	github.com/evanoberholster/imagemeta v1.1.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/google/cel-go v0.31.0
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
